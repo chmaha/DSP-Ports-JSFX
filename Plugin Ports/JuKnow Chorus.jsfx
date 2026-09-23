@@ -1,0 +1,349 @@
+Version: 1.0
+desc: JuKnow Chorus
+author: chmaha
+// Ported from junologue-chorus by Peter Allwin. MIT.
+// https://github.com/peterall/junologue-chorus
+//
+// Copyright 2020 Peter Allwin
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of this
+// software and associated documentation files (the "Software"), to deal in the Software
+// without restriction, including without limitation the rights to use, copy, modify,
+// merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+// permit persons to whom the Software is furnished to do so, subject to the following
+// conditions:
+//
+// The above copyright notice and this permission notice shall be included in all copies
+// or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+// PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+// HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+// CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+// OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+slider1:0<0,2,1{I,I+II,II}>-Chorus Mode
+slider2:50<0,100,0.1>-Tone (%)
+slider3:50<0,100,0.1>-Mix (%)
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+@init
+
+DLY_SIZE = 8192;
+DLY_MASK = DLY_SIZE - 1;
+dly = 0;
+widx = 0;
+
+T0_MIN = 0.00154; T0_MAX = 0.00515;
+T1_MIN = 0.00151; T1_MAX = 0.00540;
+
+RATE1 = 0.513;
+RATE2 = 0.863;
+
+PRE_MIN = 2000;  PRE_MAX = 23500;
+POST_MIN = 6000; POST_MAX = 23500;
+
+lfo1 = -1;
+lfo2 = -1;
+
+function softlimit(x) ( x * (27 + x*x) / (27 + 9*x*x); );
+
+function dly_write(s)
+(
+  dly[widx] = s;
+  widx -= 1;
+  widx < 0 ? widx += DLY_SIZE;
+);
+function dly_read(pos) ( dly[(widx + pos) & DLY_MASK]; );
+function dly_read_frac(pos)
+local(base, frac, s0)
+(
+  base = floor(pos);
+  frac = pos - base;
+  s0 = dly_read(base);
+  s0 + frac * (dly_read(base + 1) - s0);
+);
+
+function folp_k(hz) ( tan($pi * min(hz / srate, 0.49)); );
+function fo_process(x) instance(z, ff0, fb1)
+local(acc)
+(
+  acc = ff0 * x + z;
+  z = ff0 * x - fb1 * acc;
+  acc;
+);
+function fo_set(k) instance(ff0, fb1)
+(
+  ff0 = k / (k + 1);
+  fb1 = (k - 1) / (k + 1);
+);
+
+function set_lpf_cutoff(fr)
+local(f2)
+(
+  f2 = fr * fr;
+  pre.fo_set(folp_k(PRE_MIN + f2 * (PRE_MAX - PRE_MIN)));
+  postl.fo_set(folp_k(POST_MIN + f2 * (POST_MAX - POST_MIN)));
+  postr.ff0 = postl.ff0; postr.fb1 = postl.fb1;
+);
+
+SMOOTH = 1 - exp(-1 / (0.02 * srate));
+
+function update_targets()
+(
+  mode = floor(slider1 + 0.5);
+  mode == 0 ? ( tga = 1;         tgb = 0; ) :
+  mode == 1 ? ( tga = sqrt(0.5); tgb = sqrt(0.5); ) :
+              ( tga = 0;         tgb = 1; );
+  mix = max(0, min(1, slider3 / 100));
+  tdry = sqrt(1 - mix);
+  twet = sqrt(mix);
+  tfr = max(0, min(1, slider2 / 100));
+);
+
+update_targets();
+ga = tga; gb = tgb; dry = tdry; wet = twet; fr = tfr;
+set_lpf_cutoff(fr);
+
+@block
+
+update_targets();
+
+abs(tga - ga) < 0.00001 ? ga = tga;
+abs(tgb - gb) < 0.00001 ? gb = tgb;
+abs(tdry - dry) < 0.00001 ? dry = tdry;
+abs(twet - wet) < 0.00001 ? wet = twet;
+
+abs(tfr - fr) > 0.0001 ? (
+  fr += (tfr - fr) * min(1, samplesblock * SMOOTH);
+  set_lpf_cutoff(fr);
+);
+
+@sample
+
+ga += (tga - ga) * SMOOTH;
+gb += (tgb - gb) * SMOOTH;
+dry += (tdry - dry) * SMOOTH;
+wet += (twet - wet) * SMOOTH;
+
+dly_write(pre.fo_process(softlimit(spl0 + spl1)));
+
+lfo1 += 2 * RATE1 / srate; lfo1 >= 1 ? lfo1 -= 2;
+lfo2 += 2 * RATE2 / srate; lfo2 >= 1 ? lfo2 -= 2;
+p1 = abs(lfo1);
+p2 = abs(lfo2);
+
+wl = ga * dly_read_frac((T0_MIN + (T0_MAX - T0_MIN) * p1) * srate)
+   + gb * dly_read_frac((T0_MIN + (T0_MAX - T0_MIN) * p2) * srate);
+wr = ga * dly_read_frac((T1_MIN + (T1_MAX - T1_MIN) * (1 - p1)) * srate)
+   + gb * dly_read_frac((T1_MIN + (T1_MAX - T1_MIN) * (1 - p2)) * srate);
+
+spl0 = spl0 * dry + postl.fo_process(wl) * wet;
+spl1 = spl1 * dry + postr.fo_process(wr) * wet;
+
+@gfx 460 300
+
+scale = max(1, gfx_ext_retina);
+gfx_w < 460*scale ? gfx_w = 460*scale;
+gfx_h < 300*scale ? gfx_h = 300*scale;
+
+MARGIN = 14*scale;
+HEADER_H = 46*scale;
+SEC_H = 24*scale;
+
+function hit_rect(mx, my, x, y, w, h)
+(
+  mx >= x && mx <= x+w && my >= y && my <= y+h;
+);
+
+function draw_section(x, y, w, title)
+local(tw, th)
+(
+  gfx_set(0.78, 0.16, 0.13, 1);
+  gfx_rect(x, y, w, SEC_H, 1);
+  gfx_set(1, 1, 1, 0.15);
+  gfx_rect(x, y, w, max(1, scale), 1);
+  gfx_set(0, 0, 0, 0.25);
+  gfx_rect(x, y + SEC_H - max(1, scale), w, max(1, scale), 1);
+  gfx_setfont(1, "Arial", 15*scale, 'b');
+  gfx_set(1, 1, 1, 1);
+  gfx_measurestr(title, tw, th);
+  gfx_x = x + (w - tw)*0.5; gfx_y = y + (SEC_H - th)*0.5;
+  gfx_drawstr(title);
+);
+
+function draw_fader(cx, top, len, pos, name, valtext)
+local(i, ty, tw, th, capw, caph, capy)
+(
+  gfx_setfont(1, "Arial", 9*scale);
+  i = 0;
+  loop(11,
+    ty = top + len - len * (i / 10);
+    gfx_set(0.8, 0.8, 0.8, 0.8);
+    gfx_line(cx - 16*scale, ty, cx - (i % 5 == 0 ? 8 : 11)*scale, ty);
+    i % 2 == 0 ? (
+      gfx_measurestr(sprintf(#, "%d", i), tw, th);
+      gfx_x = cx - 19*scale - tw; gfx_y = ty - th*0.5;
+      gfx_drawstr(sprintf(#, "%d", i));
+    );
+    i += 1;
+  );
+
+  gfx_set(0.02, 0.02, 0.02, 1);
+  gfx_rect(cx - 3*scale, top - 4*scale, 6*scale, len + 8*scale, 1);
+  gfx_set(1, 1, 1, 0.08);
+  gfx_rect(cx + 3*scale, top - 4*scale, max(1, scale), len + 8*scale, 1);
+
+  capw = 26*scale; caph = 14*scale;
+  capy = top + len - len * pos - caph*0.5;
+  gfx_set(0, 0, 0, 0.45);
+  gfx_rect(cx - capw*0.5 + 2*scale, capy + 2*scale, capw, caph, 1);
+  gfx_set(0.62, 0.62, 0.62, 1);
+  gfx_rect(cx - capw*0.5, capy, capw, caph, 1);
+  gfx_set(0.92, 0.92, 0.90, 1);
+  gfx_rect(cx - capw*0.5 + max(1, scale), capy + max(1, scale), capw - 2*max(1, scale), caph*0.55, 1);
+  gfx_set(0.82, 0.82, 0.80, 1);
+  gfx_rect(cx - capw*0.5 + max(1, scale), capy + caph*0.55, capw - 2*max(1, scale), caph*0.45 - max(1, scale), 1);
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_rect(cx - capw*0.5 + 2*scale, capy + caph*0.5 - max(1, scale)*0.5, capw - 4*scale, max(1, scale), 1);
+
+  gfx_setfont(1, "Arial", 11*scale, 'b');
+  gfx_set(0.95, 0.95, 0.95, 1);
+  gfx_measurestr(name, tw, th);
+  gfx_x = cx - tw*0.5; gfx_y = top + len + 12*scale;
+  gfx_drawstr(name);
+
+  gfx_setfont(1, "Arial", 10*scale);
+  gfx_set(0.6, 0.6, 0.62, 1);
+  gfx_measurestr(valtext, tw, th);
+  gfx_x = cx - tw*0.5; gfx_y = top + len + 27*scale;
+  gfx_drawstr(valtext);
+);
+
+function draw_button(x, y, w, h, label, active, cr, cg, cb)
+local(tw, th, lx, ly, gap)
+(
+  gap = max(1, scale);
+
+  gfx_setfont(2, "Times New Roman", 15*scale, 'b');
+  gfx_set(0.95, 0.95, 0.95, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = x + (w - tw)*0.5; gfx_y = y - 34*scale;
+  gfx_drawstr(label);
+
+  lx = x + w*0.5; ly = y - 11*scale;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_circle(lx, ly, 4*scale, 1, 1);
+  active ? (
+    gfx_set(1, 0.1, 0.05, 0.3);
+    gfx_circle(lx, ly, 6*scale, 1, 1);
+    gfx_set(1, 0.15, 0.08, 1);
+    gfx_circle(lx, ly, 3*scale, 1, 1);
+    gfx_set(1, 0.7, 0.6, 0.8);
+    gfx_circle(lx - scale, ly - scale, max(1, scale), 1, 1);
+  ) : (
+    gfx_set(0.35, 0.05, 0.03, 1);
+    gfx_circle(lx, ly, 3*scale, 1, 1);
+  );
+
+  gfx_set(0.03, 0.03, 0.03, 1);
+  gfx_rect(x - 2*gap, y - 2*gap, w + 4*gap, h + 4*gap, 1);
+  gfx_set(cr*0.8, cg*0.8, cb*0.8, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_rect(x + gap, y + gap, w - 2*gap, h - 4*gap, 1);
+  gfx_set(1, 1, 1, 0.25);
+  gfx_rect(x + gap, y + gap, w - 2*gap, h*0.18, 1);
+  gfx_set(1, 1, 1, 0.5);
+  gfx_rect(x, y, w, gap, 1);
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(x, y + h - gap, w, gap, 1);
+);
+
+mouse_down = mouse_cap & 1;
+mouse_just_down = mouse_down && !mouse_state;
+
+gfx_set(0.16, 0.16, 0.16, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_set(0.08, 0.08, 0.08, 1);
+gfx_rect(0, 0, gfx_w, HEADER_H, 1);
+gfx_set(0.78, 0.16, 0.13, 1);
+gfx_rect(0, HEADER_H - max(1, scale), gfx_w, max(1, scale), 1);
+
+gfx_setfont(1, "Arial", 18*scale, 'b');
+gfx_set(0.95, 0.95, 0.95, 1);
+gfx_x = MARGIN; gfx_y = 8*scale;
+gfx_drawstr("JUKNOW CHORUS");
+gfx_setfont(1, "Arial", 11*scale);
+gfx_set(0.55, 0.55, 0.58, 1);
+gfx_x = MARGIN + 2*scale; gfx_y = 30*scale;
+gfx_drawstr("by chmaha");
+
+sec_y = HEADER_H + 14*scale;
+gap_w = 12*scale;
+sec1_w = (gfx_w - 2*MARGIN - gap_w) * 0.55;
+sec2_x = MARGIN + sec1_w + gap_w;
+sec2_w = gfx_w - MARGIN - sec2_x;
+
+draw_section(MARGIN, sec_y, sec1_w, "CHORUS");
+draw_section(sec2_x, sec_y, sec2_w, "LEVEL");
+
+mode = floor(slider1 + 0.5);
+btn_gap = 5*scale;
+btn_w = min(56*scale, (sec1_w - 24*scale - 2*btn_gap) / 3);
+btn_h = btn_w * 0.75;
+btn_y = sec_y + SEC_H + 95*scale;
+b0x = MARGIN + (sec1_w - 3*btn_w - 2*btn_gap) * 0.5;
+b1x = b0x + btn_w + btn_gap;
+b2x = b1x + btn_w + btn_gap;
+
+fad_top = sec_y + SEC_H + 26*scale;
+fad_len = gfx_h - fad_top - 60*scale;
+f1x = sec2_x + sec2_w*0.25 + 10*scale;
+f2x = sec2_x + sec2_w*0.75 + 6*scale;
+
+mouse_just_down ? (
+  hit_rect(mouse_x, mouse_y, b0x, btn_y, btn_w, btn_h) ? ( slider1 = 0; slider_automate(slider1); );
+  hit_rect(mouse_x, mouse_y, b1x, btn_y, btn_w, btn_h) ? ( slider1 = 1; slider_automate(slider1); );
+  hit_rect(mouse_x, mouse_y, b2x, btn_y, btn_w, btn_h) ? ( slider1 = 2; slider_automate(slider1); );
+
+  hit_rect(mouse_x, mouse_y, f1x - 20*scale, fad_top - 10*scale, 40*scale, fad_len + 20*scale) ? (
+    (click_target == 1 && time_precise() - click_time < 0.3) ? (
+      slider2 = 50; slider_automate(slider2);
+    ) : (
+      drag_target = 1; drag_start_y = mouse_y; drag_start_pos = slider2 / 100;
+    );
+    click_target = 1; click_time = time_precise();
+  );
+  hit_rect(mouse_x, mouse_y, f2x - 20*scale, fad_top - 10*scale, 40*scale, fad_len + 20*scale) ? (
+    (click_target == 2 && time_precise() - click_time < 0.3) ? (
+      slider3 = 50; slider_automate(slider3);
+    ) : (
+      drag_target = 2; drag_start_y = mouse_y; drag_start_pos = slider3 / 100;
+    );
+    click_target = 2; click_time = time_precise();
+  );
+);
+
+drag_target > 0 && mouse_down ? (
+  newpos = max(0, min(1, drag_start_pos + (drag_start_y - mouse_y) / fad_len));
+  (drag_target == 1) ? ( slider2 = newpos * 100; slider_automate(slider2); );
+  (drag_target == 2) ? ( slider3 = newpos * 100; slider_automate(slider3); );
+);
+!mouse_down ? drag_target = 0;
+mouse_state = mouse_down;
+
+draw_button(b0x, btn_y, btn_w, btn_h, "I", mode == 0, 1.00, 0.87, 0.62);
+draw_button(b1x, btn_y, btn_w, btn_h, "I+II", mode == 1, 1.00, 0.79, 0.48);
+draw_button(b2x, btn_y, btn_w, btn_h, "II", mode == 2, 0.98, 0.66, 0.30);
+
+draw_fader(f1x, fad_top, fad_len, slider2 / 100, "TONE", sprintf(#, "%.0f%%", slider2));
+draw_fader(f2x, fad_top, fad_len, slider3 / 100, "MIX", sprintf(#, "%.0f%%", slider3));
