@@ -1,8 +1,9 @@
-Version: 1.0
-desc: ChronoDupe
+Version: 1.0.1
+desc: ChronoDupe (ADT)
 author: chmaha
 changelog:
-  Initial release.
+  The name now shows the original plugin (ADT), and the GUI credits it.
+  Dry and Wet levels change smoothly (no clicks when automated).
 about:
   Automatic double tracking for vocals and other sources: four pitch-shifted, delayed copies
   spread across the stereo field, with high- and low-pass filters and separate dry and wet levels,
@@ -108,8 +109,10 @@ gDly = slider2;
 gPit = slider3;
 gLPF = slider4;
 gHPF = slider5;
-linDry = 0.5*pow(10, 0.05*slider6);
-linWet = pow(10, 0.05*slider7);
+tDry = 0.5*pow(10, 0.05*slider6);
+tWet = pow(10, 0.05*slider7);
+!lvl_init ? ( linDry = tDry; linWet = tWet; lvl_init = 1; );
+lvl_k = 1 - exp(-1 / (0.02 * srate));
 
 @sample
 sam = spl0;
@@ -186,6 +189,7 @@ fxR = (rb0 + rb2 - 2*rb1)/ft4;
 ra2 = ra1; ra1 = ra0;
 rb2 = rb1; rb1 = rb0;
 
+linDry += lvl_k * (tDry - linDry); linWet += lvl_k * (tWet - linWet);
 spl0 = linDry*sam + linWet*fxL;
 spl1 = linDry*sam + linWet*fxR;
 IOTA += 1;
@@ -425,7 +429,7 @@ gfx_drawstr("AUTOMATIC DOUBLE TRACKING");
 gfx_setfont(1, "Arial", 11*scale);
 gfx_set(0.55, 0.57, 0.6, 1);
 gfx_x = MARGIN + 2*scale; gfx_y = 30*scale;
-gfx_drawstr("by chmaha");
+gfx_drawstr("by chmaha  ·  based on ADT");
 
 gap_w = 12*scale;
 field_y = HEADER_H + 12*scale;

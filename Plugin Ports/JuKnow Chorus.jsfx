@@ -1,8 +1,9 @@
-Version: 1.0
-desc: JuKnow Chorus
+Version: 1.0.1
+desc: JuKnow Chorus (junologue-chorus)
 author: chmaha
 changelog:
-  Initial release.
+  The name now shows the original plugin (junologue-chorus), and the GUI credits it.
+  Tone changes smoothly (no stepping when automated).
 about:
   Juno-style chorus with modes I, I+II and II, tone and mix controls,
   ported from junologue-chorus by Peter Allwin
@@ -129,12 +130,14 @@ abs(tgb - gb) < 0.00001 ? gb = tgb;
 abs(tdry - dry) < 0.00001 ? dry = tdry;
 abs(twet - wet) < 0.00001 ? wet = twet;
 
-abs(tfr - fr) > 0.0001 ? (
-  fr += (tfr - fr) * min(1, samplesblock * SMOOTH);
-  set_lpf_cutoff(fr);
-);
 
 @sample
+fr !== tfr ? (
+  fr += (tfr - fr) * SMOOTH;
+  abs(tfr - fr) < 0.0001 ? fr = tfr;
+  fr_cnt += 1;
+  fr_cnt >= 16 || fr === tfr ? ( fr_cnt = 0; set_lpf_cutoff(fr); );
+);
 
 ga += (tga - ga) * SMOOTH;
 gb += (tgb - gb) * SMOOTH;
@@ -293,7 +296,7 @@ gfx_drawstr("JUKNOW CHORUS");
 gfx_setfont(1, "Arial", 11*scale);
 gfx_set(0.55, 0.55, 0.58, 1);
 gfx_x = MARGIN + 2*scale; gfx_y = 30*scale;
-gfx_drawstr("by chmaha");
+gfx_drawstr("by chmaha  ·  based on junologue-chorus");
 
 sec_y = HEADER_H + 14*scale;
 gap_w = 12*scale;
