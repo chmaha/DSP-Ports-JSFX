@@ -1797,7 +1797,7 @@ function meters(x, y, w, h) local(QX, QY, QW, QH, bh, i, lv, db, f, lr, lg, lb)
   );
 );
 
-function keyboard(x, y, w, h) local(lo, nw, ww, i, n, kx, pc, isb, bx, bw, bh, hovn, down, vel, QX, QY, QH, oct, wi, col, lit, snd)
+function keyboard(x, y, w, h) local(kg, kw, lo, nw, ww, i, n, kx, pc, isb, bx, bw, bh, hovn, down, vel, QX, QY, QH, oct, wi, col, lit, snd)
 (
   lo = 36;
   nw = 36;
@@ -1840,15 +1840,17 @@ function keyboard(x, y, w, h) local(lo, nw, ww, i, n, kx, pc, isb, bx, bw, bh, h
       pc = n % 12;
       isb = pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
       !isb ? (
-        kx = sx(x + wi * ww);
+        kg = max(1, floor(z));
+        kx = floor(sx(x + wi * ww)) + kg;
+        kw = floor(sx(x + (wi + 1) * ww)) - kx;
         lit = kdown[n] || kb_note == n;
         snd = vact[n] && kb_mode == 0;
-        lit ? ( acc(6); gfx_gradrect(kx + z, QY, ww * z - z, QH, acc_r, acc_g, acc_b, 1, 0, 0, 0, 0, -0.2 / QH, -0.2 / QH, -0.2 / QH, 0); ) : (
+        lit ? ( acc(6); gfx_gradrect(kx, QY, kw, QH, acc_r, acc_g, acc_b, 1, 0, 0, 0, 0, -0.2 / QH, -0.2 / QH, -0.2 / QH, 0); ) : (
           col = snd ? 0.80 : 0.90;
-          gfx_gradrect(kx + z, QY, ww * z - z, QH, col * 0.86, col * 0.87, col * 0.9, 1, 0, 0, 0, 0, 0.12 / QH, 0.12 / QH, 0.12 / QH, 0);
-          snd ? ( acc(6); gfx_set(acc_r, acc_g, acc_b, 0.35); gfx_rect(kx + z, QY + QH - 5 * z, ww * z - z, 5 * z, 1); );
+          gfx_gradrect(kx, QY, kw, QH, col * 0.86, col * 0.87, col * 0.9, 1, 0, 0, 0, 0, 0.12 / QH, 0.12 / QH, 0.12 / QH, 0);
+          snd ? ( acc(6); gfx_set(acc_r, acc_g, acc_b, 0.35); gfx_rect(kx, QY + QH - 5 * z, kw, 5 * z, 1); );
         );
-        gfx_set(0, 0, 0, 0.18); gfx_rect(kx + z, QY, ww * z - z, 2 * z, 1);
+        gfx_set(0, 0, 0, 0.18); gfx_rect(kx, QY, kw, 2 * z, 1);
         pc == 0 ? (
           font(1, 8, 'b'); gfx_set(0.35, 0.36, 0.4, 1);
           sprintf(#kl, "C%d", floor(n / 12) - 1);
@@ -1863,7 +1865,7 @@ function keyboard(x, y, w, h) local(lo, nw, ww, i, n, kx, pc, isb, bx, bw, bh, h
       pc = n % 12;
       isb = pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10;
       isb ? (
-        bx = sx(x + wi * ww - bw * 0.5);
+        bx = floor(sx(x + wi * ww - bw * 0.5));
         lit = kdown[n] || kb_note == n;
         snd = vact[n] && kb_mode == 0;
         gfx_set(0, 0, 0, 0.35); gfx_rect(bx + z, QY, bw * z, bh * z + 2 * z, 1);
