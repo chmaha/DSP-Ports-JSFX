@@ -1,9 +1,10 @@
-Version: 1.0.1
+Version: 1.0.2
 desc: ChronoDupe (ADT)
 author: chmaha
 changelog:
   The name now shows the original plugin (ADT), and the GUI credits it.
   Dry and Wet levels change smoothly (no clicks when automated).
+  Resizable GUI: the window scales to fit and stays centred.
 about:
   Automatic double tracking for vocals and other sources: four pitch-shifted, delayed copies
   spread across the stereo field, with high- and low-pass filters and separate dry and wet levels,
@@ -196,9 +197,9 @@ IOTA += 1;
 
 @gfx 620 460
 
-scale = max(1, gfx_ext_retina);
-gfx_w < 620*scale ? gfx_w = 620*scale;
-gfx_h < 460*scale ? gfx_h = 460*scale;
+scale = max(0.5, min(gfx_w / 620, gfx_h / 460));
+ox = floor((gfx_w - 620*scale) * 0.5);
+oy = floor((gfx_h - 460*scale) * 0.5);
 
 MARGIN = 14*scale;
 HEADER_H = 46*scale;
@@ -414,31 +415,31 @@ gfx_set(0.14, 0.15, 0.17, 1);
 gfx_rect(0, 0, gfx_w, gfx_h, 1);
 
 gfx_set(0.06, 0.07, 0.08, 1);
-gfx_rect(0, 0, gfx_w, HEADER_H, 1);
+gfx_rect(0, oy, gfx_w, HEADER_H, 1);
 set_accent(1);
-gfx_rect(0, HEADER_H - px1, gfx_w, px1, 1);
+gfx_rect(0, oy + HEADER_H - px1, gfx_w, px1, 1);
 
 gfx_setfont(1, "Arial", 18*scale, 'b');
 gfx_set(0.95, 0.95, 0.95, 1);
-gfx_x = MARGIN; gfx_y = 8*scale;
+gfx_x = ox + MARGIN; gfx_y = oy + 8*scale;
 gfx_drawstr("CHRONODUPE");
 gfx_setfont(1, "Arial", 12*scale);
 gfx_set(0.45, 0.85, 0.90, 1);
-gfx_x += 10*scale; gfx_y = 12*scale;
+gfx_x += 10*scale; gfx_y = oy + 12*scale;
 gfx_drawstr("AUTOMATIC DOUBLE TRACKING");
 gfx_setfont(1, "Arial", 11*scale);
 gfx_set(0.55, 0.57, 0.6, 1);
-gfx_x = MARGIN + 2*scale; gfx_y = 30*scale;
+gfx_x = ox + MARGIN + 2*scale; gfx_y = oy + 30*scale;
 gfx_drawstr("by chmaha  ·  based on ADT");
 
 gap_w = 12*scale;
-field_y = HEADER_H + 12*scale;
+field_y = oy + HEADER_H + 12*scale;
 field_h = 132*scale;
-draw_field(MARGIN, field_y, gfx_w - 2*MARGIN, field_h);
+draw_field(ox + MARGIN, field_y, 620*scale - 2*MARGIN, field_h);
 
 sec_y = field_y + field_h + 12*scale;
-unit_w = (gfx_w - 2*MARGIN - 2*gap_w) / 7;
-sec1_x = MARGIN;
+unit_w = (620*scale - 2*MARGIN - 2*gap_w) / 7;
+sec1_x = ox + MARGIN;
 sec2_x = sec1_x + 3*unit_w + gap_w;
 sec3_x = sec2_x + 2*unit_w + gap_w;
 
@@ -447,7 +448,7 @@ draw_section(sec2_x, sec_y, 2*unit_w, "FILTER");
 draw_section(sec3_x, sec_y, 2*unit_w, "LEVEL");
 
 fad_top = sec_y + SEC_H + 24*scale;
-fad_len = gfx_h - fad_top - 56*scale;
+fad_len = oy + 460*scale - fad_top - 56*scale;
 
 function fader_x(k)
 (

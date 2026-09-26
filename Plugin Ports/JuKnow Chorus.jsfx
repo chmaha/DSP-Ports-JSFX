@@ -1,9 +1,10 @@
-Version: 1.0.1
+Version: 1.0.2
 desc: JuKnow Chorus (junologue-chorus)
 author: chmaha
 changelog:
   The name now shows the original plugin (junologue-chorus), and the GUI credits it.
   Tone changes smoothly (no stepping when automated).
+  Resizable GUI: the window scales to fit and stays centred.
 about:
   Juno-style chorus with modes I, I+II and II, tone and mix controls,
   ported from junologue-chorus by Peter Allwin
@@ -161,9 +162,9 @@ spl1 = spl1 * dry + postr.fo_process(wr) * wet;
 
 @gfx 460 300
 
-scale = max(1, gfx_ext_retina);
-gfx_w < 460*scale ? gfx_w = 460*scale;
-gfx_h < 300*scale ? gfx_h = 300*scale;
+scale = max(0.5, min(gfx_w / 460, gfx_h / 300));
+ox = floor((gfx_w - 460*scale) * 0.5);
+oy = floor((gfx_h - 300*scale) * 0.5);
 
 MARGIN = 14*scale;
 HEADER_H = 46*scale;
@@ -285,26 +286,26 @@ gfx_set(0.16, 0.16, 0.16, 1);
 gfx_rect(0, 0, gfx_w, gfx_h, 1);
 
 gfx_set(0.08, 0.08, 0.08, 1);
-gfx_rect(0, 0, gfx_w, HEADER_H, 1);
+gfx_rect(0, oy, gfx_w, HEADER_H, 1);
 gfx_set(0.78, 0.16, 0.13, 1);
-gfx_rect(0, HEADER_H - max(1, scale), gfx_w, max(1, scale), 1);
+gfx_rect(0, oy + HEADER_H - max(1, scale), gfx_w, max(1, scale), 1);
 
 gfx_setfont(1, "Arial", 18*scale, 'b');
 gfx_set(0.95, 0.95, 0.95, 1);
-gfx_x = MARGIN; gfx_y = 8*scale;
+gfx_x = ox + MARGIN; gfx_y = oy + 8*scale;
 gfx_drawstr("JUKNOW CHORUS");
 gfx_setfont(1, "Arial", 11*scale);
 gfx_set(0.55, 0.55, 0.58, 1);
-gfx_x = MARGIN + 2*scale; gfx_y = 30*scale;
+gfx_x = ox + MARGIN + 2*scale; gfx_y = oy + 30*scale;
 gfx_drawstr("by chmaha  ·  based on junologue-chorus");
 
-sec_y = HEADER_H + 14*scale;
+sec_y = oy + HEADER_H + 14*scale;
 gap_w = 12*scale;
-sec1_w = (gfx_w - 2*MARGIN - gap_w) * 0.55;
-sec2_x = MARGIN + sec1_w + gap_w;
-sec2_w = gfx_w - MARGIN - sec2_x;
+sec1_w = (460*scale - 2*MARGIN - gap_w) * 0.55;
+sec2_x = ox + MARGIN + sec1_w + gap_w;
+sec2_w = ox + 460*scale - MARGIN - sec2_x;
 
-draw_section(MARGIN, sec_y, sec1_w, "CHORUS");
+draw_section(ox + MARGIN, sec_y, sec1_w, "CHORUS");
 draw_section(sec2_x, sec_y, sec2_w, "LEVEL");
 
 mode = floor(slider1 + 0.5);
@@ -312,12 +313,12 @@ btn_gap = 5*scale;
 btn_w = min(56*scale, (sec1_w - 24*scale - 2*btn_gap) / 3);
 btn_h = btn_w * 0.75;
 btn_y = sec_y + SEC_H + 95*scale;
-b0x = MARGIN + (sec1_w - 3*btn_w - 2*btn_gap) * 0.5;
+b0x = ox + MARGIN + (sec1_w - 3*btn_w - 2*btn_gap) * 0.5;
 b1x = b0x + btn_w + btn_gap;
 b2x = b1x + btn_w + btn_gap;
 
 fad_top = sec_y + SEC_H + 26*scale;
-fad_len = gfx_h - fad_top - 60*scale;
+fad_len = oy + 300*scale - fad_top - 60*scale;
 f1x = sec2_x + sec2_w*0.25 + 10*scale;
 f2x = sec2_x + sec2_w*0.75 + 6*scale;
 
