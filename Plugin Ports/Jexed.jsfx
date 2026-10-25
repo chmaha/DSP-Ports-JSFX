@@ -1,16 +1,11 @@
-Version: 1.1.0
-desc: Jexed (Dexed)
+Version: 1.1.1
+desc: Jexed FM Synth (Dexed port) by chmaha
 tags: instrument
 author: chmaha
 changelog:
-  Full voice editor: every DX7 parameter as an automatable control, with an EDIT page (algorithm diagram, six operators with live envelopes, LFO, pitch envelope, key scaling) next to the PLAY page (voice grid, performance and controller settings).
-  Dexed's performance controls: filter cutoff and resonance, mono mode, master tune, pitch-bend range and step, mod wheel / foot / breath / aftertouch routing, operator on/off switches.
-  User cartridge of 32 slots: STORE the current voice, INIT VOICE, rename voices; saved with the project and in REAPER presets.
-  Edited voices are saved with the project.
-  The name now shows the original plugin (Dexed), and the GUI credits it.
-  Listed in REAPER's Instruments folder.
-  The voice arrows and mouse wheel stay within the current cartridge, wrapping at the ends; choosing another cartridge starts at its first voice.
-  The cartridge file moved to its own folder (Dependencies/Jexed).
+  Larger, easier-to-read text and brighter labels in the GUI.
+  The mouse cursor hides while dragging a knob (REAPER 7.83+).
+  Changing the project sample rate updates the filter and all voices immediately.
 about:
   DX7-style FM synthesizer, ported from Dexed by Pascal Gauthier
   https://github.com/asb2m10/dexed (GPLv3)
@@ -377,6 +372,8 @@ function init_sr() local(i, y, inc, sps)
   );
   dc_r = 1 - 126 / srate;
   meter_decay = 0.001^(1 / (0.4 * srate));
+  fx_rc = 970 / 44000 * sqrt(44000 / srate);
+  fx_bright = tan((srate * 0.5 - 10) * $pi / srate);
   last_srate = srate;
 );
 
@@ -1260,8 +1257,8 @@ function read_carts(fn) local(h, n, c, b, ok)
 
 function load_carts()
 (
-  carts_ok = read_carts("Dependencies/Jexed/JexedCarts.txt");
-  !carts_ok ? carts_ok = read_carts("JexedCarts.txt");
+  carts_ok = read_carts("Jexed/JexedCarts.txt");
+  !carts_ok ? carts_ok = read_carts("Dependencies/Jexed/JexedCarts.txt");
   !carts_ok ? memset(carts, 0, ncarts * cart_bytes);
 );
 
@@ -1302,8 +1299,6 @@ srate != last_srate ? init_sr();
   i = 0; loop(155, patch[i] = initv[i]; i += 1; );
   i = 0; loop(32, pack_voice(userc + 6 + i * 128); i += 1; );
   memset(fxs, 0, 8);
-  fx_rc = 970 / 44000 * sqrt(44000 / srate);
-  fx_bright = tan((srate * 0.5 - 10) * $pi / srate);
   fx_cut = 1; fx_reso = 0; fx_pc = -1;
   cur_cart = -1;
   voices_ready = 1;
@@ -1329,6 +1324,13 @@ function refresh_voices() local(i, v)
   lfo_reset();
 );
 
+function rate_change()
+(
+  init_sr();
+  fx_pc = -1;
+  refresh_voices();
+);
+
 vmax = 11900;
 mem_set_values(vmax, 99,99,99,99,99,99,99,99,99,99,99,3,3,7,3,7,99,1,31,99,14,
   99,99,99,99,99,99,99,99,99,99,99,3,3,7,3,7,99,1,31,99,14,
@@ -1337,6 +1339,9 @@ mem_set_values(vmax, 99,99,99,99,99,99,99,99,99,99,99,3,3,7,3,7,99,1,31,99,14,
   99,99,99,99,99,99,99,99,99,99,99,3,3,7,3,7,99,1,31,99,14,
   99,99,99,99,99,99,99,99,99,99,99,3,3,7,3,7,99,1,31,99,14,
   99,99,99,99,99,99,99,99,31,7,1,99,99,99,99,1,5,7,48);
+
+@slider
+last_srate != srate ? rate_change();
 
 @block
 spos = 0;
@@ -1524,7 +1529,7 @@ function sx(x) ( ox + x * z; );
 function sy(y) ( oy + y * z; );
 function hit(x, y, w, h) ( mouse_x >= sx(x) && mouse_x < sx(x + w) && mouse_y >= sy(y) && mouse_y < sy(y + h); );
 function hitc(x, y, r) ( sqr(mouse_x - sx(x)) + sqr(mouse_y - sy(y)) <= sqr(r * z); );
-function font(n, sz, fl) ( n == 1 ? gfx_setfont(1, "Arial", sz * z, fl) : gfx_setfont(n, "Courier New", sz * z, fl); );
+function font(n, sz, fl) ( n == 1 ? gfx_setfont(1, "Arial", (sz + 2) * z, fl) : gfx_setfont(n, "Courier New", (sz + 2) * z, fl); );
 function clamp01(x) ( max(0, min(1, x)); );
 
 function upper(str) local(i, c)
@@ -1786,6 +1791,7 @@ function knob(x, y, r, n, style, label, c) local(pos, hov, nv, d, st, fine, step
       mouse_click = 0;
     );
     drag_n == n ? (
+      mouse_cap |= 65536;
       fine = (mouse_cap & 4) || (mouse_cap & 8);
       d = (drag_y0 - mouse_y) / (220 * z) * (fine ? 0.12 : 1);
       st = slStep[n];
@@ -2079,7 +2085,7 @@ function algo_diagram(x, y, sc) local(a, i, id, gx, gy, lk, fb, bx, by, cw, ch, 
     on ? gfx_set(0.13, 0.30, 0.36, 1) : gfx_set(0.10, 0.105, 0.12, 1);
     id == sel_op + 1 ? ( acc(1); gfx_set(acc_r * 0.55, acc_g * 0.55, acc_b * 0.55, 1); );
     gfx_rect(QX, QY, 17 * sc * z, 12 * sc * z, 1);
-    on ? gfx_set(1, 1, 1, 1) : gfx_set(0.45, 0.47, 0.5, 1);
+    on ? gfx_set(1, 1, 1, 1) : gfx_set(0.56, 0.58, 0.62, 1);
     font(1, 9 * sc, 'b');
     sprintf(#oid, "%d", id);
     text_c(#oid, bx + 8.5 * sc, by + 0.5 * sc);
@@ -2470,7 +2476,7 @@ function op_card(op, x, y, w, h) local(b, QX, QY, QW, QH, on, hov, lvl, sel, i, 
     sel ? ( gfx_set(acc_r, acc_g, acc_b, 1); gfx_rect(QX, QY, QW, 2 * z, 1); );
     hov && !sel ? ( gfx_set(1, 1, 1, 0.05); gfx_rect(QX, QY, QW, QH, 1); );
     font(1, 13, 'b');
-    on ? gfx_set(1, 1, 1, 1) : gfx_set(0.42, 0.44, 0.48, 1);
+    on ? gfx_set(1, 1, 1, 1) : gfx_set(0.56, 0.58, 0.62, 1);
     sprintf(#oc, "OP%d", op + 1); text_l(#oc, x + 8, y + 6);
     font(2, 11, 'b');
     gfx_set(acc_r, acc_g, acc_b, on ? 1 : 0.4);

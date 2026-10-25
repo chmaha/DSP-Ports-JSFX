@@ -1,10 +1,10 @@
-Version: 1.0.2
-desc: JuKnow Chorus (junologue-chorus)
+Version: 1.0.3
+desc: JuKnow Chorus (junologue-chorus port) by chmaha
 author: chmaha
 changelog:
-  The name now shows the original plugin (junologue-chorus), and the GUI credits it.
-  Tone changes smoothly (no stepping when automated).
-  Resizable GUI: the window scales to fit and stays centred.
+  Larger, easier-to-read text in the GUI.
+  Mouse wheel adjusts the Tone and Mix faders.
+  The GUI sits at the top of the window instead of being centred vertically.
 about:
   Juno-style chorus with modes I, I+II and II, tone and mix controls,
   ported from junologue-chorus by Peter Allwin
@@ -166,7 +166,7 @@ spl1 = spl1 * dry + postr.fo_process(wr) * wet;
 
 scale = max(0.5, min(gfx_w / 460, gfx_h / 300));
 ox = floor((gfx_w - 460*scale) * 0.5);
-oy = floor((gfx_h - 300*scale) * 0.5);
+oy = 0;
 
 MARGIN = 14*scale;
 HEADER_H = 46*scale;
@@ -186,7 +186,7 @@ local(tw, th)
   gfx_rect(x, y, w, max(1, scale), 1);
   gfx_set(0, 0, 0, 0.25);
   gfx_rect(x, y + SEC_H - max(1, scale), w, max(1, scale), 1);
-  gfx_setfont(1, "Arial", 15*scale, 'b');
+  gfx_setfont(1, "Arial", 17*scale, 'b');
   gfx_set(1, 1, 1, 1);
   gfx_measurestr(title, tw, th);
   gfx_x = x + (w - tw)*0.5; gfx_y = y + (SEC_H - th)*0.5;
@@ -196,7 +196,7 @@ local(tw, th)
 function draw_fader(cx, top, len, pos, name, valtext)
 local(i, ty, tw, th, capw, caph, capy)
 (
-  gfx_setfont(1, "Arial", 9*scale);
+  gfx_setfont(1, "Arial", 11*scale);
   i = 0;
   loop(11,
     ty = top + len - len * (i / 10);
@@ -228,13 +228,13 @@ local(i, ty, tw, th, capw, caph, capy)
   gfx_set(0.05, 0.05, 0.05, 1);
   gfx_rect(cx - capw*0.5 + 2*scale, capy + caph*0.5 - max(1, scale)*0.5, capw - 4*scale, max(1, scale), 1);
 
-  gfx_setfont(1, "Arial", 11*scale, 'b');
+  gfx_setfont(1, "Arial", 13*scale, 'b');
   gfx_set(0.95, 0.95, 0.95, 1);
   gfx_measurestr(name, tw, th);
   gfx_x = cx - tw*0.5; gfx_y = top + len + 12*scale;
   gfx_drawstr(name);
 
-  gfx_setfont(1, "Arial", 10*scale);
+  gfx_setfont(1, "Arial", 12*scale);
   gfx_set(0.6, 0.6, 0.62, 1);
   gfx_measurestr(valtext, tw, th);
   gfx_x = cx - tw*0.5; gfx_y = top + len + 27*scale;
@@ -246,7 +246,7 @@ local(tw, th, lx, ly, gap)
 (
   gap = max(1, scale);
 
-  gfx_setfont(2, "Times New Roman", 15*scale, 'b');
+  gfx_setfont(2, "Times New Roman", 17*scale, 'b');
   gfx_set(0.95, 0.95, 0.95, 1);
   gfx_measurestr(label, tw, th);
   gfx_x = x + (w - tw)*0.5; gfx_y = y - 34*scale;
@@ -282,6 +282,7 @@ local(tw, th, lx, ly, gap)
 );
 
 mouse_down = mouse_cap & 1;
+wheel = mouse_wheel; mouse_wheel = 0;
 mouse_just_down = mouse_down && !mouse_state;
 
 gfx_set(0.16, 0.16, 0.16, 1);
@@ -292,12 +293,12 @@ gfx_rect(0, oy, gfx_w, HEADER_H, 1);
 gfx_set(0.78, 0.16, 0.13, 1);
 gfx_rect(0, oy + HEADER_H - max(1, scale), gfx_w, max(1, scale), 1);
 
-gfx_setfont(1, "Arial", 18*scale, 'b');
+gfx_setfont(1, "Arial", 20*scale, 'b');
 gfx_set(0.95, 0.95, 0.95, 1);
 gfx_x = ox + MARGIN; gfx_y = oy + 8*scale;
 gfx_drawstr("JUKNOW CHORUS");
-gfx_setfont(1, "Arial", 11*scale);
-gfx_set(0.55, 0.55, 0.58, 1);
+gfx_setfont(1, "Arial", 13*scale);
+gfx_set(0.6, 0.6, 0.63, 1);
 gfx_x = ox + MARGIN + 2*scale; gfx_y = oy + 30*scale;
 gfx_drawstr("by chmaha  ·  based on junologue-chorus");
 
@@ -344,6 +345,15 @@ mouse_just_down ? (
       drag_target = 2; drag_start_y = mouse_y; drag_start_pos = slider3 / 100;
     );
     click_target = 2; click_time = time_precise();
+  );
+);
+
+wheel != 0 ? (
+  hit_rect(mouse_x, mouse_y, f1x - 20*scale, fad_top - 10*scale, 40*scale, fad_len + 20*scale) ? (
+    slider2 = max(0, min(100, slider2 + wheel/120*2)); slider_automate(slider2);
+  );
+  hit_rect(mouse_x, mouse_y, f2x - 20*scale, fad_top - 10*scale, 40*scale, fad_len + 20*scale) ? (
+    slider3 = max(0, min(100, slider3 + wheel/120*2)); slider_automate(slider3);
   );
 );
 
