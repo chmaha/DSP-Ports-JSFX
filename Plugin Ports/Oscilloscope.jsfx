@@ -1,0 +1,1206 @@
+desc: Oscilloscope (unplugred Scope port) by chmaha
+author: chmaha
+provides:
+  Dependencies/Scope/base.png
+  Dependencies/Scope/noise.png
+  Dependencies/Scope/Scope-LICENSE.txt
+// Ported from unplugred's Scope (https://github.com/unplugred/vsts). AGPLv3+.
+// Image assets by unplugred, CC BY-NC (see Dependencies/Scope/Scope-LICENSE.txt).
+// Click the scope to open or close the settings panel.
+// Claude Opus 5.x may have generated some of the port of this code
+
+slider1:p_xy=0<0,1,1{Off,On}>-XY
+slider2:p_time=0.4<0,1,0.0001>-Time
+slider3:p_timexy=0.4<0,1,0.0001>-Time XY
+slider4:p_scale=0<0,1,0.0001>-Scale
+slider5:p_hold=0<0,1,1{Off,On}>-Hold
+slider6:p_sync=1<0,1,1{Off,On}>-Sync
+slider7:p_grid=1<0,1,1{Off,On}>-Grid
+slider8:p_hue=0.54<0,1,0.0001>-Hue
+slider9:p_sat=0.9<0,1,0.0001>-Saturation
+slider10:p_val=0.65<0,1,0.0001>-Value
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:maxmem=16777216 no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+
+IMG_BASE = 0; IMG_NOISE = 1;
+IMG_STATIC = 7; IMG_NZ = 8; IMG_OUT = 16;
+PAD = 8;
+C1 = 20; CW = 218; C2 = C1+CW+20+20; PW = C2+CW+C1;
+BODY = 80; FOOT = BODY+204; PH = FOOT+52;
+
+defaultv = 0;
+!defaults_init ? (
+  defaults_init = 1;
+  defaultv[0] = 0; defaultv[1] = 0.4; defaultv[2] = 0.4; defaultv[3] = 0; defaultv[4] = 0;
+  defaultv[5] = 1; defaultv[6] = 1; defaultv[7] = 0.54; defaultv[8] = 0.9; defaultv[9] = 0.65;
+);
+alloc.mp = 16;
+
+line = alloc(8*4800);
+bloomline = alloc(8*4800);
+linedata = alloc(8*800);
+linemode = alloc(800);
+tv = alloc(12);
+koff = alloc(256); kw = alloc(256); kacc = alloc(225);
+noff = alloc(16);
+rrid = alloc(16); rrx = alloc(16); rry = alloc(16); rrw = alloc(16); rrh = alloc(16); rrt = alloc(16);
+bloomb = alloc(1200); bloomt = alloc(1200); bloomm = alloc(1200);
+gwt = alloc(4);
+gwt[0] = 0.1964825501511404; gwt[1] = 0.2969069646728344; gwt[2] = 0.09447039785044732; gwt[3] = 0.010381362401148057;
+presets = alloc(24);
+presets[0] = 0.54; presets[1] = 0.9; presets[2] = 0.65;
+presets[3] = 0.36; presets[4] = 0.9; presets[5] = 0.65;
+presets[6] = 0.09; presets[7] = 0.95; presets[8] = 0.65;
+presets[9] = 0.01; presets[10] = 0.85; presets[11] = 0.65;
+presets[12] = 0.76; presets[13] = 0.75; presets[14] = 0.65;
+presets[15] = 0.92; presets[16] = 0.65; presets[17] = 0.65;
+presets[18] = 0.5; presets[19] = 0.35; presets[20] = 0.7;
+presets[21] = 0; presets[22] = 0; presets[23] = 0.6;
+strcpy(200, "Cool Blue"); strcpy(201, "Phosphor"); strcpy(202, "Amber"); strcpy(203, "Ember");
+strcpy(204, "Violet"); strcpy(205, "Rose"); strcpy(206, "Ice"); strcpy(207, "Mono");
+noisearr = alloc(512*512*3);
+baseraw = alloc(800*600*3);
+guibase = alloc.mp;
+
+channelnum = 0;
+gui_ready = 0;
+active = 0; oscindex = 0; oscskip = 0; idle_blocks = 0;
+linechannelnum = 0; linew = 0; gch = 0;
+initialdrag = -1; hover = -1;
+
+function reset_everything()
+(
+  channelnum = nch;
+  cur_srate = srate;
+  oscisize = floor(srate/30)*2+800;
+  moremem.mp = __memtop()/2;
+  osci = moremem.alloc(channelnum*oscisize);
+  oscimode = moremem.alloc(oscisize);
+  oscindex >= oscisize ? oscindex = 0;
+);
+
+function dreset(c, st) instance(cur, vel, stime) ( cur = c; vel = 0; stime = st; );
+function dnext(target) instance(cur, vel, stime) local(n1, n2, n3, n4, n5, t, n6)
+(
+  n1 = 2/max(0.0001, stime);
+  n2 = n1/30;
+  n3 = 1/(1+n2+0.48*n2*n2+0.235*n2*n2*n2);
+  n4 = cur-target;
+  n5 = (vel+n1*n4)/30;
+  t = cur-n4;
+  n6 = t+(n4+n5)*n3;
+  ((t-cur) > 0) == (n6 > t) ? (n6 = t; vel = 0;) : (vel = (vel-n1*n5)*n3;);
+  cur = n6;
+);
+
+function juce_hsv(h, s, v) local(iv, x, f, hh)
+(
+  v = min(255, max(0, v*255));
+  iv = floor(v+0.5);
+  s <= 0 ? (
+    hr = hg = hb = iv;
+  ) : (
+    s = min(1, s);
+    hh = ((h-floor(h))*360)/60;
+    f = hh-floor(hh);
+    x = floor(v*(1-s)+0.5);
+    hh < 1 ? (hr = iv; hg = floor(v*(1-s*(1-f))+0.5); hb = x;) :
+    hh < 2 ? (hr = floor(v*(1-s*f)+0.5); hg = iv; hb = x;) :
+    hh < 3 ? (hr = x; hg = iv; hb = floor(v*(1-s*(1-f))+0.5);) :
+    hh < 4 ? (hr = x; hg = floor(v*(1-s*f)+0.5); hb = iv;) :
+    hh < 5 ? (hr = floor(v*(1-s*(1-f))+0.5); hg = x; hb = iv;) :
+    (hr = iv; hg = x; hb = floor(v*(1-s*f)+0.5););
+  );
+  hr /= 255; hg /= 255; hb /= 255;
+);
+
+function getp(i) ( slider(i+1); );
+function setp(i, v)
+(
+  v = max(0, min(1, v));
+  slider(i+1) != v ? (
+    slider(i+1) = v;
+    slider_automate(2^i);
+  );
+);
+function isbool(i) ( i == 0 || i == 4 || i == 5 || i == 6; );
+
+function time_ms(isxy) local(v)
+(
+  v = (isxy ? p_timexy^4*16+0.05 : p_time^5*240+0.05)/48000*400000;
+  v < 10 ? floor(v*100+0.5)/100 : (v < 100 ? floor(v*10+0.5)/10 : floor(v+0.5));
+);
+
+function load_img(slot, name)
+(
+  gfx_loadimg(slot, sprintf(#, "Scope/%s", name)) >= 0 || gfx_loadimg(slot, sprintf(#, "Dependencies/Scope/%s", name)) >= 0;
+);
+
+// Rendering
+
+function raster_tri(buf, stride, bw, bh, scl, opa, mark)
+  local(x0, y0, a0, l0, x1, y1, a1, l1, x2, y2, a2, l2, t, det, ax, ay, lx, ly, py, pyend, yc, xa, xb, xl, xr, px, pxend, av, lv, c, al, p, tr, t0)
+(
+  x0 = tv[0]; y0 = tv[1]; a0 = tv[2]; l0 = tv[3];
+  x1 = tv[4]; y1 = tv[5]; a1 = tv[6]; l1 = tv[7];
+  x2 = tv[8]; y2 = tv[9]; a2 = tv[10]; l2 = tv[11];
+  y1 < y0 ? (t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; t = a0; a0 = a1; a1 = t; t = l0; l0 = l1; l1 = t;);
+  y2 < y0 ? (t = x0; x0 = x2; x2 = t; t = y0; y0 = y2; y2 = t; t = a0; a0 = a2; a2 = t; t = l0; l0 = l2; l2 = t;);
+  y2 < y1 ? (t = x1; x1 = x2; x2 = t; t = y1; y1 = y2; y2 = t; t = a1; a1 = a2; a2 = t; t = l1; l1 = l2; l2 = t;);
+  det = (x1-x0)*(y2-y0)-(x2-x0)*(y1-y0);
+  abs(det) > 0.000001 ? (
+    ax = ((a1-a0)*(y2-y0)-(a2-a0)*(y1-y0))/det;
+    ay = ((x1-x0)*(a2-a0)-(x2-x0)*(a1-a0))/det;
+    lx = ((l1-l0)*(y2-y0)-(l2-l0)*(y1-y0))/det;
+    ly = ((x1-x0)*(l2-l0)-(x2-x0)*(l1-l0))/det;
+    py = max(0, ceil(y0-0.5));
+    pyend = min(bh, ceil(y2-0.5));
+    while (py < pyend) (
+      yc = py+0.5;
+      xa = x0+(yc-y0)*(x2-x0)/(y2-y0);
+      xb = (yc < y1 ? x0+(yc-y0)*(x1-x0)/(y1-y0) : x1+(yc-y1)*(x2-x1)/(y2-y1));
+      xl = min(xa, xb); xr = max(xa, xb);
+      px = max(0, ceil(xl-0.5));
+      pxend = min(bw, ceil(xr-0.5));
+      px < pxend ? (
+        av = a0+ax*(px+0.5-x0)+ay*(yc-y0);
+        lv = l0+lx*(px+0.5-x0)+ly*(yc-y0);
+        p = buf+py*stride+px;
+        loop(pxend-px,
+          c = min(1, max(0, (1-abs(av))*scl*lv));
+          al = min(1, max(0, lv))*opa;
+          p[0] = min(255, floor(p[0]+c*al*255+0.5));
+          av += ax; lv += lx; p += 1;
+        );
+        mark ? (
+          tr = tnz+floor(py/16)*TW;
+          t0 = floor(px/16);
+          loop(floor((pxend-1)/16)-t0+1, tr[t0] = 1; t0 += 1;);
+        );
+      );
+      py += 1;
+    );
+  );
+);
+
+function strip(arr, isbloom) local(k, p, j)
+(
+  linew > 1 ? (
+    k = 0;
+    loop(2*linew-2,
+      p = arr+k*3;
+      j = 0;
+      loop(3,
+        isbloom ? (
+          tv[j*4] = (p[0]*0.5+0.5)*40;
+          tv[j*4+1] = (0.5-p[1]*0.5)*30;
+        ) : (
+          tv[j*4] = (p[0]*0.5+0.5)*IW;
+          tv[j*4+1] = (0.5-p[1]*0.5)*IH;
+        );
+        tv[j*4+2] = (p[2] > 0 ? 1 : -1);
+        tv[j*4+3] = abs(p[2]);
+        p += 3; j += 1;
+      );
+      isbloom ? raster_tri(bloomb, 40, 40, 30, 1, 0.04, 0) : raster_tri(r0, RS, IW, IH, IW*0.0015, 0.2, 1);
+      k += 1;
+    );
+  );
+);
+
+function render_lines() local(t, tx, ty, y, y1, x0, w, p, v, any, c, i)
+(
+  t = 0; ty = 0;
+  loop(TH,
+    tx = 0;
+    loop(TW,
+      tnz[t] ? (
+        any = 0;
+        y = ty*16; y1 = min(IH, y+16);
+        x0 = tx*16; w = min(IW, x0+16)-x0;
+        loop(y1-y,
+          p = r0+y*RS+x0;
+          loop(w,
+            v = p[0];
+            v ? (v = floor(v*0.3+0.5); p[0] = v; v ? any = 1;);
+            p += 1;
+          );
+          y += 1;
+        );
+        tnz[t] = any;
+      );
+      t += 1; tx += 1;
+    );
+    ty += 1;
+  );
+  c = 0; loop(linechannelnum, strip(line+c*4800, 0); c += 1;);
+  i = 0; loop(1200, v = bloomb[i]; v ? bloomb[i] = floor(v*0.7+0.5); i += 1;);
+  c = 0; loop(linechannelnum, strip(bloomline+c*4800, 1); c += 1;);
+);
+
+function calcvis()
+  local(lcn, syncindex, tm, ftm, maxindex, maxscore, startsync, endsync, stage, syncpos, score, sample, idx, c,
+        pixel, amp, lum, readpos, nextx, nexty, x, y, prevx, prevy, angle1, angle2, angle, i, o, ob, chy)
+(
+  active ? (
+    active = 0;
+    channelnum <= 0 ? (
+      gch = 0; linechannelnum = 0;
+    ) : (
+      gch != channelnum ? (gch = channelnum; memset(linedata, 0, gch*800););
+      lcn = (p_xy < 0.5 ? gch : 1);
+      linechannelnum != lcn ? (
+        lcn > linechannelnum ? (
+          memset(line+linechannelnum*4800, 0, (lcn-linechannelnum)*4800);
+          memset(bloomline+linechannelnum*4800, 0, (lcn-linechannelnum)*4800);
+        );
+        linechannelnum = lcn;
+      );
+
+      syncindex = oscindex;
+      tm = (p_xy < 0.5 ? p_time^5*240+0.05 : p_timexy^4*16+0.05)/48000*srate;
+      ftm = max(1, floor(tm));
+      p_xy < 0.5 && p_sync > 0.5 ? (
+        maxindex = 0; maxscore = -1;
+        startsync = syncindex-floor(srate/30)/ftm;
+        startsync = (startsync < 0 ? -floor(-startsync) : floor(startsync));
+        endsync = syncindex;
+        stage = 1;
+        loop(2,
+          stage == 2 ? (
+            startsync = maxindex+(maxindex > startsync ? -1 : 1);
+            endsync = maxindex+(maxindex < (endsync-1) ? 2 : 0);
+          );
+          syncpos = startsync;
+          while (syncpos < endsync) (
+            score = 0;
+            idx = syncpos-801+oscisize;
+            while (idx < 0) (idx += oscisize;);
+            idx >= oscisize ? idx -= oscisize;
+            sample = 0;
+            loop(800,
+              c = 0;
+              loop(gch,
+                (osci[c*oscisize+idx] > 0) == (linedata[c*800+sample] > 0) ? score += 1;
+                c += 1;
+              );
+              idx += 1; idx >= oscisize ? idx = 0;
+              sample += 1;
+            );
+            score >= maxscore ? (maxindex = syncpos; maxscore = score;);
+            syncpos += 2;
+          );
+          stage += 1;
+        );
+        maxscore >= 0 ? syncindex = maxindex;
+      );
+      syncindex = syncindex-801+oscisize;
+      while (syncindex < 0) (syncindex += oscisize;);
+      syncindex >= oscisize ? syncindex -= oscisize;
+
+      sample = 0; idx = syncindex;
+      loop(800,
+        c = 0;
+        loop(gch, linedata[c*800+sample] = osci[c*oscisize+idx]; c += 1;);
+        linemode[sample] = oscimode[idx];
+        idx += 1; idx >= oscisize ? idx = 0;
+        sample += 1;
+      );
+
+      pixel = 2/(linew-1);
+      amp = 10^(ampdamp.dnext(p_scale)*40/20);
+      linew = floor((tm < 1 ? tm : tm-floor(tm)+1)*400);
+      lum = 1;
+      chy = (gch > 1 ? 800 : 0);
+
+      c = 0;
+      loop(linechannelnum,
+        readpos = 800-linew;
+        p_xy < 0.5 ? (
+          nextx = -1;
+          nexty = amp*linedata[readpos+c*800];
+        ) : (
+          nextx = amp*linedata[readpos]*0.75;
+          nexty = amp*linedata[readpos+chy]*-1;
+        );
+        x = nextx; y = nexty; prevx = nextx; prevy = nexty;
+        angle1 = 0; angle2 = 0;
+        i = 0;
+        loop(linew,
+          readpos = i+1+(800-linew);
+          prevx = x; prevy = y;
+          x = nextx; y = nexty;
+          i+1 < linew ? (
+            p_xy < 0.5 ? (
+              nextx = (i+1)*pixel-1;
+              nexty = amp*linedata[readpos+c*800];
+            ) : (
+              nextx = amp*linedata[readpos]*0.75;
+              nexty = amp*linedata[readpos+chy]*-1;
+            );
+          );
+          p_xy > 0.5 ? lum = 1-(1-i/linew)^4;
+
+          angle1 = atan2(y-prevy, x-prevx);
+          i+1 < linew ? angle2 = atan2(y-nexty, x-nextx);
+          while ((angle1-angle2) < -1.5707963268) (angle1 += 3.1415926535*2;);
+          while ((angle1-angle2) > 1.5707963268) (angle1 -= 3.1415926535*2;);
+          angle = (angle1+angle2)*0.5;
+
+          o = line+c*4800+i*6;
+          ob = bloomline+c*4800+i*6;
+          linemode[readpos-1] ? (
+            o[0] = x; o[3] = x;
+            o[1] = y+0.0075;
+            o[4] = -o[1];
+            o[2] = lum+y/0.0075;
+            ob[2] = o[2]*0.08;
+            ob[5] = o[5]*0.08;
+          ) : (
+            o[0] = x+cos(angle)*0.01;
+            o[3] = x-cos(angle)*0.01;
+            o[1] = y+sin(angle)*0.0075;
+            o[4] = y-sin(angle)*0.0075;
+            o[2] = lum;
+            ob[2] = o[2];
+            ob[5] = o[5];
+          );
+          o[5] = -o[2];
+          ob[0] = o[0]+cos(angle)*0.15;
+          ob[3] = o[3]-cos(angle)*0.15;
+          ob[1] = o[1]+sin(angle)*0.1125;
+          ob[4] = o[4]-sin(angle)*0.1125;
+          i += 1;
+        );
+        c += 1;
+      );
+    );
+  );
+);
+
+function bil(u, v) local(x0, y0, x1, y1, fx, fy)
+(
+  x0 = floor(u); fx = u-x0;
+  y0 = floor(v); fy = v-y0;
+  x1 = min(39, max(0, x0+1)); x0 = min(39, max(0, x0));
+  y1 = min(29, max(0, y0+1)); y0 = min(29, max(0, y0));
+  (bloomb[y0*40+x0]*(1-fx)+bloomb[y0*40+x1]*fx)*(1-fy)+(bloomb[y1*40+x0]*(1-fx)+bloomb[y1*40+x1]*fx)*fy;
+);
+
+function bloom_eval(px, py) local(u, v, s, i, du, dv)
+(
+  u = (px+0.5)/IW*40-0.5;
+  v = (py+0.5)/IH*30-0.5;
+  s = bil(u, v)*gwt[0];
+  i = 1;
+  loop(3,
+    du = i*1.05; dv = i*1.04895;
+    s += (bil(u+du, v+dv)+bil(u-du, v+dv)+bil(u+du, v-dv)+bil(u-du, v-dv))*gwt[i];
+    i += 1;
+  );
+  s/255;
+);
+
+function ensure_grid(gx0, gx1, gy0, gy1) local(gx, gy, p)
+(
+  gy = gy0;
+  loop(gy1-gy0+1,
+    gx = gx0;
+    loop(gx1-gx0+1,
+      p = gy*GW+gx;
+      bfs[p] != frame_id ? (bfs[p] = frame_id; bfg[p] = bloom_eval(gx*4, gy*4););
+      gx += 1;
+    );
+    gy += 1;
+  );
+);
+
+function build_kernel() local(i, sx, sy, ox, oy, ix, iy, fx, fy, w, kx, ky)
+(
+  memset(kacc, 0, 225);
+  kacc[7*15+7] = gwt[0];
+  i = 1;
+  loop(3,
+    sy = -1;
+    loop(2,
+      sx = -1;
+      loop(2,
+        ox = sx*i*0.00175*IW; oy = sy*i*0.002331*IH;
+        ix = floor(ox); iy = floor(oy); fx = ox-ix; fy = oy-iy;
+        kacc[(iy+7)*15+ix+7] += (1-fx)*(1-fy)*gwt[i];
+        kacc[(iy+7)*15+ix+8] += fx*(1-fy)*gwt[i];
+        kacc[(iy+8)*15+ix+7] += (1-fx)*fy*gwt[i];
+        kacc[(iy+8)*15+ix+8] += fx*fy*gwt[i];
+        sx += 2;
+      );
+      sy += 2;
+    );
+    i += 1;
+  );
+  nk = 0; ky = 0;
+  loop(15,
+    kx = 0;
+    loop(15,
+      w = kacc[ky*15+kx];
+      w > 0 ? (koff[nk] = (ky-7)*RS+(kx-7); kw[nk] = w/255; nk += 1;);
+      kx += 1;
+    );
+    ky += 1;
+  );
+);
+
+function resample_base() local(x, y, u, v, x0, x1, y0, y1, fx, fy, i, a, b, c, d, w00, w10, w01, w11)
+(
+  i = 0; y = 0;
+  loop(IH,
+    v = (y+0.5)/IH*BH0-0.5; y0 = floor(v); fy = v-y0; y1 = y0+1;
+    y0 < 0 ? y0 += BH0; y1 >= BH0 ? y1 -= BH0;
+    x = 0;
+    loop(IW,
+      u = (x+0.5)/IW*BW0-0.5; x0 = floor(u); fx = u-x0; x1 = x0+1;
+      x0 < 0 ? x0 += BW0; x1 >= BW0 ? x1 -= BW0;
+      a = baseraw+(y0*BW0+x0)*3; b = baseraw+(y0*BW0+x1)*3;
+      c = baseraw+(y1*BW0+x0)*3; d = baseraw+(y1*BW0+x1)*3;
+      w00 = (1-fx)*(1-fy); w10 = fx*(1-fy); w01 = (1-fx)*fy; w11 = fx*fy;
+      bri[i] = a[0]*w00+b[0]*w10+c[0]*w01+d[0]*w11;
+      bgi[i] = a[1]*w00+b[1]*w10+c[1]*w01+d[1]*w11;
+      bbi[i] = a[2]*w00+b[2]*w10+c[2]*w01+d[2]*w11;
+      i += 1; x += 1;
+    );
+    y += 1;
+  );
+);
+
+function setup_res(w, h) local(i)
+(
+  IW = w; IH = h;
+  RS = IW+2*PAD;
+  TW = ceil(IW/16); TH = ceil(IH/16);
+  GW = floor((IW-1)/4)+2; GH = floor((IH-1)/4)+2;
+  guimem.mp = guibase;
+  rbuf = guimem.alloc(RS*(IH+2*PAD));
+  r0 = rbuf+PAD*RS+PAD;
+  abuf = guimem.alloc(RS*(IH+4*PAD+1));
+  ab0 = abuf+2*PAD*RS+PAD;
+  bri = guimem.alloc(IW*IH);
+  bgi = guimem.alloc(IW*IH);
+  bbi = guimem.alloc(IW*IH);
+  tnz = guimem.alloc(TW*TH);
+  bfg = guimem.alloc(GW*GH);
+  bfs = guimem.alloc(GW*GH);
+  frame_id = 0;
+  resample_base();
+  build_kernel();
+  gfx_setimgdim(IMG_STATIC, IW, IH);
+  gfx_setimgdim(IMG_OUT, IW, IH);
+  i = 0; loop(8, gfx_setimgdim(IMG_NZ+i, IW, IH); i += 1;);
+  noise_built = 0;
+  static_dirty = 1;
+  need_comp = 1;
+);
+
+function layout() local(sw, sh, niw, nih)
+(
+  sw = gfx_w; sh = gfx_h;
+  sw*3 > sh*4 ? (rh = sh; rw = floor(sh*4/3);) : (rw = sw; rh = floor(sw*3/4););
+  rw = max(8, rw); rh = max(6, rh);
+  rx = floor((sw-rw)/2); ry = floor((sh-rh)/2);
+  rw > 640 ? (niw = 640; nih = max(6, floor(640*rh/rw+0.5));) : (niw = rw; nih = rh;);
+  niw != IW || nih != IH ? setup_res(niw, nih);
+);
+
+function build_noise(j) local(x, y, i, n, ox, oy, r)
+(
+  ox = floor(rand(512)); oy = floor(rand(512));
+  noff[j*2] = ox; noff[j*2+1] = oy;
+  gfx_dest = IMG_NZ+j; gfx_a = 1; gfx_mode = 0;
+  i = 0; y = 0;
+  loop(IH,
+    x = 0;
+    loop(IW,
+      n = noisearr+((((y+oy)&511)*512)+((x+ox)&511))*3;
+      r = bri[i];
+      gfx_x = x; gfx_y = y;
+      gfx_setpixel(n[0]*r+0.002, n[1]*r+0.002, n[2]*r+0.002);
+      i += 1; x += 1;
+    );
+    y += 1;
+  );
+);
+
+function capture_uniforms() local(d)
+(
+  s_gd = gd; s_vd = vd; s_cr = col_r; s_cg = col_g; s_cb = col_b;
+  d = 0.55735*(col_r+col_g+col_b);
+  s_p = 0.55735*d;
+  s_ur = col_r-s_p; s_ug = col_g-s_p; s_ub = col_b-s_p;
+  s_vr = 0.55735*(s_ub-s_ug);
+  s_vg = 0.55735*(s_ur-s_ub);
+  s_vb = 0.55735*(s_ug-s_ur);
+);
+
+function build_static() local(x, y, i, r, g, b, a, cs, sn, gm)
+(
+  capture_uniforms();
+  gfx_dest = IMG_STATIC; gfx_a = 1; gfx_mode = 0;
+  i = 0; y = 0;
+  loop(IH,
+    x = 0;
+    loop(IW,
+      r = bri[i]; g = bgi[i]; b = bbi[i];
+      a = (b+r-1)*-0.31416;
+      cs = cos(a); sn = sin(a);
+      gm = (1-(1-g)*s_gd)*s_vd*r;
+      gfx_x = x; gfx_y = y;
+      gfx_setpixel((s_ur*cs+s_vr*sn+s_p)*gm+b*s_vd+0.002,
+                   (s_ug*cs+s_vg*sn+s_p)*gm+b*s_vd+0.002,
+                   (s_ub*cs+s_vb*sn+s_p)*gm+b*s_vd+0.002);
+      i += 1; x += 1;
+    );
+    y += 1;
+  );
+  static_dirty = 0;
+);
+
+function pad_edges() local(y, p, v, k)
+(
+  y = 0;
+  loop(IH,
+    p = r0+y*RS;
+    v = p[0]; k = 1; loop(PAD, p[-k] = v; k += 1;);
+    v = p[IW-1]; k = 0; loop(PAD, p[IW+k] = v; k += 1;);
+    y += 1;
+  );
+  k = 1;
+  loop(PAD,
+    memcpy(r0-PAD-k*RS, r0-PAD, RS);
+    memcpy(r0-PAD+(IH-1+k)*RS, r0-PAD+(IH-1)*RS, RS);
+    k += 1;
+  );
+);
+
+function splat_run(p, n) local(v, q, k)
+(
+  loop(n,
+    v = p[0];
+    v ? (
+      q = ab0+(p-r0);
+      k = 0;
+      loop(nk, q[-koff[k]] += v*kw[k]; k += 1;);
+    );
+    p += 1;
+  );
+);
+
+function splat() local(t, tx, ty, y, y1, x0, w, k)
+(
+  memset(abuf, 0, RS*(IH+4*PAD+1));
+  t = 0; ty = 0;
+  loop(TH,
+    tx = 0;
+    loop(TW,
+      tnz[t] ? (
+        y = ty*16; y1 = min(IH, y+16);
+        x0 = tx*16; w = min(IW, x0+16)-x0;
+        loop(y1-y, splat_run(r0+y*RS+x0, w); y += 1;);
+      );
+      t += 1; tx += 1;
+    );
+    ty += 1;
+  );
+  y = 0;
+  loop(IH,
+    splat_run(r0+y*RS-PAD, PAD);
+    splat_run(r0+y*RS+IW, PAD);
+    y += 1;
+  );
+  k = 1;
+  loop(PAD,
+    splat_run(r0-PAD-k*RS, RS);
+    splat_run(r0-PAD+(IH-1+k)*RS, RS);
+    k += 1;
+  );
+);
+
+function bloom_dilate() local(x, y, m, k, j)
+(
+  y = 0;
+  loop(30,
+    x = 0;
+    loop(40,
+      m = 0; k = max(0, x-5);
+      loop(min(39, x+5)-k+1, m = max(m, bloomb[y*40+k]); k += 1;);
+      bloomt[y*40+x] = m;
+      x += 1;
+    );
+    y += 1;
+  );
+  x = 0;
+  loop(40,
+    y = 0;
+    loop(30,
+      m = 0; j = max(0, y-5);
+      loop(min(29, y+5)-j+1, m = max(m, bloomt[j*40+x]); j += 1;);
+      bloomm[y*40+x] = m;
+      y += 1;
+    );
+    x += 1;
+  );
+);
+
+function process_tile(x0, x1, y0, y1, ract, bact)
+  local(x, y, i, ap, rv, bv, gx, gy, fx, fy, g, bf, r, gg, b, a, cs, sn, hr_, hg_, hb_, gm, l, lg, n, e1, pr, pg, pb, bvk)
+(
+  bact ? ensure_grid(floor(x0/4), floor((x1-1)/4)+1, floor(y0/4), floor((y1-1)/4)+1);
+  e1 = 1-s_vd;
+  bvk = 0.3*(s_vd+1);
+  y = y0;
+  loop(y1-y0,
+    x = x0; i = y*IW+x0; ap = ab0+y*RS+x0;
+    gy = floor(y/4); fy = (y-gy*4)/4;
+    loop(x1-x0,
+      rv = 0;
+      ract ? (
+        rv = ap[0];
+        rv > 0 ? rv = sin(rv*1.5707963268);
+      );
+      bv = 0;
+      bact ? (
+        gx = floor(x/4); fx = (x-gx*4)/4;
+        g = bfg+gy*GW+gx;
+        bf = (g[0]*(1-fx)+g[1]*fx)*(1-fy)+(g[GW]*(1-fx)+g[GW+1]*fx)*fy;
+        bv = bf*bf*bf*bvk;
+      );
+      rv > 0 || bv > 0.0004 ? (
+        r = bri[i]; gg = bgi[i]; b = bbi[i];
+        a = ((rv+bv)*r+b+r-1)*-0.31416;
+        cs = cos(a); sn = sin(a);
+        hr_ = s_ur*cs+s_vr*sn+s_p;
+        hg_ = s_ug*cs+s_vg*sn+s_p;
+        hb_ = s_ub*cs+s_vb*sn+s_p;
+        gm = 1-(1-gg)*s_gd;
+        l = rv*gm+bv;
+        l > 0 ? (
+          lg = log(l);
+          pr = exp(lg*((3-hr_*2)*e1+s_vd));
+          pg = exp(lg*((3-hg_*2)*e1+s_vd));
+          pb = exp(lg*((3-hb_*2)*e1+s_vd));
+        ) : (
+          pr = pg = pb = 0;
+        );
+        n = noisearr+((((y+noy)&511)*512)+((x+nox)&511))*3;
+        gfx_x = x; gfx_y = y;
+        gfx_setpixel((hr_*s_vd*gm+pr-n[0]*nzk)*r+b*s_vd+0.002,
+                     (hg_*s_vd*gm+pg-n[1]*nzk)*r+b*s_vd+0.002,
+                     (hb_*s_vd*gm+pb-n[2]*nzk)*r+b*s_vd+0.002);
+      );
+      x += 1; i += 1; ap += 1;
+    );
+    y += 1;
+  );
+);
+
+function composite() local(j, tx, ty, x0, x1, y0, y1, ract, bact, dx, dy, u0, u1, v0, v1, u, v, bm, bb)
+(
+  (static_dirty || abs(gd-s_gd) > 0.0004 || abs(vd-s_vd) > 0.0004 ||
+   abs(col_r-s_cr) > 0.0004 || abs(col_g-s_cg) > 0.0004 || abs(col_b-s_cb) > 0.0004) ? build_static();
+  noise_built < 8 ? (build_noise(noise_built); noise_built += 1;);
+  j = floor(rand(noise_built));
+  nox = noff[j*2]; noy = noff[j*2+1];
+  nzk = 0.09*(s_vd*0.75+0.25);
+
+  gfx_dest = IMG_OUT; gfx_a = 1; gfx_mode = 6;
+  gfx_blit(IMG_STATIC, 1, 0, 0, 0, IW, IH, 0, 0, IW, IH);
+  gfx_mode = 7; gfx_a = -nzk;
+  gfx_blit(IMG_NZ+j, 1, 0, 0, 0, IW, IH, 0, 0, IW, IH);
+  gfx_a = 1; gfx_mode = 0;
+
+  pad_edges();
+  splat();
+  bloom_dilate();
+  frame_id += 1;
+
+  ty = 0;
+  loop(TH,
+    y0 = ty*16; y1 = min(IH, y0+16);
+    v0 = max(0, floor((y0+0.5)/IH*30-0.5));
+    v1 = min(29, floor((y1-0.5)/IH*30-0.5)+1);
+    tx = 0;
+    loop(TW,
+      x0 = tx*16; x1 = min(IW, x0+16);
+      ract = 0;
+      dy = max(0, ty-1);
+      loop(min(TH-1, ty+1)-dy+1,
+        dx = max(0, tx-1);
+        loop(min(TW-1, tx+1)-dx+1, tnz[dy*TW+dx] ? ract = 1; dx += 1;);
+        dy += 1;
+      );
+      u0 = max(0, floor((x0+0.5)/IW*40-0.5));
+      u1 = min(39, floor((x1-0.5)/IW*40-0.5)+1);
+      bm = 0; v = v0;
+      loop(v1-v0+1, u = u0; loop(u1-u0+1, bm = max(bm, bloomm[v*40+u]); u += 1;); v += 1;);
+      bb = bm/255*1.8035;
+      bact = bb*bb*bb*0.3*(s_vd+1) > 0.0004;
+      ract || bact ? process_tile(x0, x1, y0, y1, ract, bact);
+      tx += 1;
+    );
+    ty += 1;
+  );
+  gfx_dest = -1;
+);
+
+// Settings panel
+
+function add_row(id, x, y, w, h, t)
+(
+  rrid[nrows] = id; rrx[nrows] = x; rry[nrows] = y; rrw[nrows] = w; rrh[nrows] = h; rrt[nrows] = t;
+  nrows += 1;
+);
+
+function build_rows() local(y)
+(
+  nrows = 0;
+  y = BODY;
+  add_row(0, C1, y, CW, 28, 0); y += 28;
+  add_row(p_xy < 0.5 ? 1 : 2, C1, y, CW, 42, 1); y += 42;
+  add_row(3, C1, y, CW, 42, 1); y += 42;
+  add_row(4, C1, y, CW, 28, 0); y += 28;
+  p_xy < 0.5 ? (add_row(5, C1, y, CW, 28, 0); y += 28;);
+  add_row(6, C1, y, CW, 28, 0);
+  y = BODY;
+  add_row(10, C2, y, CW, 36, 3); y += 36;
+  add_row(7, C2, y, CW, 42, 2); y += 42;
+  add_row(8, C2, y, CW, 42, 2); y += 42;
+  add_row(9, C2, y, CW, 42, 2);
+  add_row(-3, PW-C1-136, FOOT+12, 136, 28, 4);
+  add_row(-4, PW-42, 10, 26, 26, 5);
+);
+
+function swatch_x(i) ( C2+11+i*(CW-22)/7; );
+
+function recalc_hover(x, y) local(k, res, i)
+(
+  build_rows();
+  res = -1; hsw = -1; k = 0;
+  loop(nrows,
+    res == -1 && x >= rrx[k]-8 && x < rrx[k]+rrw[k]+8 && y >= rry[k] && y < rry[k]+rrh[k] ? (
+      res = rrid[k];
+      rrt[k] == 3 ? (
+        i = 0;
+        loop(8, abs(x-swatch_x(i)) <= 13 ? hsw = i; i += 1;);
+        hsw < 0 ? res = -1;
+      );
+    );
+    k += 1;
+  );
+  res;
+);
+
+function preset_index() local(k, res)
+(
+  res = -1; k = 0;
+  loop(8,
+    res < 0 && abs(p_hue-presets[k*3]) < 0.0005 && abs(p_sat-presets[k*3+1]) < 0.0005 && abs(p_val-presets[k*3+2]) < 0.0005 ? res = k;
+    k += 1;
+  );
+  res;
+);
+
+function apply_preset(m)
+(
+  p_hue = presets[m*3]; p_sat = presets[m*3+1]; p_val = presets[m*3+2];
+  slider_automate(128|256|512);
+  slider_automate(128|256|512, 1);
+);
+
+function row_label(id)
+(
+  id == 0 ? "XY mode" : id == 1 || id == 2 ? "Time" : id == 3 ? "Scale" : id == 4 ? "Hold" :
+  id == 5 ? "Sync" : id == 6 ? "Grid" : id == 7 ? "Hue" : id == 8 ? "Saturation" : "Brightness";
+);
+
+function row_value(id)
+(
+  id == 1 ? strcpy(#val, 101) :
+  id == 2 ? strcpy(#val, 102) :
+  id == 3 ? sprintf(#val, "+%.1f dB", floor(p_scale*400+0.5)*0.1) :
+  id == 7 ? sprintf(#val, "%d°", floor(p_hue*360+0.5)) :
+  sprintf(#val, "%d%%", floor(getp(id)*100+0.5));
+);
+
+function font(sz, b) ( gfx_setfont(1, "Arial", (sz+2)*pscale, b ? 'b' : 0); );
+
+function text(str, x, y, align) local(tw, th)
+(
+  gfx_measurestr(str, tw, th);
+  gfx_x = pxo+x*pscale-(align == 1 ? tw : align == 2 ? tw*0.5 : 0);
+  gfx_y = floor(pyo+y*pscale-th*0.5);
+  gfx_drawstr(str);
+);
+
+function rfill(x, y, w, h, r) local(X0, Y0, W, H, R, j, d, ins, fi, a0)
+(
+  X0 = floor(pxo+x*pscale+0.5); Y0 = floor(pyo+y*pscale+0.5);
+  W = floor(w*pscale+0.5); H = floor(h*pscale+0.5); R = min(r*pscale, min(W, H)*0.5);
+  a0 = gfx_a;
+  j = 0;
+  loop(H,
+    d = j+0.5 < R ? R-j-0.5 : j+0.5 > H-R ? j+0.5-H+R : 0;
+    ins = d > 0 ? R-sqrt(max(0, R*R-d*d)) : 0;
+    fi = ceil(ins);
+    gfx_rect(X0+fi, Y0+j, W-2*fi, 1);
+    fi > ins ? (
+      gfx_a = a0*(fi-ins);
+      gfx_rect(X0+fi-1, Y0+j, 1, 1); gfx_rect(X0+W-fi, Y0+j, 1, 1);
+      gfx_a = a0;
+    );
+    j += 1;
+  );
+);
+
+function rframe(x, y, w, h, r)
+(
+  gfx_roundrect(floor(pxo+x*pscale+0.5), floor(pyo+y*pscale+0.5), floor(w*pscale+0.5)-1, floor(h*pscale+0.5)-1, r*pscale, 1);
+);
+
+function circle(x, y, r, fill) ( gfx_circle(pxo+x*pscale, pyo+y*pscale, r*pscale, fill, 1); );
+
+function knob(x, y, cr, cg, cb)
+(
+  gfx_set(0, 0, 0, 0.35); circle(x, y+1, 8, 1);
+  gfx_set(1, 1, 1, 1); circle(x, y, 7, 1);
+  gfx_set(cr, cg, cb, 1); circle(x, y, 4.5, 1);
+);
+
+function grad_track(id, x, y, w, h) local(X0, Y0, W, H, R, c, u, e, ins)
+(
+  X0 = floor(pxo+x*pscale+0.5); Y0 = floor(pyo+y*pscale+0.5);
+  W = floor(w*pscale+0.5); H = floor(h*pscale+0.5); R = H*0.5;
+  gfx_a = 1;
+  c = 0;
+  loop(W,
+    u = (c+0.5)/W;
+    id == 7 ? juce_hsv(u, 0.85, 1) : id == 8 ? juce_hsv(p_hue, u, 1) : juce_hsv(p_hue, p_sat, 0.12+0.88*u);
+    gfx_r = hr; gfx_g = hg; gfx_b = hb;
+    e = min(c+0.5, W-c-0.5);
+    ins = e < R ? R-sqrt(max(0, R*R-(R-e)*(R-e))) : 0;
+    gfx_rect(X0+c, Y0+floor(ins+0.5), 1, H-2*floor(ins+0.5));
+    c += 1;
+  );
+);
+
+function draw_row(k) local(id, x, y, w, h, t, v, on, tx, act, sel, i, cx)
+(
+  id = rrid[k]; x = rrx[k]; y = rry[k]; w = rrw[k]; h = rrh[k]; t = rrt[k];
+  act = hover == id || initialdrag == id;
+  t <= 2 && act ? (gfx_set(1, 1, 1, initialdrag == id ? 0.07 : 0.045); rfill(x-8, y+1, w+16, h-2, 7););
+  t <= 2 ? (
+    v = getp(id);
+    font(12, 0);
+    gfx_set(0.88, 0.9, 0.94, 1);
+    text(row_label(id), x, y+(t == 0 ? h*0.5 : 13), 0);
+  );
+  t == 0 ? (
+    on = v > 0.5; tx = x+w-36;
+    on ? gfx_set(acr, acg, acb, 1) : gfx_set(0.27, 0.29, 0.35, 1);
+    rfill(tx, y+5, 36, 18, 9);
+    on ? gfx_set(1, 1, 1, 1) : gfx_set(0.78, 0.8, 0.84, 1);
+    circle(on ? tx+27 : tx+9, y+14, 6.5, 1);
+  ) : t == 1 ? (
+    row_value(id); font(12, 1);
+    act ? gfx_set(acr, acg, acb, 1) : gfx_set(0.62, 0.65, 0.72, 1);
+    text(#val, x+w, y+13, 1);
+    gfx_set(0.24, 0.26, 0.32, 1); rfill(x, y+29, w, 4, 2);
+    gfx_set(acr, acg, acb, 1); v > 0.005 ? rfill(x, y+29, max(4, w*v), 4, 2);
+    knob(x+w*v, y+31, acr, acg, acb);
+  ) : t == 2 ? (
+    row_value(id); font(12, 1);
+    act ? gfx_set(acr, acg, acb, 1) : gfx_set(0.62, 0.65, 0.72, 1);
+    text(#val, x+w, y+13, 1);
+    grad_track(id, x, y+27, w, 8);
+    id == 7 ? juce_hsv(p_hue, 0.85, 1) : id == 8 ? juce_hsv(p_hue, p_sat, 1) : juce_hsv(p_hue, p_sat, 0.12+0.88*p_val);
+    knob(x+w*v, y+31, hr, hg, hb);
+  ) : t == 3 ? (
+    sel = preset_index();
+    i = 0;
+    loop(8,
+      cx = swatch_x(i);
+      i == sel || (hover == 10 && hsw == i) ? (
+        i == sel ? gfx_set(0.95, 0.96, 1, 1) : gfx_set(0.5, 0.53, 0.6, 1);
+        circle(cx, y+18, 14, 1);
+        gfx_set(0.055, 0.065, 0.09, 1); circle(cx, y+18, 12.5, 1);
+      );
+      juce_hsv(presets[i*3], presets[i*3+1], 0.35+presets[i*3+2]);
+      gfx_set(hr, hg, hb, 1); circle(cx, y+18, 10.5, 1);
+      i += 1;
+    );
+  ) : t == 4 ? (
+    time_precise() < saved_t ? (
+      gfx_set(acr, acg, acb, 0.3); rfill(x, y, w, h, 7);
+      gfx_set(acr, acg, acb, 1); rframe(x, y, w, h, 7);
+      gfx_set(1, 1, 1, 1); font(12, 1); text("Saved", x+w*0.5, y+h*0.5, 2);
+    ) : (
+      act ? gfx_set(acr, acg, acb, initialdrag == id ? 0.35 : 0.2) : gfx_set(1, 1, 1, 0.06);
+      rfill(x, y, w, h, 7);
+      act ? gfx_set(acr, acg, acb, 1) : gfx_set(0.33, 0.36, 0.44, 1);
+      rframe(x, y, w, h, 7);
+      gfx_set(0.92, 0.94, 0.97, 1); font(12, 1); text("Save as default", x+w*0.5, y+h*0.5, 2);
+    );
+  ) : t == 5 ? (
+    act ? (gfx_set(1, 1, 1, 0.08); circle(x+13, y+13, 13, 1););
+    act ? gfx_set(1, 1, 1, 1) : gfx_set(0.62, 0.65, 0.72, 1);
+    cx = 4.5*pscale;
+    i = 0;
+    loop(2,
+      gfx_line(pxo+(x+13)*pscale-cx+i, pyo+(y+13)*pscale-cx, pxo+(x+13)*pscale+cx+i, pyo+(y+13)*pscale+cx, 1);
+      gfx_line(pxo+(x+13)*pscale+cx+i, pyo+(y+13)*pscale-cx, pxo+(x+13)*pscale-cx+i, pyo+(y+13)*pscale+cx, 1);
+      i += 1;
+    );
+  );
+);
+
+function draw_panel() local(k, pi)
+(
+  gfx_dest = -1; gfx_mode = 0;
+  juce_hsv(p_hue, p_sat, 1);
+  acr = 0.2+0.8*hr; acg = 0.2+0.8*hg; acb = 0.2+0.8*hb;
+  gfx_set(0, 0, 0, 0.3); rfill(-3, 2, PW+6, PH+4, 14);
+  gfx_set(0.055, 0.065, 0.09, 0.93); rfill(0, 0, PW, PH, 12);
+  gfx_set(0.24, 0.27, 0.34, 1); rframe(0, 0, PW, PH, 12);
+  gfx_set(acr, acg, acb, 1); circle(C1+4, 23, 4, 1);
+  gfx_set(0.95, 0.96, 0.98, 1); font(14, 1); text("Scope", C1+16, 23, 0);
+  gfx_set(1, 1, 1, 0.08);
+  rfill(C1-8, 46, PW-2*C1+16, 1, 0);
+  rfill(PW*0.5, BODY-8, 1, FOOT-BODY+4, 0);
+  rfill(C1-8, FOOT, PW-2*C1+16, 1, 0);
+  font(9, 1); gfx_set(0.56, 0.58, 0.64, 1);
+  text("DISPLAY", C1, 62, 0);
+  text("COLOUR", C2, 62, 0);
+  pi = preset_index();
+  font(11, 1); gfx_set(acr, acg, acb, 1);
+  text(pi >= 0 ? 200+pi : "Custom", C2+CW, 62, 1);
+  font(10, 0); gfx_set(0.56, 0.58, 0.64, 1);
+  text("Shift-drag: fine  ·  Double-click: reset", C1, FOOT+26, 0);
+  build_rows();
+  k = 0;
+  loop(nrows, draw_row(k); k += 1;);
+  gfx_a = 1;
+);
+
+function panel_down(lx, ly) local(now)
+(
+  hover = recalc_hover(lx, ly);
+  initialdrag = hover;
+  hover >= 0 && hover < 10 ? (
+    initialvalue = getp(hover);
+    valueoffset = 0;
+    finemode = (mouse_cap & 24) != 0;
+    isbool(hover) ? setp(hover, 1-initialvalue) : (dragx = lx; dragy = ly;);
+  );
+  hover == 10 && hsw >= 0 ? apply_preset(hsw);
+  now = time_precise();
+  now-lastclick < 0.4 && hover == lastclick_hover && hover >= 0 && hover < 10 && !isbool(hover) ? setp(hover, defaultv[hover]);
+  lastclick = now; lastclick_hover = hover;
+);
+
+function panel_drag(lx, ly) local(h, fine, d, value)
+(
+  initialdrag >= 0 && initialdrag < 10 ? (
+    isbool(initialdrag) ? (
+      h = recalc_hover(lx, ly);
+      hover = (h == initialdrag ? initialdrag : -1);
+      value = (initialdrag == hover ? 1-initialvalue : initialvalue);
+      getp(initialdrag) != value ? setp(initialdrag, value);
+    ) : (
+      fine = (mouse_cap & 24) != 0;
+      d = (ly-dragy)-(lx-dragx);
+      !finemode && fine ? (
+        finemode = 1; initialvalue -= d*0.0045;
+      ) : (
+        finemode && !fine ? (finemode = 0; initialvalue += d*0.0045;);
+      );
+      value = initialvalue-d*(finemode ? 0.0005 : 0.005);
+      setp(initialdrag, value-valueoffset);
+      valueoffset = max(min(valueoffset, value+0.1), value-1.1);
+    );
+  ) : initialdrag == -3 || initialdrag == -4 ? (
+    h = recalc_hover(lx, ly);
+    hover = (h == initialdrag ? initialdrag : -1);
+  );
+);
+
+function panel_up(lx, ly) local(i)
+(
+  initialdrag >= 0 && initialdrag < 10 ? (
+    slider_automate(2^initialdrag, 1);
+  ) : initialdrag == -3 && hover == -3 ? (
+    i = 0; loop(10, defaultv[i] = getp(i); i += 1;);
+    saved_t = time_precise()+1.5;
+  ) : initialdrag == -4 && hover == -4 ? (
+    panel_open = 0;
+  );
+  hover = recalc_hover(lx, ly);
+  initialdrag = -1;
+);
+
+function handle_mouse() local(down, lx, ly, inp, wheel)
+(
+  down = mouse_cap & 1;
+  lx = (mouse_x-pxo)/pscale; ly = (mouse_y-pyo)/pscale;
+  inp = panel_open && lx >= 0 && lx < PW && ly >= 0 && ly < PH;
+  wheel = mouse_wheel; mouse_wheel = 0;
+  down && !was_down ? (
+    inp ? panel_down(lx, ly) : (
+      panel_open = !panel_open;
+      hover = -1; initialdrag = -1;
+    );
+  ) : down && was_down ? (
+    panel_open && (lx != last_lx || ly != last_ly || (mouse_cap & 24) != last_mods) ? panel_drag(lx, ly);
+    panel_open && initialdrag >= 0 && initialdrag < 10 && !isbool(initialdrag) ? mouse_cap |= 65536;
+  ) : !down && was_down ? (
+    panel_open ? panel_up(lx, ly);
+  ) : (
+    hover = (inp ? recalc_hover(lx, ly) : -1);
+    wheel != 0 && inp && hover >= 0 && hover < 10 && !isbool(hover) ? (
+      setp(hover, getp(hover)+wheel/120*0.234375*((mouse_cap & 24) ? 0.03 : 0.2));
+    );
+  );
+  last_lx = lx; last_ly = ly; last_mods = mouse_cap & 24; was_down = down;
+);
+
+function step()
+(
+  idle_blocks = 0;
+  p_time != lp_time ? (lp_time = p_time; sprintf(101, "%g ms", time_ms(p_xy > 0.5)););
+  p_timexy != lp_timexy ? (lp_timexy = p_timexy; sprintf(102, "%g ms", time_ms(p_xy > 0.5)););
+  calcvis();
+  render_lines();
+  gd = griddamp.dnext(p_grid);
+  juce_hsv(p_hue, p_sat, 1);
+  col_r = rdamp.dnext(hr); col_g = gdamp.dnext(hg); col_b = bdamp.dnext(hb);
+  vd = vdamp.dnext(p_val);
+);
+
+function read_image(slot, w, h, dst) local(x, y, i, rr, gg, bb)
+(
+  gfx_dest = slot;
+  i = 0; y = 0;
+  loop(h,
+    x = 0;
+    loop(w,
+      gfx_x = x; gfx_y = y;
+      gfx_getpixel(rr, gg, bb);
+      dst[i] = rr; dst[i+1] = gg; dst[i+2] = bb;
+      i += 3; x += 1;
+    );
+    y += 1;
+  );
+  gfx_dest = -1;
+);
+
+function gui_init() local(i)
+(
+  gui_ok = load_img(IMG_BASE, "base.png") && load_img(IMG_NOISE, "noise.png");
+  gui_ok ? (
+    gfx_getimgdim(IMG_BASE, BW0, BH0);
+    BW0*BH0 > 480000 || BW0 < 2 || BH0 < 2 ? gui_ok = 0;
+  );
+  gui_ok ? (
+    read_image(IMG_BASE, BW0, BH0, baseraw);
+    read_image(IMG_NOISE, 512, 512, noisearr);
+    i = 0; loop(512*512*3, noisearr[i] = 1-noisearr[i]; i += 1;);
+
+
+    juce_hsv(p_hue, p_sat, 1);
+    ampdamp.dreset(p_scale, 0.08);
+    griddamp.dreset(p_grid, 0.08);
+    rdamp.dreset(hr, 0.15); gdamp.dreset(hg, 0.15); bdamp.dreset(hb, 0.15);
+    vdamp.dreset(p_val, 0.15);
+    gd = p_grid; col_r = hr; col_g = hg; col_b = hb; vd = p_val;
+    sprintf(101, "%g ms", time_ms(0)); sprintf(102, "%g ms", time_ms(1));
+    lp_time = p_time; lp_timexy = p_timexy;
+    IW = IH = 0;
+    last_t = 0; acc = 0;
+  );
+  gui_ready = 1;
+);
+
+@block
+nch = max(1, min(8, num_ch));
+nch != channelnum || srate != cur_srate ? reset_everything();
+capture = !(p_hold > 0.5 || idle_blocks > srate);
+capture ? idle_blocks += 1;
+tsamp = (p_xy < 0.5 ? p_time^5*240+0.05 : p_timexy^4*16+0.05)/48000*srate;
+ftime = floor(tsamp);
+finv = 1/max(1, ftime);
+zoomout = p_xy < 0.5 && p_time > 0.73;
+
+@sample
+capture ? (
+  sp = osci+oscindex;
+  oscskip == 0 ? (c = 0; loop(channelnum, sp[c*oscisize] = 0; c += 1;););
+  c = 0;
+  zoomout ? (
+    loop(channelnum, smp = spl(c); sp[c*oscisize] += smp*smp; c += 1;);
+  ) : (
+    loop(channelnum, sp[c*oscisize] += spl(c); c += 1;);
+  );
+  oscskip += 1;
+  oscskip >= ftime ? (
+    oscskip = 0;
+    c = 0;
+    zoomout ? (
+      oscimode[oscindex] = 1;
+      loop(channelnum, sp[c*oscisize] = sqrt(finv*sp[c*oscisize]); c += 1;);
+    ) : (
+      oscimode[oscindex] = 0;
+      loop(channelnum, sp[c*oscisize] *= finv; c += 1;);
+    );
+    oscindex += 1;
+    oscindex >= oscisize ? oscindex = 0;
+    active = 1;
+  );
+);
+
+@serialize
+file_var(0, panel_open);
+file_mem(0, defaultv, 10);
+
+@gfx 533 400
+!gui_ready ? gui_init();
+gui_ok ? (
+  layout();
+  pscale = max(0.5, min(max(1, gfx_ext_retina), min((gfx_w-12)/PW, (gfx_h-12)/PH)));
+  pxo = max(0, floor((gfx_w-PW*pscale)/2));
+  pyo = max(0, floor((gfx_h-PH*pscale)/2));
+  now = time_precise();
+  acc += min(0.2, max(0, now-last_t));
+  last_t = now;
+  nsteps = 0;
+  while (acc >= 1/30 && nsteps < 2) (acc -= 1/30; step(); nsteps += 1;);
+  acc >= 1/30 ? acc = 0;
+  handle_mouse();
+  nsteps > 0 || need_comp ? (
+    composite();
+    need_comp = 0;
+  );
+  gfx_dest = -1; gfx_a = 1;
+  gfx_mode = (rw == IW && rh == IH ? 6 : 2);
+  gfx_blit(IMG_OUT, 1, 0, 0, 0, IW, IH, rx, ry, rw, rh);
+  gfx_mode = 0;
+  panel_open ? draw_panel();
+) : (
+  gfx_set(1, 1, 1, 1);
+  gfx_x = 10; gfx_y = 10;
+  gfx_drawstr("Scope: images not found in Data/Scope or Dependencies/Scope");
+);

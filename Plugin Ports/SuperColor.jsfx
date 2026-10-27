@@ -1,0 +1,633 @@
+desc: Super Color (unplugred MPaint port) by chmaha
+tags: instrument
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  A sampler from a popular video game: fifteen sounds (mario, mushroom, yoshi, star, flower, gameboy, dog, cat,
+  pig, duck, face, plane, ship, car, heart) playable from B3 to G5 (MIDI notes 59-79). Click an icon to pick a
+  sound (the icons are laid out in a grid that fills the window); the LIMIT VOICES switch toggles voice limiting
+  (on: the original's monophonic/three-voice note handling). The on-screen keyboard covers the playable range:
+  click or drag across it to play the current sound.
+  Ported from unplugred's MPaint (https://github.com/unplugred/vsts), AGPLv3+.
+  Samples and images by unplugred, CC BY-NC (see Dependencies/SuperColor/SuperColor-LICENSE.txt); samples joined into one
+  stereo FLAC at 12-bit.
+  JSFX code released under AGPLv3+ license
+  Claude Opus 5.x may have generated some of the port of this code
+provides:
+  Dependencies/SuperColor/SuperColor.flac
+  Dependencies/SuperColor/SuperColorIcons.png
+  Dependencies/SuperColor/SuperColorError.png
+  Dependencies/SuperColor/SuperColor-LICENSE.txt
+
+slider1:sound=0<0,14,1{mario,mushroom,yoshi,star,flower,gameboy,dog,cat,pig,duck,face,plane,ship,car,heart}>-Sound
+slider2:limit=1<0,1,1{off,on}>-Limit Voices
+
+in_pin:none
+out_pin:left output
+out_pin:right output
+
+options:maxmem=16777216 no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+last_srate = srate;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+
+NV = 8;
+IMG_GRID = 0; IMG_ICON = 1; IMG_ERR = 2; IMG_ERRK = 3;
+
+alloc.mp = 0;
+lens = alloc(315); sofs = alloc(315); cnt = alloc(15);
+vn = alloc(120); vpos = alloc(120); venv = alloc(120); vst = alloc(120); vrr = alloc(120);
+vkey = alloc(120); vtime = alloc(120); vsmp = alloc(120);
+vcyc = alloc(3); vheld = alloc(3);
+kst = alloc(21); kq = alloc(192);
+c.et = alloc(1024); c.ety = alloc(1024); c.en = alloc(1024); c.ee = alloc(1024);
+p.et = alloc(1024); p.ety = alloc(1024); p.en = alloc(1024); p.ee = alloc(1024);
+
+function set_rate() ( samplerate = srate; ratio = 44100/srate; );
+
+function kill_all() local(i) ( i = 0; loop(120, vn[i] = -1; venv[i] = 0; vst[i] = 0; i += 1;); );
+
+function adsr_next(i)
+(
+  vst[i] == 1 ? venv[i] = 1 : vst[i] == 2 ? (
+    venv[i] -= vrr[i];
+    venv[i] <= 0 ? (venv[i] = 0; vst[i] = 0;);
+  );
+  venv[i];
+);
+
+function adsr_off(i) ( vst[i] ? (vrr[i] = venv[i]/(0.008*44100); vst[i] = 2;); );
+
+function stop_hard(i) ( vn[i] = -1; venv[i] = 0; vst[i] = 0; );
+
+function steal(s, n) local(b, i, k, low, top, res)
+(
+  b = s*NV;
+  low = top = -1;
+  i = b;
+  loop(NV,
+    vkey[i] ? (
+      low < 0 || vn[i] < vn[low] ? low = i;
+      top < 0 || vn[i] > vn[top] ? top = i;
+    );
+    i += 1;
+  );
+  top == low ? top = -1;
+  k = 0; res = -1;
+  while (k < 4 && res < 0) (
+    i = b;
+    loop(NV,
+      (k == 0 ? vn[i] == n : k == 1 ? i != low && i != top && !vkey[i] : k == 2 ? i != low && i != top : 0) ? (
+        res < 0 || vtime[i] < vtime[res] ? res = i;
+      );
+      i += 1;
+    );
+    k += 1;
+  );
+  res < 0 ? res = top >= 0 ? top : low;
+  res;
+);
+
+function syn_note_on(s, n) local(b, i, v, k)
+(
+  k = s*21+n-59;
+  lens[k] > 0 ? (
+    b = s*NV;
+    i = b; loop(NV, vn[i] == n ? adsr_off(i); i += 1;);
+    v = -1;
+    i = b; loop(NV, v < 0 && vn[i] < 0 ? v = i; i += 1;);
+    v < 0 ? v = steal(s, n);
+    vn[v] >= 0 ? stop_hard(v);
+    vn[v] = n; vsmp[v] = k;
+    cnt[s] += 1; vtime[v] = cnt[s];
+    vkey[v] = 1; vpos[v] = 0; venv[v] = 1; vst[v] = 1;
+  );
+);
+
+function syn_note_off(s, n) local(i)
+(
+  i = s*NV; loop(NV, vn[i] == n ? (vkey[i] = 0; adsr_off(i);); i += 1;);
+);
+
+function syn_all_off(s) local(i)
+(
+  i = s*NV; loop(NV, vn[i] >= 0 ? adsr_off(i); i += 1;);
+);
+
+function syn_render(s) local(i, k, d, q, a, l, r, e)
+(
+  i = s*NV;
+  loop(NV,
+    vn[i] >= 0 ? (
+      k = vsmp[i]; d = sofs[k];
+      q = floor(vpos[i]); a = vpos[i]-q;
+      d += q*2;
+      l = d[0]*(1-a)+d[2]*a;
+      r = d[1]*(1-a)+d[3]*a;
+      e = adsr_next(i);
+      outl += l*e; outr += r*e;
+      vpos[i] += ratio;
+      vpos[i] > lens[k] ? stop_hard(i);
+    );
+    i += 1;
+  );
+);
+
+function ev_add(t, ty, n) instance(num, et, ety, en) local(j)
+(
+  num < 1024 ? (
+    j = num;
+    while (j > 0 && et[j-1] > t) (et[j] = et[j-1]; ety[j] = ety[j-1]; en[j] = en[j-1]; j -= 1;);
+    et[j] = t; ety[j] = ty; en[j] = n;
+    num += 1;
+  );
+);
+
+function ev_eff(len) instance(num, pos, et, ee) local(st, first, late, k, d)
+(
+  st = 0; first = 1; late = 0; k = 0;
+  loop(num,
+    late ? ee[k] = len : (
+      d = et[k]-st;
+      d >= len-st ? (late = 1; ee[k] = len;) :
+      d < (first ? 1 : 32) ? ee[k] = st : (first = 0; ee[k] = st = et[k];);
+    );
+    k += 1;
+  );
+  pos = 0;
+);
+
+function ev_run(s, t) instance(num, pos, ety, en, ee)
+(
+  while (pos < num && ee[pos] <= t) (
+    ety[pos] == 1 ? syn_note_on(s, en[pos]) : ety[pos] == 2 ? syn_note_off(s, en[pos]) : syn_all_off(s);
+    pos += 1;
+  );
+);
+
+function check_sound()
+(
+  sound = max(0, min(14, floor(sound+0.5)));
+  sound != cur_sound ? (
+    prevsound = cur_sound;
+    cur_sound = sound;
+    tss = samplerate;
+  );
+);
+
+function smp_load(fn) local(h, nch, sr, k, n, ok, m)
+(
+  ok = 0; m = alloc.mp;
+  h = file_open(fn);
+  h >= 0 ? (
+    nch = 0; sr = 0;
+    file_riff(h, nch, sr);
+    n = 0; k = 0; loop(315, n += lens[k]; k += 1;);
+    nch == 2 && file_avail(h) >= n*2 ? (
+      ok = 1;
+      k = 0;
+      loop(315,
+        n = lens[k]*2;
+        sofs[k] = alloc(n+8);
+        file_mem(h, sofs[k], n) != n ? ok = 0;
+        k += 1;
+      );
+    );
+    file_close(h);
+  );
+  !ok ? alloc.mp = m;
+  ok;
+);
+
+function parse_lens(str) local(i, c, v, k, n)
+(
+  n = strlen(str); i = 0; v = 0; k = 0;
+  loop(n+1,
+    c = i < n ? str_getchar(str, i) : ',';
+    c == ',' ? (lens[k] = v; k += 1; v = 0;) : v = v*10+c-'0';
+    i += 1;
+  );
+);
+
+parse_lens("12716,12784,12714,12785,12718,12779,12847,12768,12791,12817,12761,12743,12765,12778,12782,12777,12764,12751,12854,12826,12762,25978,24711,23446,22167,21045,20015,17198,15600,14187,13542,12353,11313,10840,9262,8626,8341,7369,6816,6175,5671,5483,32104,30624,29148,27657,26347,25144,23978,22875,21813,20831,19876,19003,18208,17430,16695,15987,15334,14710,14128,13579,13058,21430,21434,21439,21443,21447,21451,21454,21457,21459,21461,21463,21465,21466,21467,21467,21469,21468,21468,21468,21467,21465,12865,12879,12891,12970,12948,12903,12918,12925,12921,12932,12979,12981,12942,12930,12935,12927,12940,12936,12949,12937,12944,10515,10561,10560,10507,10523,10502,10516,10504,10516,10520,10512,10510,10521,10515,10514,10516,10513,10515,10513,10515,10513,15680,15022,14404,13814,13266,12741,12261,11804,11365,10961,10583,10230,9900,9592,9301,9021,8764,8520,8294,8083,7886,19306,18471,17691,16967,16274,15613,14993,14413,13869,13353,12872,12415,11975,11573,11185,10825,10477,10157,9855,9564,9292,12523,12104,11708,11328,10976,10642,10327,10031,9751,9487,9239,9005,8784,8573,8375,8186,8009,7840,7683,7533,7393,14664,14074,13518,12989,12497,12030,11598,11190,10811,10451,10106,9787,9491,9209,8947,8702,8475,8259,8057,7867,7687,27681,26271,24955,23733,22562,21424,20392,19409,18488,17615,16788,16016,15286,14607,13973,13385,12828,12303,11806,11348,10923,34630,34618,34763,34791,34794,34719,34740,34718,34761,34747,34831,34817,34742,34709,34735,34775,34763,34781,34725,34765,34761,7085,6627,6493,6364,6246,6134,6034,5945,5870,5801,25109,21971,19924,14445,12731,11751,10874,10082,9073,8220,7726,30025,30010,30092,30062,30060,30081,30116,30108,30091,30055,30058,30084,30088,30102,30100,30074,30074,30066,30071,30069,30117,25927,26112,26175,26085,26027,26090,26236,26287,26121,26182,26135,26115,26304,26139,26183,26164,26329,26194,26237,26217,26317");
+
+error = 0;
+!smp_load("SuperColor/SuperColor.flac") && !smp_load("Dependencies/SuperColor/SuperColor.flac") ? (
+  memset(lens, 0, 315);
+  error = 1;
+);
+
+set_rate();
+kill_all();
+prevtime = -100000; ttnp = -100000; tss = -100000;
+currentvoice = 0; prevsound = 0;
+sound_init = 0;
+gui_ready = 0;
+kb_note = -1; kb_on = 0;
+
+@slider
+last_srate != srate ? (
+  last_srate = srate;
+  set_rate();
+  kill_all();
+);
+!sound_init ? (sound_init = 1; cur_sound = max(0, min(14, floor(sound+0.5))););
+check_sound();
+
+@block
+check_sound();
+N = samplesblock;
+c.num = p.num = 0;
+
+ttnp >= 0 && ttnp < N ? (
+  v = 0;
+  loop(3, vcyc[v] > 10 && vheld[v] ? c.ev_add(ttnp, 1, vcyc[v]); v += 1;);
+);
+
+while (kq_r != kq_w ? (
+  mofs = 0; m1 = kq[kq_r*3]; m2 = kq[kq_r*3+1]; m3 = kq[kq_r*3+2];
+  kq_r = (kq_r+1)%64;
+  1;
+) : midirecv(mofs, m1, m2, m3)) (
+  st = m1 & 0xF0;
+  st == 0x90 && m3 > 0 ? (
+    m2 >= 59 && m2 <= 79 ? (
+      currentvoice = (currentvoice+1)%3;
+      toff = 0;
+      limit ? (
+        mofs-prevtime > samplerate*0.1 ? (
+          toff = mofs-floor(samplerate*0.019+0.5);
+          c.ev_add(max(toff, 0), 3, 0);
+          p.ev_add(max(toff, 0), 3, 0);
+          v = 0; loop(3, vcyc[v] = 0; vheld[v] = 0; v += 1;);
+          toff = min(toff, 0);
+        ) : vcyc[currentvoice] > 10 ? (
+          toff = max(mofs-floor(samplerate*0.019+0.5), 0);
+          vheld[currentvoice] && ttnp > toff && ttnp < mofs ? toff = ttnp+1;
+          !vheld[currentvoice] || ttnp < toff ? (
+            c.ev_add(toff, 2, vcyc[currentvoice]);
+            p.ev_add(toff, 2, vcyc[currentvoice]);
+            vheld[currentvoice] = 0;
+          );
+          toff = 0;
+        );
+      );
+      ntime = max(ttnp, mofs-toff);
+      ntime >= N ? (
+        ttnp < ntime ? (
+          v = 0; loop(3, vheld[v] = 0; v += 1;);
+          ttnp = ntime;
+        );
+        vheld[currentvoice] = 1;
+      ) : (
+        c.ev_add(ntime, 1, m2);
+        vheld[currentvoice] = 0;
+      );
+      vcyc[currentvoice] = m2;
+      prevtime = mofs;
+    );
+  ) : (st == 0x80 || st == 0x90) && !limit ? (
+    c.ev_add(mofs, 2, m2);
+    p.ev_add(mofs, 2, m2);
+  );
+);
+prevtime -= N;
+ttnp -= N;
+
+plen = 0;
+tss > 0 ? (
+  plen = min(N, tss);
+  tss -= N;
+  p.ev_eff(plen);
+);
+psyn = prevsound; csyn = cur_sound;
+c.ev_eff(N);
+spos = 0;
+
+@sample
+outl = outr = 0;
+spos < plen ? (
+  p.ev_run(psyn, spos);
+  syn_render(psyn);
+  spos == plen-1 ? p.ev_run(psyn, plen);
+);
+c.ev_run(csyn, spos);
+syn_render(csyn);
+spos == N-1 ? c.ev_run(csyn, N);
+spos += 1;
+spl0 = outl;
+spl1 = outr;
+
+@gfx 480 400
+function load_img(slot, name)
+(
+  gfx_loadimg(slot, sprintf(#, "SuperColor/SuperColor%s.png", name)) >= 0 || gfx_loadimg(slot, sprintf(#, "Dependencies/SuperColor/SuperColor%s.png", name)) >= 0;
+);
+
+function gui_init() local(x, y, r, g, b)
+(
+  gui_ok = load_img(IMG_ICON, "Icons") && load_img(IMG_ERR, "Error");
+  gui_ok ? (
+    gfx_setimgdim(IMG_ERRK, 234, 90);
+    gfx_dest = IMG_ERRK; gfx_mode = 4; gfx_a = 1;
+    gfx_blit(IMG_ERR, 1, 0, 0, 0, 234, 90, 0, 0, 234, 90);
+    y = 0;
+    loop(90,
+      x = 0;
+      loop(234,
+        gfx_x = x; gfx_y = y; gfx_getpixel(r, g, b);
+        gfx_setpixel(g, g, b);
+        x += 1;
+      );
+      y += 1;
+    );
+    gfx_dest = -1; gfx_mode = 0;
+  );
+  GM = 2; GG = 2; CW = 18; CH = 16;
+  #hand = "base64:AAACAAEAICAAAAIAAgCoEAAAFgAAACgAAAAgAAAAQAAAAAEAIAAAAAAAgBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISEhP+EhIT/hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/hISE/8bGxv+EhIT/hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISEhP/Gxsb/xsbG/8bGxv/Gxsb/hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/hISE/4SEhP+EhIT/hISE/wAAAACEhIT/hISE/8bGxv/Gxsb/xsbG/8bGxv/Gxsb/hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/hISE/4SEhP/Gxsb/xsbG/8bGxv/Gxsb/hISE/4SEhP+EhIT/xsbG/8bGxv///////////8bGxv/Gxsb/hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAhISE/4SEhP/Gxsb/xsbG/8bGxv/Gxsb/xsbG/8bGxv/Gxsb/xsbG/4SEhP/Gxsb//////////////////////8bGxv/Gxsb/hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISEhP/Gxsb/xsbG/8bGxv/Gxsb/xsbG////////////xsbG/8bGxv/Gxsb/xsbG/4SEhP///////////////////////////8bGxv/Gxsb/hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/xsbG/8bGxv/Gxsb//////////////////////////////////////8bGxv/Gxsb/xsbG//////////////////////////////////////+EhIT/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISEhP/Gxsb////////////////////////////////////////////////////////////Gxsb/xsbG//////////////////////////////////////+EhIT/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/xsbG/8bGxv///////////8bGxv/Gxsb////////////////////////////////////////////Gxsb//////////////////////////////////////4SEhP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISEhP/Gxsb///////////+EhIT/hISE/8bGxv/////////////////////////////////////////////////Gxsb/xsbG//////////////////////+EhIT/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAhISE////////////hISE/4SEhP/Gxsb/xsbG///////////////////////////////////////////////////////Gxsb/hISE////////////hISE/4SEhP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/hISE/4SEhP+EhIT/xsbG/8bGxv/////////////////////////////////////////////////////////////////Gxsb/hISE/4SEhP+EhIT/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/hISE/8bGxv/Gxsb/////////////////////////////////hISE/////////////////////////////////8bGxv+EhIT/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISEhP/Gxsb/xsbG////////////////////////////hISE/4SEhP//////////////////////////////////////hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/xsbG/8bGxv///////////////////////////4SEhP+EhIT/////////////////hISE//////////////////////+EhIT/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAhISE/8bGxv/Gxsb//////////////////////////////////////////////////////4SEhP///////////////////////////4SEhP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISEhP/Gxsb/xsbG//////////////////////////////////////////////////////+EhIT/hISE////////////hISE///////Gxsb/hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/xsbG/8bGxv////////////////////////////////+EhIT//////////////////////////////////////4SEhP///////////4SEhP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAISEhP/Gxsb/////////////////////////////////hISE/8bGxv////////////////////////////////+EhIT/hISE////////////hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAhISE/////////////////////////////////4SEhP/Gxsb//////////////////////8bGxv///////////////////////////8bGxv+EhIT/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT///////////////////////////+EhIT/AAAAAISEhP////////////////+EhIT/////////////////////////////////hISE/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/////////////////hISE/wAAAAAAAAAAAAAAAISEhP+EhIT/hISE/////////////////4SEhP///////////4SEhP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACEhIT/hISE/4SEhP8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAhISE/4SEhP+EhIT/AAAAAISEhP+EhIT/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA////////////////////////////////////////x////4P///+B///BAP//AAB//gAAP/wAAB/4AAAf+AAAD/AAAA/wAAAf8AAAH/AAAD/4AAD/+AAB//AAAf/gAAH/wAAB/4AAA/+AAAP/gAAD/4CAB//BwA//4/if//////8=";
+  gui_ready = 1;
+);
+
+function grid_layout() local(c, r, w, h, s)
+(
+  sc = 0;
+  c = 1;
+  loop(15,
+    r = ceil(15/c);
+    w = 2*GM+c*CW+(c-1)*GG; h = 2*GM+r*CH+(r-1)*GG;
+    s = min(aw/w, ah/h);
+    s > sc ? (sc = s; cols = c; GW = w; GH = h;);
+    c += 1;
+  );
+);
+
+function cell_x(i) ( GM+(i%cols)*(CW+GG); );
+function cell_y(i) ( GM+floor(i/cols)*(CH+GG); );
+
+function cell_at(x, y) local(i, res)
+(
+  res = -1; i = 0;
+  loop(15,
+    x >= cell_x(i) && x < cell_x(i)+CW && y >= cell_y(i) && y < cell_y(i)+CH ? res = i;
+    i += 1;
+  );
+  res;
+);
+
+function draw_grid(k, sel, hov) local(i, x, y)
+(
+  GW*k != IGW || GH*k != IGH ? (IGW = GW*k; IGH = GH*k; gfx_setimgdim(IMG_GRID, IGW, IGH););
+  gfx_dest = IMG_GRID; gfx_a = 1; gfx_mode = 0;
+  gfx_set(0.09, 0.09, 0.1, 1);
+  gfx_rect(0, 0, IGW, IGH);
+  i = 0;
+  loop(15,
+    x = cell_x(i); y = cell_y(i);
+    i == sel || i == hov ? (
+      i == sel ? gfx_set(253/255, 177/255, 252/255, 1) : gfx_set(248/255, 248/255, 248/255, 1);
+      gfx_rect((x-1)*k, (y-1)*k, (CW+2)*k, (CH+2)*k);
+    );
+    i == sel ? gfx_set(253/255, 177/255, 252/255, 1) : gfx_set(0.3, 0.31, 0.34, 1);
+    gfx_rect(x*k, y*k, CW*k, CH*k);
+    gfx_mode = 4;
+    gfx_blit(IMG_ICON, 1, 0, i*16, 0, 16, 14, (x+1)*k, (y+1)*k, 16*k, 14*k);
+    gfx_mode = 0;
+    i += 1;
+  );
+  gfx_dest = -1;
+);
+
+function font(sz, fl) ( gfx_setfont(1, "Arial", (sz+2)*z, fl); );
+
+function title_col(i)
+(
+  i == 0 ? gfx_set(248/255, 0, 0, 1) : i == 1 ? gfx_set(248/255, 128/255, 0, 1) :
+  i == 2 ? gfx_set(248/255, 248/255, 0, 1) : i == 3 ? gfx_set(0, 248/255, 0, 1) :
+  i == 4 ? gfx_set(0, 248/255, 248/255, 1) : gfx_set(230/255, 90/255, 230/255, 1);
+);
+
+function glyph(c)
+(
+  c == 'S' ? 15620048430 : c == 'U' ? 18842437166 : c == 'P' ? 32801505808 : c == 'E' ? 33840644639 :
+  c == 'R' ? 32801509969 : c == 'C' ? 15620129326 : c == 'O' ? 15621211694 : c == 'L' ? 17734058527 : 0;
+);
+
+function draw_glyph(g, x, y, p) local(r, c, b)
+(
+  r = 0;
+  loop(7,
+    c = 0;
+    loop(5,
+      b = 2^(34-r*5-c);
+      floor(g/b)%2 ? gfx_rect(x+c*p, y+r*p, p, p);
+      c += 1;
+    );
+    r += 1;
+  );
+);
+
+function draw_header() local(i, j, x, y, p, sh, g)
+(
+  p = max(1, floor(4*z));
+  x = floor(16*z); y = floor(12*z);
+  i = j = 0;
+  loop(strlen("SUPER COLOR"),
+    sh = str_getchar("SUPER COLOR", i);
+    sh != ' ' ? (
+      g = glyph(sh);
+      title_col(j%6);
+      gfx_r *= 0.4; gfx_g *= 0.4; gfx_b *= 0.4;
+      draw_glyph(g, x+p, y+p, p);
+      title_col(j%6);
+      draw_glyph(g, x, y, p);
+      j += 1;
+      x += 6*p;
+    ) : x += 3*p;
+    i += 1;
+  );
+  font(11, 0);
+  gfx_set(0.56, 0.58, 0.62, 1);
+  gfx_x = 16*z; gfx_y = 53*z; gfx_drawstr("by chmaha  ·  based on unplugred's MPaint");
+
+  limit ? gfx_set(253/255, 177/255, 252/255, 1) : gfx_set(0.27, 0.29, 0.35, 1);
+  gfx_rect(SWX+SWH/2, SWY, SWW-SWH, SWH);
+  gfx_circle(SWX+SWH/2, SWY+SWH/2-0.5, SWH/2-0.5, 1, 1);
+  gfx_circle(SWX+SWW-SWH/2-1, SWY+SWH/2-0.5, SWH/2-0.5, 1, 1);
+  limit ? gfx_set(1, 1, 1, 1) : gfx_set(0.78, 0.8, 0.84, 1);
+  gfx_circle(limit ? SWX+SWW-SWH/2-1 : SWX+SWH/2, SWY+SWH/2-0.5, SWH/2-3*z, 1, 1);
+  font(9, 0);
+  thover ? gfx_set(0.85, 0.87, 0.9, 1) : gfx_set(0.56, 0.58, 0.62, 1);
+  gfx_measurestr("LIMIT VOICES", tw, th);
+  gfx_x = floor(SWX+SWW/2-tw/2); gfx_y = SWY+SWH+4*z; gfx_drawstr("LIMIT VOICES");
+
+  i = 0;
+  loop(6,
+    title_col(i);
+    gfx_rect(floor(gfx_w*i/6), floor(HH-3*z), floor(gfx_w*(i+1)/6)-floor(gfx_w*i/6), max(1, floor(3*z+0.5)));
+    i += 1;
+  );
+);
+
+function kq_push(a, b, d)
+(
+  kq[kq_w*3] = a; kq[kq_w*3+1] = b; kq[kq_w*3+2] = d;
+  kq_w = (kq_w+1)%64;
+);
+
+function kb_black(q) ( q == 1 || q == 3 || q == 6 || q == 8 || q == 10; );
+
+function kb_wpos(n) local(o, q)
+(
+  o = floor(n/12); q = n-o*12;
+  o*7+(q < 1 ? 0 : q < 3 ? 1 : q < 5 ? 2 : q < 6 ? 3 : q < 8 ? 4 : q < 10 ? 5 : 6)-34;
+);
+
+function kb_hit() local(n, wi, res)
+(
+  res = -1;
+  inwin && mouse_x >= KBX && mouse_x < KBX+KBW && mouse_y >= KBY && mouse_y < KBY+KBH ? (
+    n = 59;
+    loop(21,
+      kb_black(n%12) && mouse_y < KBY+KBB && abs(mouse_x-(KBX+(kb_wpos(n-1)+1)*KWW)) < KBW2 ? res = n;
+      n += 1;
+    );
+    res < 0 ? (
+      wi = floor((mouse_x-KBX)/KWW);
+      n = 59;
+      loop(21, !kb_black(n%12) && kb_wpos(n) == wi ? res = n; n += 1;);
+    );
+  );
+  res;
+);
+
+function draw_keyboard() local(n, i, wi, kx, kw, bx, st, rh, tw, th)
+(
+  memset(kst, 0, 21);
+  i = cur*NV;
+  loop(NV, vn[i] >= 59 && vn[i] <= 79 && vst[i] == 1 ? kst[vn[i]-59] = 1; i += 1;);
+  kb_note >= 0 ? kst[kb_note-59] = 2;
+
+  rh = floor(8*z);
+  gfx_set(0.16, 0.16, 0.18, 1);
+  gfx_rect(KBX-floor(3*z), KBY-rh, KBW+2*floor(3*z), KBH+rh+floor(3*z));
+  gfx_set(0.62, 0.22, 0.3, 1);
+  gfx_rect(KBX, KBY-max(1, floor(2*z)), KBW, max(1, floor(2*z)));
+
+  n = 59;
+  loop(21,
+    !kb_black(n%12) ? (
+      wi = kb_wpos(n);
+      kx = floor(KBX+wi*KWW)+max(1, floor(z));
+      kw = floor(KBX+(wi+1)*KWW)-kx;
+      st = kst[n-59];
+      st == 2 ? gfx_gradrect(kx, KBY, kw, KBH, 253/255, 177/255, 252/255, 1, 0, 0, 0, 0, -0.2/KBH, -0.22/KBH, -0.2/KBH, 0)
+      : st == 1 ? gfx_gradrect(kx, KBY, kw, KBH, 0.97, 0.86, 0.97, 1, 0, 0, 0, 0, -0.14/KBH, -0.14/KBH, -0.14/KBH, 0)
+      : gfx_gradrect(kx, KBY, kw, KBH, 0.95, 0.96, 0.97, 1, 0, 0, 0, 0, -0.11/KBH, -0.1/KBH, -0.1/KBH, 0);
+      gfx_set(0, 0, 0, 0.22); gfx_rect(kx, KBY, kw, max(1, floor(2*z)));
+      n%12 == 0 ? (
+        font(9, 'b');
+        st == 2 ? gfx_set(0.4, 0.1, 0.4, 1) : gfx_set(0.46, 0.48, 0.52, 1);
+        n == 60 ? gfx_measurestr("C4", tw, th) : gfx_measurestr("C5", tw, th);
+        gfx_x = floor(kx+(kw-tw)/2); gfx_y = KBY+KBH-th-floor(4*z);
+        gfx_drawstr(n == 60 ? "C4" : "C5");
+      );
+    );
+    n += 1;
+  );
+
+  n = 59;
+  loop(21,
+    kb_black(n%12) ? (
+      bx = floor(KBX+(kb_wpos(n-1)+1)*KWW-KBW2);
+      st = kst[n-59];
+      gfx_set(0, 0, 0, 0.35); gfx_rect(bx+floor(z), KBY, 2*KBW2, KBB+floor(2*z));
+      st == 2 ? gfx_gradrect(bx, KBY, 2*KBW2, KBB, 0.78, 0.42, 0.78, 1, 0, 0, 0, 0, 0.12/KBB, 0.1/KBB, 0.12/KBB, 0)
+      : st == 1 ? gfx_gradrect(bx, KBY, 2*KBW2, KBB, 0.4, 0.27, 0.4, 1, 0, 0, 0, 0, 0.1/KBB, 0.1/KBB, 0.1/KBB, 0)
+      : gfx_gradrect(bx, KBY, 2*KBW2, KBB, 0.075, 0.08, 0.09, 1, 0, 0, 0, 0, 0.1/KBB, 0.1/KBB, 0.1/KBB, 0);
+      gfx_set(1, 1, 1, 0.1); gfx_rect(bx+floor(2*z), KBY+KBB-floor(7*z), 2*KBW2-floor(4*z), floor(5*z));
+    );
+    n += 1;
+  );
+);
+
+!gui_ready ? gui_init();
+gui_ok ? (
+  z = max(0.5, min(gfx_w/480, gfx_h/400));
+  HH = floor(80*z);
+  ax = floor(10*z); ay = HH+floor(8*z);
+  aw = max(1, gfx_w-2*ax);
+  KBH = floor(64*z); KBY = gfx_h-floor(10*z)-KBH;
+  KWW = min(aw/13, 36*z); KBW = floor(13*KWW);
+  KBX = floor((gfx_w-KBW)/2);
+  KBB = floor(KBH*0.62); KBW2 = floor(KWW*0.3);
+  ah = max(1, KBY-floor(8*z)-floor(10*z)-ay);
+  error ? (
+    GW = 234; GH = 90;
+    sc = min(aw/GW, ah/GH);
+    sc >= 1 ? sc = floor(sc);
+  ) : grid_layout();
+  dw = floor(GW*sc); dh = floor(GH*sc);
+  ox = ax+floor((aw-dw)/2); oy = ay+floor((ah-dh)/2);
+  mx = (mouse_x-ox)/sc; my = (mouse_y-oy)/sc;
+  inwin = mouse_x >= 0 && mouse_y >= 0 && mouse_x < gfx_w && mouse_y < gfx_h;
+  errorhover = error && inwin && mx >= 192 && my >= 81 && mx < 234 && my < 90;
+  hover = !error && inwin ? cell_at(mx, my) : -1;
+  cur = max(0, min(14, floor(sound+0.5)));
+  SWW = floor(36*z); SWH = floor(18*z);
+  SWX = floor(gfx_w-30*z-SWW); SWY = floor(20*z);
+  kbhov = kb_hit();
+  thover = inwin && mouse_x >= SWX-8*z && mouse_x < SWX+SWW+8*z && mouse_y >= SWY-4*z && mouse_y < SWY+SWH+18*z;
+
+  (mouse_cap & 1) && !(last_cap & 1) && inwin ? (
+    thover ? (
+      limit = !limit;
+      slider_automate(2);
+    ) : kbhov >= 0 ? (
+      kb_on = 1; kb_note = -1;
+    ) : error ? (
+      errorhover ? (error = 0; errorhover = 0;);
+    ) : hover >= 0 ? (
+      sound = cur = hover;
+      slider_automate(1);
+    );
+  );
+  kb_on && !(mouse_cap & 1) ? (
+    kb_note >= 0 ? kq_push(0x80, kb_note, 0);
+    kb_note = -1; kb_on = 0;
+  );
+  kb_on && (mouse_cap & 1) && kbhov >= 0 && kbhov != kb_note ? (
+    kb_note >= 0 ? kq_push(0x80, kb_note, 0);
+    kq_push(0x90, kbhov, 100);
+    kb_note = kbhov;
+  );
+  last_cap = mouse_cap;
+  inwin ? gfx_setcursor(32649, #hand);
+
+  gfx_set(0.09, 0.09, 0.1, 1);
+  gfx_rect(0, 0, gfx_w, gfx_h);
+  gfx_a = 1; gfx_mode = 0;
+  draw_header();
+  error ? (
+    gfx_mode = sc >= 1 ? 4 : 0;
+    gfx_blit(IMG_ERRK, 1, 0, 0, 0, 234, 90, ox, oy, dw, dh);
+    errorhover ? gfx_blit(IMG_ERR, 1, 0, 187, 77, 47, 13, ox+187*sc, oy+77*sc, 47*sc, 13*sc);
+  ) : (
+    k = max(1, ceil(sc));
+    draw_grid(k, cur, hover);
+    gfx_mode = k == sc ? 4 : 0;
+    gfx_blit(IMG_GRID, 1, 0, 0, 0, IGW, IGH, ox, oy, dw, dh);
+  );
+  gfx_mode = 0;
+  draw_keyboard();
+) : (
+  gfx_set(0.09, 0.09, 0.1, 1);
+  gfx_rect(0, 0, gfx_w, gfx_h);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = 10; gfx_y = 10;
+  gfx_drawstr("Super Color: images not found in Data/SuperColor or Dependencies/SuperColor");
+);

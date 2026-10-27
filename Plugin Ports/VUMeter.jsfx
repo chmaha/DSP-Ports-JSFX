@@ -1,0 +1,642 @@
+desc: VU Meter (unplugred VU port) by chmaha
+author: chmaha
+provides:
+  Dependencies/VU/map.png
+  Dependencies/VU/VU-LICENSE.txt
+// Ported from unplugred's VU (https://github.com/unplugred/vsts). AGPLv3+.
+// Image asset by unplugred, CC BY-NC (see Dependencies/VU/VU-LICENSE.txt).
+// Click the meter to open or close the settings panel.
+// Claude Opus 5.x may have generated some of the port of this code
+
+slider1:p_nominal=-18<-24,-6,1>-Nominal
+slider2:p_rise=3<1,10,1>-Rise speed
+slider3:p_decay=5<1,10,1>-Decay speed
+slider4:p_stereo=0<0,1,1{Mono,Stereo}>-Stereo
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:maxmem=16777216 no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+
+IMG_MAP = 0; IMG_OUT = 1; IMG_SINGLE = 2;
+NSW = 477; NSS = NSW*6;
+MIW = 2402; MIS = MIW*5;
+C1 = 20; CW = 380; PW = C1+CW+C1;
+BODY = 62; FOOT = BODY+162; PH = FOOT+52;
+
+defaultv = 0;
+!defaults_init ? (
+  defaults_init = 1;
+  defaultv[0] = -18; defaultv[1] = 3; defaultv[2] = 5; defaultv[3] = 0;
+);
+alloc.mp = 16;
+
+pmin = alloc(4); prng = alloc(4);
+pmin[0] = -24; prng[0] = 18;
+pmin[1] = 1; prng[1] = 9;
+pmin[2] = 1; prng[2] = 9;
+pmin[3] = 0; prng[3] = 1;
+dvel = alloc(4);
+rrid = alloc(8); rrx = alloc(8); rry = alloc(8); rrw = alloc(8); rrh = alloc(8); rrt = alloc(8);
+nsa = alloc(NSW*NSW*6);
+mia = alloc(MIW*NSW*5);
+
+gui_ready = 0;
+initialdrag = -1; hover = -1;
+
+function getp(i) ( (slider(i+1)-pmin[i])/prng[i]; );
+function setp(i, v) local(n)
+(
+  v = max(0, min(1, v));
+  n = floor(pmin[i]+v*prng[i]+0.5);
+  slider(i+1) != n ? (
+    slider(i+1) = n;
+    slider_automate(2^i);
+  );
+);
+function isbool(i) ( i == 3; );
+
+function smoothdamp(cur, target, vi, st) local(n1, n2, n3, n4, n5, t, n6)
+(
+  st = max(0.0001, st);
+  n1 = 2/st;
+  n2 = n1*0.03333;
+  n3 = 1/(1+n2+0.48*n2*n2+0.235*n2*n2*n2);
+  n4 = cur-target;
+  n5 = (dvel[vi]+n1*n4)*0.03333;
+  t = cur-n4;
+  n6 = t+(n4+n5)*n3;
+  ((t-cur) > 0) == (n6 > t) ? (n6 = t; dvel[vi] = 0;) : (dvel[vi] = (dvel[vi]-n1*n5)*n3;);
+  n6;
+);
+
+function load_img(slot, name)
+(
+  gfx_loadimg(slot, sprintf(#, "VU/%s", name)) >= 0 || gfx_loadimg(slot, sprintf(#, "Dependencies/VU/%s", name)) >= 0;
+);
+
+// Asset loading
+
+function atlas_px(x, y)
+(
+  gfx_x = max(0, min(AW-1, x)); gfx_y = max(0, min(AH-1, y));
+  gfx_getpixel(pr, pg, pb);
+);
+
+function load_row(row) local(ty, tx, p)
+(
+  gfx_dest = IMG_MAP;
+  row < NSW ? (
+    ty = row-1; tx = -1;
+    p = nsa+row*NSS;
+    loop(NSW,
+      atlas_px(2400+tx, ty); p[0] = pr; p[1] = pg; p[2] = pb;
+      atlas_px(2400+tx, 475+ty); p[3] = pr; p[4] = pg; p[5] = pb;
+      p += 6; tx += 1;
+    );
+  ) : (
+    ty = row-NSW-1; tx = -1;
+    p = mia+(row-NSW)*MIS;
+    loop(MIW,
+      atlas_px(tx, 950+ty); p[0] = pr; p[1] = pg; p[2] = pb;
+      atlas_px(tx, 1425+ty); p[3] = pr; p[4] = pb;
+      p += 5; tx += 1;
+    );
+  );
+  gfx_dest = -1;
+);
+
+function find_bounds(ch) local(x, y, p, x0, x1, y0, y1)
+(
+  x0 = y0 = 475; x1 = y1 = -1;
+  y = 0;
+  loop(475,
+    x = 0; p = nsa+((y+1)*NSW+1)*6+ch;
+    loop(475,
+      max(p[0], max(p[1], p[2])) > 0 ? (
+        x0 = min(x0, x); x1 = max(x1, x); y0 = min(y0, y); y1 = max(y1, y);
+      );
+      p += 6; x += 1;
+    );
+    y += 1;
+  );
+  blx = (x0-0.5)/475; bhx = (x1+1.5)/475;
+  bly = 1-(y1+1.5)/475; bhy = 1-(y0-0.5)/475;
+);
+
+function finish_load()
+(
+  find_bounds(0);
+  nlx = max(0.001, blx); nhx = min(0.999, bhx);
+  nly = max(0.001, bly); nhy = min(0.999, bhy);
+  find_bounds(3);
+  slx = max(0.016, blx+0.015);
+  shx = bhx >= 1 ? 1.14 : min(1.14, bhx+0.015);
+  sly = bly <= 0 ? -0.014 : max(-0.014, bly-0.015);
+  shy = bhy >= 1 ? 0.984 : min(0.984, bhy-0.015);
+  loaded = 1;
+);
+
+function load_step() local(t0)
+(
+  t0 = time_precise();
+  while (load_y < NSW*2 && time_precise()-t0 < 0.012) (
+    load_row(load_y);
+    load_y += 1;
+  );
+  load_y >= NSW*2 ? finish_load();
+);
+
+// Rendering
+
+function lin_range(a, b, lo, hi) local(t1, t2)
+(
+  abs(a) < 0.0000001 ? (
+    b > lo && b < hi ? (rlo = -1000000; rhi = 1000000;) : (rlo = 1; rhi = 0;);
+  ) : (
+    t1 = (lo-b)/a; t2 = (hi-b)/a;
+    rlo = min(t1, t2); rhi = max(t1, t2);
+  );
+);
+
+function draw_needle(x0, x1, rot, ox, cx, bl)
+  local(c, s, xa, xb, k, py, yy, a1, a2, b1, b2, nlo, nhi, slo, shi, lo, hi, px, pxe, mcx, mcy, inn, ins,
+        fyr, iyr, ayr, fx, fy, ix, iy, ax, ay, w00, w10, w01, w11, p, q, mr, mg, mb, ir, ib, mtr, mtg, mtb, shr, shg, shb, br, bg, bb, blend)
+(
+  c = cos(rot); s = sin(rot);
+  k = stinv*0.06+0.04;
+  xa = 32/19/MW; xb = (0.5/MW+ox-0.5)*32/19;
+  a1 = c*xa; a2 = s*xa;
+  blend = bl > 0.001 && bl < 0.999;
+  gfx_dest = IMG_OUT;
+  py = 0;
+  loop(IH,
+    yy = 1-(py+0.5)/IH+k;
+    b1 = c*xb-yy*s+0.5;
+    b2 = s*xb+yy*c-k;
+    lin_range(a1, b1, nlx, nhx); nlo = rlo; nhi = rhi;
+    lin_range(a2, b2, nly, nhy); nlo = max(nlo, rlo); nhi = min(nhi, rhi);
+    lin_range(a1, b1, slx, shx); slo = rlo; shi = rhi;
+    lin_range(a2, b2, sly, shy); slo = max(slo, rlo); shi = min(shi, rhi);
+    nlo < nhi ? (
+      slo < shi ? (lo = min(nlo, slo); hi = max(nhi, shi);) : (lo = nlo; hi = nhi;);
+    ) : (
+      lo = slo; hi = shi;
+    );
+    lo < hi ? (
+      px = max(x0, floor(lo)); pxe = min(x1-1, ceil(hi));
+      fyr = (py+0.5)/IH*475-0.5; iyr = floor(fyr); ayr = fyr-iyr;
+      while (px <= pxe) (
+        mcx = a1*px+b1; mcy = a2*px+b2;
+        inn = mcx > nlx && mcx < nhx && mcy > nly && mcy < nhy;
+        ins = mcx > slx && mcx < shx && mcy > sly && mcy < shy;
+        inn || ins ? (
+          fx = (px+0.5)/MW*800-0.5+cx; ix = floor(fx); ax = fx-ix;
+          w00 = (1-ax)*(1-ayr); w10 = ax*(1-ayr); w01 = (1-ax)*ayr; w11 = ax*ayr;
+          p = mia+((iyr+1)*MIW+ix+1)*5;
+          mr = p[0]*w00+p[5]*w10+p[MIS]*w01+p[MIS+5]*w11;
+          mg = p[1]*w00+p[6]*w10+p[MIS+1]*w01+p[MIS+6]*w11;
+          mb = p[2]*w00+p[7]*w10+p[MIS+2]*w01+p[MIS+7]*w11;
+          ir = p[3]*w00+p[8]*w10+p[MIS+3]*w01+p[MIS+8]*w11;
+          ib = p[4]*w00+p[9]*w10+p[MIS+4]*w01+p[MIS+9]*w11;
+          blend ? (
+            q = p+8000;
+            mr = mr*bl+(q[0]*w00+q[5]*w10+q[MIS]*w01+q[MIS+5]*w11)*(1-bl);
+            mg = mg*bl+(q[1]*w00+q[6]*w10+q[MIS+1]*w01+q[MIS+6]*w11)*(1-bl);
+            mb = mb*bl+(q[2]*w00+q[7]*w10+q[MIS+2]*w01+q[MIS+7]*w11)*(1-bl);
+            ir = ir*bl+(q[3]*w00+q[8]*w10+q[MIS+3]*w01+q[MIS+8]*w11)*(1-bl);
+            ib = ib*bl+(q[4]*w00+q[9]*w10+q[MIS+4]*w01+q[MIS+9]*w11)*(1-bl);
+          );
+          mtr = mtg = mtb = 0;
+          inn ? (
+            fx = min(max(mcx, 0), 1)*475-0.5; ix = floor(fx); ax = fx-ix;
+            fy = (1-min(max(mcy, 0), 1))*475-0.5; iy = floor(fy); ay = fy-iy;
+            w00 = (1-ax)*(1-ay)*ib; w10 = ax*(1-ay)*ib; w01 = (1-ax)*ay*ib; w11 = ax*ay*ib;
+            p = nsa+((iy+1)*NSW+ix+1)*6;
+            mtr = p[0]*w00+p[6]*w10+p[NSS]*w01+p[NSS+6]*w11;
+            mtg = p[1]*w00+p[7]*w10+p[NSS+1]*w01+p[NSS+7]*w11;
+            mtb = p[2]*w00+p[8]*w10+p[NSS+2]*w01+p[NSS+8]*w11;
+          );
+          shr = shg = shb = 1;
+          ins ? (
+            fx = min(max(mcx-0.015, 0), 1)*475-0.5; ix = floor(fx); ax = fx-ix;
+            fy = (1-min(max(mcy+0.015, 0), 1))*475-0.5; iy = floor(fy); ay = fy-iy;
+            ir *= 0.15;
+            w00 = (1-ax)*(1-ay)*ir; w10 = ax*(1-ay)*ir; w01 = (1-ax)*ay*ir; w11 = ax*ay*ir;
+            p = nsa+((iy+1)*NSW+ix+1)*6;
+            shr = 1-(p[3]*w00+p[9]*w10+p[NSS+3]*w01+p[NSS+9]*w11);
+            shg = 1-(p[4]*w00+p[10]*w10+p[NSS+4]*w01+p[NSS+10]*w11);
+            shb = 1-(p[5]*w00+p[11]*w10+p[NSS+5]*w01+p[NSS+11]*w11);
+          );
+          gfx_x = px; gfx_y = py;
+          gfx_getpixel(br, bg, bb);
+          gfx_setpixel(br*(1-mtr)*shr+mr*mtr, bg*(1-mtg)*shg+mg*mtg, bb*(1-mtb)*shb+mb*mtb);
+        );
+        px += 1;
+      );
+    );
+    py += 1;
+  );
+);
+
+function blit_col(sx, peak, dx, dw)
+(
+  gfx_a = 1;
+  gfx_blit(IMG_MAP, 1, 0, sx, 0, 800, 475, dx, 0, dw, IH);
+  peak > 0.001 ? (
+    gfx_a = peak;
+    gfx_blit(IMG_MAP, 1, 0, sx, 475, 800, 475, dx, 0, dw, IH);
+    gfx_a = 1;
+  );
+);
+
+function layout() local(aspect, niw, nih)
+(
+  aspect = 32*(sd+1)/19;
+  gfx_w > gfx_h*aspect ? (rh = gfx_h; rw = floor(rh*aspect+0.5);) : (rw = gfx_w; rh = floor(rw/aspect+0.5););
+  rw = max(8, rw); rh = max(4, rh);
+  rx = floor((gfx_w-rw)/2); ry = floor((gfx_h-rh)/2);
+  rh > 475 ? (nih = 475; niw = floor(475*aspect+0.5);) : (nih = rh; niw = rw;);
+  niw != IW || nih != IH ? (
+    IW = niw; IH = nih;
+    gfx_setimgdim(IMG_OUT, IW, IH);
+    need_comp = 1;
+  );
+  MW = IW/(sd+1);
+);
+
+function composite() local(xs)
+(
+  stinv = 2-1/(sd*0.5+0.5);
+  gfx_dest = IMG_OUT; gfx_mode = 0;
+  sd <= 0.001 ? (
+    blit_col(1600, lpl, 0, IW);
+  ) : (
+    blit_col(0, lpl, 0, MW);
+    sd < 0.999 ? (
+      xs = ceil(MW);
+      xs != SWI || IH != SHI ? (SWI = xs; SHI = IH; gfx_setimgdim(IMG_SINGLE, SWI, SHI););
+      gfx_dest = IMG_SINGLE;
+      blit_col(1600, lpl, 0, MW);
+      gfx_dest = IMG_OUT; gfx_a = 1-sd;
+      gfx_blit(IMG_SINGLE, 1, 0, 0, 0, MW, IH, 0, 0, MW, IH);
+      gfx_a = 1;
+    );
+    blit_col(800, rpl, MW, MW);
+  );
+  loaded ? (
+    sd <= 0.001 ? (
+      draw_needle(0, IW, (lvu-0.5)*(1.47-sd*0.025), 0, 1600, 0);
+    ) : (
+      xs = ceil(MW-0.5);
+      draw_needle(0, min(xs, IW), (lvu-0.5)*(1.47-sd*0.025), -0.0387*sd, 0, sd);
+      draw_needle(xs, IW, (rvu-0.5)*1.445, 0.0465-1, 0, 1);
+    );
+  );
+  gfx_dest = -1;
+);
+
+// Settings panel
+
+function add_row(id, x, y, w, h, t)
+(
+  rrid[nrows] = id; rrx[nrows] = x; rry[nrows] = y; rrw[nrows] = w; rrh[nrows] = h; rrt[nrows] = t;
+  nrows += 1;
+);
+
+function build_rows() local(y)
+(
+  nrows = 0;
+  y = BODY;
+  add_row(0, C1, y, CW, 42, 1); y += 42;
+  add_row(1, C1, y, CW, 42, 1); y += 42;
+  add_row(2, C1, y, CW, 42, 1); y += 42;
+  add_row(3, C1, y, CW, 28, 0);
+  add_row(-3, PW-C1-136, FOOT+12, 136, 28, 4);
+  add_row(-4, PW-42, 10, 26, 26, 5);
+);
+
+function recalc_hover(x, y) local(k, res)
+(
+  build_rows();
+  res = -1; k = 0;
+  loop(nrows,
+    res == -1 && x >= rrx[k]-8 && x < rrx[k]+rrw[k]+8 && y >= rry[k] && y < rry[k]+rrh[k] ? res = rrid[k];
+    k += 1;
+  );
+  res;
+);
+
+function row_label(id)
+(
+  id == 0 ? "Nominal" : id == 1 ? "Rise speed" : id == 2 ? "Decay speed" : "Stereo";
+);
+
+function row_value(id)
+(
+  id == 0 ? sprintf(#val, "%ddB", p_nominal) : sprintf(#val, "%d", slider(id+1));
+);
+
+function font(sz, b) ( gfx_setfont(1, "Arial", (sz+2)*pscale, b ? 'b' : 0); );
+
+function text(str, x, y, align) local(tw, th)
+(
+  gfx_measurestr(str, tw, th);
+  gfx_x = pxo+x*pscale-(align == 1 ? tw : align == 2 ? tw*0.5 : 0);
+  gfx_y = floor(pyo+y*pscale-th*0.5);
+  gfx_drawstr(str);
+);
+
+function rfill(x, y, w, h, r) local(X0, Y0, W, H, R, j, d, ins, fi, a0)
+(
+  X0 = floor(pxo+x*pscale+0.5); Y0 = floor(pyo+y*pscale+0.5);
+  W = floor(w*pscale+0.5); H = floor(h*pscale+0.5); R = min(r*pscale, min(W, H)*0.5);
+  a0 = gfx_a;
+  j = 0;
+  loop(H,
+    d = j+0.5 < R ? R-j-0.5 : j+0.5 > H-R ? j+0.5-H+R : 0;
+    ins = d > 0 ? R-sqrt(max(0, R*R-d*d)) : 0;
+    fi = ceil(ins);
+    gfx_rect(X0+fi, Y0+j, W-2*fi, 1);
+    fi > ins ? (
+      gfx_a = a0*(fi-ins);
+      gfx_rect(X0+fi-1, Y0+j, 1, 1); gfx_rect(X0+W-fi, Y0+j, 1, 1);
+      gfx_a = a0;
+    );
+    j += 1;
+  );
+);
+
+function rframe(x, y, w, h, r)
+(
+  gfx_roundrect(floor(pxo+x*pscale+0.5), floor(pyo+y*pscale+0.5), floor(w*pscale+0.5)-1, floor(h*pscale+0.5)-1, r*pscale, 1);
+);
+
+function circle(x, y, r, fill) ( gfx_circle(pxo+x*pscale, pyo+y*pscale, r*pscale, fill, 1); );
+
+function knob(x, y)
+(
+  gfx_set(0, 0, 0, 0.35); circle(x, y+1, 8, 1);
+  gfx_set(1, 1, 1, 1); circle(x, y, 7, 1);
+  gfx_set(acr, acg, acb, 1); circle(x, y, 4.5, 1);
+);
+
+function draw_row(k) local(id, x, y, w, h, t, v, on, tx, act, i, cx)
+(
+  id = rrid[k]; x = rrx[k]; y = rry[k]; w = rrw[k]; h = rrh[k]; t = rrt[k];
+  act = hover == id || initialdrag == id;
+  t <= 1 && act ? (gfx_set(1, 1, 1, initialdrag == id ? 0.07 : 0.045); rfill(x-8, y+1, w+16, h-2, 7););
+  t <= 1 ? (
+    v = getp(id);
+    font(12, 0);
+    gfx_set(0.88, 0.9, 0.94, 1);
+    text(row_label(id), x, y+(t == 0 ? h*0.5 : 13), 0);
+  );
+  t == 0 ? (
+    on = v > 0.5; tx = x+w-36;
+    on ? gfx_set(acr, acg, acb, 1) : gfx_set(0.27, 0.29, 0.35, 1);
+    rfill(tx, y+5, 36, 18, 9);
+    on ? gfx_set(1, 1, 1, 1) : gfx_set(0.78, 0.8, 0.84, 1);
+    circle(on ? tx+27 : tx+9, y+14, 6.5, 1);
+  ) : t == 1 ? (
+    row_value(id); font(12, 1);
+    act ? gfx_set(acr, acg, acb, 1) : gfx_set(0.62, 0.65, 0.72, 1);
+    text(#val, x+w, y+13, 1);
+    gfx_set(0.24, 0.26, 0.32, 1); rfill(x, y+29, w, 4, 2);
+    gfx_set(acr, acg, acb, 1); v > 0.005 ? rfill(x, y+29, max(4, w*v), 4, 2);
+    knob(x+w*v, y+31);
+  ) : t == 4 ? (
+    time_precise() < saved_t ? (
+      gfx_set(acr, acg, acb, 0.3); rfill(x, y, w, h, 7);
+      gfx_set(acr, acg, acb, 1); rframe(x, y, w, h, 7);
+      gfx_set(1, 1, 1, 1); font(12, 1); text("Saved", x+w*0.5, y+h*0.5, 2);
+    ) : (
+      act ? gfx_set(acr, acg, acb, initialdrag == id ? 0.35 : 0.2) : gfx_set(1, 1, 1, 0.06);
+      rfill(x, y, w, h, 7);
+      act ? gfx_set(acr, acg, acb, 1) : gfx_set(0.33, 0.36, 0.44, 1);
+      rframe(x, y, w, h, 7);
+      gfx_set(0.92, 0.94, 0.97, 1); font(12, 1); text("Save as default", x+w*0.5, y+h*0.5, 2);
+    );
+  ) : t == 5 ? (
+    act ? (gfx_set(1, 1, 1, 0.08); circle(x+13, y+13, 13, 1););
+    act ? gfx_set(1, 1, 1, 1) : gfx_set(0.62, 0.65, 0.72, 1);
+    cx = 4.5*pscale;
+    i = 0;
+    loop(2,
+      gfx_line(pxo+(x+13)*pscale-cx+i, pyo+(y+13)*pscale-cx, pxo+(x+13)*pscale+cx+i, pyo+(y+13)*pscale+cx, 1);
+      gfx_line(pxo+(x+13)*pscale+cx+i, pyo+(y+13)*pscale-cx, pxo+(x+13)*pscale-cx+i, pyo+(y+13)*pscale+cx, 1);
+      i += 1;
+    );
+  );
+);
+
+function draw_panel() local(k)
+(
+  gfx_dest = -1; gfx_mode = 0;
+  acr = 0.62; acg = 0.62; acb = 0.98;
+  gfx_set(0, 0, 0, 0.3); rfill(-3, 2, PW+6, PH+4, 14);
+  gfx_set(0.055, 0.065, 0.09, 0.93); rfill(0, 0, PW, PH, 12);
+  gfx_set(0.24, 0.27, 0.34, 1); rframe(0, 0, PW, PH, 12);
+  gfx_set(acr, acg, acb, 1); circle(C1+4, 23, 4, 1);
+  gfx_set(0.95, 0.96, 0.98, 1); font(14, 1); text("VU", C1+16, 23, 0);
+  gfx_set(1, 1, 1, 0.08);
+  rfill(C1-8, 46, PW-2*C1+16, 1, 0);
+  rfill(C1-8, FOOT, PW-2*C1+16, 1, 0);
+  font(10, 0); gfx_set(0.56, 0.58, 0.64, 1);
+  text("Shift-drag: fine  ·  Double-click: reset", C1, FOOT+26, 0);
+  build_rows();
+  k = 0;
+  loop(nrows, draw_row(k); k += 1;);
+  gfx_a = 1;
+);
+
+function panel_down(lx, ly) local(now)
+(
+  hover = recalc_hover(lx, ly);
+  initialdrag = hover;
+  hover >= 0 ? (
+    initialvalue = getp(hover);
+    valueoffset = 0;
+    finemode = (mouse_cap & 24) != 0;
+    isbool(hover) ? setp(hover, 1-initialvalue) : (dragx = lx; dragy = ly;);
+  );
+  now = time_precise();
+  now-lastclick < 0.4 && hover == lastclick_hover && hover >= 0 && !isbool(hover) ? setp(hover, (defaultv[hover]-pmin[hover])/prng[hover]);
+  lastclick = now; lastclick_hover = hover;
+);
+
+function panel_drag(lx, ly) local(h, fine, d, value)
+(
+  initialdrag >= 0 ? (
+    isbool(initialdrag) ? (
+      h = recalc_hover(lx, ly);
+      hover = (h == initialdrag ? initialdrag : -1);
+      value = (initialdrag == hover ? 1-initialvalue : initialvalue);
+      getp(initialdrag) != value ? setp(initialdrag, value);
+    ) : (
+      fine = (mouse_cap & 24) != 0;
+      d = (ly-dragy)-(lx-dragx);
+      !finemode && fine ? (
+        finemode = 1; initialvalue -= d*0.0045;
+      ) : (
+        finemode && !fine ? (finemode = 0; initialvalue += d*0.0045;);
+      );
+      value = initialvalue-d*(finemode ? 0.0005 : 0.005);
+      setp(initialdrag, value-valueoffset);
+      valueoffset = max(min(valueoffset, value+0.1), value-1.1);
+    );
+  ) : initialdrag == -3 || initialdrag == -4 ? (
+    h = recalc_hover(lx, ly);
+    hover = (h == initialdrag ? initialdrag : -1);
+  );
+);
+
+function panel_up(lx, ly) local(i)
+(
+  initialdrag >= 0 ? (
+    slider_automate(2^initialdrag, 1);
+  ) : initialdrag == -3 && hover == -3 ? (
+    i = 0; loop(4, defaultv[i] = slider(i+1); i += 1;);
+    saved_t = time_precise()+1.5;
+  ) : initialdrag == -4 && hover == -4 ? (
+    panel_open = 0;
+  );
+  hover = recalc_hover(lx, ly);
+  initialdrag = -1;
+);
+
+function handle_mouse() local(down, lx, ly, inp, wheel)
+(
+  down = mouse_cap & 1;
+  lx = (mouse_x-pxo)/pscale; ly = (mouse_y-pyo)/pscale;
+  inp = panel_open && lx >= 0 && lx < PW && ly >= 0 && ly < PH;
+  wheel = mouse_wheel; mouse_wheel = 0;
+  down && !was_down ? (
+    inp ? panel_down(lx, ly) : (
+      panel_open = !panel_open;
+      hover = -1; initialdrag = -1;
+    );
+  ) : down && was_down ? (
+    panel_open && (lx != last_lx || ly != last_ly || (mouse_cap & 24) != last_mods) ? panel_drag(lx, ly);
+    panel_open && initialdrag >= 0 && !isbool(initialdrag) ? mouse_cap |= 65536;
+  ) : !down && was_down ? (
+    panel_open ? panel_up(lx, ly);
+  ) : (
+    hover = (inp ? recalc_hover(lx, ly) : -1);
+    wheel != 0 && inp && hover >= 0 && !isbool(hover) ? (
+      setp(hover, getp(hover)+sign(wheel)*max(1/prng[hover], abs(wheel)/120*0.234375*((mouse_cap & 24) ? 0.03 : 0.2)));
+    );
+  );
+  last_lx = lx; last_ly = ly; last_mods = mouse_cap & 24; was_down = down;
+);
+
+function step() local(bc, mult, tgt)
+(
+  bc = bufcount;
+  bc > 0 ? (
+    lrms = sqrt(vu_l/bc);
+    rrms = sqrt(vu_r/bc);
+    vu_l = 0; vu_r = 0; bufcount = 0;
+    pk_l ? (lpeak = 1; pk_l = 0;);
+    pk_r ? (rpeak = 1; pk_r = 0;);
+    bypass = 0;
+  ) : bypass > 5 ? (
+    lrms = rrms = 0;
+    lpeak = rpeak = 0;
+  ) : bypass += 1;
+
+  mult = 1/(10^(p_nominal/20));
+  tgt = lrms*mult;
+  lvu = smoothdamp(lvu, min(tgt, 1), 0, (tgt > lvu ? p_rise : p_decay)*0.05);
+  p_stereo > 0.5 ? (
+    tgt = rrms*mult;
+    rvu = smoothdamp(rvu, min(tgt, 1), 1, (tgt > rvu ? p_rise : p_decay)*0.05);
+  );
+  lpl = smoothdamp(lpl, lpeak, 2, 0.027);
+  rpl = smoothdamp(rpl, rpeak, 2, 0.027);
+
+  lpl >= 0.999 ? (lhold += 1; lhold >= 2 ? (lpeak = 0; lhold = 0;););
+  rpl >= 0.999 ? (rhold += 1; rhold >= 2 ? (rpeak = 0; rhold = 0;););
+
+  sd = smoothdamp(sd, p_stereo, 3, 0.3);
+);
+
+function gui_init()
+(
+  gui_ok = load_img(IMG_MAP, "map.png");
+  gui_ok ? (
+    gfx_getimgdim(IMG_MAP, AW, AH);
+    AW < 2875 || AH < 1900 ? gui_ok = 0;
+  );
+  gui_ok ? (
+    load_y = 0; loaded = 0;
+    sd = p_stereo;
+    IW = IH = 0; SWI = SHI = 0;
+    last_t = 0; acc = 0;
+    need_comp = 1;
+  );
+  gui_ready = 1;
+);
+
+@block
+sl = sr = 0; ns = 0; bpl = bpr = 0;
+
+@sample
+sl += spl0*spl0;
+sr += spl1*spl1;
+abs(spl0) >= 0.999 ? bpl = 1;
+abs(spl1) >= 0.999 ? bpr = 1;
+(ns += 1) >= samplesblock ? (
+  p_stereo > 0.5 ? (
+    vu_l += sl/ns;
+    vu_r += sr/ns;
+    bpl ? pk_l = 1;
+    bpr ? pk_r = 1;
+  ) : (
+    vu_l += (sl+sr)/ns*0.5;
+    bpl || bpr ? pk_l = 1;
+  );
+  bufcount += 1;
+);
+
+@serialize
+file_var(0, panel_open);
+file_mem(0, defaultv, 4);
+
+@gfx 505 300
+!gui_ready ? gui_init();
+gui_ok ? (
+  !loaded ? (load_step(); need_comp = 1;);
+  now = time_precise();
+  acc += min(0.2, max(0, now-last_t));
+  last_t = now;
+  nsteps = 0;
+  while (acc >= 1/30 && nsteps < 2) (acc -= 1/30; step(); nsteps += 1;);
+  acc >= 1/30 ? acc = 0;
+  layout();
+  pscale = max(0.5, min(max(1, gfx_ext_retina), min((gfx_w-12)/PW, (gfx_h-12)/PH)));
+  pxo = max(0, floor((gfx_w-PW*pscale)/2));
+  pyo = max(0, floor((gfx_h-PH*pscale)/2));
+  handle_mouse();
+  need_comp || lvu != c_lvu || rvu != c_rvu || lpl != c_lpl || rpl != c_rpl || sd != c_sd ? (
+    composite();
+    c_lvu = lvu; c_rvu = rvu; c_lpl = lpl; c_rpl = rpl; c_sd = sd;
+    need_comp = 0;
+  );
+  gfx_dest = -1; gfx_a = 1;
+  gfx_mode = (rw == IW && rh == IH ? 6 : 2);
+  gfx_blit(IMG_OUT, 1, 0, 0, 0, IW, IH, rx, ry, rw, rh);
+  gfx_mode = 0;
+  panel_open ? draw_panel();
+) : (
+  gfx_set(1, 1, 1, 1);
+  gfx_x = 10; gfx_y = 10;
+  gfx_drawstr("VU: image not found in Data/VU or Dependencies/VU");
+);
