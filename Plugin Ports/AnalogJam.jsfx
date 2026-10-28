@@ -1,0 +1,723 @@
+desc: Analog Jam (cStop port) by chmaha
+tags: tape stop start slowdown speedup effect
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  Tape stop and tape start effect
+  Ported from cStop 2.0.1 by Cal Goheen (TapeStop from cgo_modules, delay line and
+  state variable filter from chowdsp_utils)
+  https://github.com/calgoheen/cStop (GPLv3)
+  JSFX code released under GPLv3+ license
+  Claude generated some of this code
+
+slider1:mode=0<0,2,1{Bypass,Stop,Start}>-Mode
+slider2:auto_byp=0<0,1,1{Off,On}>-Auto Bypass
+slider3:sync=1<0,1,1{Off,On}>-Sync
+slider4:sd_len=1<0.01,10,0.001:log=1>-Slowdown Length (s)
+slider5:sd_len_s=14<0,18,1{1/32,1/24,1/16,1/12,1/8,1/6,3/16,1/4,5/16,1/3,3/8,1/2,3/4,1,2,3,4,6,8}>-Slowdown Length Sync (bars)
+slider6:sd_curve=0<-1,1,0.01>-Slowdown Curve
+slider7:sd_start=0<0,100,0.1>-Slowdown Start (%)
+slider8:sd_end=100<0,100,0.1>-Slowdown End (%)
+slider9:su_len=1<0.01,10,0.001:log=1>-Speedup Length (s)
+slider10:su_len_s=14<0,18,1{1/32,1/24,1/16,1/12,1/8,1/6,3/16,1/4,5/16,1/3,3/8,1/2,3/4,1,2,3,4,6,8}>-Speedup Length Sync (bars)
+slider11:su_curve=0<-1,1,0.01>-Speedup Curve
+slider12:su_start=0<0,100,0.1>-Speedup Start (%)
+slider13:su_end=100<0,100,0.1>-Speedup End (%)
+slider14:fade_len=0.02<0.005,0.5,0.0001:log=0.1>-Fade (s)
+slider15:xfade_len=0.02<0.005,0.5,0.0001:log=0.1>-Crossfade (s)
+slider16:flt_type=0<0,2,1{LP,HP,BP}>-Filter Type
+slider17:flt_cut=22000<10,22000,1:log=2000>-Filter Cutoff (Hz)
+slider18:flt_res=0.71<0.1,5,0.01:log=1>-Filter Resonance
+
+in_pin:Left input
+in_pin:Right input
+out_pin:Left output
+out_pin:Right output
+
+options:maxmem=67108864 no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+last_srate = srate;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+
+alloc.mp = 0;
+
+S_MODE = 0; S_CNT = 1; S_LEN = 2; S_FADE = 3; S_XF = 4; S_DLY = 5;
+S_CRV = 6; S_STA = 7; S_END = 8; S_F1L = 9; S_F2L = 10; S_F1R = 11; S_F2R = 12;
+hpi = $pi*0.5;
+
+ST_A = alloc(16);
+ST_B = alloc(16);
+BEATS = alloc(19);
+BEATS[0] = 1/8; BEATS[1] = 1/6; BEATS[2] = 1/4; BEATS[3] = 1/3; BEATS[4] = 1/2;
+BEATS[5] = 2/3; BEATS[6] = 3/4; BEATS[7] = 1; BEATS[8] = 5/4; BEATS[9] = 4/3;
+BEATS[10] = 3/2; BEATS[11] = 2; BEATS[12] = 3; BEATS[13] = 4; BEATS[14] = 8;
+BEATS[15] = 12; BEATS[16] = 16; BEATS[17] = 24; BEATS[18] = 32;
+g_fb = alloc(512); g_ft = alloc(384);
+u_i = 0; loop(512, g_fb[u_i] = str_getchar("0000000044444040:::00000::O:O::04>D>5>409E:4:EB08DD8EB=04440000024888420842224800A:O:A00044O440000000<<8000O000000000<<011248@@04:AAA:404<D444O0>A168@O0O1261A>026:BO220O@FI1A>068@FIA>0O1224880>AA>AA>0>AC=12<00<<00<<00<<00<<81248421000O0O00084212480>A244040>ACEF@>04:AAOAA0N99>99N0>A@@@A>0N99999N0O@@N@@O0O@@N@@@0>A@@CA>0AAAOAAA0>44444>072222B<0ABDHDBA0@@@@@@O0AAKEAAA0AAIECAA0>AAAAA>0NAAN@@@0>AAAAE>1NAANDBA0>A@>1A>0O4444440AAAAAA>0AAA:::40AAAEEKA0AA:4:AA0AA:44440O1248@O0>88888>0@@842110>22222>04:A000000000000O", u_i) - 48; u_i += 1;);
+u_i = 0; loop(384, g_ft[u_i] = str_getchar("000000444040::0000:?:?:04><2>48248204:4:50440000244442844448:4>4:044>44000004800>0000000402248804:>:404<44>04:24>0>242<0::>220>8<2<068<:40>248806:4:<04:62<00400400400482484200>0>00842480<240406::8604:>::0<:<:<04:8:40<:::<0>8<8>0>8<88068::60::>::0>444>0222:40::<::08888>0:>>::02:>:804:::40<:<8804:::42<:<::06842<0>44440::::>0:::>40::>>:0::4::0::4440>248>0644460884220<444<04:000000000>", u_i) - 48; u_i += 1;);
+
+function expo_curve(x, c)
+(
+  abs(c) < 0.001 ? x
+  : c > 0 ? (1000000^(c*x) - 1)/(1000000^c - 1)
+  : 1 - (1000000^(-c*(1 - x)) - 1)/(1000000^(-c) - 1);
+);
+
+function svf_coefs(fc, q) local(g, gk)
+(
+  g = tan($pi*fc/srate);
+  gk = g + 1/q;
+  a1 = 1/(1 + g*gk);
+  a2 = g*a1;
+  a3 = g*a2;
+  ak = gk*a1;
+);
+
+function read_params() local(fm, ss, se, spb)
+(
+  sd_c = sd_curve*0.5;
+  su_c = -su_curve*0.5;
+  ss = sd_start*0.01; se = sd_end*0.01;
+  sd_sta = min(ss, se - 0.1); sd_en = max(se, ss + 0.1);
+  ss = su_start*0.01; se = su_end*0.01;
+  su_sta = min(ss, se - 0.1); su_en = max(se, ss + 0.1);
+  fade_n = floor(fade_len*srate + 0.5);
+  xf_n = floor(xfade_len*srate + 0.5);
+  sync ? (
+    spb = 60/max(tempo, 1);
+    sd_n = floor(min(BEATS[sd_len_s|0]*spb, 20)*srate + 0.5);
+    su_n = floor(min(BEATS[su_len_s|0]*spb, 20)*srate + 0.5);
+  ) : (
+    sd_n = floor(sd_len*srate + 0.5);
+    su_n = floor(su_len*srate + 0.5);
+  );
+  fm = flt_type < 0.5 ? 0 : flt_type < 1.5 ? 1 : 0.5;
+  lp_m = sin(hpi*(1 - 2*min(0.5, fm)));
+  bp_m = sin(hpi*(1 - abs(2*(fm - 0.5))))*sqrt(2);
+  hp_m = sin(hpi*(2*max(0.5, fm) - 1));
+  cut_new = min(flt_cut, srate*0.499);
+);
+
+function clear_tail(s)
+(
+  s[S_DLY] = 0;
+  s[S_F1L] = s[S_F2L] = s[S_F1R] = s[S_F2R] = 0;
+);
+
+function update_mode(m) local(t)
+(
+  t = prv; prv = cur; cur = t;
+  cur[S_MODE] = m;
+  cur[S_CNT] = 0;
+  clear_tail(cur);
+  m == 0 ? (
+    cur[S_LEN] = xf_n;
+  ) : m == 1 ? (
+    cur[S_LEN] = sd_n; cur[S_CRV] = sd_c; cur[S_STA] = sd_sta; cur[S_END] = sd_en;
+  ) : (
+    cur[S_LEN] = su_n; cur[S_CRV] = su_c; cur[S_STA] = su_sta; cur[S_END] = su_en;
+  );
+  cur[S_FADE] = min(cur[S_LEN], fade_n);
+  cur[S_XF] = min(cur[S_LEN], xf_n);
+);
+
+function proc(s) local(fp, g, d, di, df, d1, d2, d3, d4, d5, c1, c2, c3, c4, c5, c6, r, x, v0, v1, v2, v3)
+(
+  s[S_MODE] != 0 ? (
+    s[S_CNT] < s[S_LEN] ? (
+      x = expo_curve(s[S_STA] + (s[S_CNT] + 1)/s[S_LEN]*(s[S_END] - s[S_STA]), s[S_CRV]);
+      s[S_DLY] += s[S_MODE] == 1 ? x : 1 - x;
+    );
+    fp = s[S_MODE] == 1 ? s[S_LEN] - s[S_CNT] : s[S_CNT];
+    g = fp < s[S_FADE] ? (fp/s[S_FADE])^2.5 : 1;
+
+    d = max(0, min(dlim, s[S_DLY]));
+    di = floor(d); df = d - di;
+    di >= 2 ? (df += 2; di -= 2;);
+    d1 = df - 1; d2 = df - 2; d3 = df - 3; d4 = df - 4; d5 = df - 5;
+    c1 = -d1*d2*d3*d4*d5/120;
+    c2 = d2*d3*d4*d5/24;
+    c3 = -d1*d3*d4*d5/12;
+    c4 = d1*d2*d4*d5/12;
+    c5 = -d1*d2*d3*d5/24;
+    c6 = d1*d2*d3*d4/120;
+    r = wp + di;
+
+    x = DL0[r]*c1 + df*(DL0[r+1]*c2 + DL0[r+2]*c3 + DL0[r+3]*c4 + DL0[r+4]*c5 + DL0[r+5]*c6);
+    v3 = x - s[S_F2L];
+    v0 = a1*v3 - ak*s[S_F1L];
+    v1 = a2*v3 + a1*s[S_F1L];
+    v2 = a3*v3 + a2*s[S_F1L] + s[S_F2L];
+    s[S_F1L] = 2*v1 - s[S_F1L];
+    s[S_F2L] = 2*v2 - s[S_F2L];
+    o_l = g*(lp_m*v2 + bp_m*v1 + hp_m*v0);
+
+    x = DL1[r]*c1 + df*(DL1[r+1]*c2 + DL1[r+2]*c3 + DL1[r+3]*c4 + DL1[r+4]*c5 + DL1[r+5]*c6);
+    v3 = x - s[S_F2R];
+    v0 = a1*v3 - ak*s[S_F1R];
+    v1 = a2*v3 + a1*s[S_F1R];
+    v2 = a3*v3 + a2*s[S_F1R] + s[S_F2R];
+    s[S_F1R] = 2*v1 - s[S_F1R];
+    s[S_F2R] = 2*v2 - s[S_F2R];
+    o_r = g*(lp_m*v2 + bp_m*v1 + hp_m*v0);
+  ) : (
+    o_l = in_l; o_r = in_r;
+  );
+  s[S_CNT] < s[S_LEN] ? (s[S_CNT] += 1);
+);
+
+function set_rate()
+(
+  DN = floor(20*srate) + 16;
+  dlim = floor(20*srate) + 10;
+  moremem.mp = __memtop()/2;
+  DL0 = moremem.alloc(2*DN);
+  DL1 = moremem.alloc(2*DN);
+  wp = 0;
+  sm_n = floor(0.075*srate);
+  read_params();
+  cut_cur = cut_tgt = cut_new; cut_cnt = 0;
+  res_cur = res_tgt = flt_res; res_cnt = 0;
+  svf_coefs(cut_cur, res_cur);
+  memset(ST_A, 0, 16); memset(ST_B, 0, 16);
+  cur = ST_A; prv = ST_B;
+  update_mode(floor(mode + 0.5));
+  cur[S_CNT] = cur[S_LEN];
+  p_mode = mode;
+);
+
+set_rate();
+
+@slider
+last_srate != srate ? (
+  last_srate = srate;
+  set_rate();
+);
+
+@block
+playing = play_state & 1;
+p_play && !playing ? (clear_tail(cur); clear_tail(prv););
+p_play = playing;
+read_params();
+cut_new != cut_tgt ? (cut_tgt = cut_new; cut_cnt = sm_n; cut_step = (cut_tgt - cut_cur)/sm_n;);
+flt_res != res_tgt ? (res_tgt = flt_res; res_cnt = sm_n; res_step = (res_tgt - res_cur)/sm_n;);
+g_req ? (
+  m_new = g_req - 1; g_req = 0; p_mode = mode;
+  cur[S_MODE] != m_new ? update_mode(m_new);
+);
+mode != p_mode ? (
+  p_mode = mode; m_new = floor(mode + 0.5);
+  cur[S_MODE] != m_new ? update_mode(m_new);
+);
+
+@sample
+wp = wp > 0 ? wp - 1 : DN - 1;
+DL0[wp] = DL0[wp + DN] = spl0;
+DL1[wp] = DL1[wp + DN] = spl1;
+
+cut_cnt > 0 || res_cnt > 0 ? (
+  cut_cnt > 0 ? (cut_cnt -= 1; cut_cur = cut_cnt > 0 ? cut_cur + cut_step : cut_tgt;);
+  res_cnt > 0 ? (res_cnt -= 1; res_cur = res_cnt > 0 ? res_cur + res_step : res_tgt;);
+  svf_coefs(cut_cur, res_cur);
+);
+
+in_l = spl0; in_r = spl1;
+proc(cur);
+spl0 = o_l; spl1 = o_r;
+cur[S_CNT] <= cur[S_XF] ? (
+  proc(prv);
+  xm = hpi*cur[S_CNT]/cur[S_XF];
+  xc = sin(xm); xp = cos(xm);
+  spl0 = spl0*xc + o_l*xp;
+  spl1 = spl1*xc + o_r*xp;
+);
+
+auto_byp && cur[S_MODE] != 0 && cur[S_LEN] - cur[S_CNT] < floor(xf_n/2) ? update_mode(0);
+
+@gfx 800 400
+!g_init ? (
+  g_init = 1;
+  gfx_setimgdim(7, 400, 200);
+);
+
+gfx_dest = -1;
+gfx_mode = 0;
+u_sc = min(gfx_w/400, gfx_h/200);
+u_sc = u_sc >= 1 ? floor(u_sc) : max(0.25, u_sc);
+u_ox = floor((gfx_w - 400*u_sc)*0.5); u_oy = floor((gfx_h - 200*u_sc)*0.5);
+wheel = mouse_wheel; mouse_wheel = 0;
+mouse_down = mouse_cap & 1;
+mouse_just_down = mouse_down && !last_down;
+last_down = mouse_down;
+u_mx = (mouse_x - u_ox)/u_sc; u_my = (mouse_y - u_oy)/u_sc;
+gt = time_precise();
+
+function hit(x, y, w, h) ( u_mx >= x && u_mx < x + w && u_my >= y && u_my < y + h; );
+function hit_circle(cx, cy, rad) ( sqr(u_mx - cx) + sqr(u_my - cy) <= sqr(rad); );
+function clamp01(v) ( max(0, min(1, v)); );
+function skew_of(mn, mx, c) ( log(0.5)/log((c - mn)/(mx - mn)); );
+function to_pos(v, mn, mx, c) ( clamp01((v - mn)/(mx - mn))^skew_of(mn, mx, c); );
+function from_pos(p, mn, mx, c) ( mn + (mx - mn)*exp(log(max(p, 0.000000001))/skew_of(mn, mx, c)); );
+function ink() ( gfx_set(0.16, 0.13, 0.11, 1); );
+function ink_dim() ( gfx_set(0.36, 0.31, 0.26, 1); );
+function scr(b)
+(
+  b == 0 ? gfx_set(0.10, 0.06, 0.02, 1)
+  : b == 1 ? gfx_set(0.55, 0.33, 0.08, 1)
+  : b == 2 ? gfx_set(0.86, 0.56, 0.16, 1)
+  : gfx_set(1, 0.80, 0.40, 1);
+);
+
+function px_w(str, tiny) local(n, i, c, w)
+(
+  n = strlen(str); i = 0; w = 0;
+  loop(n, c = str_getchar(str, i, 'cu'); !(c >= 0x80 && c < 0xC0) ? (w += tiny ? 4 : 6); i += 1; );
+  w;
+);
+
+function px_str(str, x, y, tiny, sc) local(n, i, c, gp, rr, bits, xx, run, ny, gw, adv)
+(
+  n = strlen(str); i = 0;
+  ny = tiny ? 6 : 8; gw = tiny ? 4 : 5; adv = tiny ? 4 : 6;
+  loop(n,
+    c = str_getchar(str, i, 'cu');
+    !(c >= 0x80 && c < 0xC0) ? (
+      c >= 97 && c <= 122 ? (c -= 32);
+      (c < 32 || c > 95) ? (c = 63);
+      gp = (tiny ? g_ft : g_fb) + (c - 32)*ny;
+      rr = 0;
+      loop(ny,
+        bits = gp[rr];
+        bits ? (
+          run = -1; xx = 0;
+          loop(gw + 1,
+            xx < gw && (bits >> (gw - 1 - xx)) & 1 ? (
+              run < 0 ? (run = xx);
+            ) : run >= 0 ? (
+              gfx_rect(x + run*sc, y + rr*sc, (xx - run)*sc, sc);
+              run = -1;
+            );
+            xx += 1;
+          );
+        );
+        rr += 1;
+      );
+      x += adv*sc;
+    );
+    i += 1;
+  );
+  x;
+);
+
+function px_strc(str, cx, y, tiny) ( px_str(str, cx - floor(px_w(str, tiny)*0.5), y, tiny, 1); );
+function px_strr(str, rx, y, tiny) ( px_str(str, rx - px_w(str, tiny), y, tiny, 1); );
+
+function bevel(x, y, w, h, up)
+(
+  up ? gfx_set(1, 1, 1, 0.45) : gfx_set(0, 0, 0, 0.30);
+  gfx_rect(x, y, w, 1); gfx_rect(x, y, 1, h);
+  up ? gfx_set(0, 0, 0, 0.30) : gfx_set(1, 1, 1, 0.45);
+  gfx_rect(x, y + h - 1, w, 1); gfx_rect(x + w - 1, y, 1, h);
+);
+
+function btn(x, y, w, h, str, on, hot) local(p)
+(
+  ink();
+  gfx_rect(x - 1, y - 1, w + 2, h + 2);
+  on ? gfx_set(0.96, 0.62, 0.18, 1)
+  : hot ? gfx_set(0.40, 0.36, 0.33, 1) : gfx_set(0.31, 0.28, 0.26, 1);
+  gfx_rect(x, y, w, h);
+  bevel(x, y, w, h, !on);
+  p = on ? 1 : 0;
+  on ? ink() : gfx_set(0.96, 0.93, 0.85, 1);
+  px_str(str, x + floor((w - px_w(str, 0))*0.5) + p, y + floor((h - 7)*0.5) + p, 0, 1);
+);
+
+function draw_knob(cx, cy, rad, pos, cr, cg, cb, valtext, minlabel, maxlabel, name) local(ang0, ang1, ang, i)
+(
+  ang0 = -2.35619;
+  ang1 =  2.35619;
+
+  ink();
+  gfx_circle(cx, cy, rad + 1, 1, 0);
+  gfx_set(cr*0.55, cg*0.55, cb*0.55, 1);
+  gfx_circle(cx, cy, rad, 1, 0);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, floor(rad*0.72), 1, 0);
+  gfx_set(1, 1, 1, 0.35);
+  gfx_circle(cx - 3, cy - 3, 3, 1, 0);
+
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.96, 0.93, 0.85, 1);
+    gfx_line(cx + sin(ang)*rad*0.80, cy - cos(ang)*rad*0.80, cx + sin(ang)*rad*0.98, cy - cos(ang)*rad*0.98, 0);
+    i += 1;
+  );
+
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.08, 0.06, 0.05, 1);
+  gfx_line(cx, cy, cx + sin(ang)*rad*0.85, cy - cos(ang)*rad*0.85, 0);
+  gfx_line(cx + 1, cy, cx + 1 + sin(ang)*rad*0.85, cy - cos(ang)*rad*0.85, 0);
+
+  ink();
+  px_strc(valtext, cx, cy - rad - 11, 0);
+  ink_dim();
+  px_str(minlabel, cx - 2 - px_w(minlabel, 1), cy + rad + 3, 1, 1);
+  px_str(maxlabel, cx + 3, cy + rad + 3, 1, 1);
+  ink();
+  px_strc(name, cx, cy + rad + 10, 0);
+);
+
+function double_click(id) local(r)
+(
+  r = gt - k_click < 0.3 && k_last == id;
+  k_click = gt; k_last = id;
+  r;
+);
+
+function knob_ui(id, cx, cy, pos, defpos, wstep) local(np)
+(
+  np = pos;
+  mouse_just_down && hit_circle(cx, cy, 16) ? (
+    double_click(id) ? (
+      np = defpos; drag_target = 0;
+    ) : (
+      drag_target = id; drag_y = mouse_y; drag_pos = pos;
+    );
+  );
+  wheel != 0 && hit_circle(cx, cy, 16) ? (np = clamp01(pos + wheel/120*wstep););
+  drag_target == id && mouse_down ? (
+    mouse_cap |= 65536;
+    drag_pos = clamp01(drag_pos + (drag_y - mouse_y)/(80*u_sc)*(mouse_cap & 8 ? 0.1 : 1));
+    drag_y = mouse_y;
+    np = drag_pos;
+  );
+  np;
+);
+
+function time_str(t)
+(
+  t < 0.1 ? sprintf(#u_vs, "%.1fMS", t*1000)
+  : t < 1 ? sprintf(#u_vs, "%dMS", floor(t*1000 + 0.5))
+  : sprintf(#u_vs, "%.2fS", t);
+  #u_vs;
+);
+
+function sync_str(i)
+(
+  i = i|0;
+  i == 0 ? "1/32" : i == 1 ? "1/24" : i == 2 ? "1/16" : i == 3 ? "1/12" : i == 4 ? "1/8" : i == 5 ? "1/6"
+  : i == 6 ? "3/16" : i == 7 ? "1/4" : i == 8 ? "5/16" : i == 9 ? "1/3" : i == 10 ? "3/8" : i == 11 ? "1/2"
+  : i == 12 ? "3/4" : i == 13 ? "1 BAR" : i == 14 ? "2 BARS" : i == 15 ? "3 BARS" : i == 16 ? "4 BARS"
+  : i == 17 ? "6 BARS" : "8 BARS";
+);
+
+function len_knob(id, cx, kind) local(pos, np, v, cr, cg, cb)
+(
+  kind == 1 ? (cr = 0.86; cg = 0.22; cb = 0.18;) : (cr = 0.30; cg = 0.68; cb = 0.30;);
+  sync ? (
+    v = kind == 1 ? sd_len_s : su_len_s;
+    pos = v/18;
+    np = knob_ui(id, cx, 138, pos, 14/18, 1/18);
+    np != pos ? (
+      v = floor(np*18 + 0.5);
+      kind == 1 ? (sd_len_s != v ? (sd_len_s = v; slider_automate(sd_len_s););)
+      : (su_len_s != v ? (su_len_s = v; slider_automate(su_len_s);););
+    );
+    draw_knob(cx, 138, 12, v/18, cr, cg, cb, sync_str(v), "1/32", "8", kind == 1 ? "STOP" : "START");
+  ) : (
+    v = kind == 1 ? sd_len : su_len;
+    pos = to_pos(v, 0.01, 10, 1);
+    np = knob_ui(id, cx, 138, pos, 0.5, 0.02);
+    np != pos ? (
+      v = floor(from_pos(np, 0.01, 10, 1)*1000 + 0.5)/1000;
+      kind == 1 ? (sd_len = v; slider_automate(sd_len);) : (su_len = v; slider_automate(su_len););
+    );
+    draw_knob(cx, 138, 12, to_pos(v, 0.01, 10, 1), cr, cg, cb, time_str(v), "10MS", "10S", kind == 1 ? "STOP" : "START");
+  );
+);
+
+function fade_knob(id, cx, kind) local(pos, np, v)
+(
+  v = kind == 1 ? fade_len : xfade_len;
+  pos = to_pos(v, 0.005, 0.5, 0.1);
+  np = knob_ui(id, cx, 138, pos, to_pos(0.02, 0.005, 0.5, 0.1), 0.02);
+  np != pos ? (
+    v = floor(from_pos(np, 0.005, 0.5, 0.1)*10000 + 0.5)/10000;
+    kind == 1 ? (fade_len = v; slider_automate(fade_len);) : (xfade_len = v; slider_automate(xfade_len););
+  );
+  kind == 1 ? draw_knob(cx, 138, 12, to_pos(v, 0.005, 0.5, 0.1), 0.25, 0.45, 0.85, time_str(v), "5MS", "0.5S", "FADE")
+  : draw_knob(cx, 138, 12, to_pos(v, 0.005, 0.5, 0.1), 0.58, 0.38, 0.78, time_str(v), "5MS", "0.5S", "XFADE");
+);
+
+function set_ftype(t)
+(
+  flt_type = t;
+  flt_cut = t == 0 ? 22000 : t == 1 ? 10 : 2000;
+  slider_automate(flt_type);
+  slider_automate(flt_cut);
+);
+
+function plot_ui(id, x, y, w, h) local(hy, hs, he, v, d)
+(
+  hy = y + floor(h*0.5);
+  hs = x + p_sta*(w - 1); he = x + p_en*(w - 1);
+  p_hot = 0;
+  hit(x - 4, y, w + 8, h) ? (
+    p_hot = abs(u_mx - he) <= 4 && abs(u_my - hy) <= 5 ? 3
+    : abs(u_mx - hs) <= 4 && abs(u_my - hy) <= 5 ? 2
+    : hit(x, y, w, h) ? 1 : 0;
+  );
+  mouse_just_down && p_hot ? (
+    double_click(id + p_hot) ? (
+      p_hot == 1 ? (p_crv = 0) : p_hot == 2 ? (p_sta = 0) : (p_en = 1);
+      drag_target = 0;
+    ) : (
+      drag_target = id + p_hot; drag_x = mouse_x; drag_y = mouse_y;
+    );
+  );
+  wheel != 0 && p_hot == 1 ? (p_crv = max(-1, min(1, p_crv + wheel/120*0.05)););
+  drag_target > id && drag_target <= id + 3 && mouse_down ? (
+    mouse_cap |= 65536;
+    d = mouse_cap & 8 ? 0.2 : 1;
+    v = drag_target - id;
+    v == 1 ? (
+      p_crv = max(-1, min(1, p_crv + (drag_y - mouse_y)/u_sc*0.02*d));
+    ) : v == 2 ? (
+      p_sta = max(0, min(p_en - 0.1, p_sta + (mouse_x - drag_x)/(u_sc*(w - 1))*d));
+    ) : (
+      p_en = min(1, max(p_sta + 0.1, p_en + (mouse_x - drag_x)/(u_sc*(w - 1))*d));
+    );
+    drag_x = mouse_x; drag_y = mouse_y;
+  );
+  drag_target > id && drag_target <= id + 3 ? (p_hot = drag_target - id);
+);
+
+function draw_plot(x, y, w, h, kind, c, sta, en, hot, act, ppos) local(i, t, v, px, py, lx, ly, hy, hs, he)
+(
+  scr(1);
+  i = 1;
+  loop(3,
+    px = x + floor(i*w/4); py = y + floor(i*h/4);
+    t = 0; loop(floor(h/3) + 1, gfx_rect(px, y + t, 1, 1); t += 3;);
+    t = 0; loop(floor(w/3) + 1, gfx_rect(x + t, py, 1, 1); t += 3;);
+    i += 1;
+  );
+  gfx_set(0.55, 0.33, 0.08, 0.30);
+  hs = x + floor(sta*(w - 1)); he = x + floor(en*(w - 1));
+  gfx_rect(x, y, hs - x, h);
+  gfx_rect(he + 1, y, x + w - 1 - he, h);
+  i = 0;
+  loop(w,
+    t = i/(w - 1);
+    v = kind == 1 ? 1 - expo_curve(t, c) : expo_curve(t, c);
+    px = x + i; py = y + h - 1 - floor(v*(h - 1) + 0.5);
+    t >= sta - 0.0001 && t <= en + 0.0001 ? scr(hot == 1 ? 3 : 2) : scr(1);
+    i > 0 ? gfx_line(lx, ly, px, py, 0) : gfx_rect(px, py, 1, 1);
+    lx = px; ly = py;
+    i += 1;
+  );
+  scr(1);
+  gfx_rect(x - 1, y - 1, w + 2, 1); gfx_rect(x - 1, y + h, w + 2, 1);
+  gfx_rect(x - 1, y - 1, 1, h + 2); gfx_rect(x + w, y - 1, 1, h + 2);
+  hy = y + floor(h*0.5);
+  i = 0;
+  loop(2,
+    px = i == 0 ? hs : he;
+    scr(hot == 2 + i ? 3 : 2);
+    t = 0; loop(floor(h/2), gfx_rect(px, y + t, 1, 1); t += 2;);
+    scr(0); gfx_rect(px - 3, hy - 3, 7, 7);
+    scr(hot == 2 + i ? 3 : 2);
+    gfx_rect(px - 3, hy - 3, 7, 1); gfx_rect(px - 3, hy + 3, 7, 1);
+    gfx_rect(px - 3, hy - 3, 1, 7); gfx_rect(px + 3, hy - 3, 1, 7);
+    gfx_rect(px - 1, hy - 1, 3, 3);
+    i += 1;
+  );
+  act ? (
+    t = sta + ppos*(en - sta);
+    v = kind == 1 ? 1 - expo_curve(t, c) : expo_curve(t, c);
+    px = x + floor(t*(w - 1) + 0.5); py = y + h - 1 - floor(v*(h - 1) + 0.5);
+    scr(3);
+    t = 0; loop(floor(h/2), gfx_rect(px, y + t + 1, 1, 1); t += 2;);
+    gfx_rect(px - 2, py - 2, 5, 5);
+    scr(0); gfx_rect(px, py, 1, 1);
+  );
+);
+
+function draw_reel(cx, cy, r, ang) local(k, a)
+(
+  scr(1);
+  gfx_circle(cx, cy, floor(r*0.78), 1, 0);
+  scr(2);
+  gfx_circle(cx, cy, r, 0, 0);
+  scr(0);
+  gfx_circle(cx, cy, floor(r*0.42), 1, 0);
+  scr(3);
+  k = 0;
+  loop(3,
+    a = ang + k*2*$pi/3;
+    gfx_line(cx + cos(a)*2, cy + sin(a)*2, cx + cos(a)*r*0.7, cy + sin(a)*r*0.7, 0);
+    k += 1;
+  );
+  gfx_circle(cx, cy, 2, 1, 0);
+  scr(0);
+  gfx_rect(cx, cy, 1, 1);
+);
+
+!mouse_down ? (drag_target = 0;);
+
+u_m = cur[S_MODE];
+u_c = cur[S_CNT]; u_l = max(1, cur[S_LEN]);
+u_run = u_m != 0 && u_c < u_l;
+u_pp = u_c/u_l;
+u_m == 0 ? (u_spd = 1)
+: u_run ? (
+  u_v = expo_curve(cur[S_STA] + u_pp*(cur[S_END] - cur[S_STA]), cur[S_CRV]);
+  u_spd = u_m == 1 ? 1 - u_v : u_v;
+) : (u_spd = u_m == 1 ? 0 : 1);
+u_dt = min(0.1, gt - u_lt); u_lt = gt;
+u_ang += ((play_state & 1) || u_run ? u_spd : 0)*u_dt*7;
+u_ang > 2*$pi ? (u_ang -= 2*$pi);
+
+gfx_dest = 7;
+gfx_set(0.79, 0.75, 0.65, 1);
+gfx_rect(0, 0, 400, 200);
+
+gfx_set(0.95, 0.92, 0.84, 1);
+px_str("ANALOG JAM", 59, 6, 0, 2);
+ink();
+px_str("ANALOG JAM", 58, 5, 0, 2);
+gfx_set(0.93, 0.17, 0.29, 1); gfx_rect(10, 4, 35, 4); gfx_rect(190, 4, 35, 4);
+gfx_set(0.96, 0.68, 0.12, 1); gfx_rect(10, 8, 38, 4); gfx_rect(187, 8, 38, 4);
+gfx_set(0.65, 0.80, 0.28, 1); gfx_rect(10, 12, 41, 4); gfx_rect(184, 12, 41, 4);
+gfx_set(0.13, 0.73, 0.72, 1); gfx_rect(10, 16, 44, 4); gfx_rect(181, 16, 44, 4);
+u_mi = floor(mode + 0.5);
+btn(232, 4, 50, 15, "BYPASS", u_mi == 0, hit(232, 4, 50, 15));
+btn(286, 4, 50, 15, "STOP", u_mi == 1, hit(286, 4, 50, 15));
+btn(340, 4, 50, 15, "START", u_mi == 2, hit(340, 4, 50, 15));
+
+gfx_set(0.20, 0.19, 0.18, 1);
+gfx_rect(10, 24, 380, 80);
+bevel(10, 24, 380, 80, 1);
+bevel(15, 29, 370, 70, 0);
+scr(0);
+gfx_rect(16, 30, 368, 68);
+gfx_set(0.20, 0.19, 0.18, 1);
+gfx_rect(16, 30, 2, 1); gfx_rect(16, 30, 1, 2);
+gfx_rect(382, 30, 2, 1); gfx_rect(383, 30, 1, 2);
+gfx_rect(16, 97, 2, 1); gfx_rect(16, 96, 1, 2);
+gfx_rect(382, 97, 2, 1); gfx_rect(383, 96, 1, 2);
+
+scr(2);
+px_str(u_m == 1 ? (u_run ? "STOPPING" : "STOPPED") : u_m == 2 ? (u_run ? "STARTING" : "RUNNING") : u_mi != 0 ? "AUTO BYPASS" : "BYPASS", 22, 34, 0, 1);
+draw_reel(46, 60, 14, u_ang);
+draw_reel(102, 60, 14, u_ang);
+scr(2);
+gfx_line(36, 71, 70, 80, 0);
+gfx_line(112, 71, 78, 80, 0);
+gfx_rect(70, 79, 9, 4);
+scr(3);
+sprintf(#u_s, "SPEED %d%%", floor(u_spd*100 + 0.5));
+px_str(#u_s, 22, 88, 0, 1);
+
+scr(1);
+u_i = 0; loop(33, gfx_rect(129, 32 + u_i*2, 1, 1); gfx_rect(256, 32 + u_i*2, 1, 1); u_i += 1;);
+
+p_crv = sd_curve; p_sta = sd_start*0.01; p_en = sd_end*0.01;
+plot_ui(10, 136, 45, 114, 48);
+p_crv != sd_curve ? (sd_curve = floor(p_crv*100 + 0.5)/100; slider_automate(sd_curve););
+p_sta*100 != sd_start ? (sd_start = floor(p_sta*1000 + 0.5)/10; slider_automate(sd_start););
+p_en*100 != sd_end ? (sd_end = floor(p_en*1000 + 0.5)/10; slider_automate(sd_end););
+scr(2);
+px_str("SLOWDOWN", 136, 34, 0, 1);
+scr(3);
+px_strr(sync ? sync_str(sd_len_s) : time_str(sd_len), 251, 34, 0);
+draw_plot(136, 45, 114, 48, 1, sd_curve*0.5, sd_sta, sd_en, p_hot, u_m == 1 && u_run, u_pp);
+
+p_crv = su_curve; p_sta = su_start*0.01; p_en = su_end*0.01;
+plot_ui(20, 263, 45, 114, 48);
+p_crv != su_curve ? (su_curve = floor(p_crv*100 + 0.5)/100; slider_automate(su_curve););
+p_sta*100 != su_start ? (su_start = floor(p_sta*1000 + 0.5)/10; slider_automate(su_start););
+p_en*100 != su_end ? (su_end = floor(p_en*1000 + 0.5)/10; slider_automate(su_end););
+scr(2);
+px_str("SPEEDUP", 263, 34, 0, 1);
+scr(3);
+px_strr(sync ? sync_str(su_len_s) : time_str(su_len), 378, 34, 0);
+draw_plot(263, 45, 114, 48, 2, -su_curve*0.5, su_sta, su_en, p_hot, u_m == 2 && u_run, u_pp);
+
+gfx_set(0.72, 0.68, 0.58, 1);
+gfx_rect(10, 106, 268, 70);
+bevel(10, 106, 268, 70, 0);
+
+len_knob(1, 33, 1);
+len_knob(2, 77, 2);
+fade_knob(3, 121, 1);
+fade_knob(4, 165, 2);
+
+u_pos = to_pos(flt_cut, 10, 22000, 2000);
+u_np = knob_ui(5, 209, 138, u_pos, 1, 0.02);
+u_np != u_pos ? (flt_cut = floor(from_pos(u_np, 10, 22000, 2000) + 0.5); slider_automate(flt_cut););
+flt_cut < 1000 ? sprintf(#u_s, "%dHZ", flt_cut) : flt_cut < 10000 ? sprintf(#u_s, "%.2fK", flt_cut/1000) : sprintf(#u_s, "%.1fK", flt_cut/1000);
+draw_knob(209, 138, 12, to_pos(flt_cut, 10, 22000, 2000), 0.96, 0.55, 0.15, #u_s, "10", "22K", "CUTOFF");
+
+u_pos = to_pos(flt_res, 0.1, 5, 1);
+u_np = knob_ui(6, 253, 138, u_pos, to_pos(0.71, 0.1, 5, 1), 0.02);
+u_np != u_pos ? (flt_res = floor(from_pos(u_np, 0.1, 5, 1)*100 + 0.5)/100; slider_automate(flt_res););
+draw_knob(253, 138, 12, to_pos(flt_res, 0.1, 5, 1), 0.90, 0.75, 0.20, sprintf(#u_s, "%.2f", flt_res), "0.1", "5", "RESO");
+
+btn(286, 110, 104, 14, sync ? "SYNC:ON" : "SYNC:OFF", sync, hit(286, 110, 104, 14));
+btn(286, 127, 104, 14, auto_byp ? "AUTO BYP:ON" : "AUTO BYP:OFF", auto_byp, hit(286, 127, 104, 14));
+ink_dim();
+px_str("FILTER", 287, 147, 1, 1);
+btn(286, 155, 33, 14, "LP", flt_type == 0, hit(286, 155, 33, 14));
+btn(321, 155, 34, 14, "HP", flt_type == 1, hit(321, 155, 34, 14));
+btn(357, 155, 33, 14, "BP", flt_type == 2, hit(357, 155, 33, 14));
+
+gfx_set(0.55, 0.51, 0.43, 1);
+gfx_rect(0, 179, 400, 1);
+gfx_set(0.70, 0.66, 0.56, 1);
+gfx_rect(0, 180, 400, 20);
+ink();
+sync ? (
+  sprintf(#u_s, "SYNCED TO %.1f BPM - AUTOMATE MODE TO STOP/START", tempo);
+  px_str(#u_s, 10, 186, 0, 1);
+) : px_str("AUTOMATE MODE TO STOP OR START THE TAPE", 10, 186, 0, 1);
+ink_dim();
+px_strr("BY CHMAHA", 351, 187, 1);
+px_str("TAPE", 362, 187, 1, 1);
+ink();
+gfx_rect(381, 185, 7, 7);
+u_m != 0 ? gfx_set(1, 0.25, 0.18, 1) : gfx_set(0.38, 0.12, 0.10, 1);
+gfx_rect(382, 186, 5, 5);
+u_m != 0 ? (gfx_set(1, 0.8, 0.7, 1); gfx_rect(383, 187, 1, 1););
+
+gfx_dest = -1;
+gfx_set(0.79, 0.75, 0.65, 1);
+gfx_rect(0, 0, gfx_w, gfx_h);
+gfx_mode = 6; gfx_a = 1;
+gfx_blit(7, 1, 0, 0, 0, 400, 200, u_ox, u_oy, 400*u_sc, 200*u_sc);
+gfx_mode = 3; gfx_a = 0.14;
+gfx_blit(7, 1, 0, 16, 30, 368, 68, u_ox + 15*u_sc, u_oy + 29*u_sc, 370*u_sc, 70*u_sc);
+gfx_mode = 0;
+u_sc >= 2 ? (
+  gfx_set(0, 0, 0, 0.28);
+  u_j = 0; u_h = floor(u_sc*0.5);
+  loop(68, gfx_rect(u_ox + 16*u_sc, u_oy + (31 + u_j)*u_sc - u_h, 368*u_sc, u_h); u_j += 1;);
+);
+
+mouse_just_down ? (
+  hit(232, 4, 50, 15) ? (mode = 0; slider_automate(mode); g_req = 1;)
+  : hit(286, 4, 50, 15) ? (mode = 1; slider_automate(mode); g_req = 2;)
+  : hit(340, 4, 50, 15) ? (mode = 2; slider_automate(mode); g_req = 3;)
+  : hit(286, 110, 104, 14) ? (sync = !sync; slider_automate(sync);)
+  : hit(286, 127, 104, 14) ? (auto_byp = !auto_byp; slider_automate(auto_byp);)
+  : hit(286, 155, 33, 14) ? set_ftype(0)
+  : hit(321, 155, 34, 14) ? set_ftype(1)
+  : hit(357, 155, 33, 14) ? set_ftype(2);
+);
