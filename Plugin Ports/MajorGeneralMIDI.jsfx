@@ -1,0 +1,2326 @@
+Version: 1.0
+desc: Major General MIDI (Sonivox EAS port) by chmaha
+tags: instrument
+author: chmaha
+changelog:
+  Initial release.
+about:
+  General MIDI synthesizer with 16 multitimbral channels, 128 GM instruments and a drum kit, up to 256 voices (default 64),
+  the original reverb and chorus (per-channel CC91/CC93 sends or the whole mix), GM/master-volume SysEx,
+  A4 tuning and 80 historical temperaments (as in Sonata Chamber Organ) on the melodic channels.
+  Ported from the Sonivox EAS wavetable synthesizer (the Android MIDI synth, Sonic Network Inc. and
+  The Android Open Source Project), including its built-in GM sound bank
+  https://github.com/pedrolcl/sonivox (Apache License 2.0)
+  The engine runs at 44.1 kHz with the original integer arithmetic and matches it sample for sample;
+  other host rates are resampled.
+  Original DSP Copyright (c) 2004-2006 Sonic Network Inc. Licensed under the Apache License v2: http://www.apache.org/licenses/LICENSE-2.0
+  JSFX code released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/MajorGeneralMIDI/MajorGeneralMIDI.flac
+
+<?
+temper_count = 80;
+function _temper_name(t) (
+  t == 0 ? "Pythagorean" :
+  t == 1 ? "Meantone 1/4 Eb/G#" :
+  t == 2 ? "Werckmeister III" :
+  t == 3 ? "Kirnberger III" :
+  t == 4 ? "Well Tempered" :
+  t == 5 ? "Equally Tempered" :
+  t == 6 ? "Vogel/Ahrend" :
+  t == 7 ? "Vallotti" :
+  t == 8 ? "Kellner" :
+  t == 9 ? "Lehman" :
+  t == 10 ? "Pure C/F/G" :
+  t == 11 ? "Meantone 1/5 Eb/G#" :
+  t == 12 ? "Meantone 1/6 Eb/G#" :
+  t == 13 ? "Meantone 2/7 Eb/G#" :
+  t == 14 ? "Rameau 1725" :
+  t == 15 ? "Rousseau II (1768/69)" :
+  t == 16 ? "Neidhardt III (1724)" :
+  t == 17 ? "Young (shifted Vallotti 1799)" :
+  t == 18 ? "Barnes" :
+  t == 19 ? "Meantone 1/4 D#/G#" :
+  t == 20 ? "Meantone 1/4 Eb/Ab" :
+  t == 21 ? "Meantone 1/4 D#/Ab" :
+  t == 22 ? "Meantone 1/5 D#/G#" :
+  t == 23 ? "Meantone 1/5 Eb/Ab" :
+  t == 24 ? "Meantone 1/5 D#/Ab" :
+  t == 25 ? "Meantone 1/6 D#/G#" :
+  t == 26 ? "Meantone 1/6 Eb/Ab" :
+  t == 27 ? "Meantone 1/6 D#/Ab" :
+  t == 28 ? "Meantone 2/7 D#/G#" :
+  t == 29 ? "Meantone 2/7 Eb/Ab" :
+  t == 30 ? "Meantone 2/7 D#/Ab" :
+  t == 31 ? "Meantone 1/3 Eb/G#" :
+  t == 32 ? "Meantone 1/3 D#/G#" :
+  t == 33 ? "Meantone 1/3 Eb/Ab" :
+  t == 34 ? "Meantone 1/3 D#/Ab" :
+  t == 35 ? "Rameau 1726" :
+  t == 36 ? "Rameau (flat side)" :
+  t == 37 ? "Rousseau 1768" :
+  t == 38 ? "Rousseau 1776" :
+  t == 39 ? "d'Alembert 1752" :
+  t == 40 ? "d'Alembert 1759" :
+  t == 41 ? "Corrette 1753" :
+  t == 42 ? "Couperin 1690" :
+  t == 43 ? "Chaumont 1695" :
+  t == 44 ? "Bossart-Muri 1743" :
+  t == 45 ? "Werckmeister IV" :
+  t == 46 ? "Werckmeister V" :
+  t == 47 ? "Werckmeister VI (corrected)" :
+  t == 48 ? "Werckmeister Clavier (Poletti)" :
+  t == 49 ? "Werckmeister III (equal-beating)" :
+  t == 50 ? "Kirnberger II" :
+  t == 51 ? "Kirnberger III (Sparschuh)" :
+  t == 52 ? "Neidhardt I" :
+  t == 53 ? "Neidhardt II" :
+  t == 54 ? "Neidhardt 1732 (village)" :
+  t == 55 ? "Neidhardt 1732 (town)" :
+  t == 56 ? "Vallotti 1/6" :
+  t == 57 ? "Vallotti-Broekaert" :
+  t == 58 ? "Young 1800" :
+  t == 59 ? "Young 1799" :
+  t == 60 ? "London Baroque" :
+  t == 61 ? "Kellner (organ)" :
+  t == 62 ? "Kellner (equal-beating)" :
+  t == 63 ? "Lehman II" :
+  t == 64 ? "Lehman III" :
+  t == 65 ? "Barnes 1971" :
+  t == 66 ? "Billeter" :
+  t == 67 ? "Billeter II" :
+  t == 68 ? "Schlick 1511" :
+  t == 69 ? "Zwolle 1440" :
+  t == 70 ? "Bermudo 1555" :
+  t == 71 ? "Artusi 1603" :
+  t == 72 ? "Artusi 1/6" :
+  t == 73 ? "Grammateus 1518" :
+  t == 74 ? "Vogel/Hamburg (Schnitger)" :
+  t == 75 ? "Vogel/Bunschoten" :
+  t == 76 ? "Vogel/Fisk" :
+  t == 77 ? "Bellingwolde 2002" :
+  t == 78 ? "Weingarten (Gabler 1750)" :
+  t == 79 ? "Freiberg (Silbermann)" :
+  "";
+);
+
+prog_count = 129;
+function _prog_name(p) (
+  p == 0 ? "Acoustic Grand Piano" :
+  p == 1 ? "Bright Acoustic Piano" :
+  p == 2 ? "Electric Grand Piano" :
+  p == 3 ? "Honky-tonk Piano" :
+  p == 4 ? "Electric Piano 1" :
+  p == 5 ? "Electric Piano 2" :
+  p == 6 ? "Harpsichord" :
+  p == 7 ? "Clavi" :
+  p == 8 ? "Celesta" :
+  p == 9 ? "Glockenspiel" :
+  p == 10 ? "Music Box" :
+  p == 11 ? "Vibraphone" :
+  p == 12 ? "Marimba" :
+  p == 13 ? "Xylophone" :
+  p == 14 ? "Tubular Bells" :
+  p == 15 ? "Dulcimer" :
+  p == 16 ? "Drawbar Organ" :
+  p == 17 ? "Percussive Organ" :
+  p == 18 ? "Rock Organ" :
+  p == 19 ? "Church Organ" :
+  p == 20 ? "Reed Organ" :
+  p == 21 ? "Accordion" :
+  p == 22 ? "Harmonica" :
+  p == 23 ? "Tango Accordion" :
+  p == 24 ? "Acoustic Guitar (nylon)" :
+  p == 25 ? "Acoustic Guitar (steel)" :
+  p == 26 ? "Electric Guitar (jazz)" :
+  p == 27 ? "Electric Guitar (clean)" :
+  p == 28 ? "Electric Guitar (muted)" :
+  p == 29 ? "Overdriven Guitar" :
+  p == 30 ? "Distortion Guitar" :
+  p == 31 ? "Guitar Harmonics" :
+  p == 32 ? "Acoustic Bass" :
+  p == 33 ? "Electric Bass (finger)" :
+  p == 34 ? "Electric Bass (pick)" :
+  p == 35 ? "Fretless Bass" :
+  p == 36 ? "Slap Bass 1" :
+  p == 37 ? "Slap Bass 2" :
+  p == 38 ? "Synth Bass 1" :
+  p == 39 ? "Synth Bass 2" :
+  p == 40 ? "Violin" :
+  p == 41 ? "Viola" :
+  p == 42 ? "Cello" :
+  p == 43 ? "Contrabass" :
+  p == 44 ? "Tremolo Strings" :
+  p == 45 ? "Pizzicato Strings" :
+  p == 46 ? "Orchestral Harp" :
+  p == 47 ? "Timpani" :
+  p == 48 ? "String Ensemble 1" :
+  p == 49 ? "String Ensemble 2" :
+  p == 50 ? "Synth Strings 1" :
+  p == 51 ? "Synth Strings 2" :
+  p == 52 ? "Choir Aahs" :
+  p == 53 ? "Voice Oohs" :
+  p == 54 ? "Synth Voice" :
+  p == 55 ? "Orchestra Hit" :
+  p == 56 ? "Trumpet" :
+  p == 57 ? "Trombone" :
+  p == 58 ? "Tuba" :
+  p == 59 ? "Muted Trumpet" :
+  p == 60 ? "French Horn" :
+  p == 61 ? "Brass Section" :
+  p == 62 ? "Synth Brass 1" :
+  p == 63 ? "Synth Brass 2" :
+  p == 64 ? "Soprano Sax" :
+  p == 65 ? "Alto Sax" :
+  p == 66 ? "Tenor Sax" :
+  p == 67 ? "Baritone Sax" :
+  p == 68 ? "Oboe" :
+  p == 69 ? "English Horn" :
+  p == 70 ? "Bassoon" :
+  p == 71 ? "Clarinet" :
+  p == 72 ? "Piccolo" :
+  p == 73 ? "Flute" :
+  p == 74 ? "Recorder" :
+  p == 75 ? "Pan Flute" :
+  p == 76 ? "Blown Bottle" :
+  p == 77 ? "Shakuhachi" :
+  p == 78 ? "Whistle" :
+  p == 79 ? "Ocarina" :
+  p == 80 ? "Lead 1 (square)" :
+  p == 81 ? "Lead 2 (sawtooth)" :
+  p == 82 ? "Lead 3 (calliope)" :
+  p == 83 ? "Lead 4 (chiff)" :
+  p == 84 ? "Lead 5 (charang)" :
+  p == 85 ? "Lead 6 (voice)" :
+  p == 86 ? "Lead 7 (fifths)" :
+  p == 87 ? "Lead 8 (bass + lead)" :
+  p == 88 ? "Pad 1 (new age)" :
+  p == 89 ? "Pad 2 (warm)" :
+  p == 90 ? "Pad 3 (polysynth)" :
+  p == 91 ? "Pad 4 (choir)" :
+  p == 92 ? "Pad 5 (bowed)" :
+  p == 93 ? "Pad 6 (metallic)" :
+  p == 94 ? "Pad 7 (halo)" :
+  p == 95 ? "Pad 8 (sweep)" :
+  p == 96 ? "FX 1 (rain)" :
+  p == 97 ? "FX 2 (soundtrack)" :
+  p == 98 ? "FX 3 (crystal)" :
+  p == 99 ? "FX 4 (atmosphere)" :
+  p == 100 ? "FX 5 (brightness)" :
+  p == 101 ? "FX 6 (goblins)" :
+  p == 102 ? "FX 7 (echoes)" :
+  p == 103 ? "FX 8 (sci-fi)" :
+  p == 104 ? "Sitar" :
+  p == 105 ? "Banjo" :
+  p == 106 ? "Shamisen" :
+  p == 107 ? "Koto" :
+  p == 108 ? "Kalimba" :
+  p == 109 ? "Bag pipe" :
+  p == 110 ? "Fiddle" :
+  p == 111 ? "Shanai" :
+  p == 112 ? "Tinkle Bell" :
+  p == 113 ? "Agogo" :
+  p == 114 ? "Steel Drums" :
+  p == 115 ? "Woodblock" :
+  p == 116 ? "Taiko Drum" :
+  p == 117 ? "Melodic Tom" :
+  p == 118 ? "Synth Drum" :
+  p == 119 ? "Reverse Cymbal" :
+  p == 120 ? "Guitar Fret Noise" :
+  p == 121 ? "Breath Noise" :
+  p == 122 ? "Seashore" :
+  p == 123 ? "Bird Tweet" :
+  p == 124 ? "Telephone Ring" :
+  p == 125 ? "Helicopter" :
+  p == 126 ? "Applause" :
+  p == 127 ? "Gunshot" :
+  p == 128 ? "Drum Kit" :
+  "";
+);
+
+loop(chan = 0;16,
+  val = (chan == 9) ? 128 : chan;
+  printf("slider%d:%d<0,128,1{", chan+1, val);
+  i = 0;
+  loop(prog_count,printf("%s%s", i ? "," : "", _prog_name(i));i += 1);
+  printf("}>-Channel %d\n", chan+1);
+  chan += 1;
+);
+?>
+
+slider17:440<372,495,0.1>-Tuning (Hz, A4)
+slider18:5<0,79,1{<? loop(i=0; temper_count, printf("%s%s",i?",":"",_temper_name(i)); i+=1); ?>}>-Temperament
+slider19:0<0,1,1{Sends (CC91),Whole mix}>-Reverb Mode
+slider20:2<0,4,1{Off,Large Hall,Hall,Chamber,Room}>-Reverb Preset
+slider21:84.5<0,100,0.1>-Reverb Wet (%)
+slider22:0<0,1,1{Sends (CC93),Whole mix}>-Chorus Mode
+slider23:1<0,4,1{Off,Chorus 1,Chorus 2,Chorus 3,Chorus 4}>-Chorus Preset
+slider24:30<10,50,1>-Chorus Rate
+slider25:39<15,60,1>-Chorus Depth
+slider26:100<0,100,0.1>-Chorus Level (%)
+slider27:0<0,100,0.1>-Chorus Dry (%)
+slider28:0<-40,12,1>-Master Volume (dB)
+slider29:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 1 Follows
+slider30:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 2 Follows
+slider31:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 3 Follows
+slider32:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 4 Follows
+slider33:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 5 Follows
+slider34:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 6 Follows
+slider35:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 7 Follows
+slider36:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 8 Follows
+slider37:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 9 Follows
+slider38:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 10 Follows
+slider39:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 11 Follows
+slider40:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 12 Follows
+slider41:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 13 Follows
+slider42:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 14 Follows
+slider43:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 15 Follows
+slider44:0<0,16,1{Off,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-Channel 16 Follows
+slider45:100<0,127,1>-Channel 1 Level
+slider46:100<0,127,1>-Channel 2 Level
+slider47:100<0,127,1>-Channel 3 Level
+slider48:100<0,127,1>-Channel 4 Level
+slider49:100<0,127,1>-Channel 5 Level
+slider50:100<0,127,1>-Channel 6 Level
+slider51:100<0,127,1>-Channel 7 Level
+slider52:100<0,127,1>-Channel 8 Level
+slider53:100<0,127,1>-Channel 9 Level
+slider54:100<0,127,1>-Channel 10 Level
+slider55:100<0,127,1>-Channel 11 Level
+slider56:100<0,127,1>-Channel 12 Level
+slider57:100<0,127,1>-Channel 13 Level
+slider58:100<0,127,1>-Channel 14 Level
+slider59:100<0,127,1>-Channel 15 Level
+slider60:100<0,127,1>-Channel 16 Level
+slider61:64<0,127,1>-Channel 1 Pan
+slider62:64<0,127,1>-Channel 2 Pan
+slider63:64<0,127,1>-Channel 3 Pan
+slider64:64<0,127,1>-Channel 4 Pan
+slider65:64<0,127,1>-Channel 5 Pan
+slider66:64<0,127,1>-Channel 6 Pan
+slider67:64<0,127,1>-Channel 7 Pan
+slider68:64<0,127,1>-Channel 8 Pan
+slider69:64<0,127,1>-Channel 9 Pan
+slider70:64<0,127,1>-Channel 10 Pan
+slider71:64<0,127,1>-Channel 11 Pan
+slider72:64<0,127,1>-Channel 12 Pan
+slider73:64<0,127,1>-Channel 13 Pan
+slider74:64<0,127,1>-Channel 14 Pan
+slider75:64<0,127,1>-Channel 15 Pan
+slider76:64<0,127,1>-Channel 16 Pan
+slider77:64<1,256,1>-Polyphony (voices)
+
+in_pin:none
+out_pin:Left output
+out_pin:Right output
+options:no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+SMP_LEN = 212177;
+
+function mk(n) ( mem_top += n; mem_top - n; );
+function w16(x) ( x - 65536 * floor((x + 32768) / 65536); );
+function w32(x) ( x - 4294967296 * floor((x + 2147483648) / 4294967296); );
+function m15(a, b) ( floor((a * b) / 32768); );
+function tdiv(a, b) ( a >= 0 ? floor(a / b) : -floor((-a) / b); );
+function sat16(x) ( x > 32767 ? 32767 : x < -32768 ? -32768 : x; );
+
+function calc2x(c) local(d, ei, ef, t1, t2) (
+  c < -18000 ? 0 : (
+    c > 19200 ? c = 19200;
+    d = floor((c * 111848) / 32768);
+    ei = floor(d / 4096); ef = d - ei * 4096;
+    t1 = 7344 + floor((ef * 2588) / 4096);
+    t2 = 22833 + floor((ef * t1) / 4096);
+    t1 = 32768 + floor((ef * t2) / 4096);
+    ei >= 0 ? w32(t1 * (2 ^ ei)) : floor(t1 / (2 ^ (-ei)));
+  );
+);
+
+function calcpan(pan) local(na, t) (
+  na = (pan < -63 ? -63 : pan > 63 ? 63 : pan) * 256;
+  t = 32768 + m15(-27146, na); t = 23170 + m15(t, na);
+  pan_r = t > 32767 ? 32767 : t < 0 ? 0 : t;
+  t = -32768 + m15(-27146, na); t = 23170 + m15(t, na);
+  pan_l = t > 32767 ? 32767 : t < 0 ? 0 : t;
+);
+
+NV = 256; FRAME = 256;
+vst = mk(NV); vfl = mk(NV); vch = mk(NV); vnc = mk(NV); vno = mk(NV); vnn = mk(NV);
+vve = mk(NV); vnv = mk(NV); vrg = mk(NV); vnr = mk(NV); vag = mk(NV); vgn = mk(NV);
+wart = mk(NV); e1s = mk(NV); e1v = mk(NV); e1i = mk(NV); e2s = mk(NV); e2v = mk(NV); e2i = mk(NV);
+wgl = mk(NV); wgr = mk(NV); wpf = mk(NV); wpa = mk(NV); wls = mk(NV); wle = mk(NV);
+wlv = mk(NV); wlp = mk(NV); wfx1 = mk(NV); wfx2 = mk(NV); wfy1 = mk(NV); wfy2 = mk(NV);
+cfl = mk(16); csg = mk(16); csp = mk(16); cpool = mk(16); cbank = mk(16); cprog = mk(16);
+creg = mk(16); cpb = mk(16); cmod = mk(16); cvol = mk(16); cpan = mk(16); cexp = mk(16);
+cprs = mk(16); crpn = mk(16); cpbs = mk(16); cfine = mk(16); ccoarse = mk(16); crev = mk(16); ccho = mk(16);
+pcnt = mk(16); palloc = mk(16);
+VB = mk(FRAME); SB = mk(2 * FRAME); MIX = mk(2 * FRAME); RSND = mk(2 * FRAME); CSND = mk(2 * FRAME);
+OUTB = mk(2 * FRAME); TUNE = mk(12);
+
+function wt_updch(ch) local(sg, pb) (
+  sg = m15(floor((cvol[ch] * 32768) / 127), floor((cexp[ch] * 32768) / 127));
+  sg = m15(sg, sg);
+  sg = m15(sg, smv);
+  csg[ch] = sg > 32767 ? 32767 : sg < -32768 ? -32768 : sg;
+  pb = cpb[ch] * 4 - 32768;
+  csp[ch] = m15(pb, cpbs[ch]);
+  !(cfl[ch] & 8) ? csp[ch] += cfine[ch] + ccoarse[ch] * 100;
+  cfl[ch] &= 0xFB;
+);
+
+function wt_release(v) local(a) (
+  a = ART + wart[v] * 17;
+  e1s[v] = 6; e1i[v] = a[3];
+  e2s[v] = 6; e2i[v] = a[7];
+);
+
+function wt_mute(v) (
+  vfl[v] &= 0xB9;
+  e1s[v] = 8; e2s[v] = 8;
+);
+
+function wt_sustain(v) (
+  e1v[v] >= ART[wart[v] * 17 + 2] ? (
+    e1s[v] = 4;
+    vst[v] = 2;
+    vfl[v] |= 2;
+  );
+);
+
+function wt_start(v, ri) local(ch, a, rb, w) (
+  vrg[v] = ri;
+  vfl[v] = 8;
+  ch = vch[v] & 15;
+  cfl[ch] & 4 ? wt_updch(ch);
+  rb = REG + ri * 9;
+  wart[v] = rb[8];
+  a = ART + wart[v] * 17;
+  e1s[v] = 2; e1v[v] = 0; e1i[v] = a[0];
+  e2s[v] = 2; e2v[v] = 0; e2i[v] = a[4];
+  wlv[v] = 0; wlp[v] = w16(-a[9]);
+  vgn[v] = 0;
+  calcpan(cpan[ch] - 64 + a[16]); wgl[v] = pan_l; wgr[v] = pan_r;
+  wfx1[v] = wfx2[v] = wfy1[v] = wfy2[v] = 0;
+  rb[0] & 2 ? (
+    wpa[v] = 4574296; wls[v] = -1; wle[v] = 4574295;
+  ) : (
+    w = rb[7];
+    wpa[v] = SOFF[w] / 2;
+    rb[0] & 1 ? (
+      wls[v] = wpa[v] + rb[5]; wle[v] = wpa[v] + rb[6] - 1;
+    ) : (
+      wls[v] = wle[v] = wpa[v] + SLEN[w] / 2 - 1;
+    );
+  );
+);
+
+function wt_eg1(v, a) local(t) (
+  e1s[v] == 2 ? (
+    t = e1v[v] + e1i[v];
+    t >= 32767 ? ( t = 32767; e1s[v] = 4; e1i[v] = a[1]; );
+    e1v[v] = t;
+  ) : e1s[v] == 4 ? (
+    t = m15(e1v[v], e1i[v]);
+    t <= a[2] ? ( t = a[2]; e1s[v] = t > 0 ? 5 : 8; );
+    e1v[v] = t;
+  ) : e1s[v] == 6 ? (
+    t = m15(e1v[v], e1i[v]);
+    t <= 0 ? ( t = 0; e1s[v] = 8; );
+    e1v[v] = t;
+  ) : e1s[v] != 5 ? e1v[v] = 0;
+);
+
+function wt_eg2(v, a) local(t) (
+  e2s[v] == 2 ? (
+    t = e2v[v] + e2i[v];
+    t >= 32767 ? ( t = 32767; e2s[v] = 4; e2i[v] = a[5]; );
+    e2v[v] = w16(t);
+  ) : e2s[v] == 4 ? (
+    t = e2v[v] - e2i[v];
+    t <= a[6] ? ( t = a[6]; e2s[v] = 5; );
+    e2v[v] = w16(t);
+  ) : e2s[v] == 6 ? (
+    t = e2v[v] - e2i[v];
+    t <= 0 ? ( t = 0; e2s[v] = 8; );
+    e2v[v] = w16(t);
+  ) : e2s[v] != 5 ? e2v[v] = 0;
+);
+
+function wt_lfo(v, inc) local(p, lv) (
+  p = wlp[v];
+  p < 0 ? wlp[v] = p + 1 : (
+    lv = w16(p * 4);
+    p > 0x1fff && p < 0x6000 ? lv = -lv - 1;
+    wlv[v] = lv;
+    p += inc;
+    wlp[v] = p - 32768 * floor(p / 32768);
+  );
+);
+
+function wt_setfilt(cutoff, res) local(fc, rdb, theta, T, w0, q, w0T, D, g) (
+  fc = (2 ^ ((cutoff - 6900) / 1200)) * 440;
+  fc = max(min(fc, 22050), 44100 / 240);
+  rdb = max(res / 10, 0);
+  theta = ((2 * $pi) * fc) / 44100;
+  T = 1 / 44100;
+  w0 = 88200 * tan(theta / 2);
+  q = rdb < 0.000000001 ? 1 / sqrt(2) : 10 ^ (rdb / 20);
+  w0T = w0 * T;
+  D = (4 + ((2 * w0T) / q)) + (w0T * w0T);
+  f_a1 = ((-8) + (2 * (w0T * w0T))) / D;
+  f_a2 = ((4 - ((2 * w0T) / q)) + (w0T * w0T)) / D;
+  f_b02 = (w0T * w0T) / D;
+  f_b1 = (2 * (w0T * w0T)) / D;
+  g = 10 ^ ((-rdb) / 40);
+  f_b02 *= g; f_b1 *= g;
+);
+
+function wt_update(v) local(a, rb, ch, prev, tgt, t, pinc, ns, done, noise, i, pa, pf, s1, s2, acc, n, le, ls,
+                            x1, x2, y1, y2, b02, b1, a1, a2, gain, ginc, gl, gr, sv, p0, p1, fr, tmp0, tmp1)
+(
+  a = ART + wart[v] * 17;
+  rb = REG + (vrg[v] & 0x3fff) * 9;
+  ch = vch[v] & 15;
+  prev = vgn[v];
+  wt_eg1(v, a);
+  wt_eg2(v, a);
+  wt_lfo(v, a[10]);
+  a[13] == 0 ? f_b02 = 0 : wt_setfilt(m15(e2v[v], a[12]) + a[13], a[15]);
+  t = vve[v] * 256; t = m15(t, t); t = m15(t, rb[4]); t = m15(t, csg[ch]);
+  tmp0 = m15(wlv[v], a[14]); tmp0 = m15(tmp0, 6531176); tmp0 = calc2x(tmp0);
+  t = m15(t, tmp0);
+  tgt = w16(m15(t, e1v[v]));
+  t = csp[ch] + rb[3];
+  cfl[ch] & 8 ? t += vno[v] * 100 : t += (vno[v] + gtr) * 100 + TUNE[vno[v] % 12];
+  tmp0 = m15(50, cmod[ch] * 256) + m15(50, cprs[ch] * 256);
+  tmp0 = m15(wlv[v], tmp0);
+  t += m15(e2v[v], a[11]) + m15(wlv[v], a[8]);
+  pinc = calc2x(t + tmp0);
+  noise = wls[v] == -1;
+  t = noise ? 0 : wle[v] - wls[v];
+  t != 0 ? (
+    t *= 32768;
+    pinc > t ? pinc -= t * floor(pinc / t);
+  );
+  ns = FRAME; done = 0;
+  !noise && wls[v] == wle[v] ? (
+    t = wpf[v] + pinc * FRAME;
+    wpa[v] + floor(t / 32768) >= wle[v] ? (
+      n = (wle[v] - wpa[v]) * 32768 - wpf[v];
+      ns = pinc ? tdiv(n + pinc - 1, pinc) : n;
+      ns < 0 ? ns = 0 : ns > FRAME ? ns = FRAME;
+      done = 1;
+    );
+  );
+  ns > 0 ? (
+    noise ? (
+      tmp0 = floor(wpa[v] / 262144); tmp1 = floor(wle[v] / 262144);
+      pf = wpf[v]; i = 0;
+      loop(ns,
+        VB[i] = floor((tmp0 * (32768 - pf)) / 32768) + floor((tmp1 * pf) / 32768);
+        pf += pinc;
+        pf >= 32768 ? (
+          tmp0 = tmp1;
+          wpa[v] = wle[v];
+          wle[v] = w32(5 * wle[v] + 1);
+          tmp1 = floor(wle[v] / 262144);
+          pf -= 32768 * floor(pf / 32768);
+        );
+        i += 1;
+      );
+      wpf[v] = pf;
+    ) : wls[v] != wle[v] ? (
+      pa = wpa[v]; pf = wpf[v] & 32767; le = wle[v] + 1; ls = wls[v];
+      s1 = SMP[pa]; s2 = SMP[pa + 1]; i = 0;
+      loop(ns,
+        VB[i] = s1 + floor(((s2 - s1) * pf) / 32768);
+        pf += pinc;
+        pf >= 32768 ? (
+          pa += floor(pf / 32768);
+          pf &= 32767;
+          while (pa + 1 >= le) ( pa -= le - ls; );
+          s1 = SMP[pa]; s2 = SMP[pa + 1];
+        );
+        i += 1;
+      );
+      wpa[v] = pa; wpf[v] = pf;
+    ) : (
+      pa = wpa[v]; pf = wpf[v] & 32767; le = wle[v] + 1;
+      s1 = SMP[pa]; s2 = SMP[pa + 1]; i = 0;
+      while (i < ns) (
+        VB[i] = s1 + floor(((s2 - s1) * pf) / 32768);
+        pf += pinc;
+        i += 1;
+        pf >= 32768 ? (
+          n = floor(pf / 32768);
+          pa + n + 1 >= le ? i = ns + 1 : (
+            pa += n;
+            pf &= 32767;
+            s1 = SMP[pa]; s2 = SMP[pa + 1];
+          );
+        );
+      );
+      wpa[v] = pa; wpf[v] = pf;
+    );
+    f_b02 != 0 ? (
+      b02 = f_b02; b1 = f_b1; a1 = f_a1; a2 = f_a2;
+      x1 = wfx1[v]; x2 = wfx2[v]; y1 = wfy1[v]; y2 = wfy2[v];
+      i = 0;
+      loop(ns,
+        acc = ((((b02 * VB[i]) + (b1 * x1)) + (b02 * x2)) - (a1 * y1)) - (a2 * y2);
+        acc > 32767 ? acc = 32767;
+        acc < -32768 ? acc = -32768;
+        y2 = y1;
+        y1 = acc >= 0 ? floor(acc) : ceil(acc);
+        x2 = x1;
+        x1 = VB[i];
+        VB[i] = y1;
+        i += 1;
+      );
+      wfx1[v] = x1; wfx2[v] = x2; wfy1[v] = y1; wfy2[v] = y2;
+    );
+    ginc = tdiv((tgt - prev) * 65536, FRAME);
+    ginc < 0 ? ginc += 1;
+    gain = prev * 65536;
+    gl = wgl[v]; gr = wgr[v];
+    i = 0;
+    loop(ns,
+      gain += ginc;
+      sv = m15(VB[i], tdiv(gain, 65536));
+      SB[2 * i] = m15(sv, gl);
+      SB[2 * i + 1] = m15(sv, gr);
+      i += 1;
+    );
+  );
+  ns < FRAME ? memset(SB + 2 * ns, 0, 2 * (FRAME - ns));
+  vfl[v] &= 0xF7;
+  vst[v] != 5 && e1s[v] == 8 ? done = 1;
+  vgn[v] = tgt;
+  done;
+);
+
+function init_voice(v) (
+  vch[v] = 16; vnc[v] = 16; vno[v] = vnn[v] = 0x69; vve[v] = vnv[v] = 0x64;
+  vrg[v] = 0; vag[v] = 0; vfl[v] = 0; vst[v] = 0;
+);
+
+function pool_of(v) ( cpool[(vst[v] == 5 ? vnc[v] : vch[v]) & 15]; );
+function inc_pool(v) local(p) ( vst[v] != 4 ? ( p = pool_of(v); pcnt[p] = (pcnt[p] + 1) & 255; ); );
+function dec_pool(v) local(p) ( vst[v] != 4 ? ( p = pool_of(v); pcnt[p] = (pcnt[p] + 255) & 255; ); );
+
+function upd_ages(age) local(i) (
+  i = 0;
+  loop(NV, age - vag[i] > 0 ? vag[i] = (vag[i] + 1) & 65535; i += 1; );
+);
+
+function vm_mute(v) (
+  vst[v] != 4 && vst[v] != 0 ? (
+    dec_pool(v);
+    wt_mute(v);
+    vst[v] = 4;
+  );
+);
+
+function vm_release(v) (
+  vst[v] != 4 && vst[v] != 0 && vst[v] != 3 ? (
+    vst[v] == 5 ? vm_mute(v);
+    wt_release(v);
+    vst[v] = 3;
+  );
+);
+
+function vm_free(v) (
+  vst[v] != 0 ? (
+    dec_pool(v);
+    vm_act -= 1; snav -= 1;
+    init_voice(v);
+    upd_ages(vag[v]);
+  );
+);
+
+function vm_stolen(v, ch, note, vel, ri) (
+  dec_pool(v);
+  wt_mute(v);
+  vst[v] = 5;
+  vnc[v] = ch; vnn[v] = note; vnv[v] = vel; vnr[v] = ri;
+  inc_pool(v);
+  vfl[v] &= 0xB9;
+  upd_ages(vag[v]);
+  vag[v] = vm_age; vm_age = (vm_age + 1) & 65535;
+);
+
+function vm_retarget(v) local(fl) (
+  (sfl & 2) && (cfl[vch[v] & 15] & 2) ? vm_free(v) : (
+    vch[v] = vnc[v];
+    vno[v] = vnn[v]; vve[v] = vnv[v];
+    vnc[v] = 16;
+    vrg[v] = vnr[v];
+    fl = vfl[v];
+    vst[v] = 1;
+    wt_start(v, vrg[v]);
+    fl & 4 ? ( vfl[v] |= 4; sfl |= 8; );
+  );
+);
+
+function vm_keygroup(kg, ch) local(i) (
+  i = 0;
+  loop(NV,
+    vst[i] != 5 ? (
+      ch == vch[i] && kg == (REG[vrg[i] * 9] & 0x7f00) ? (
+        vfl[i] & 8 ? vfl[i] |= 0x40 : vm_mute(i);
+      );
+    ) : (
+      ch == vnc[i] && kg == (REG[vnr[i] * 9] & 0x7f00) ? (
+        vfl[i] & 8 ? vfl[i] |= 0x40 : vm_mute(i);
+      );
+    );
+    i += 1;
+  );
+);
+
+function vm_polylimit(ch, note, vel, ri) local(i, n, old, oldage, age, r) (
+  n = 0; old = NV; oldage = 0; r = 0;
+  i = 0;
+  loop(NV,
+    vst[i] != 5 ? (
+      ch == vch[i] && note == vno[i] ? (
+        n += 1;
+        age = (vm_age - vag[i]) & 65535;
+        age >= oldage ? ( oldage = age; old = i; );
+      );
+    ) : (
+      ch == vnc[i] && note == vnn[i] ? n += 1;
+    );
+    i += 1;
+  );
+  n >= 2 && old != NV ? ( vm_stolen(old, ch, note, vel, ri); r = 1; );
+  r;
+);
+
+function vm_steal(ch, note) local(i, best, bp, cp, cch, cn) (
+  bp = 0; best = NV;
+  i = 0;
+  loop(NV,
+    vst[i] != 0 ? (
+      vst[i] == 5 ? ( cch = vnc[i]; cn = vnn[i]; ) : ( cch = vch[i]; cn = vno[i]; );
+      vst[i] == 5 || (vfl[i] & 8) ? cp = 128 - vnv[i] : (
+        cp = vag[i] * 2;
+        cp += (floor(32768 / 256) + 256) - floor(vgn[i] / 256);
+      );
+      sfl & 2 ? (
+        pcnt[cpool[cch & 15]] >= palloc[cpool[cch & 15]] ? cp += (pcnt[cpool[cch & 15]] - palloc[cpool[cch & 15]] + 1) * 4096;
+        cp += cpool[cch & 15] * 4;
+      );
+      note == cn && ch == cch ? cp += 128;
+      cp >= bp ? ( bp = cp; best = i; );
+    );
+    i += 1;
+  );
+  best;
+);
+
+function vm_startvoice(ch, note, vel, ri) local(rb, kg, v, done) (
+  rb = REG + ri * 9;
+  done = 0;
+  pcnt[cpool[ch]] != 0 ? (
+    kg = rb[0] & 0x7f00;
+    kg != 0 ? vm_keygroup(kg, ch);
+    (rb[0] & 0x40) == 0 ? done = vm_polylimit(ch, note, vel, ri);
+  );
+  !done ? (
+    v = 0; while (v < NV && vst[v] != 0) ( v += 1; );
+    vm_act < vm_maxp && snav < vm_maxp && v < NV ? (
+      vm_act += 1; snav += 1;
+      vch[v] = ch; vno[v] = note; vve[v] = vel;
+      vag[v] = vm_age; vm_age = (vm_age + 1) & 65535;
+      vst[v] = 1;
+      inc_pool(v);
+      wt_start(v, ri);
+    ) : (
+      v = vm_steal(ch, note);
+      v < NV ? vm_stolen(v, ch, note, vel, ri);
+    );
+  );
+);
+
+function vm_startnote(ch, note, vel) local(ri, an, rb, go) (
+  !(cfl[ch] & 2) ? (
+    ri = creg[ch];
+    an = note + ccoarse[ch] + (cfl[ch] & 8 ? 0 : gtr);
+    an = an < 0 ? 0 : an > 127 ? 127 : an;
+    go = 1;
+    while (go) (
+      rb = REG + ri * 9;
+      an >= rb[1] && an <= rb[2] ? ( vm_startvoice(ch, note, vel, ri); go = 0; ) :
+      rb[0] & 0x8000 ? go = 0 : ri += 1;
+    );
+  );
+);
+
+function vm_stopnote(ch, note) local(i) (
+  i = 0;
+  loop(NV,
+    vst[i] != 5 ? (
+      ch == vch[i] && note == vno[i] ? (
+        cfl[ch] & 1 ? vfl[i] |= 2 : (
+          vfl[i] & 8 ? ( vfl[i] |= 4; sfl |= 8; ) : vm_release(i);
+        );
+      );
+    ) : ch == vnc[i] && note == vnn[i] ? vfl[i] |= 4;
+    i += 1;
+  );
+);
+
+function vm_rel_deferred(ch) local(i) (
+  i = 0;
+  loop(NV,
+    ch == vch[i] && (vfl[i] & 2) ? ( vm_release(i); vfl[i] &= 0xFD; );
+    i += 1;
+  );
+);
+
+function vm_catch_sustain(ch) local(i) (
+  i = 0;
+  loop(NV, ch == vch[i] && vst[i] == 3 ? wt_sustain(i); i += 1; );
+);
+
+function vm_allnotesoff(ch) local(i) (
+  i = 0;
+  loop(NV,
+    vst[i] != 0 && ((vst[i] != 5 && ch == vch[i]) || (vst[i] == 5 && ch == vnc[i])) ? ( wt_mute(i); vst[i] = 4; );
+    i += 1;
+  );
+);
+
+function vm_deferred_stop() local(i, any, ch) (
+  any = 0; i = 0;
+  loop(NV,
+    vfl[i] & 4 ? (
+      vst[i] == 5 ? any = 1 : (
+        vfl[i] -= 4;
+        ch = vch[i] & 15;
+        cfl[ch] & 1 ? wt_sustain(i) : vm_release(i);
+      );
+    );
+    i += 1;
+  );
+  !any ? sfl &= 0xF7;
+);
+
+function vm_findprog(bk, prog) local(r) (
+  r = -1;
+  bk == 0x7900 && BANK[prog] != 0xffff ? r = BANK[prog] :
+  bk * 256 + prog == 0x780000 ? r = DRUMREG;
+  r;
+);
+
+function vm_progchange(ch, prog) local(bk, ri) (
+  bk = cbank[ch];
+  (bk & 0xFF00) == 0x7800 ? cfl[ch] |= 8 : (bk & 0xFF00) == 0x7900 ? cfl[ch] &= 0xF7;
+  ri = vm_findprog(bk, prog);
+  ri < 0 ? (
+    bk = cfl[ch] & 8 ? 0x7800 : 0x7900;
+    ri = vm_findprog(bk, prog);
+    ri < 0 ? ri = vm_findprog(bk, 0);
+    ri < 0 ? ri = 0;
+  );
+  cprog[ch] = prog;
+  creg[ch] = ri;
+  cfl[ch] |= 4;
+);
+
+function vm_resetctrls() local(c) (
+  c = 0;
+  loop(16,
+    cpb[c] = 0x2000; cmod[c] = 0; cvol[c] = 100; cpan[c] = 64; cexp[c] = 127;
+    crev[c] = 40; ccho[c] = 0; cprs[c] = 0; crpn[c] = 0x3FFF; cpbs[c] = 200;
+    cfine[c] = 0; ccoarse[c] = 0; cfl[c] |= 4;
+    c += 1;
+  );
+);
+
+function vm_initchannels() local(c) (
+  vm_resetctrls();
+  c = 0;
+  loop(16,
+    cfl[c] = 0; csg[c] = 0; csp[c] = 0; cpool[c] = 0;
+    c == 9 ? ( cbank[c] = 0x7800; cfl[c] |= 8; ) : cbank[c] = 0x7900;
+    vm_progchange(c, 0);
+    c += 1;
+  );
+);
+
+function vm_rpn(ch, cc, val) (
+  cc == 99 || cc == 98 ? crpn[ch] = 0x3FFF :
+  cc == 101 ? crpn[ch] = (crpn[ch] & 0x7F) | (val * 128) :
+  cc == 100 ? crpn[ch] = (crpn[ch] & 0x7F00) | val :
+  cc == 6 ? (
+    crpn[ch] == 0 ? cpbs[ch] = val * 100 :
+    crpn[ch] == 1 ? cfine[ch] = floor(((val * 128 - 8192) * 100) / 8192) :
+    crpn[ch] == 2 ? ccoarse[ch] = val - 64;
+  );
+);
+
+function vm_cc(ch, cc, val) (
+  cfl[ch] |= 4;
+  cc == 0 ? cbank[ch] = val * 256 :
+  cc == 1 ? cmod[ch] = val :
+  cc == 7 ? cvol[ch] = val :
+  cc == 10 ? cpan[ch] = val :
+  cc == 11 ? cexp[ch] = val :
+  cc == 32 ? cbank[ch] = (cbank[ch] & 0xFF00) | val :
+  cc == 64 ? (
+    val < 64 ? ( cfl[ch] & 1 ? vm_rel_deferred(ch); cfl[ch] &= 0xFE; ) :
+    ( !(cfl[ch] & 1) ? vm_catch_sustain(ch); cfl[ch] |= 1; );
+  ) :
+  cc == 91 ? crev[ch] = val :
+  cc == 93 ? ccho[ch] = val :
+  cc == 121 ? (
+    cmod[ch] = 0; cexp[ch] = 127; cfl[ch] &= 0xFE; cpb[ch] = 0x2000; cprs[ch] = 0;
+    crpn[ch] = 0x3FFF; cpbs[ch] = 200; cfine[ch] = 0; ccoarse[ch] = 0;
+  ) :
+  cc == 6 || cc == 38 || cc == 98 || cc == 99 || cc == 100 || cc == 101 ? vm_rpn(ch, cc, val) :
+  cc == 120 || cc >= 123 ? vm_allnotesoff(ch);
+);
+
+function vm_reset() local(i) (
+  i = 0; loop(NV, vm_mute(i); i += 1; );
+  snav == 0 ? (
+    vm_initchannels();
+    memset(pcnt, 0, 16);
+    palloc[0] = vm_maxp & 255;
+    sfl &= 0xFE;
+  ) : sfl |= 1;
+);
+
+function vm_initmip() local(c) (
+  sfl &= 0xFD;
+  c = 0; loop(16, cpool[c] = 0; c += 1; );
+);
+
+function midi_msg(st, d1, d2) local(ch, t) (
+  ch = st & 15; t = st & 0xF0;
+  t == 0x90 ? ( d2 ? vm_startnote(ch, d1, d2) : vm_stopnote(ch, d1); ) :
+  t == 0x80 ? vm_stopnote(ch, d1) :
+  t == 0xB0 ? vm_cc(ch, d1, d2) :
+  t == 0xC0 ? vm_progchange(ch, d1) :
+  t == 0xD0 ? ( cprs[ch] = d1; cfl[ch] |= 4; ) :
+  t == 0xE0 ? ( cpb[ch] = d2 * 128 + d1; cfl[ch] |= 4; );
+);
+
+RV_SIZE = 8192;
+RVD = mk(RV_SIZE);
+RV_AP0_IN = 0; RV_AP1_IN = 887; RV_D0_IN = 1774; RV_D1_IN = 4645;
+RV_D0_OUT = 4639; RV_D1_OUT = 7510;
+RVP = mk(4 * 9);
+mem_set_values(RVP, 8307, 14768, 27690, 32767, 127, 6388, 15691, 711, 17999,
+                    6461, 14307, 27690, 32767, 127, 6391, 15230, 708, 9692,
+                    5077, 12922, 24460, 32767, 127, 6449, 15691, 774, 15691,
+                    5077, 11076, 23075, 32767, 127, 6470, 14768, 792, 15783);
+
+function rv_noise() (
+  rv_noise_v = w16(rv_noise_v * 5 + 1);
+  rv_maxexc & (rv_noise_v < 0 ? rv_noise_v + 65536 : rv_noise_v);
+);
+
+function rv_updroom() local(p) (
+  p = RVP + rv_next * 9;
+  rv_lpffbk = p[0]; rv_lpffwd = p[1]; rv_wet = p[2]; rv_dry = p[3]; rv_maxexc = p[4];
+  rv_xfint = floor((p[5] * 44100) / 65536);
+  rv_ap0g = p[6]; rv_ap0out = (RV_AP0_IN + floor((p[7] * 44100) / 65536)) & 65535;
+  rv_ap1g = p[8]; rv_ap1out = (RV_AP1_IN + floor((1113 * 44100) / 65536)) & 65535;
+  rv_cur = rv_next;
+);
+
+function rv_init() local(o) (
+  memset(RVD, 0, RV_SIZE);
+  rv_fbkr = rv_fbkl = 0;
+  rv_ap0out = RV_AP0_IN + 749; rv_ap0g = 19400;
+  rv_ap1out = RV_AP1_IN + 727; rv_ap1g = -19400;
+  rv_lpf0 = rv_lpf1 = 0; rv_lpffwd = 8837; rv_lpffbk = 6494;
+  rv_sin = rv_cos = rv_sininc = rv_cosinc = 0;
+  rv_xfint = 4410; rv_xfcnt = rv_xfint + 1;
+  rv_phase = -32768; rv_phinc = 3855;
+  rv_noise_v = w16(0xABCD); rv_maxexc = 127;
+  o = rv_noise(); rv_d1cross = RV_D1_OUT - rv_maxexc + o;
+  o = rv_noise(); rv_d0cross = RV_D1_OUT - rv_maxexc - o;
+  o = rv_noise(); rv_d0self = RV_D0_OUT - rv_maxexc - o;
+  o = rv_noise(); rv_d1self = RV_D1_OUT - rv_maxexc + o;
+  rv_bypass = 1; rv_next = 1; rv_base = 0;
+  rv_elpf = 0; rv_erlpf = 0; rv_updcnt = 0;
+  rv_updroom();
+);
+
+function rv_sincos(ph) local(na, t) (
+  na = floor(ph / 2);
+  na > 16384 ? na = 16384 : na < -16384 ? na = -16384;
+  t = 32768 + m15(-27145, na); t = 23170 + m15(t, na);
+  rv_tsin = t > 32767 ? 32767 : t < -32768 ? -32768 : t;
+  t = -32768 + m15(-27145, na); t = 23170 + m15(t, na);
+  rv_tcos = t > 32767 ? 32767 : t < -32768 ? -32768 : t;
+);
+
+function rv_xfade(n) local(o) (
+  rv_xfcnt >= rv_xfint ? (
+    rv_xfcnt = 0;
+    rv_phinc > 0 ? (
+      rv_sin = 32767; rv_cos = 0; rv_phase = 32767;
+      o = rv_noise(); rv_d1cross = RV_D1_OUT - rv_maxexc + o;
+      o = rv_noise(); rv_d0cross = RV_D0_OUT - rv_maxexc - o;
+    ) : (
+      rv_sin = 0; rv_cos = 32767; rv_phase = -32768;
+      o = rv_noise(); rv_d0self = RV_D0_OUT - rv_maxexc - o;
+      o = rv_noise(); rv_d1self = RV_D1_OUT - rv_maxexc + o;
+    );
+    rv_phinc = -rv_phinc;
+  );
+  rv_phase = max(-32768, min(32767, rv_phase + rv_phinc));
+  rv_sincos(rv_phase);
+  rv_sininc = floor((rv_tsin - rv_sin) / 256);
+  rv_cosinc = floor((rv_tcos - rv_cos) / 256);
+  rv_xfcnt = (rv_xfcnt + n) & 65535;
+);
+
+function rv_process(b) local(i, base, inL, inR, apin, d, t1, t2, apout, t, M) (
+  !(rv_bypass || (rv_wet == 0 && rv_dry == 32767)) ? (
+    rv_next != rv_cur ? rv_updroom();
+    rv_xfade(FRAME);
+    M = RV_SIZE - 1;
+    base = rv_base; i = 0;
+    loop(FRAME,
+      inL = b[2 * i]; inR = b[2 * i + 1];
+      apin = floor(inL / 4) + rv_fbkr;
+      d = RVD[(base + rv_ap0out) & M];
+      t1 = m15(apin, rv_ap0g);
+      apout = sat16(d - t1);
+      t1 = m15(apout, rv_ap0g);
+      RVD[(base + RV_AP0_IN) & M] = sat16(apin + t1);
+      RVD[(base + RV_D0_IN) & M] = apout;
+      apin = floor(inR / 4) + rv_fbkl;
+      d = RVD[(base + rv_ap1out) & M];
+      t1 = m15(apin, rv_ap1g);
+      apout = sat16(d - t1);
+      t1 = m15(apout, rv_ap1g);
+      RVD[(base + RV_AP1_IN) & M] = sat16(apin + t1);
+      RVD[(base + RV_D1_IN) & M] = apout;
+      t1 = m15(RVD[(base + rv_d0self) & M], rv_sin);
+      t2 = m15(RVD[(base + rv_d1cross) & M], rv_cos);
+      d = sat16(t1 + t2);
+      rv_lpf0 = sat16(m15(d, rv_lpffwd) + m15(rv_lpf0, rv_lpffbk));
+      t1 = m15(RVD[(base + rv_d1self) & M], rv_sin);
+      t2 = m15(RVD[(base + rv_d0cross) & M], rv_cos);
+      d = sat16(t1 + t2);
+      rv_lpf1 = sat16(m15(d, rv_lpffwd) + m15(rv_lpf1, rv_lpffbk));
+      rv_fbkl = sat16(rv_lpf1 + rv_lpf0);
+      rv_fbkr = sat16(rv_lpf1 - rv_lpf0);
+      rv_elpf = sat16(m15(rv_elpf, 4915));
+      t = sat16(rv_elpf + rv_fbkl);
+      t = m15(t, rv_wet * 2);
+      b[2 * i] = sat16(t + inL);
+      rv_erlpf = sat16(m15(rv_erlpf, 4915));
+      t = sat16(rv_erlpf + rv_fbkr);
+      t = m15(t, rv_wet * 2);
+      b[2 * i + 1] = sat16(t + inR);
+      base = (base - 1) & 65535;
+      rv_sin = w16(rv_sin + rv_sininc);
+      rv_cos = w16(rv_cos + rv_cosinc);
+      i += 1;
+    );
+    rv_base = base;
+    rv_updcnt >= 255 ? rv_updcnt = 0;
+    rv_updcnt += FRAME;
+  );
+);
+
+function rv_setpreset(p) ( rv_next = p; rv_updroom(); );
+
+CH_SIZE = 882;
+CHL = mk(CH_SIZE); CHR = mk(CH_SIZE); CHS = mk(128);
+mem_set_values(CHS, 0, 1608, 3212, 4808, 6393, 7962, 9512, 11309, 12539, 14010, 15446, 16846, 18204, 19519, 20787, 22005, 23170,
+    24279, 25329, 26319, 27245, 28105, 28898, 29621, 30273, 30852, 31356, 31785, 32137, 32412, 32609, 32728,
+    32767, 32728, 32609, 32412, 32137, 31785, 31356, 30852, 30273, 29621, 28898, 28105, 27245, 26319, 25329,
+    24279, 23170, 22005, 20787, 19519, 18204, 16846, 15446, 14010, 12539, 11039, 9512, 7962, 6393, 4808, 3212,
+    1608, 0, -1608, -3212, -4808, -6393, -7962, -9512, -11309, -12539, -14010, -15446, -16846, -18204, -19519,
+    -20787, -22005, -23170, -24279, -25329, -26319, -27245, -28105, -28898, -29621, -30273, -30852, -31356, -31785,
+    -32137, -32412, -32609, -32728, -32767, -32728, -32609, -32412, -32137, -31785, -31356, -30852, -30273, -29621,
+    -28898, -28105, -27245, -26319, -25329, -24279, -23170, -22005, -20787, -19519, -18204, -16846, -15446, -14010,
+    -12539, -11039, -9512, -7962, -6393, -4808, -3212, -1608);
+CHP = mk(16);
+mem_set_values(CHP, 39, 30, 32767, 32767, 21, 45, 25000, 32767, 53, 25, 32000, 32767, 32, 37, 29000, 32767);
+
+function ch_update() local(p) (
+  p = CHP + ch_next * 4;
+  ch_level = p[2]; ch_rate = p[1]; ch_depth = p[0]; ch_dry = p[3];
+  ch_rate = w16(floor(8388608 / 882000) * ch_rate);
+  ch_depth = w16(floor((floor((ch_depth * 44100) / 32) * 105) / 65536));
+  ch_cur = ch_next;
+);
+
+function ch_init() (
+  memset(CHL, 0, CH_SIZE); memset(CHR, 0, CH_SIZE);
+  ch_bypass = 1; ch_next = 0;
+  ch_il = ch_ir = 0; ch_lpl = 0; ch_lpr = 32 * 65536;
+  ch_tap = 441;
+  ch_update();
+);
+
+function ch_wtap(arr, ref, want, lim) local(idx, fr, v1, v2) (
+  idx = floor(want / 65536);
+  idx = w16(idx);
+  fr = floor(want / 2) & 0x7FFF;
+  idx = w16(ref - idx);
+  while (idx < 0) ( idx = w16(idx + lim); );
+  v1 = arr[idx];
+  v2 = idx == 0 ? arr[lim - 1] : arr[idx - 1];
+  w16(v1 + w16(m15(v2 - v1, fr)));
+);
+
+function ch_process(b) local(i, x, lfo, pos, tap, o) (
+  !(ch_bypass || ch_level == 0) ? (
+    ch_next != ch_cur ? ch_update();
+    i = 0;
+    loop(FRAME,
+      x = b[2 * i];
+      CHL[ch_il] = x;
+      lfo = ch_wtap(CHS, 0, ch_lpl, 128);
+      pos = ch_depth * (lfo * 2) + ch_tap * 65536;
+      tap = ch_wtap(CHL, ch_il, pos, CH_SIZE);
+      x = m15(x, ch_dry);
+      o = sat16(m15(tap, ch_level) + x);
+      b[2 * i] = o;
+      (ch_il += 1) >= CH_SIZE ? ch_il = 0;
+      ch_lpl += ch_rate;
+      while (ch_lpl >= 128 * 65536) ( ch_lpl -= 128 * 65536; );
+      i += 1;
+    );
+    i = 0;
+    loop(FRAME,
+      x = b[2 * i + 1];
+      CHR[ch_ir] = x;
+      lfo = ch_wtap(CHS, 0, ch_lpr, 128);
+      pos = ch_depth * (lfo * 2) + ch_tap * 65536;
+      tap = ch_wtap(CHR, ch_ir, pos, CH_SIZE);
+      x = m15(x, ch_dry);
+      o = sat16(m15(tap, ch_level) + x);
+      b[2 * i + 1] = o;
+      (ch_ir += 1) >= CH_SIZE ? ch_ir = 0;
+      ch_lpr += ch_rate;
+      while (ch_lpr >= 128 * 65536) ( ch_lpr -= 128 * 65536; );
+      i += 1;
+    );
+  );
+);
+
+function ch_setpreset(p) ( ch_next = p; ch_update(); );
+
+function eas_setvolume(vol) local(c) (
+  c = tdiv(tdiv((vol - 100) * 1200, 20) * 108852, 32768);
+  master_gain = vol <= 0 ? 0 : calc2x(c);
+);
+
+function fx_rv_cc(on) (
+  on && !rv_cc ? (
+    rv_cc = 1; rv_bypass = 0; rv_setpreset(1); rv_dry = 0;
+  ) : !on && rv_cc ? (
+    rv_cc = 0; rv_setpreset(1);
+  );
+);
+function fx_ch_cc(on) (
+  on && !ch_cc ? (
+    ch_cc = 1; ch_bypass = 0; ch_setpreset(0); ch_dry = 0;
+  ) : !on && ch_cc ? (
+    ch_cc = 0; ch_setpreset(0);
+  );
+);
+
+function eas_init() local(i) (
+  vm_act = 0; vm_age = 0; vm_maxp = NV;
+  i = 0; loop(NV, init_voice(i);
+    wart[i] = 0; e1s[i] = 2; e1v[i] = 0; e1i[i] = 0; e2s[i] = 2; e2v[i] = 0; e2i[i] = 0;
+    wgl[i] = wgr[i] = 0; wpf[i] = 0; wpa[i] = 0; wfx1[i] = wfx2[i] = wfy1[i] = wfy2[i] = 0;
+    i += 1; );
+  memset(VB, 0, FRAME);
+  rv_init(); ch_init();
+  rv_cc = 0; ch_cc = 0;
+  fx_ch_cc(1); fx_rv_cc(1);
+  sfl = 4; smv = 0x7fff; sprio = 5; snav = 0; gtr = 0;
+  memset(pcnt, 0, 16); memset(palloc, 0, 16); palloc[0] = vm_maxp & 255;
+  vm_initchannels();
+  eas_setvolume(100);
+);
+
+function eas_render() local(v, ch, done, i, lvl, rp, cp, s) (
+  sfl & 4 ? (
+    ch = 0; loop(16, wt_updch(ch); ch += 1; );
+    sfl &= 0xFB;
+  ) : (
+    ch = 0; loop(16, cfl[ch] & 4 ? wt_updch(ch); ch += 1; );
+  );
+  memset(MIX, 0, 2 * FRAME);
+  memset(CSND, 0, 2 * FRAME); memset(RSND, 0, 2 * FRAME);
+  rp = cp = 0;
+  v = 0;
+  loop(NV,
+    ch = vch[v] & 15;
+    vst[v] == 5 && vgn[v] <= 0 ? vm_retarget(v);
+    vst[v] != 0 ? (
+      done = wt_update(v);
+      i = 0;
+      loop(2 * FRAME, MIX[i] += SB[i]; i += 1; );
+      lvl = crev[ch];
+      lvl != 0 ? (
+        i = 0; loop(2 * FRAME, RSND[i] = w16(RSND[i] + tdiv(SB[i] * lvl, 128)); i += 1; );
+        rp = 1;
+      );
+      lvl = ccho[ch];
+      lvl != 0 ? (
+        i = 0; loop(2 * FRAME, CSND[i] = w16(CSND[i] + tdiv(SB[i] * lvl, 128)); i += 1; );
+        cp = 1;
+      );
+      done ? ( vst[v] == 5 ? vgn[v] = 0 : vm_free(v); );
+      vfl[v] & 0x40 ? ( vfl[v] &= 0xBB; vm_mute(v); );
+      vst[v] == 1 ? vst[v] = 2;
+    );
+    v += 1;
+  );
+  cp && ch_cc ? ( ch_process(CSND); i = 0; loop(2 * FRAME, MIX[i] += CSND[i]; i += 1; ); );
+  rp && rv_cc ? ( rv_process(RSND); i = 0; loop(2 * FRAME, MIX[i] += RSND[i]; i += 1; ); );
+  sfl & 8 ? vm_deferred_stop();
+  (sfl & 1) && snav == 0 ? (
+    vm_initchannels();
+    i = 0; loop(NV, init_voice(i); i += 1; );
+    sfl &= 0xFE;
+  );
+  ch = 0; loop(16, cfl[ch] &= 0xFB; ch += 1; );
+  i = 0;
+  loop(2 * FRAME,
+    s = floor(w32(MIX[i] * master_gain) / 32768);
+    OUTB[i] = sat16(s);
+    i += 1;
+  );
+  !rv_cc ? rv_process(OUTB);
+  !ch_cc ? ch_process(OUTB);
+);
+
+function vm_setpoly(n) local(i, act, best, bp, cp) (
+  n < 1 ? n = 1;
+  n > NV ? n = NV;
+  n != vm_maxp ? (
+    vm_maxp = n;
+    palloc[0] = n & 255;
+    vm_act > n ? (
+      act = 0; i = 0; loop(NV, vst[i] != 0 && vst[i] != 4 ? act += 1; i += 1; );
+      while (act > n) (
+        bp = -1; best = -1;
+        i = 0;
+        loop(NV,
+          vst[i] != 0 && vst[i] != 4 ? (
+            vst[i] == 5 || (vfl[i] & 8) ? cp = 128 - vnv[i] + cpool[vnc[i] & 15] * 4 :
+              cp = vag[i] * 2 + 384 - floor(vgn[i] / 256) + cpool[vch[i] & 15] * 4;
+            cp += sprio * 256;
+            cp > bp ? ( bp = cp; best = i; );
+          );
+          i += 1;
+        );
+        best < 0 ? act = 0 : ( vm_mute(best); act -= 1; );
+      );
+    );
+  );
+);
+
+function eas_setparam(mod, par, val) (
+  mod == 2 ? (
+    par == 4 ? fx_rv_cc(!val) :
+    par == 0 ? rv_bypass = val :
+    par == 1 ? ( val >= 0 && val <= 3 ? rv_setpreset(val); ) :
+    par == 2 ? rv_wet = val :
+    par == 3 ? rv_dry = val;
+  ) : mod == 3 ? (
+    par == 6 ? fx_ch_cc(!val) :
+    par == 0 ? ch_bypass = val :
+    par == 1 ? ( val >= 0 && val <= 3 ? ch_setpreset(val); ) :
+    par == 2 ? ch_rate = val :
+    par == 3 ? ch_depth = val :
+    par == 4 ? ch_level = val :
+    par == 5 ? ch_dry = val;
+  );
+);
+
+function eas_sysex(buf, len) local(g) (
+  len >= 6 && buf[1] == 0x7E && buf[2] == 0x7F && buf[3] == 0x09 && (buf[4] == 1 || buf[4] == 3) ? (
+    vm_reset(); vm_initmip();
+  ) : len >= 8 && buf[1] == 0x7F && buf[2] == 0x7F && buf[3] == 0x04 && buf[4] == 0x01 ? (
+    g = buf[6] * 256 + buf[5] * 2;
+    smv = floor((g * g) / 32768); sfl |= 4;
+  );
+);
+
+REG = mk(3393); ART = mk(3145); BANK = mk(128); SOFF = mk(150); SLEN = mk(150);
+DRUMREG = 0;
+mem_set_values(REG, 0,27,27,-4068,16422,0,0,81,0,0,28,28,-4768,32767,0,0,40,0,0,29,29,-5753,32767,0,0,32,1,0,30,30,-6053,32767,0,0,32,2,
+  0,31,31,-5068,23197,0,0,48,3,1536,32,32,-4400,20675,0,0,137,4,1537,33,33,-4903,20675,792,879,50,5,1537,34,34,-5003,16422,792,879,50,6,
+  0,35,35,-6168,32767,0,0,83,7,0,36,36,-6168,32767,0,0,83,7,0,37,37,-5251,18426,0,0,53,8,0,38,38,-5351,23197,0,0,16,9,
+  0,39,39,-4768,32767,0,0,40,10,0,40,40,-5351,23197,0,0,16,4,1,41,41,-7055,26028,798,993,45,11,257,42,42,-5400,26028,4288,7488,7,12,
+  1,43,43,-6955,26028,798,993,45,13,257,44,44,-5600,26028,4288,7488,7,14,1,45,45,-6955,26028,798,993,45,15,257,46,46,-5800,26028,4288,7488,7,16,
+  1,47,47,-6655,26028,798,993,45,17,1,48,48,-6555,26028,798,993,45,18,1,49,49,-6400,16422,1294,5778,8,19,1,50,50,-6455,26028,798,993,45,20,
+  1,51,51,-6468,16422,6592,9921,6,21,1,52,52,-6800,32767,1294,5778,8,22,1,53,53,-6618,14636,6592,9921,6,23,0,54,54,-6951,26028,0,0,39,24,
+  1,55,55,-6500,32767,1294,5778,8,25,0,56,56,-8455,32767,0,0,90,26,1,57,57,-6900,32767,1294,5778,8,27,1,58,58,-8253,23197,0,166,113,28,
+  1,59,59,-7168,16422,6592,9921,6,29,1,60,60,-7653,23197,432,582,63,30,1,61,61,-8053,16422,432,582,63,30,1,62,62,-8453,20675,432,582,63,31,
+  1,63,63,-8553,23197,432,582,63,32,1,64,64,-9153,23197,432,582,63,33,0,65,65,-8755,32767,0,0,14,34,0,66,66,-9155,20675,0,0,14,34,
+  512,67,67,-8355,18426,0,0,90,35,512,68,68,-8955,18426,0,0,90,35,0,69,69,-8955,32767,0,0,86,36,0,70,70,-8055,21900,0,0,86,37,
+  769,71,71,-7555,23197,0,1226,35,38,769,72,72,-8155,26028,0,1226,35,38,1024,73,73,-9155,32767,0,0,22,39,1024,74,74,-9655,32767,0,0,22,40,
+  1,75,75,-9100,23197,0,31,139,41,0,76,76,-11655,23197,0,0,134,42,0,77,77,-11255,23197,0,0,134,43,0,78,78,-10053,16422,0,0,89,44,
+  0,79,79,-11453,16422,0,0,89,45,1281,80,80,-7500,13045,209,230,103,46,1281,81,81,-7600,16422,209,230,103,47,0,82,82,-9655,20675,0,0,87,48,
+  0,83,83,-10100,32767,0,0,13,49,1,84,84,-9600,23197,0,10294,5,50,0,85,85,-10855,32767,0,0,135,4,0,86,86,-10268,16422,0,0,24,51,
+  32769,87,87,-10368,32767,1335,1603,24,52,1,12,67,-7805,23197,437,16584,2,48,1,68,73,-8396,23197,452,16803,0,48,32769,74,108,-9667,23197,404,16698,1,48,
+  1,12,78,-7805,16422,437,16584,2,48,1,79,91,-8396,16422,452,16803,0,48,32769,92,108,-9667,16422,404,16698,1,48,1,12,78,-7805,16422,437,16584,2,48,
+  1,79,91,-8396,16422,452,16803,0,48,32769,92,108,-9667,16422,404,16698,1,48,1,12,70,-7800,23197,437,16584,2,48,1,71,88,-8391,23197,452,16803,0,48,
+  32769,89,108,-9662,23197,404,16698,1,48,1,12,54,-7156,13045,639,4368,10,48,32769,55,108,-7551,18426,702,3112,12,48,1,12,66,-7811,23197,437,16584,2,48,
+  1,67,87,-8402,23197,452,16803,0,48,32769,88,108,-9673,16422,404,16698,1,48,1,12,43,-4255,23197,920,1383,30,59,32769,44,96,-6260,18426,885,1176,37,59,
+  1,12,48,-4661,18426,1148,1514,26,60,32769,49,96,-7453,16422,1347,1420,29,60,1,33,56,-6800,26028,1064,1170,38,61,1,57,72,-7200,26028,930,1014,44,61,
+  32769,73,108,-8800,26028,726,826,52,61,1,36,96,-8800,20675,635,735,58,62,32769,97,108,-11308,13045,0,31,139,62,1,36,96,-8800,14636,635,735,58,0,
+  32769,97,108,-11308,13045,0,31,139,0,1,36,83,-7206,13045,838,922,47,63,1,84,93,-9606,14636,209,230,103,63,32769,94,108,-11308,13045,0,31,139,63,
+  1,36,83,-7206,13045,838,922,47,64,1,84,93,-9606,13045,209,230,103,64,32769,94,108,-11308,13045,0,31,139,64,1,21,56,-6795,23197,1064,1170,38,65,
+  1,57,72,-7195,23197,930,1014,44,65,32769,73,108,-8798,23197,726,826,52,65,1,12,83,-7206,16422,838,922,47,66,1,84,93,-9606,16422,209,230,103,66,
+  32769,94,108,-11308,16422,0,31,139,66,1,24,83,-7206,16422,838,922,47,67,1,84,93,-9606,16422,209,230,103,67,32769,94,108,-11308,16422,0,31,139,67,
+  1,12,83,-7220,16422,0,83,126,68,1,84,90,-7220,16422,0,83,126,68,32769,91,108,-7220,16422,0,83,126,68,1,21,75,-8441,16422,419,460,76,69,
+  32769,76,108,-10890,14636,254,264,101,69,32769,36,84,-8955,16422,0,2775,17,70,32769,12,108,-7855,23197,30,276,100,71,0,12,60,-9114,26028,0,0,15,72,
+  32768,61,96,-9114,26028,0,0,15,73,1,12,65,-8253,16422,23,10953,4,74,32769,66,108,-8955,20675,11,11753,3,74,1,12,35,-6555,16422,2869,3778,11,75,
+  1,36,48,-7755,20675,2869,3778,11,75,32769,49,72,-7755,20675,2869,3778,11,76,1,16,55,-7424,20675,1045,1119,41,77,32769,56,96,-7918,20675,907,963,46,77,
+  1,16,53,-7194,29204,1140,1479,27,78,1,54,70,-8371,29204,726,812,55,78,32769,71,108,-8988,29204,718,748,56,78,1,12,65,-8253,16422,23,10953,4,79,
+  32769,66,108,-8955,20675,11,11753,3,79,1,16,54,-6927,20675,5362,5461,9,80,1,55,63,-7051,26028,1362,1454,28,80,32769,64,108,-7944,16422,311,366,88,80,
+  1,16,48,-5998,20675,1132,1301,31,81,32769,49,108,-7188,20675,1099,1184,36,81,1,21,68,-9658,20675,87,2170,18,82,1,69,82,-10160,20675,120,2167,19,82,
+  32769,83,108,-11360,20675,376,2041,20,82,1,12,65,-8253,16422,23,10953,4,83,32769,66,108,-8955,20675,11,11753,3,83,32769,55,108,-8568,20675,0,477,75,84,
+  32769,36,96,-8100,14636,101,151,116,85,1,24,83,-7220,13045,0,83,126,86,1,84,90,-7220,13045,0,83,126,86,32769,91,108,-7220,13045,0,83,126,86,
+  1,12,65,-8253,16422,23,10953,4,87,32769,66,108,-8955,20675,11,11753,3,87,1,12,65,-8253,16422,23,10953,4,88,32769,66,108,-8955,20675,11,11753,3,88,
+  1,12,65,-8253,16422,23,10953,4,89,32769,66,108,-8955,20675,11,11753,3,89,1,24,83,-7220,13045,0,83,126,90,1,84,90,-7220,13045,0,83,126,90,
+  32769,91,108,-7220,13045,0,83,126,90,1,12,65,-8253,16422,23,10953,4,91,32769,66,108,-8955,20675,11,11753,3,91,1,12,65,-8253,16422,23,10953,4,92,
+  32769,66,108,-8955,20675,11,11753,3,92,1,12,62,-8253,16422,23,10953,4,93,32769,63,108,-8955,20675,11,11753,3,93,1,12,62,-8253,16422,23,10953,4,94,
+  32769,63,108,-8955,16422,11,11753,3,94,1,24,79,-7220,13045,0,83,126,95,1,80,90,-7220,13045,0,83,126,95,32769,91,108,-7220,13045,0,83,126,95,
+  1,12,65,-8253,13045,23,10953,4,96,32769,66,108,-8955,16422,11,11753,3,96,32768,36,84,-8700,20675,0,0,25,97,32769,36,96,-10055,20675,1482,1613,23,98,
+  32769,12,96,-5566,32767,818,1033,42,99,32769,36,84,-9768,18426,0,293,98,100,32769,12,96,-7220,26028,0,83,125,101,32769,12,96,-7220,20675,0,83,125,102,
+  1,12,83,-7220,13045,0,83,125,104,1,84,90,-7220,13045,0,83,125,104,32769,91,108,-7220,13045,0,83,125,104,32769,36,108,-9770,32767,472,491,74,105,
+  32769,36,108,-9770,20675,472,491,74,106,1,12,72,-7212,7336,2,86,124,107,1,73,101,-9700,8231,2,22,143,107,32769,102,108,-10883,20675,173,183,110,107,
+  1,21,96,-8968,13045,477,507,73,108,32769,97,108,-10883,13045,173,183,110,109,32769,12,108,-8971,16422,477,507,73,110,1,12,53,-6171,16422,388,541,68,111,
+  32769,54,60,-7149,11626,473,560,65,111,32769,36,72,-7149,16422,473,560,65,112,1,48,58,-8253,16422,356,402,82,113,1,59,65,-8774,16422,514,548,67,113,
+  1,66,78,-9374,16422,505,529,71,113,32769,79,96,-10433,16422,178,191,109,113,1,55,60,-8253,16422,356,402,82,114,1,61,69,-8774,16422,514,548,67,114,
+  1,70,79,-9374,16422,505,529,71,114,32769,80,108,-10433,16422,178,191,109,114,1,16,82,-9229,23197,180,206,106,115,32769,83,108,-8440,18426,3,44,131,115,
+  32769,21,108,-10069,20675,483,515,72,116,1,21,89,-8405,18426,3,45,130,117,32769,90,108,-8405,18426,3,45,130,117,1,21,42,-5886,20675,0,180,111,118,
+  1,43,51,-6486,23197,0,127,120,118,1,52,58,-7492,26028,0,71,127,118,1,59,68,-8668,23197,0,36,136,118,32769,69,108,-8668,23197,0,36,136,118,
+  1,21,89,-8399,20675,3,45,130,119,32769,90,108,-8399,20675,3,45,130,119,1,21,46,-6851,26028,236,340,92,120,1,47,71,-7763,20675,824,885,49,120,
+  1,72,88,-9107,18426,719,747,57,120,1,89,93,-10076,16422,83,99,122,120,32769,94,108,-10889,16422,173,183,110,120,1,60,71,-8405,16422,0,42,132,121,
+  1,72,78,-9103,16422,0,28,141,121,32769,79,96,-9103,16422,0,28,141,121,1,48,65,-7516,11626,0,70,128,122,1,66,79,-8924,14636,0,31,138,122,
+  32769,80,96,-9230,11626,0,26,142,122,1,16,44,-7068,14636,163,254,102,123,1,45,51,-7618,16422,261,393,85,123,1,52,58,-8533,18426,190,229,104,123,
+  1,59,66,-9300,18426,168,193,108,123,1,67,70,-9776,18426,138,157,115,123,1,71,80,-10303,18426,166,180,112,123,32769,81,108,-11274,18426,135,151,117,123,
+  32769,12,96,-6204,23197,570,719,59,124,1,12,48,-7068,14636,163,254,102,125,1,49,54,-7618,16422,261,393,85,125,1,55,63,-8533,18426,190,229,104,125,
+  1,64,70,-9300,18426,168,193,108,125,1,71,75,-9776,18426,138,157,115,125,1,76,82,-10303,18426,166,180,112,125,32769,83,108,-11274,18426,135,151,117,125,
+  32770,36,84,-8400,29204,0,0,0,126,32770,36,84,-8800,8231,0,0,0,127,32770,36,84,-8400,20675,0,0,0,128,32769,36,84,-7200,-24285,1294,5778,8,129,
+  32769,36,84,-7755,29204,798,993,45,130,32769,36,84,-8055,20675,798,993,45,131,32769,36,84,-8955,29204,798,993,45,132,32768,36,84,-9355,32767,0,0,133,133,
+  32768,36,84,-7755,20675,0,0,91,134,1,24,62,-8200,23197,286,333,94,135,1,63,66,-8564,26028,297,335,93,135,1,67,72,-8922,23197,368,399,84,135,
+  32769,73,96,-9510,23197,116,138,119,135,1,24,48,-6341,23197,309,447,77,136,1,49,56,-7466,26028,211,283,99,136,1,57,63,-8200,26028,286,333,94,136,
+  32769,64,84,-8922,23197,368,399,84,136,1,24,56,-7466,29204,211,283,99,137,1,57,63,-8200,29204,286,333,94,137,1,64,69,-8922,29204,368,399,84,137,
+  32769,70,96,-9510,29204,116,138,119,137,1,24,68,-8922,18426,368,399,84,138,1,69,76,-9510,26028,116,138,119,138,32769,77,108,-9958,23197,127,144,118,138,
+  1,24,82,-8813,23197,389,422,80,139,32769,83,108,-9964,26028,146,163,114,139,1,12,58,-8098,29204,386,436,78,140,32769,59,96,-8571,26028,290,328,95,140,
+  1,12,58,-8098,16422,386,436,78,141,32769,59,96,-8571,18426,290,328,95,141,1,12,48,-8098,-28771,386,436,78,142,32769,49,84,-8571,29204,290,328,95,142,
+  1,12,60,-6653,20675,314,430,79,143,32769,61,84,-7753,18426,263,324,96,143,1,24,60,-7753,16422,263,324,96,144,1,61,70,-8869,20675,279,311,97,144,
+  32769,71,96,-9298,23197,179,204,107,144,1,24,84,-9683,20675,191,211,105,145,32769,85,108,-10883,20675,92,102,121,145,1,21,69,-7753,13045,263,324,96,146,
+  1,70,94,-8869,20675,279,311,97,146,1,95,96,-9298,-24285,179,204,107,146,32769,97,108,-10883,-24285,173,183,110,146,1,16,55,-9300,20675,168,193,108,147,
+  1,56,74,-9776,26028,138,157,115,147,32769,75,96,-11274,26028,135,151,117,147,1,24,72,-9298,26028,179,204,107,148,1,73,85,-9683,20675,191,211,105,148,
+  32769,86,108,-10883,18426,92,102,121,148,32769,36,108,-8930,18426,1839,1901,21,149,32769,24,108,-8473,20675,494,534,69,150,32769,12,108,-8473,20675,494,534,69,151,
+  32769,24,108,-8473,20675,494,534,69,152,1,36,60,-6100,5193,2,22,143,153,32769,61,84,-7283,20675,173,183,110,153,32769,24,96,-7753,14636,263,324,96,154,
+  32769,36,96,-8930,26028,1839,1901,21,155,32769,24,108,-8473,20675,494,534,69,156,1,24,58,-9051,14636,0,29,140,157,32769,59,96,-9051,14636,0,29,140,157,
+  1,12,83,-7220,13045,0,83,125,158,1,84,90,-7220,13045,0,83,125,158,32769,91,108,-7220,13045,0,83,125,158,1,21,42,-5863,26028,1047,1229,34,159,
+  1,43,48,-6656,29204,1138,1253,33,159,1,49,53,-7045,26028,559,651,60,159,1,54,60,-7932,26028,508,563,64,159,1,61,65,-8280,32767,819,864,51,159,
+  1,66,70,-8066,26942,981,1032,43,159,1,71,76,-9366,26028,790,814,54,159,1,77,82,-9966,26028,592,609,61,159,1,83,87,-10717,23197,543,554,66,159,
+  1,88,96,-11271,18426,601,609,62,159,32769,97,108,-11766,18426,523,529,70,159,1,48,69,-7513,14636,0,70,128,160,1,70,79,-8924,18426,0,31,138,160,
+  32769,80,96,-9230,14636,0,26,142,160,1,36,72,-8334,29204,0,87,123,161,32769,73,96,-9160,29204,0,54,129,161,32769,36,96,-8930,26028,1839,1901,21,162,
+  32769,12,96,-5572,32767,818,1033,42,163,32769,36,108,-9770,26028,472,491,74,164,32769,12,96,-6204,29204,570,719,59,165,1,12,83,-7220,13045,0,83,125,166,
+  1,84,90,-7220,13045,0,83,125,166,32769,91,108,-7220,13045,0,83,125,166,1,21,46,-6851,32767,236,340,92,167,1,47,75,-7763,26028,824,885,49,167,
+  1,76,84,-9107,23197,719,747,57,167,1,85,93,-10076,20675,83,99,122,167,32769,94,108,-10889,20675,173,183,110,167,1,21,46,-6851,26028,236,340,92,168,
+  1,47,71,-7763,20675,824,885,49,168,1,72,88,-9107,18426,719,747,57,168,1,89,93,-10076,16422,83,99,122,168,32769,94,108,-10889,16422,173,183,110,168,
+  1,21,45,-5863,26028,1047,1229,34,169,1,46,51,-6656,29204,1138,1253,33,169,1,52,54,-7045,26028,559,651,60,169,1,55,63,-7932,26028,508,563,64,169,
+  1,64,68,-8280,32767,819,864,51,169,1,69,73,-8066,26942,981,1032,43,169,1,74,79,-9366,26028,790,814,54,169,1,80,88,-9966,23197,592,609,61,169,
+  1,89,99,-11271,18426,601,609,62,169,32769,100,108,-11766,18426,523,529,70,169,1,21,45,-5863,26028,1047,1229,34,170,1,46,51,-6656,29204,1138,1253,33,170,
+  1,52,54,-7045,26028,559,651,60,170,1,55,63,-7932,26028,508,563,64,170,1,64,68,-8280,32767,819,864,51,170,1,69,73,-8066,26942,981,1032,43,170,
+  1,74,79,-9366,26028,790,814,54,170,1,80,88,-9966,23197,592,609,61,170,1,89,99,-11271,18426,601,609,62,171,32769,100,108,-11766,18426,523,529,70,172,
+  32769,36,108,-9770,20675,472,491,74,173,32769,12,108,-8930,20675,1839,1901,21,174,1,12,44,-7068,18426,163,254,102,175,1,45,51,-7618,20675,261,393,85,175,
+  1,52,58,-8533,23197,190,229,104,175,1,59,66,-9300,23197,168,193,108,175,1,67,70,-9776,23197,138,157,115,175,1,71,80,-10303,23197,166,180,112,175,
+  32769,81,108,-11274,23197,135,151,117,175,1,12,65,-8253,16422,23,10953,4,176,32769,66,108,-8955,20675,11,11753,3,176,1,12,48,-5998,29204,1132,1301,31,177,
+  32769,49,108,-7188,29204,1099,1184,36,177,1,12,83,-8441,20675,419,460,76,178,32769,84,108,-11323,20675,0,31,139,178,1,55,60,-8253,18426,356,402,82,179,
+  1,61,69,-8774,18426,514,548,67,179,1,70,79,-9374,18426,505,529,71,179,32769,80,108,-10433,23197,178,191,109,179,32769,36,96,-8930,-24285,1839,1901,21,180,
+  1,12,83,-7206,16422,838,922,47,181,1,84,93,-9606,18426,209,230,103,181,32769,94,108,-11308,16422,0,31,139,181,1,12,56,-6795,23197,1064,1170,38,182,
+  1,57,72,-7195,23197,930,1014,44,182,32769,73,108,-8798,23197,726,826,52,182,32769,24,108,-8800,23197,635,735,58,62,1,36,83,-7206,13045,838,922,47,183,
+  1,84,93,-9606,13045,209,230,103,183,32769,94,108,-11308,13045,0,31,139,183,1,12,66,-7811,23197,437,16584,2,184,1,67,87,-8402,23197,452,16803,0,184,
+  32769,88,108,-9673,16422,404,16698,1,184);
+mem_set_values(ART, 32767,31730,0,31730,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,32767,29669,0,29669,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,
+  32767,31605,0,31701,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,32767,29434,0,29434,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,
+  32767,0,32767,32742,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,32767,26439,0,26439,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,
+  32767,32322,0,32350,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,32767,32715,32767,32715,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,
+  32767,0,32767,0,32767,951,0,0,0,0,476,0,0,0,0,0,0,32767,32558,0,32558,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,
+  32767,0,32767,23749,32767,32767,32767,0,0,0,476,0,0,0,0,0,-1,32767,32245,0,32245,32767,380,0,0,0,0,476,0,0,0,0,0,-44,
+  32767,27897,0,27897,32767,32767,32767,0,0,0,476,0,0,0,0,0,56,32767,32245,0,32245,32767,380,0,0,0,0,476,0,0,0,0,0,-31,
+  4755,26439,0,26439,32767,32767,32767,0,0,0,476,0,0,0,0,0,56,32767,32187,0,32187,32767,380,0,0,0,0,476,0,0,0,0,0,-6,
+  32767,32444,0,32480,32767,32767,32767,0,0,0,476,0,0,0,0,0,56,32767,32153,0,32153,32767,380,0,0,0,0,476,0,0,0,0,0,6,
+  32767,32072,0,32072,32767,476,0,0,0,0,476,0,0,0,0,0,31,32767,32363,0,32363,32767,32767,32767,0,0,0,476,0,0,0,0,0,25,
+  32767,31901,0,31901,32767,476,0,0,0,0,476,0,0,0,0,0,63,32767,32528,0,32518,32767,32767,32767,0,0,0,476,0,0,0,0,0,-37,
+  9511,32322,0,32337,32767,32767,32767,0,0,0,476,0,0,0,0,0,-37,32767,32376,0,32398,32767,32767,32767,0,0,0,476,0,0,0,0,0,-37,
+  32767,0,32767,32715,32767,32767,32767,0,0,0,476,0,0,0,0,0,12,32767,32052,0,32052,32767,32767,32767,0,0,0,476,0,0,0,0,0,-25,
+  32767,0,32767,32715,32767,32767,32767,0,0,0,476,0,0,0,0,0,25,32767,32289,0,32271,32767,32767,32767,0,0,0,476,0,0,0,0,0,-25,
+  32767,31730,0,31730,32767,48,0,0,0,0,476,240,0,0,0,0,-56,32767,32498,0,32492,32767,32767,32767,0,0,0,476,0,0,0,0,0,-37,
+  32767,29434,0,29434,32767,1902,0,0,0,0,476,0,0,0,0,0,50,32767,27897,0,27897,32767,32767,32767,0,0,0,476,0,0,0,0,0,-50,
+  32767,31056,0,31056,32767,1902,0,0,0,0,476,0,0,0,0,0,-50,32767,31479,0,31476,32767,1902,0,0,0,0,476,0,0,0,0,0,-44,
+  32767,32663,0,32663,32767,127,0,0,0,0,476,0,0,0,0,0,25,32767,0,32767,32715,32767,32767,32767,0,0,0,476,0,0,0,0,0,-63,
+  1902,27897,0,27897,32767,32767,32767,0,0,0,476,0,0,0,0,0,-63,32767,27897,0,27897,32767,32767,32767,0,0,0,476,0,0,0,0,0,-59,
+  32767,31730,0,31730,32767,32767,32767,0,0,0,476,0,0,0,0,0,50,32767,30725,0,30725,32767,32767,32767,0,0,0,476,0,0,0,0,0,44,
+  951,31730,0,31730,32767,190,0,0,0,0,476,-100,0,0,0,0,44,32767,17213,0,17213,32767,32767,32767,0,0,0,476,0,0,0,0,0,25,
+  32767,31295,0,31295,32767,32767,32767,0,0,0,476,0,0,0,0,0,63,32767,31479,0,31476,32767,32767,32767,0,0,0,476,0,0,0,0,0,63,
+  9511,25581,0,25581,476,32767,32767,0,0,0,476,100,0,0,0,0,-25,1902,23749,0,23749,476,32767,32767,0,0,0,476,500,0,0,0,0,-25,
+  32767,23749,0,23749,32767,32767,32767,0,0,0,476,0,0,0,0,0,-56,32767,31730,0,31730,32767,32767,32767,0,0,0,476,0,0,0,0,0,-56,
+  32767,0,32767,0,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,32767,31964,0,31964,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,
+  9511,32363,0,32418,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,32767,31180,0,31180,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,
+  32767,32251,0,32052,32767,147,0,0,0,0,476,0,10000,7121,0,0,0,32767,0,32767,32072,32767,32767,32767,0,0,0,778,0,-2300,11920,0,0,0,
+  587,0,32767,32376,32767,63,0,0,0,0,778,0,2000,10721,0,8,15,587,0,32767,32376,476,63,0,0,0,0,778,0,2000,9023,0,5,15,
+  3804,0,32767,31477,32767,34,5898,0,0,0,778,0,6000,9080,0,0,-2,32767,0,32767,31005,32767,32767,32767,0,0,0,778,0,0,0,0,0,1,
+  2570,0,32767,31455,32767,32767,32767,0,0,0,778,0,0,0,0,0,0,32767,32663,0,29434,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,
+  32767,32558,0,29434,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,32767,32418,0,32418,32767,48,0,0,0,69,495,0,2400,9521,0,0,0,
+  32767,31476,0,31476,32767,32767,32767,0,0,0,476,0,0,11738,0,16,0,32767,32558,0,31391,32767,317,0,0,0,69,476,0,0,0,0,0,0,
+  32767,32245,0,32115,32767,317,0,0,0,69,476,0,0,0,0,0,0,32767,32593,0,28809,32767,48,0,0,0,69,495,0,0,0,0,0,0,
+  32767,32408,0,32363,32767,317,0,0,0,69,476,0,0,0,0,0,0,32767,32350,0,32350,32767,317,0,0,0,69,476,0,0,0,0,0,0,
+  4755,32715,18820,27897,951,29,13107,0,0,0,495,0,6000,5535,0,4,0,32767,32257,0,32245,32767,951,0,0,0,103,495,0,0,0,0,0,0,
+  63,32727,3811,32558,48,19,32767,0,0,0,495,0,0,0,0,0,0,2378,32715,3566,30725,1902,32767,32767,0,0,0,495,100,0,11919,0,0,0,
+  32767,32349,0,32349,32767,168,0,0,0,34,495,0,7000,9023,0,0,0,32767,32072,0,32072,32767,168,0,0,0,3,476,0,7000,9023,0,0,0,
+  32767,32698,6208,32349,190,48,0,0,0,0,495,0,3840,8302,0,8,0,32767,32418,0,32468,32767,190,0,0,0,0,495,0,5000,8321,0,0,0,
+  32767,32349,0,32349,32767,190,0,0,0,0,476,0,5000,7934,0,0,0,32767,32441,0,31709,32767,32,0,0,0,34,495,0,0,0,0,0,0,
+  32767,32505,0,27897,32767,951,0,0,0,345,495,0,1000,11107,0,0,0,32767,32715,6208,32349,48,48,0,0,0,69,811,0,3560,8834,1,8,0,
+  32767,32564,0,29434,32767,95,0,0,0,34,495,0,6000,9907,0,0,0,32767,32505,0,27897,32767,32,0,0,0,34,495,0,0,0,0,0,0,
+  32767,32245,18820,17213,32767,32767,32767,0,0,34,495,0,0,0,0,0,0,32767,32742,128,32466,32767,63,0,0,0,0,495,0,0,11920,0,8,0,
+  32767,32418,0,32418,32767,33,0,0,3,0,286,0,5000,5535,0,0,0,1902,32715,18820,27897,32767,1012,0,0,10,69,504,-30,0,0,0,0,0,
+  9511,32715,18820,27897,380,48,0,0,0,69,495,0,4473,7131,0,8,0,951,32698,6208,32468,317,19,16384,0,0,0,495,0,2987,7877,0,12,0,
+  32767,32680,0,32349,32767,48,0,0,0,0,581,0,4053,7930,2,12,0,190,32726,6208,32349,32767,56,0,0,0,0,495,0,0,8887,0,0,0,
+  9511,32715,18820,27897,634,48,0,0,0,69,495,0,5113,7981,0,4,0,951,32715,6208,31730,951,63,0,0,0,69,495,0,3500,7877,0,5,0,
+  951,32715,6208,31730,634,48,0,0,0,69,476,0,4773,8355,0,5,0,238,32715,10809,32349,32767,32767,32767,0,0,69,495,0,0,0,0,0,0,
+  1902,32715,18820,31476,32767,32767,32767,0,0,69,495,0,0,0,0,0,0,3804,32715,18820,23749,1268,130,0,0,0,69,495,0,1200,11690,0,4,0,
+  19021,32618,15076,31476,32767,32767,32767,0,0,72,1091,0,0,11919,1,0,0,32767,0,32767,32715,190,32767,32767,0,0,0,495,0,0,0,0,0,0,
+  32767,32072,0,32072,32767,317,0,0,0,0,495,0,0,0,0,0,0,32767,32663,0,27897,634,95,13107,0,0,69,495,0,3200,8321,0,0,0,
+  32767,0,32767,0,32767,32767,32767,0,0,0,495,0,0,0,0,0,0,32767,32418,0,27897,32767,543,0,0,0,69,495,0,8187,5535,0,5,0,
+  19021,32663,0,31056,32767,95,7667,0,5,0,495,0,6053,5535,0,5,0,32767,32715,18820,27897,951,48,0,0,0,0,495,0,2700,9852,0,0,0,
+  32767,32715,18820,30234,951,48,0,0,0,0,495,0,2700,9852,0,0,0,32767,32715,18820,27897,32767,634,0,0,0,103,476,0,2500,10490,1,8,0,
+  32767,32715,23493,27897,32767,190,0,0,0,69,494,0,4000,10223,1,4,0,32767,32715,18820,30234,32767,63,7667,0,0,0,495,0,1813,9154,0,0,0,
+  19021,32245,0,32245,32767,190,0,0,0,0,476,0,0,0,0,0,0,32767,31964,0,31605,32767,32767,32767,0,0,0,476,0,0,11690,0,0,0,
+  32767,31730,0,31730,32767,190,0,0,0,0,476,0,0,0,0,0,0,32767,32558,18820,30234,32767,48,0,0,12,69,476,0,3000,10223,0,0,0,
+  32767,32558,18820,30234,32767,32,0,0,12,69,476,0,1900,10031,0,0,0,32767,32715,18820,29434,32767,32,0,0,12,69,494,0,1000,11107,0,0,0,
+  32767,32715,18820,29434,32767,32,0,0,12,69,494,0,2000,11107,0,0,0,32767,32636,0,29434,32767,95,0,0,0,34,495,0,4000,8321,0,0,0,
+  32767,32297,19893,17213,32767,238,0,0,0,69,726,0,0,11919,0,0,0,9511,32418,23493,17213,32767,32767,32767,0,0,69,678,0,0,11877,1,0,0,
+  32767,32618,0,27897,32767,95,0,0,0,69,495,0,3500,9023,0,0,0,32767,23749,23493,0,32767,32767,32767,0,0,34,761,0,0,10925,1,0,0,
+  32767,32636,0,29434,32767,95,0,0,0,103,495,0,3200,8721,0,4,0,1902,32715,18820,27897,32767,32767,32767,0,0,69,495,0,0,0,1,0,0,
+  4755,32715,18820,28809,32767,32767,32767,0,0,69,495,0,0,11877,0,8,0,32767,32715,18820,27897,32767,16,0,0,0,34,495,0,0,0,0,0,0,
+  32767,32663,0,27897,32767,190,0,0,0,69,495,0,0,0,0,0,0,32767,32715,18820,27897,32767,12,0,0,0,34,495,0,0,0,0,0,0,
+  32767,31730,0,31730,32767,380,0,0,0,0,495,0,3000,10223,0,8,0,63,0,32767,32558,32767,32767,32767,0,0,0,761,0,0,11423,4,0,0,
+  476,32595,0,32577,32767,10,0,0,0,0,495,0,0,11423,0,0,0,196,0,0,31964,95,32767,32767,0,0,0,495,0,0,0,0,0,0,
+  32767,31730,0,31730,32767,380,0,0,0,0,495,1200,0,0,0,0,0,32767,32245,0,32349,32767,190,0,0,0,0,495,50,0,0,0,0,0,
+  32767,32418,0,32418,32767,9511,0,0,0,0,495,0,4700,7769,0,0,0,32767,31391,0,31391,32767,19021,0,0,0,0,495,0,0,0,0,0,0,
+  32767,32663,32767,32663,32767,32767,32767,0,0,0,476,0,0,0,0,0,0,32767,32715,18820,23749,32767,95,0,0,10,68,476,0,2000,10696,0,0,0,
+  32767,32715,10809,23749,32767,95,0,0,12,69,491,0,0,10910,0,0,0,32767,32715,18820,23749,32767,95,0,0,10,69,476,0,1200,10218,0,0,0,
+  19021,32715,18820,23749,32767,95,0,0,10,69,476,0,1100,9525,0,0,0,9511,32663,18820,27897,32767,10,0,0,10,69,494,0,2000,10962,0,0,0,
+  32767,32558,18820,27897,9511,317,0,0,10,63,504,0,1200,10090,0,0,0,1268,0,32767,30234,951,190,0,0,7,69,494,0,1620,8933,0,0,0,
+  32767,32558,10809,27897,19021,190,0,0,7,69,494,0,2200,8994,0,0,0,32767,32715,15076,27897,32767,951,0,0,10,69,491,0,2500,9525,0,0,0,
+  32767,32715,15076,27897,32767,95,0,0,10,69,476,0,1500,11423,0,0,0,32767,32715,18820,27897,32767,951,0,0,9,69,491,0,1500,9521,0,0,0,
+  1902,0,32767,30725,32767,32767,32767,0,0,0,761,0,0,9521,0,0,0,32767,32663,0,27897,32767,9511,0,0,0,34,495,0,5000,10223,0,0,0,
+  32767,32715,18820,27897,32767,32,0,0,10,69,476,0,1500,9907,0,0,0,32767,32733,11682,27897,32767,951,0,0,0,69,476,0,0,0,0,0,0,
+  32767,32418,0,32418,32767,190,0,0,0,34,495,0,3440,9260,0,0,0,32767,31476,0,31730,32767,951,0,0,0,34,495,0,0,0,0,0,0,
+  32767,32245,0,31730,32767,190,0,0,0,34,495,0,4000,7823,0,0,0,32767,32663,3566,27897,391,32767,32767,0,100,0,761,500,0,11877,0,0,0,
+  32767,32715,18820,23749,32767,951,0,0,8,69,495,-22,0,0,0,0,0,9511,30830,6784,27897,32767,951,0,0,0,69,476,0,5000,9521,1,0,0,
+  32767,32663,0,32349,951,127,16384,0,0,103,495,0,3627,10547,0,5,0,1902,0,32767,27897,951,951,0,0,0,69,495,27,0,11919,0,0,0,
+  32767,0,32767,32245,38,33,10092,0,5,0,495,0,8007,5535,0,8,0,32767,32618,0,31056,32767,63,0,0,0,103,495,0,2500,9032,0,0,0,
+  4755,32715,10809,28809,32767,32767,32767,0,0,69,495,0,0,0,0,0,0,9511,32663,18820,27897,32767,95,0,0,10,69,494,0,2600,9513,0,0,0,
+  32767,32435,9568,27897,1174,196,0,0,10,103,490,0,6500,9023,0,0,0,32767,32663,0,29434,32767,32,0,0,0,69,495,0,0,0,0,0,0,
+  32767,32418,15076,23749,32767,634,0,0,0,0,476,0,2000,10223,0,0,0,32767,32663,0,27897,32767,190,0,0,0,69,495,0,3000,9366,0,0,0,
+  32767,32715,18820,27897,951,64,10879,0,0,0,495,0,6000,7121,0,4,0,32767,32636,0,29434,32767,10,0,0,0,103,495,0,3500,6236,0,5,0,
+  32767,32636,0,29434,32767,95,0,0,0,103,495,0,2800,7121,0,0,0,32767,32593,0,31056,32767,63,0,0,0,103,495,0,2100,9626,0,0,0,
+  32767,32558,0,31476,32767,63,0,0,0,103,495,0,3000,9626,0,0,0,32767,32527,0,30506,32767,63,0,0,0,103,495,0,1000,9032,0,0,0,
+  32767,32418,0,30725,32767,63,0,0,0,103,495,0,1000,9032,0,0,0,1902,32418,15076,23749,32767,634,0,0,0,103,496,0,0,11107,0,8,0,
+  32767,32558,15076,27897,3804,73,0,0,0,0,495,0,4500,9521,0,8,0,32767,32715,18820,27897,32767,48,0,0,0,0,495,0,2000,8321,0,8,0,
+  32767,32742,128,31180,32767,865,0,0,0,0,495,0,6000,7823,0,8,0,9511,32608,0,32322,32767,48,0,0,0,0,495,0,4500,7121,0,8,0,
+  19021,32664,3646,32436,32767,95,0,0,0,0,495,0,4000,8321,0,8,0,32767,32685,13644,29434,32767,32,0,0,12,69,494,0,2000,11107,0,0,0,
+  9511,31605,0,27897,32767,951,0,0,0,0,495,0,5000,8321,1,0,0,130,32617,0,32350,32767,317,0,0,0,69,476,0,0,0,0,0,0,
+  32767,32593,0,32251,1174,20,0,0,0,69,495,0,3600,7121,0,4,0,32767,32427,0,32427,32767,317,0,0,0,69,476,0,0,0,0,0,0,
+  834,32742,19242,31455,32767,148,0,0,0,0,778,0,3000,9907,0,4,0);
+mem_set_values(BANK, 291,324,314,334,202,319,95,195,107,92,371,89,87,85,135,82,200,192,130,267,193,302,207,210,128,125,190,120,118,213,221,271,
+  80,78,308,164,220,310,166,167,186,182,181,179,160,178,176,115,155,153,151,149,75,73,374,111,252,254,258,305,256,157,146,137,
+  249,237,245,241,274,262,260,265,172,171,309,277,284,307,136,344,173,168,345,353,346,70,110,311,357,144,104,67,364,367,64,288,
+  142,140,98,355,133,123,61,113,285,280,279,278,370,286,359,283,101,236,163,235,234,233,232,231,162,363,230,281,165,229,109,228);
+mem_set_values(SOFF, 0,33640,67056,100240,123748,145656,166246,186090,201068,212626,223550,232454,240012,246242,252428,258542,
+  264590,270226,275778,280120,284456,288560,292364,296034,299262,302468,305524,308558,311518,314428,317276,320050,
+  322654,325178,327686,330146,332600,334970,337332,339688,342024,344288,346528,348596,350662,352698,354686,356614,
+  358466,360280,362052,363814,365546,367206,368840,370472,372098,373596,375092,376570,378010,379314,380534,381754,
+  382920,384048,385170,386282,387380,388464,389534,390594,391654,392686,393702,394686,395642,396564,397460,398334,
+  399196,400042,400878,401684,402488,403288,404076,404850,405624,406358,407072,407766,408460,409142,409814,410482,
+  411140,411790,412414,413002,413570,414124,414654,415164,415630,416090,416516,416930,417340,417728,418114,418482,
+  418844,419206,419540,419868,420184,420488,420792,421082,421360,421616,421822,422022,422198,422372,422540,422708,
+  422852,422994,423104,423196,423286,423372,423452,423532,423612,423686,423756,423820,423884,423944,424002,424056,
+  424102,424146,424188,424230,424272,424314);
+mem_set_values(SLEN, 33640,33416,33184,23508,21908,20590,19844,14978,11558,10924,8904,7558,6230,6186,6114,6048,
+  5636,5552,4342,4336,4104,3804,3670,3228,3206,3056,3034,2960,2910,2848,2774,2604,
+  2524,2508,2460,2454,2370,2362,2356,2336,2264,2240,2068,2066,2036,1988,1928,1852,
+  1814,1772,1762,1732,1660,1634,1632,1626,1498,1496,1478,1440,1304,1220,1220,1166,
+  1128,1122,1112,1098,1084,1070,1060,1060,1032,1016,984,956,922,896,874,862,
+  846,836,806,804,800,788,774,774,734,714,694,694,682,672,668,658,
+  650,624,588,568,554,530,510,466,460,426,414,410,388,386,368,362,
+  362,334,328,316,304,304,290,278,256,206,200,176,174,168,168,144,
+  142,110,92,90,86,80,80,80,74,70,64,64,60,58,54,46,
+  44,42,42,42,42,40);
+SMP = mk(212241);
+
+// ---------------------------------------------------------------- plugin
+EQ = mk(4 * 4096); SXP = mk(65536); SXB = mk(4096);
+RSL = mk(2048); RSR = mk(2048); RTAB = mk(513 * 32);
+ACT = mk(16); SLP = mk(80); SCALES = mk(80 * 12); FQ = mk(16);
+g_min = mk(80); g_max = mk(80); g_step = mk(80); g_def = mk(80);
+
+function smp_load(fn) local(h, nch, sr, n)
+(
+  n = 0;
+  h = file_open(fn);
+  h >= 0 ? (
+    nch = 0; sr = 0;
+    file_riff(h, nch, sr);
+    (nch == 1 && file_avail(h) >= SMP_LEN) ? (
+      file_mem(h, SMP, SMP_LEN) == SMP_LEN ? n = SMP_LEN;
+    );
+    file_close(h);
+  );
+  n;
+);
+
+SMP[-1] !== 5813 ? (
+  loaded = smp_load("MajorGeneralMIDI/MajorGeneralMIDI.flac");
+  !loaded ? loaded = smp_load("Dependencies/MajorGeneralMIDI/MajorGeneralMIDI.flac");
+  loaded ? (
+    i = 0; loop(SMP_LEN, SMP[i] = floor(SMP[i] * 32768 + 0.5); i += 1; );
+    memset(SMP + SMP_LEN, 0, 64);
+    SMP[-1] = 5813;
+  );
+) : loaded = 1;
+
+function calc_tune() local(i, base, r) (
+  base = slider17 == 440 ? 0 : 1200 * log(slider17 / 440) / log(2);
+  r = SCALES + slider18 * 12;
+  i = 0;
+  loop(12,
+    TUNE[i] = base + (slider18 == 5 ? 0 : 1200 * log(r[i] / r[9]) / log(2) - 100 * (i - 9));
+    i += 1;
+  );
+);
+
+function rs_init() local(p, j, t, x, fc, w, H) (
+  H = 16;
+  fc = min(1, srate / 44100) * 0.93;
+  p = 0;
+  loop(513,
+    j = 0;
+    loop(32,
+      t = (j - H + 1) - p / 512;
+      x = $pi * fc * t;
+      w = abs(t) >= H ? 0 : 0.35875 + 0.48829 * cos($pi * t / H) + 0.14128 * cos(2 * $pi * t / H) + 0.01168 * cos(3 * $pi * t / H);
+      RTAB[p * 32 + j] = fc * (abs(x) < 0.0000001 ? 1 : sin(x) / x) * w;
+      j += 1;
+    );
+    p += 1;
+  );
+  rs_step = 44100 / srate;
+  rs_pos = 0; rs_in = 0;
+  memset(RSL, 0, 2048); memset(RSR, 0, 2048);
+);
+
+function rate_change()
+(
+  rs_init();
+  opos = FRAME;
+  cur_sr = srate;
+);
+
+// slider k (17..28) reflects engine state without applying anything
+function show(k, v) ( slider(k) = v; SLP[k - 1] = v; sliderchange(2 ^ (k - 1)); );
+function show_fx() (
+  show(21, floor(rv_wet / 32.767 + 0.5) / 10);
+  show(24, ch_rate_ui); show(25, ch_depth_ui);
+  show(26, floor(ch_level / 32.767 + 0.5) / 10);
+  show(27, floor(ch_dry / 32.767 + 0.5) / 10);
+);
+function ch_preset_ui(p) ( ch_rate_ui = CHP[p * 4 + 1]; ch_depth_ui = CHP[p * 4]; );
+
+function apply_prog(c, p) (
+  vm_cc(c, 0, p == 128 ? 0x78 : 0x79);
+  vm_progchange(c, p == 128 ? 0 : p);
+);
+
+function sync_progs() local(c, p) (
+  c = 0;
+  loop(16,
+    p = cfl[c] & 8 ? 128 : cprog[c];
+    slider(c + 1) != p ? ( slider(c + 1) = p; prog_dirty = 1; );
+    SLP[c] = p;
+    c += 1;
+  );
+);
+
+function apply_sliders() local(c, p, fx) (
+  c = 0;
+  loop(16,
+    p = slider(c + 1);
+    p != SLP[c] ? ( SLP[c] = p; apply_prog(c, p); );
+    c += 1;
+  );
+  slider17 != SLP[16] || slider18 != SLP[17] ? ( SLP[16] = slider17; SLP[17] = slider18; calc_tune(); );
+  fx = 0;
+  slider19 != SLP[18] || slider20 != SLP[19] ? (
+    slider19 != SLP[18] ? eas_setparam(2, 4, slider19);
+    SLP[18] = slider19; SLP[19] = slider20;
+    slider20 == 0 ? eas_setparam(2, 0, 1) : ( eas_setparam(2, 0, 0); eas_setparam(2, 1, slider20 - 1); );
+    fx = 1;
+  );
+  slider21 != SLP[20] ? ( SLP[20] = slider21; rv_wet = floor(slider21 * 327.67 + 0.5); );
+  slider22 != SLP[21] || slider23 != SLP[22] ? (
+    slider22 != SLP[21] ? eas_setparam(3, 6, slider22);
+    SLP[21] = slider22; SLP[22] = slider23;
+    slider23 == 0 ? eas_setparam(3, 0, 1) : ( eas_setparam(3, 0, 0); eas_setparam(3, 1, slider23 - 1); ch_preset_ui(slider23 - 1); );
+    fx = 1;
+  );
+  slider24 != SLP[23] ? ( SLP[23] = slider24; ch_rate_ui = slider24; ch_rate = w16(floor(8388608 / 882000) * slider24); );
+  slider25 != SLP[24] ? ( SLP[24] = slider25; ch_depth_ui = slider25; ch_depth = w16(floor((floor((slider25 * 44100) / 32) * 105) / 65536)); );
+  slider26 != SLP[25] ? ( SLP[25] = slider26; ch_level = floor(slider26 * 327.67 + 0.5); );
+  slider27 != SLP[26] ? ( SLP[26] = slider27; ch_dry = floor(slider27 * 327.67 + 0.5); );
+  slider28 != SLP[27] ? ( SLP[27] = slider28; eas_setvolume(100 + slider28); );
+  slider77 != SLP[76] ? ( SLP[76] = slider77; vm_setpoly(slider77); );
+  c = 0;
+  loop(16,
+    slider(45 + c) != SLP[44 + c] ? ( SLP[44 + c] = slider(45 + c); vm_cc(c, 7, slider(45 + c)); );
+    slider(61 + c) != SLP[60 + c] ? ( SLP[60 + c] = slider(61 + c); vm_cc(c, 10, slider(61 + c)); );
+    c += 1;
+  );
+  fx ? show_fx();
+);
+
+function gm_reset() (
+  vm_reset(); vm_initmip();
+  mix_pend = 1;
+);
+
+// GM RESET button: once the engine reset has finished, restore every channel strip to its initial setup
+function init_strips() local(c) (
+  c = 0;
+  loop(16,
+    slider(1 + c) = c == 9 ? 128 : c; SLP[c] = -1;
+    slider(29 + c) = 0;
+    slider(45 + c) = 100; SLP[44 + c] = -1;
+    slider(61 + c) = 64; SLP[60 + c] = -1;
+    c += 1;
+  );
+  apply_sliders();
+<? loop(i = 1; 76, printf("  sliderchange(slider%d);\n", i); i += 1; ); ?>);
+
+// after a GM reset, put back the level/pan the user set on the channel strips
+function reapply_mix() local(c) (
+  c = 0;
+  loop(16,
+    slider(45 + c) != 100 ? vm_cc(c, 7, slider(45 + c));
+    slider(61 + c) != 64 ? vm_cc(c, 10, slider(61 + c));
+    c += 1;
+  );
+);
+
+// performance messages are copied to every channel that follows the source (chains allowed)
+function dispatch(t, d1, d2) local(ty, cp, mask, qr, qw, src, c) (
+  midi_msg(t, d1, d2);
+  ty = t & 0xF0;
+  ty == 0x90 && d2 > 0 ? ACT[t & 15] = 1;
+  cp = ty == 0x80 || ty == 0x90 || ty == 0xD0 || ty == 0xE0 || (ty == 0xB0 && (d1 == 1 || d1 == 2 || d1 == 4 || d1 == 11 ||
+       d1 == 64 || d1 == 66 || d1 == 67 || d1 == 120 || d1 == 121 || d1 == 123));
+  cp ? (
+    FQ[0] = t & 15; mask = 2 ^ (t & 15); qr = 0; qw = 1;
+    while (qr < qw) (
+      src = FQ[qr]; qr += 1;
+      c = 0;
+      loop(16,
+        slider(29 + c) == src + 1 && !(mask & (2 ^ c)) ? (
+          mask |= 2 ^ c; FQ[qw] = c; qw += 1;
+          midi_msg(ty | c, d1, d2);
+          ty == 0x90 && d2 > 0 ? ACT[c] = 1;
+        );
+        c += 1;
+      );
+    );
+  );
+);
+
+function run_events(now) local(i, j, n, t, len) (
+  i = 0; n = 0;
+  while (i < eq_n) (
+    EQ[i * 4] <= now ? (
+      t = EQ[i * 4 + 1];
+      t == 0xF0 ? (
+        len = EQ[i * 4 + 3];
+        j = 0; loop(len, SXB[j] = SXP[(EQ[i * 4 + 2] + j) & 65535]; j += 1; );
+        eas_sysex(SXB, len);
+        mix_pend = 1;
+      ) : dispatch(t, EQ[i * 4 + 2], EQ[i * 4 + 3]);
+    ) : (
+      n != i ? memcpy(EQ + n * 4, EQ + i * 4, 4);
+      n += 1;
+    );
+    i += 1;
+  );
+  eq_n = n;
+);
+
+function render_frame() (
+  run_events(spos);
+  eas_render();
+);
+
+mem_set_values(SCALES, 1.0,1.06787109,1.125,1.18518519,1.265625,1.33333333,1.42382812,1.5,1.60180664,1.6875,1.77777778,1.8984375);
+mem_set_values(SCALES+12, 1.0,1.0449067,1.118034,1.196279,1.25,1.3374806,1.3975425,1.4953488,1.5625,1.6718508,1.7888544,1.869186);
+mem_set_values(SCALES+24, 1.0,1.05349794,1.11740331,1.18518519,1.25282725,1.33333333,1.40466392,1.49492696,1.58024691,1.67043633,1.77777778,1.87924088);
+mem_set_values(SCALES+36, 1.0,1.05349794,1.11848107,1.18518519,1.25000021,1.33333333,1.40625,1.49542183,1.58024691,1.6717684,1.77777778,1.875);
+mem_set_values(SCALES+48, 1.0,1.05468828,1.12246205,1.18652432,1.25282725,1.33483985,1.40606829,1.49830708,1.58203242,1.67705161,1.77978647,1.87711994);
+mem_set_values(SCALES+60, 1.0,1.05946309,1.12246205,1.18920712,1.25992105,1.33483985,1.41421356,1.49830708,1.58740105,1.68179283,1.78179744,1.88774863);
+mem_set_values(SCALES+72, 1.0,1.05064661,1.11891853,1.18518519,1.25197868,1.33695184,1.40086215,1.49594019,1.57596992,1.67383521,1.78260246,1.87288523);
+mem_set_values(SCALES+84, 1.0,1.05587996,1.11992982,1.18786496,1.25424281,1.33634808,1.40783995,1.49661607,1.58381994,1.67610497,1.78179744,1.87711994);
+mem_set_values(SCALES+96, 1.0,1.05349794,1.11891853,1.18518519,1.25197868,1.33333333,1.40466392,1.49594019,1.58024691,1.67383521,1.77777778,1.87796802);
+mem_set_values(SCALES+108, 1.0,1.05826737,1.11992982,1.18786496,1.25424281,1.33634808,1.41102316,1.49661606,1.58560949,1.67610496,1.77978647,1.88136421);
+mem_set_values(SCALES+120, 1.0,1.04166667,1.125,1.1892,1.25,1.33333333,1.40625,1.5,1.5874,1.66666667,1.77777778,1.875);
+mem_set_values(SCALES+132, 1.0,1.04945975,1.11942373,1.19405198,1.25310949,1.33665013,1.4027605,1.49627787,1.57028339,1.67496896,1.78663355,1.875);
+mem_set_values(SCALES+144, 1.0,1.05250611,1.12035119,1.19256959,1.25518678,1.33609675,1.40625,1.49689758,1.57549385,1.67705099,1.78515453,1.87888606);
+mem_set_values(SCALES+156, 1.0,1.04166667,1.11704237,1.19787231,1.24778366,1.33807413,1.39382722,1.4946855,1.55696406,1.66962704,1.79044238,1.86504414);
+mem_set_values(SCALES+168, 1.0,1.05141702,1.11803408,1.18769687,1.25,1.33748094,1.40188937,1.49534841,1.57712554,1.67185049,1.78885423,1.86918582);
+mem_set_values(SCALES+180, 1.0,1.04815686,1.11803399,1.18070936,1.25,1.33333333,1.39898998,1.49534878,1.57223529,1.67185077,1.77546973,1.86918597);
+mem_set_values(SCALES+192, 1.0,1.05707299,1.11992982,1.18786496,1.25565997,1.33333333,1.41102316,1.49661607,1.58381994,1.67610497,1.77978647,1.88348995);
+mem_set_values(SCALES+204, 1.0,1.05587996,1.11992982,1.18786496,1.25424281,1.33483985,1.40783995,1.49661607,1.58381994,1.67610497,1.78179744,1.87924088);
+mem_set_values(SCALES+216, 1.0,1.05587996,1.11992982,1.18786496,1.25424281,1.33634808,1.40783995,1.49661607,1.58381994,1.67610497,1.78179744,1.88136421);
+mem_set_values(SCALES+228, 1.0,1.04490673,1.11803399,1.16824124,1.25,1.33748061,1.39754249,1.49534878,1.5625,1.67185077,1.78885438,1.86918597);
+mem_set_values(SCALES+240, 1.0,1.04490673,1.11803399,1.19627902,1.25,1.33748061,1.39754249,1.49534878,1.59999999,1.67185077,1.78885438,1.86918597);
+mem_set_values(SCALES+252, 1.0,1.04490673,1.11803399,1.16824124,1.25,1.33748061,1.39754249,1.49534878,1.59999999,1.67185077,1.78885438,1.86918597);
+mem_set_values(SCALES+264, 1.0,1.04945975,1.11942373,1.17479014,1.25310949,1.33665013,1.4027605,1.49627787,1.57028339,1.67496896,1.78663355,1.875);
+mem_set_values(SCALES+276, 1.0,1.04945975,1.11942373,1.19405198,1.25310949,1.33665013,1.4027605,1.49627787,1.59602973,1.67496896,1.78663355,1.875);
+mem_set_values(SCALES+288, 1.0,1.04945975,1.11942373,1.17479014,1.25310949,1.33665013,1.4027605,1.49627787,1.59602973,1.67496896,1.78663355,1.875);
+mem_set_values(SCALES+300, 1.0,1.05250611,1.12035119,1.17917647,1.25518678,1.33609675,1.40625,1.49689758,1.57549385,1.67705099,1.78515453,1.87888606);
+mem_set_values(SCALES+312, 1.0,1.05250611,1.12035119,1.19256959,1.25518678,1.33609675,1.40625,1.49689758,1.59338835,1.67705099,1.78515453,1.87888606);
+mem_set_values(SCALES+324, 1.0,1.05250611,1.12035119,1.17917647,1.25518678,1.33609675,1.40625,1.49689758,1.59338835,1.67705099,1.78515453,1.87888606);
+mem_set_values(SCALES+336, 1.0,1.04166667,1.11704237,1.1635858,1.24778366,1.33807413,1.39382722,1.4946855,1.55696406,1.66962704,1.79044238,1.86504414);
+mem_set_values(SCALES+348, 1.0,1.04166667,1.11704237,1.19787231,1.24778366,1.33807413,1.39382722,1.4946855,1.60284195,1.66962704,1.79044238,1.86504414);
+mem_set_values(SCALES+360, 1.0,1.04166667,1.11704237,1.1635858,1.24778366,1.33807413,1.39382722,1.4946855,1.60284195,1.66962704,1.79044238,1.86504414);
+mem_set_values(SCALES+372, 1.0,1.03736221,1.11572159,1.2,1.24483465,1.3388659,1.38888889,1.49380158,1.54961331,1.66666667,1.79256189,1.85953597);
+mem_set_values(SCALES+384, 1.0,1.03736221,1.11572159,1.15740741,1.24483465,1.3388659,1.38888889,1.49380158,1.54961331,1.66666667,1.79256189,1.85953597);
+mem_set_values(SCALES+396, 1.0,1.03736221,1.11572159,1.2,1.24483465,1.3388659,1.38888889,1.49380158,1.60663908,1.66666667,1.79256189,1.85953597);
+mem_set_values(SCALES+408, 1.0,1.03736221,1.11572159,1.15740741,1.24483465,1.3388659,1.38888889,1.49380158,1.60663908,1.66666667,1.79256189,1.85953597);
+mem_set_values(SCALES+420, 1.0,1.05234807,1.11803399,1.18781992,1.25,1.33748061,1.40188948,1.49534878,1.58113883,1.67185077,1.78330748,1.86918597);
+mem_set_values(SCALES+432, 1.0,1.05498562,1.11803408,1.19256949,1.25,1.33748094,1.39974756,1.49534841,1.58740105,1.67185049,1.78885423,1.86918582);
+mem_set_values(SCALES+444, 1.0,1.04166667,1.125,1.2,1.25,1.33333333,1.38888889,1.5,1.6,1.66666667,1.8,1.875);
+mem_set_values(SCALES+456, 1.0,1.04815686,1.11803399,1.18156527,1.25,1.33333333,1.39754249,1.49534878,1.57223529,1.67185077,1.77593836,1.86918597);
+mem_set_values(SCALES+468, 1.0,1.04617493,1.11803399,1.1766148,1.25,1.33011166,1.39867306,1.49534878,1.56502906,1.67185077,1.76919703,1.86994188);
+mem_set_values(SCALES+480, 1.0,1.05112052,1.11830627,1.18217767,1.25,1.33220456,1.40307756,1.49571296,1.57490131,1.67225793,1.77476899,1.87288384);
+mem_set_values(SCALES+492, 1.0,1.04284518,1.11740331,1.18652432,1.24859015,1.337858,1.39517877,1.49492696,1.56603522,1.67043633,1.78179744,1.86655108);
+mem_set_values(SCALES+504, 1.0,1.04490673,1.11803399,1.1872187,1.25,1.33748061,1.39754249,1.49534878,1.57223529,1.67185077,1.78885438,1.86918597);
+mem_set_values(SCALES+516, 1.0,1.04490673,1.11803399,1.18297879,1.25,1.33748061,1.39754249,1.49534878,1.5625,1.67185077,1.77888234,1.86918597);
+mem_set_values(SCALES+528, 1.0,1.04756638,1.11929766,1.19324269,1.25141329,1.33634808,1.39991331,1.49746133,1.56869014,1.67326825,1.78280377,1.87182805);
+mem_set_values(SCALES+540, 1.0,1.04875001,1.11992982,1.18518519,1.25424281,1.33333333,1.40466392,1.49323977,1.57312501,1.67232375,1.78582618,1.87288523);
+mem_set_values(SCALES+552, 1.0,1.05707299,1.125,1.18920712,1.25707872,1.337858,1.41421356,1.5,1.58024691,1.68179283,1.78381067,1.88561808);
+mem_set_values(SCALES+564, 1.0,1.05376344,1.12,1.18787879,1.25641026,1.33333333,1.41007194,1.49618321,1.58064516,1.67521368,1.78181818,1.88461538);
+mem_set_values(SCALES+576, 1.0,1.05250611,1.12035119,1.1862395,1.25518678,1.33609675,1.40625,1.49689758,1.57978546,1.67705099,1.78146234,1.87888606);
+mem_set_values(SCALES+588, 1.0,1.05349794,1.11812191,1.18518519,1.25394363,1.33333333,1.40466392,1.49606981,1.58024691,1.67192485,1.77777778,1.88096978);
+mem_set_values(SCALES+600, 1.0,1.0546875,1.125,1.18518519,1.25,1.33333333,1.40625,1.5,1.58203125,1.67701863,1.77777778,1.875);
+mem_set_values(SCALES+612, 1.0,1.05349794,1.11805556,1.18518519,1.25,1.33333333,1.40603567,1.49537037,1.58024691,1.671875,1.77777778,1.875);
+mem_set_values(SCALES+624, 1.0,1.05587996,1.11992982,1.18652432,1.25424281,1.33333333,1.40783995,1.49661607,1.58381994,1.67610497,1.77777778,1.87924088);
+mem_set_values(SCALES+636, 1.0,1.05707299,1.11992982,1.18786496,1.25565997,1.33483985,1.41102316,1.49661607,1.58381994,1.67610497,1.78179744,1.88348995);
+mem_set_values(SCALES+648, 1.0,1.05587996,1.12119522,1.18652432,1.25282725,1.33333333,1.40783995,1.49830708,1.58203242,1.67610497,1.77978647,1.87924088);
+mem_set_values(SCALES+660, 1.0,1.05587996,1.11992982,1.18652432,1.25424281,1.33333333,1.40783995,1.49661607,1.58381994,1.67610497,1.77777778,1.87924088);
+mem_set_values(SCALES+672, 1.0,1.05687341,1.12035119,1.18898258,1.25518678,1.33609675,1.40916455,1.49689758,1.58531011,1.67705099,1.78347388,1.87888606);
+mem_set_values(SCALES+684, 1.0,1.05577121,1.11960542,1.18774262,1.25416151,1.33621045,1.40769495,1.49568433,1.58365683,1.67509246,1.78161393,1.8769266);
+mem_set_values(SCALES+696, 1.0,1.05570981,1.11977067,1.18769077,1.25388705,1.33473926,1.40763784,1.49651312,1.58358143,1.67571553,1.78154674,1.87885165);
+mem_set_values(SCALES+708, 1.0,1.05587996,1.11992982,1.18786496,1.25424281,1.33483985,1.40783995,1.49661607,1.58381994,1.67610497,1.78179744,1.87924088);
+mem_set_values(SCALES+720, 1.0,1.05349794,1.11992982,1.18518519,1.25565997,1.33333333,1.40625104,1.49661607,1.58024691,1.67610497,1.77777778,1.87924088);
+mem_set_values(SCALES+732, 1.0,1.05349794,1.11893845,1.18518519,1.25202327,1.33333333,1.40466392,1.49595351,1.58024691,1.67387992,1.77777778,1.8780349);
+mem_set_values(SCALES+744, 1.0,1.05349795,1.11813265,1.18518519,1.25103188,1.33333333,1.40466392,1.49450611,1.58024692,1.67170509,1.77777778,1.87654781);
+mem_set_values(SCALES+756, 1.0,1.05826737,1.11992982,1.18786496,1.25424281,1.33634808,1.41102316,1.49661607,1.58560949,1.67610497,1.77978647,1.88136421);
+mem_set_values(SCALES+768, 1.0,1.05587996,1.11992982,1.18786496,1.25424281,1.33333333,1.41102316,1.49661607,1.58740105,1.67610497,1.78179744,1.88136421);
+mem_set_values(SCALES+780, 1.0,1.05707299,1.12119522,1.18719445,1.25707872,1.33559375,1.40943066,1.49746133,1.58560949,1.67894649,1.78079167,1.88242678);
+mem_set_values(SCALES+792, 1.0,1.05528395,1.12119522,1.18719445,1.25424281,1.33559375,1.40704527,1.49746133,1.58292593,1.67705161,1.78079167,1.87924088);
+mem_set_values(SCALES+804, 1.0,1.05468828,1.12246205,1.18652432,1.25282725,1.33483985,1.40625104,1.49830708,1.58203242,1.67705161,1.77978647,1.87711994);
+mem_set_values(SCALES+816, 1.0,1.05201191,1.11929766,1.19088694,1.25282725,1.3367254,1.40426742,1.49619361,1.58605719,1.67468601,1.78431434,1.87447212);
+mem_set_values(SCALES+828, 1.0,1.04490673,1.11803399,1.19133567,1.25,1.33748061,1.39754249,1.49534878,1.5625,1.67185077,1.78515453,1.86918597);
+mem_set_values(SCALES+840, 1.0,1.05946309,1.12246205,1.18518519,1.25992105,1.33333333,1.41261746,1.5,1.58919464,1.68369307,1.77777778,1.88988157);
+mem_set_values(SCALES+852, 1.0,1.057371,1.11803408,1.18217682,1.25,1.33748094,1.41421356,1.49534841,1.58113896,1.67185049,1.76776725,1.86918582);
+mem_set_values(SCALES+864, 1.0,1.05846636,1.12035103,1.18585388,1.25518644,1.33609646,1.41421356,1.49689791,1.58441608,1.67705112,1.77510219,1.87888595);
+mem_set_values(SCALES+876, 1.0,1.06066017,1.125,1.19324269,1.265625,1.33333333,1.41421356,1.5,1.59099026,1.6875,1.78986404,1.8984375);
+mem_set_values(SCALES+888, 1.0,1.05207038,1.11942373,1.18652344,1.25310949,1.33665013,1.4027605,1.49627787,1.57810557,1.67496896,1.78220017,1.875);
+mem_set_values(SCALES+900, 1.0,1.05635701,1.11891853,1.18518519,1.25197868,1.33695184,1.40466392,1.49594019,1.58024691,1.67383521,1.77777778,1.87288523);
+mem_set_values(SCALES+912, 1.0,1.04736923,1.11891853,1.19580564,1.25197868,1.33695184,1.40083578,1.49594019,1.5661826,1.67383521,1.78814683,1.87288523);
+mem_set_values(SCALES+924, 1.0,1.05349794,1.11992982,1.19055079,1.25424281,1.33634808,1.40466392,1.49661607,1.58381994,1.67610497,1.78179744,1.87711994);
+mem_set_values(SCALES+936, 1.0,1.05036572,1.11969975,1.19361048,1.25372753,1.33648536,1.40379841,1.49646233,1.57183273,1.6755885,1.78619313,1.87615603);
+mem_set_values(SCALES+948, 1.0,1.05349794,1.11992982,1.18786496,1.25565997,1.33483985,1.40625104,1.49661607,1.57846343,1.67799878,1.78179744,1.87924088);
+TEMPER_ORDER = mk(80);
+mem_set_values(TEMPER_ORDER, 0,10,4,5,1,19,20,21,11,22,23,24,12,25,26,27,13,28,29,30,31,32,33,34,14,35,36,37,15,38,39,40,41,42,43,44,2,45,46,47,48,49,3,50,51,16,52,53,54,55,7,56,57,17,58,59,60,8,61,62,9,63,64,18,65,66,67,68,69,70,71,72,73,6,74,75,76,77,78,79);
+strcpy(#tempermenu, "Pythagorean|Pure C/F/G|Well Tempered|Equally Tempered|>Meantone 1/4|Eb/G# (Aaron 1523)|D#/G#|Eb/Ab|<D#/Ab|>Meantone 1/5|Eb/G# (Verheijen)|D#/G#|Eb/Ab|<D#/Ab|>Meantone 1/6|Eb/G# (Salinas)|D#/G#|Eb/Ab|<D#/Ab|>Meantone 2/7|Eb/G# (Zarlino, 1558)|D#/G#|Eb/Ab|<D#/Ab|>Meantone 1/3|Eb/G# (Salinas)|D#/G#|Eb/Ab|<D#/Ab|>French Baroque|Rameau 1725|Rameau 1726|Rameau (flat)|Rousseau 1768|Rousseau II (1768/69)|Rousseau (1776)|d'Alembert 1752|d'Alembert 1759|Corrette 1753|Couperin 1690|Chaumont 1695|<Bossart-Muri 1743|>Werckmeister|Werckmeister III|Werckmeister IV|Werckmeister V|Werckmeister VI (corr.)|Werckmeister Clavier (Poletti)|<Werckmeister III (eq-beat.)|>Kirnberger|Kirnberger III|Kirnberger II|<Kirnberger III (Sparschuh)|>Neidhardt|Neidhardt III|Neidhardt I|Neidhardt II|Neidhardt 1732 (village)|<Neidhardt 1732 (town)|>Vallotti / Young|Vallotti|Vallotti 1/6|Vallotti-Broekaert|Young (shifted Vallotti)|Young 1800|Young 1799|<London Baroque|>Bach research|Kellner|Kellner (organ)|Kellner (eq-beat.)|Lehman|Lehman II|Lehman III|Barnes|Barnes 1971|Billeter|<Billeter 2|>Renaissance|Schlick 1511|Zwolle 1440|Bermudo 1555|Artusi 1603|Artusi 1/6|<Grammateus 1518|>Modern builders|Vogel/Ahrend|Vogel/Hamburg (Schnitger)|Vogel/Bunschoten|Vogel/Fisk|Bellingwolde 2002|Weingarten (Gabler 1750)|<Freiberg (Silbermann)");
+
+cur_sr != srate || !eng_ok ? (
+  eas_init();
+  i = 0; loop(16, SLP[i] = i == 9 ? 128 : 0; i += 1; );
+  SLP[16] = 440; SLP[17] = 5; SLP[18] = 0; SLP[19] = 2; SLP[20] = 84.5;
+  SLP[21] = 0; SLP[22] = 1; SLP[23] = 30; SLP[24] = 39; SLP[25] = 100; SLP[26] = 0; SLP[27] = 0;
+  i = 0; loop(16, SLP[44 + i] = 100; SLP[60 + i] = 64; i += 1; );
+  SLP[76] = -1;
+  ch_rate_ui = 30; ch_depth_ui = 39;
+  memset(TUNE, 0, 12);
+  eq_n = 0; sx_w = 0;
+  opos = FRAME;
+  rs_init();
+  cur_sr = srate; eng_ok = 1;
+);
+spos = 0;
+
+<? jsfx_has_set_midi_note_name ?
+  loop(i=0; prog_count, printf("set_midi_note_name(2,%d,0,\"%s\");\n",i,_prog_name(i)); i+=1; );
+?>
+
+@slider
+cur_sr != srate ? rate_change();
+apply_sliders();
+
+@block
+apply_sliders();
+i = 0; loop(eq_n, EQ[i * 4] -= last_sb; i += 1; );
+last_sb = samplesblock;
+spos = 0;
+gm_req ? ( gm_req = 0; gm_reset(); init_pend = 1; );
+init_pend && !(sfl & 1) ? ( init_pend = 0; mix_pend = 0; init_strips(); );
+mix_pend && !(sfl & 1) ? ( mix_pend = 0; reapply_mix(); );
+while ((len = midirecv_buf(ofs, SXB, 4096)) > 0) (
+  eq_n < 4096 ? (
+    SXB[0] == 0xF0 ? (
+      EQ[eq_n * 4] = ofs; EQ[eq_n * 4 + 1] = 0xF0; EQ[eq_n * 4 + 2] = sx_w; EQ[eq_n * 4 + 3] = len;
+      i = 0; loop(len, SXP[sx_w] = SXB[i]; sx_w = (sx_w + 1) & 65535; i += 1; );
+      eq_n += 1;
+    ) : SXB[0] >= 0x80 && SXB[0] < 0xF0 ? (
+      EQ[eq_n * 4] = ofs; EQ[eq_n * 4 + 1] = SXB[0]; EQ[eq_n * 4 + 2] = SXB[1] & 127; EQ[eq_n * 4 + 3] = len > 2 ? SXB[2] & 127 : 0;
+      eq_n += 1;
+    );
+  );
+);
+sync_progs();
+prog_dirty ? ( prog_dirty = 0; sliderchange(65535); );
+
+@sample
+srate == 44100 ? (
+  opos >= FRAME ? ( render_frame(); opos = 0; );
+  spl0 = OUTB[2 * opos] / 32768; spl1 = OUTB[2 * opos + 1] / 32768;
+  opos += 1;
+) : (
+  rs_n = floor(rs_pos);
+  while (rs_n + 16 >= rs_in) (
+    render_frame();
+    rs_i = 0;
+    loop(FRAME,
+      RSL[(rs_in + rs_i) & 2047] = OUTB[2 * rs_i] / 32768;
+      RSR[(rs_in + rs_i) & 2047] = OUTB[2 * rs_i + 1] / 32768;
+      rs_i += 1;
+    );
+    rs_in += FRAME;
+  );
+  rs_f = (rs_pos - rs_n) * 512;
+  rs_p = floor(rs_f); rs_f -= rs_p;
+  rs_t0 = RTAB + rs_p * 32; rs_t1 = rs_t0 + 32;
+  rs_a = rs_b = 0;
+  rs_j = 0; rs_k = rs_n - 15;
+  loop(32,
+    rs_h = rs_t0[rs_j] + rs_f * (rs_t1[rs_j] - rs_t0[rs_j]);
+    rs_a += RSL[(rs_k + rs_j) & 2047] * rs_h;
+    rs_b += RSR[(rs_k + rs_j) & 2047] * rs_h;
+    rs_j += 1;
+  );
+  spl0 = rs_a; spl1 = rs_b;
+  rs_pos += rs_step;
+  rs_in > 16777216 ? ( rs_in -= 16777216; rs_pos -= 16777216; );
+);
+spos += 1;
+
+@gfx 1000 640
+W0 = 1000; H0 = 640;
+z = max(0.5, min(gfx_w / W0, gfx_h / H0));
+ox = floor((gfx_w - W0 * z) * 0.5);
+oy = floor((gfx_h - H0 * z) * 0.5);
+g_now = time_precise();
+g_click = (mouse_cap & 1) && !(g_lcap & 1);
+g_rclick = (mouse_cap & 2) && !(g_lcap & 2);
+g_rel = !(mouse_cap & 1) && (g_lcap & 1);
+
+function automate(s, e)
+(
+<? loop(i = 1; 77,
+  printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+  i += 1;
+); ?>  0;
+);
+
+function sx(x) ( ox + x * z; );
+function sy(y) ( oy + y * z; );
+function hit(x, y, w, h) ( mouse_x >= sx(x) && mouse_x < sx(x + w) && mouse_y >= sy(y) && mouse_y < sy(y + h); );
+function hitc(x, y, r) ( sqr(mouse_x - sx(x)) + sqr(mouse_y - sy(y)) <= sqr(r * z); );
+function font(n, sz, fl) ( n == 1 ? gfx_setfont(1, "Arial", (sz + 2) * z, fl) : gfx_setfont(n, "Courier New", (sz + 2) * z, fl); );
+function clamp01(x) ( max(0, min(1, x)); );
+
+function text_c(str, cx, y) local(tw, th) ( gfx_measurestr(str, tw, th); gfx_x = sx(cx) - tw * 0.5; gfx_y = sy(y); gfx_drawstr(str); );
+
+function glow_str(str, x, y, r, g, b) local(d)
+(
+  d = max(1, z);
+  gfx_set(r, g, b, 0.14);
+  gfx_x = x - d; gfx_y = y; gfx_drawstr(str);
+  gfx_x = x + d; gfx_y = y; gfx_drawstr(str);
+  gfx_x = x; gfx_y = y - d; gfx_drawstr(str);
+  gfx_x = x; gfx_y = y + d; gfx_drawstr(str);
+  gfx_set(r, g, b, 1);
+  gfx_x = x; gfx_y = y; gfx_drawstr(str);
+);
+
+function rrect(x, y, w, h, rad) local(QX, QY, QW, QH, QR)
+(
+  QX = sx(x); QY = sy(y); QW = w * z; QH = h * z; QR = rad * z;
+  gfx_rect(QX + QR, QY, QW - 2*QR, QH, 1);
+  gfx_rect(QX, QY + QR, QR, QH - 2*QR, 1);
+  gfx_rect(QX + QW - QR, QY + QR, QR, QH - 2*QR, 1);
+  gfx_circle(QX + QR, QY + QR, QR, 1, 1);
+  gfx_circle(QX + QW - QR - 1, QY + QR, QR, 1, 1);
+  gfx_circle(QX + QR, QY + QH - QR - 1, QR, 1, 1);
+  gfx_circle(QX + QW - QR - 1, QY + QH - QR - 1, QR, 1, 1);
+);
+
+function soft_shadow(x, y, w, h, rad, n, a) local(i)
+(
+  i = 1;
+  loop(n,
+    gfx_set(0, 0, 0, a * (1 - (i - 1) / n));
+    gfx_roundrect(sx(x) - i, sy(y) - i + 2 * z, w * z + 2 * i, h * z + 2 * i, (rad + i / z) * z, 1);
+    i += 1;
+  );
+);
+
+function acc(c)
+(
+  c == 0 ? ( acc_r = 1.00; acc_g = 0.66; acc_b = 0.26; ) :
+  c == 1 ? ( acc_r = 0.30; acc_g = 0.82; acc_b = 0.96; ) :
+  c == 2 ? ( acc_r = 0.46; acc_g = 0.92; acc_b = 0.56; ) :
+  c == 3 ? ( acc_r = 0.74; acc_g = 0.54; acc_b = 1.00; ) :
+  c == 4 ? ( acc_r = 0.46; acc_g = 0.64; acc_b = 1.00; ) :
+  ( acc_r = 1.00; acc_g = 0.42; acc_b = 0.56; );
+);
+
+function panel(x, y, w, h, title, c) local(tw, th)
+(
+  soft_shadow(x, y, w, h, 7, max(3, floor(6 * z)), 0.10);
+  gfx_set(0.115, 0.122, 0.140, 1);
+  rrect(x, y, w, h, 7);
+  gfx_gradrect(sx(x + 7), sy(y + 1), (w - 14) * z, 40 * z, 1, 1, 1, 0.035, 0, 0, 0, 0, 0, 0, 0, -0.035 / (40 * z));
+  gfx_set(1, 1, 1, 0.05);
+  gfx_line(sx(x + 7), sy(y) + 1, sx(x + w - 7), sy(y) + 1, 1);
+  acc(c);
+  font(1, 11, 'b');
+  gfx_measurestr(title, tw, th);
+  gfx_set(acc_r, acc_g, acc_b, 0.95);
+  gfx_x = sx(x + 12); gfx_y = sy(y + 8);
+  gfx_drawstr(title);
+  gfx_set(acc_r, acc_g, acc_b, 0.35);
+  gfx_rect(sx(x + 12) + tw + 8 * z, sy(y + 14), sx(x + w - 12) - (sx(x + 12) + tw + 8 * z), max(1, z), 1);
+);
+
+function set_sl(k, v) (
+  v = max(g_min[k], min(g_max[k], v));
+  g_step[k] > 0 ? v = g_min[k] + floor((v - g_min[k]) / g_step[k] + 0.5) * g_step[k];
+  slider(k) !== v ? ( slider(k) = v; automate(k, 0); );
+  g_touch_k = k; g_touch_t = g_now;
+);
+
+function fmt_sl(k, str) (
+  k == 17 ? sprintf(str, slider17 == floor(slider17) ? "%d Hz" : "%.1f Hz", slider17) :
+  k >= 45 && k <= 60 ? sprintf(str, "Level %d", slider(k)) :
+  k >= 61 ? ( slider(k) == 64 ? strcpy(str, "Pan C") : sprintf(str, slider(k) < 64 ? "Pan L%d" : "Pan R%d", abs(slider(k) - 64)); ) :
+  k == 21 || k == 26 || k == 27 ? sprintf(str, "%.1f %%", slider(k)) :
+  k == 28 ? sprintf(str, "%+d dB", slider28) :
+  sprintf(str, "%d", slider(k));
+);
+
+function knob_body(x, y, r) local(QX, QY, QR, i, t, c, a0, a1)
+(
+  QX = sx(x); QY = sy(y); QR = r * z;
+  gfx_set(0, 0, 0, 0.45);
+  gfx_circle(QX, QY + 2 * z, QR + 2 * z, 1, 1);
+  a0 = -2.35619; a1 = 2.35619;
+  gfx_set(0.035, 0.037, 0.045, 1);
+  i = 0; loop(ceil(6 * z) + 1, gfx_arc(QX, QY, QR + 2 * z + i * 0.5, a0, a1, 1); i += 1; );
+  gfx_set(0.05, 0.052, 0.06, 1);
+  gfx_circle(QX, QY, QR, 1, 1);
+  i = 0;
+  loop(ceil(QR),
+    t = i / ceil(QR);
+    c = 0.14 + 0.16 * t;
+    gfx_set(c, c * 1.01, c * 1.06, 1);
+    gfx_circle(QX - QR * 0.18 * t, QY - QR * 0.22 * t, (QR - 1.5 * z) * (1 - t * 0.92), 1, 1);
+    i += 1;
+  );
+  gfx_set(1, 1, 1, 0.10);
+  gfx_arc(QX, QY, QR - 1.5 * z, -1.9, 0.2, 1);
+  gfx_set(0, 0, 0, 0.35);
+  gfx_arc(QX, QY, QR - 0.5 * z, 1.4, 4.2, 1);
+);
+
+function knob_value(x, y, r, pos, hot) local(QX, QY, QR, a0, a1, a, i, px, py, br)
+(
+  QX = sx(x); QY = sy(y); QR = r * z;
+  a0 = -2.35619; a1 = 2.35619;
+  a = a0 + (a1 - a0) * clamp01(pos);
+  br = hot ? 1 : 0.85;
+  a > a0 + 0.001 ? (
+    gfx_set(acc_r, acc_g, acc_b, 0.10 * br);
+    i = 0; loop(3, gfx_arc(QX, QY, QR + (5.5 + i * 0.7) * z, a0, a, 1); i += 1; );
+    gfx_set(acc_r * br, acc_g * br, acc_b * br, 1);
+    i = 0; loop(ceil(6 * z) + 1, gfx_arc(QX, QY, QR + 2 * z + i * 0.5, a0, a, 1); i += 1; );
+  );
+  px = sin(a); py = -cos(a);
+  gfx_set(0.95, 0.95, 0.97, 1);
+  gfx_circle(QX + px * QR * 0.72, QY + py * QR * 0.72, max(1.5, 2.2 * z), 1, 1);
+);
+
+function tooltip(x, y, str) local(tw, th, bx, by, bw, bh)
+(
+  font(1, 11, 'b');
+  gfx_measurestr(str, tw, th);
+  bw = tw + 12 * z; bh = th + 6 * z;
+  bx = sx(x) - bw * 0.5; by = sy(y) - bh;
+  gfx_set(0.02, 0.02, 0.03, 0.92);
+  gfx_rect(bx, by, bw, bh, 1);
+  gfx_set(acc_r, acc_g, acc_b, 0.8);
+  gfx_rect(bx, by + bh - max(1, z), bw, max(1, z), 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = bx + 6 * z; gfx_y = by + 3 * z;
+  gfx_drawstr(str);
+);
+
+function knob(x, y, r, k, label, c) local(hov, d, fine, nv)
+(
+  acc(c);
+  knob_body(x, y, r);
+  font(1, 10, 'b');
+  gfx_set(0.62, 0.64, 0.68, 1);
+  text_c(label, x, y + r + 7);
+  hov = hitc(x, y, r + 5);
+  g_click && hov ? (
+    g_last_k == k && g_now - g_last_t < 0.3 ? ( set_sl(k, g_def[k]); automate(k, 1); g_drag = -1; ) :
+    ( g_drag = k; g_dy0 = mouse_y; g_dv0 = slider(k); );
+    g_last_k = k; g_last_t = g_now;
+    g_click = 0;
+  );
+  g_drag == k ? (
+    mouse_cap |= 65536;
+    fine = (mouse_cap & 4) || (mouse_cap & 8);
+    d = (g_dy0 - mouse_y) / (220 * z) * (fine ? 0.1 : 1);
+    set_sl(k, g_dv0 + d * (g_max[k] - g_min[k]));
+  );
+  hov && mouse_wheel != 0 && g_drag < 0 ? (
+    set_sl(k, slider(k) + (mouse_wheel > 0 ? 1 : -1) * max(g_step[k], (g_max[k] - g_min[k]) * 0.01) * ((mouse_cap & 4) ? 0.1 : 1));
+    automate(k, 1);
+    mouse_wheel = 0;
+  );
+  knob_value(x, y, r, (slider(k) - g_min[k]) / (g_max[k] - g_min[k]), hov || g_drag == k);
+  (hov || g_drag == k) ? ( g_hov_k = k; g_hov_x = x; g_hov_y = y - r - 8; g_hov_c = c; );
+);
+
+function box(x, y, w, h, str, c, hl) local(hov, tw, th)
+(
+  acc(c);
+  hov = hit(x, y, w, h);
+  gfx_set(0, 0, 0, 0.5);
+  gfx_rect(sx(x) - z, sy(y) - z, (w + 2) * z, (h + 2) * z, 1);
+  gfx_set(0.075, 0.08, 0.09, 1);
+  gfx_rect(sx(x), sy(y), w * z, h * z, 1);
+  hov ? ( gfx_set(1, 1, 1, 0.05); gfx_rect(sx(x), sy(y), w * z, h * z, 1); );
+  font(1, 11, 'b');
+  gfx_set(0.90, 0.91, 0.93, hl ? 1 : 0.9);
+  gfx_measurestr(str, tw, th);
+  gfx_x = sx(x + 7); gfx_y = sy(y) + (h * z - th) * 0.5;
+  gfx_drawstr(str);
+  gfx_set(acc_r, acc_g, acc_b, hov ? 1 : 0.75);
+  gfx_triangle(sx(x + w - 13), sy(y + h * 0.5 - 2), sx(x + w - 5), sy(y + h * 0.5 - 2), sx(x + w - 9), sy(y + h * 0.5 + 2.5));
+  gfx_rect(sx(x), sy(y + h) - max(1, z), w * z, max(1, z), 1);
+  g_click && hov ? ( g_click = 0; gfx_x = sx(x); gfx_y = sy(y + h); 1; ) : 0;
+);
+
+function label(str, x, y) ( font(1, 9, 'b'); gfx_set(0.62, 0.64, 0.68, 1); gfx_x = sx(x); gfx_y = sy(y); gfx_drawstr(str); );
+
+function toggle2(x, y, w, h, k, s0, s1, c) local(hw, i, sel, hov)
+(
+  acc(c);
+  hw = w / 2;
+  i = 0;
+  loop(2,
+    sel = slider(k) == i;
+    hov = hit(x + i * hw, y, hw, h);
+    gfx_set(0, 0, 0, 0.5); gfx_rect(sx(x + i * hw) - z, sy(y) - z, (hw + 2) * z, (h + 2) * z, 1);
+    sel ? gfx_set(acc_r * 0.35, acc_g * 0.35, acc_b * 0.35, 1) : gfx_set(0.075, 0.08, 0.09, 1);
+    gfx_rect(sx(x + i * hw), sy(y), hw * z, h * z, 1);
+    sel ? ( gfx_set(acc_r, acc_g, acc_b, 1); gfx_rect(sx(x + i * hw), sy(y + h) - max(1, z) * 2, hw * z, max(1, z) * 2, 1); );
+    font(1, 10, 'b');
+    sel ? gfx_set(1, 1, 1, 1) : gfx_set(0.62, 0.64, 0.68, hov ? 1 : 0.85);
+    text_c(i ? s1 : s0, x + i * hw + hw * 0.5, y + h * 0.5 - 6);
+    g_click && hov ? ( set_sl(k, i); automate(k, 1); g_click = 0; );
+    i += 1;
+  );
+);
+
+// horizontal bar for slider k: drag to set, double-click for default, wheel steps by 1
+function hbar(x, y, w, k, val, pan) local(hov, v)
+(
+  hov = hit(x - 2, y - 7, w + 4, 20);
+  gfx_set(0.05, 0.052, 0.06, 1); gfx_rect(sx(x), sy(y), w * z, 6 * z, 1);
+  pan ? (
+    gfx_set(acc_r, acc_g, acc_b, 0.35); gfx_rect(sx(x + w * 0.5), sy(y), max(1, z), 6 * z, 1);
+    gfx_set(1, 1, 1, hov || g_drag == k ? 1 : 0.8); gfx_rect(sx(x + (w - 2) * val / 127), sy(y - 2), 2 * z, 10 * z, 1);
+  ) : (
+    gfx_set(acc_r, acc_g, acc_b, hov || g_drag == k ? 1 : 0.8); gfx_rect(sx(x), sy(y), w * val / 127 * z, 6 * z, 1);
+  );
+  g_click && hov ? (
+    g_last_k == k && g_now - g_last_t < 0.3 ? ( set_sl(k, g_def[k]); automate(k, 1); g_drag = -1; ) : g_drag = k;
+    g_last_k = k; g_last_t = g_now;
+    g_click = 0;
+  );
+  g_drag == k ? set_sl(k, floor(clamp01((mouse_x - sx(x)) / (w * z)) * 127 + 0.5));
+  hov && mouse_wheel != 0 && g_drag < 0 ? ( set_sl(k, slider(k) + (mouse_wheel > 0 ? 1 : -1)); automate(k, 1); mouse_wheel = 0; );
+  (hov || g_drag == k) ? ( g_hov_k = k; g_hov_x = x + w * 0.5; g_hov_y = y - 6; g_hov_c = g_acc_c; );
+);
+
+function follow_menu(c) local(j) (
+  strcpy(#g_m, slider(29 + c) == 0 ? "!Off" : "Off");
+  j = 0;
+  loop(16,
+    strcat(#g_m, sprintf(#g_u, "|%s%s%d", j == c ? "#" : "", slider(29 + c) == j + 1 ? "!" : "", j + 1));
+    j += 1;
+  );
+  j = gfx_showmenu(#g_m);
+  j > 0 ? ( set_sl(29 + c, j - 1); automate(29 + c, 1); );
+);
+
+function prog_name(p) (
+<?  loop(i=0; prog_count, printf("p == %d ? \"%s\" : \n",i,_prog_name(i)); i+=1; ); ?>
+  "";
+);
+
+function fam_name(f) (
+  f == 0 ? "Piano" :
+  f == 1 ? "Chromatic Percussion" :
+  f == 2 ? "Organ" :
+  f == 3 ? "Guitar" :
+  f == 4 ? "Bass" :
+  f == 5 ? "Strings" :
+  f == 6 ? "Ensemble" :
+  f == 7 ? "Brass" :
+  f == 8 ? "Reed" :
+  f == 9 ? "Pipe" :
+  f == 10 ? "Synth Lead" :
+  f == 11 ? "Synth Pad" :
+  f == 12 ? "Synth Effects" :
+  f == 13 ? "Ethnic" :
+  f == 14 ? "Percussive" :
+  f == 15 ? "Sound Effects" :
+  "";
+);
+
+function prog_menu(c) local(p, f, j) (
+  strcpy(#g_m, "");
+  f = 0;
+  loop(16,
+    strcat(#g_m, sprintf(#g_u, "%s>%s", f ? "|" : "", fam_name(f)));
+    j = 0;
+    loop(8,
+      p = f * 8 + j;
+      strcat(#g_m, sprintf(#g_u, "|%s%s%d  %s", j == 7 ? "<" : "", slider(c + 1) == p ? "!" : "", p + 1, prog_name(p)));
+      j += 1;
+    );
+    f += 1;
+  );
+  strcat(#g_m, slider(c + 1) == 128 ? "||!Drum Kit" : "||Drum Kit");
+  p = gfx_showmenu(#g_m);
+  p > 0 ? ( set_sl(c + 1, p == 129 ? 128 : p - 1); automate(c + 1, 1); );
+);
+
+function temper_name(t) (
+<?  loop(i=0; temper_count, printf("t == %d ? \"%s\" : \n",i,_temper_name(i)); i+=1; ); ?>
+  "";
+);
+
+!g_init ? (
+  g_init = 1; g_drag = -1;
+  g_i = 1; loop(16, g_min[g_i] = 0; g_max[g_i] = 128; g_step[g_i] = 1; g_i += 1; );
+  g_min[17] = 372; g_max[17] = 495; g_step[17] = 0.1; g_def[17] = 440;
+  g_min[18] = 0; g_max[18] = 79; g_step[18] = 1;
+  g_min[19] = 0; g_max[19] = 1; g_step[19] = 1;
+  g_min[20] = 0; g_max[20] = 4; g_step[20] = 1;
+  g_min[21] = 0; g_max[21] = 100; g_step[21] = 0.1; g_def[21] = 84.5;
+  g_min[22] = 0; g_max[22] = 1; g_step[22] = 1;
+  g_min[23] = 0; g_max[23] = 4; g_step[23] = 1;
+  g_min[24] = 10; g_max[24] = 50; g_step[24] = 1; g_def[24] = 30;
+  g_min[25] = 15; g_max[25] = 60; g_step[25] = 1; g_def[25] = 39;
+  g_min[26] = 0; g_max[26] = 100; g_step[26] = 0.1; g_def[26] = 100;
+  g_min[27] = 0; g_max[27] = 100; g_step[27] = 0.1; g_def[27] = 0;
+  g_min[28] = -40; g_max[28] = 12; g_step[28] = 1; g_def[28] = 0;
+  g_i = 29; loop(16, g_min[g_i] = 0; g_max[g_i] = 16; g_step[g_i] = 1; g_def[g_i] = 0; g_i += 1; );
+  g_i = 45; loop(32, g_min[g_i] = 0; g_max[g_i] = 127; g_step[g_i] = 1; g_def[g_i] = g_i < 61 ? 100 : 64; g_i += 1; );
+  g_min[77] = 1; g_max[77] = 256; g_step[77] = 1; g_def[77] = 64;
+);
+
+g_rel && g_drag >= 0 ? ( automate(g_drag, 1); g_drag = -1; );
+g_hov_k = -1;
+
+gfx_set(0.075, 0.078, 0.088, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+gfx_gradrect(sx(0), sy(0), W0 * z, 90 * z, 1, 1, 1, 0.03, 0, 0, 0, 0, 0, 0, 0, -0.03 / (90 * z));
+
+// header
+font(1, 30, 'b');
+gfx_measurestr("MAJOR GENERAL ", g_tw, g_th);
+acc(0);
+gfx_set(acc_r, acc_g, acc_b, 0.18);
+gfx_x = sx(18) + z; gfx_y = sy(14) + 2 * z; gfx_drawstr("MAJOR GENERAL ");
+gfx_set(acc_r, acc_g, acc_b, 1);
+gfx_x = sx(18); gfx_y = sy(14); gfx_drawstr("MAJOR GENERAL ");
+gfx_set(0.92, 0.93, 0.95, 1);
+gfx_x = sx(18) + g_tw; gfx_y = sy(14); gfx_drawstr("MIDI");
+font(1, 11, 0);
+gfx_set(0.50, 0.52, 0.56, 1);
+gfx_x = sx(20); gfx_y = sy(50);
+gfx_drawstr("by chmaha  ·  based on Sonivox EAS, the Android General MIDI synthesizer");
+g_nv = 0; g_i = 0; loop(NV, vst[g_i] != 0 ? g_nv += 1; g_i += 1; );
+font(2, 13, 'b');
+acc(1);
+function poly_menu() (
+  g_sel = gfx_showmenu(sprintf(#g_m, "#Polyphony (more voices use more CPU)||%s16|%s24|%s32|%s48|%s64 (default)|%s96|%s128|%s192|%s256",
+    slider77 == 16 ? "!" : "", slider77 == 24 ? "!" : "", slider77 == 32 ? "!" : "", slider77 == 48 ? "!" : "", slider77 == 64 ? "!" : "",
+    slider77 == 96 ? "!" : "", slider77 == 128 ? "!" : "", slider77 == 192 ? "!" : "", slider77 == 256 ? "!" : ""));
+  g_sel > 1 ? ( set_sl(77, g_sel == 2 ? 16 : g_sel == 3 ? 24 : g_sel == 4 ? 32 : g_sel == 5 ? 48 : g_sel == 6 ? 64 : g_sel == 7 ? 96 : g_sel == 8 ? 128 : g_sel == 9 ? 192 : 256); automate(77, 1); );
+);
+sprintf(#g_s, "VOICES %d /", g_nv);
+gfx_measurestr(#g_s, g_tw, g_th);
+glow_str(#g_s, sx(790) - g_tw, sy(26), acc_r, acc_g, acc_b);
+sprintf(#g_n, "%d", slider77);
+box(796, 18, 52, 30, #g_n, 1, 1) ? poly_menu();
+acc(1); gfx_set(acc_r, acc_g, acc_b, 1); gfx_rect(sx(796), sy(46), 52 * z, 2 * z, 1);
+hit(796, 18, 52, 30) && mouse_wheel != 0 ? ( set_sl(77, slider77 + (mouse_wheel > 0 ? 1 : -1) * ((mouse_cap & 4) ? 1 : 8)); automate(77, 1); mouse_wheel = 0; );
+acc(5);
+g_hb = hit(860, 18, 120, 30);
+gfx_set(0, 0, 0, 0.5); gfx_rect(sx(860) - z, sy(18) - z, 122 * z, 32 * z, 1);
+gfx_set(g_hb ? 0.2 : 0.14, 0.09, 0.1, 1); gfx_rect(sx(860), sy(18), 120 * z, 30 * z, 1);
+gfx_set(acc_r, acc_g, acc_b, 1); gfx_rect(sx(860), sy(46), 120 * z, 2 * z, 1);
+font(1, 11, 'b'); gfx_set(1, 1, 1, 1); text_c("GM RESET", 920, 26);
+g_click && g_hb ? ( gm_req = 1; g_click = 0; );
+
+// channels
+panel(16, 74, 968, 350, "CHANNELS", 0);
+g_c = 0;
+loop(16,
+  g_col = g_c >= 8; g_row = g_c % 8;
+  g_x = 28 + g_col * 482; g_y = 104 + g_row * 39;
+  g_dr = cfl[g_c] & 8;
+  acc(g_dr ? 5 : 0);
+  ACT[g_c] > 0.01 ? ( g_a = ACT[g_c]; ACT[g_c] *= 0.82; ) : g_a = 0;
+  gfx_set(0.05, 0.052, 0.06, 1); gfx_rect(sx(g_x), sy(g_y), 30 * z, 28 * z, 1);
+  gfx_set(acc_r, acc_g, acc_b, 0.25 + 0.75 * g_a); gfx_rect(sx(g_x), sy(g_y + 26), 30 * z, 2 * z, 1);
+  font(2, 14, 'b');
+  gfx_set(acc_r, acc_g, acc_b, 0.55 + 0.45 * g_a);
+  sprintf(#g_s, "%d", g_c + 1); text_c(#g_s, g_x + 15, g_y + 6);
+  g_a > 0.02 ? ( gfx_set(acc_r, acc_g, acc_b, g_a * 0.25); gfx_circle(sx(g_x + 15), sy(g_y + 14), 18 * z, 1, 1); );
+  g_p = slider(g_c + 1);
+  g_p == 128 ? strcpy(#g_s, "Drum Kit") : sprintf(#g_s, "%03d  %s", g_p + 1, prog_name(g_p));
+  box(g_x + 38, g_y + 1, 214, 26, #g_s, g_dr ? 5 : 0, 1) ? prog_menu(g_c);
+  // level and pan show the channel's CC7 and CC10, whether set here or by incoming MIDI
+  g_acc_c = g_dr ? 5 : 0; acc(g_acc_c);
+  hbar(g_x + 262, g_y + 11, 66, 45 + g_c, cvol[g_c], 0);
+  hbar(g_x + 338, g_y + 11, 36, 61 + g_c, cpan[g_c], 1);
+  g_f = slider(29 + g_c);
+  g_f ? sprintf(#g_s, "%d", g_f) : strcpy(#g_s, "-");
+  box(g_x + 384, g_y + 3, 46, 22, #g_s, 1, g_f > 0) ? follow_menu(g_c);
+  g_n = 0; g_i = 0; loop(NV, vst[g_i] != 0 && vst[g_i] != 4 && (vch[g_i] & 15) == g_c && vch[g_i] < 16 ? g_n += 1; g_i += 1; );
+  font(2, 11, 'b'); gfx_set(0.62, 0.64, 0.68, g_n ? 1 : 0.4);
+  sprintf(#g_s, "%2d", g_n); gfx_x = sx(g_x + 440); gfx_y = sy(g_y + 8); gfx_drawstr(#g_s);
+  g_c += 1;
+);
+font(1, 9, 'b'); gfx_set(0.56, 0.58, 0.62, 1);
+g_i = 0;
+loop(2,
+  gfx_x = sx(290 + g_i * 482); gfx_y = sy(90); gfx_drawstr("LEVEL");
+  gfx_x = sx(366 + g_i * 482); gfx_y = sy(90); gfx_drawstr("PAN");
+  gfx_x = sx(412 + g_i * 482); gfx_y = sy(90); gfx_drawstr("FOLLOWS");
+  gfx_x = sx(466 + g_i * 482); gfx_y = sy(90); gfx_drawstr("VC");
+  g_i += 1;
+);
+
+// tuning
+panel(16, 436, 250, 188, "TUNING", 2);
+label("A4", 30, 470);
+g_ht = hit(30, 484, 222, 28);
+box(30, 484, 222, 28, fmt_sl(17, #g_s), 2, 1) ? (
+  g_sel = gfx_showmenu("466 Hz (Chorton)|440 Hz (modern)|442 Hz|443 Hz|435 Hz (1859 diapason)|432 Hz|430 Hz (classical)|415 Hz (baroque)|392 Hz (French baroque)");
+  g_sel > 0 ? (
+    set_sl(17, g_sel == 1 ? 466 : g_sel == 2 ? 440 : g_sel == 3 ? 442 : g_sel == 4 ? 443 : g_sel == 5 ? 435 : g_sel == 6 ? 432 : g_sel == 7 ? 430 : g_sel == 8 ? 415 : 392);
+    automate(17, 1);
+  );
+);
+g_ht && mouse_wheel != 0 ? ( set_sl(17, slider17 + (mouse_wheel > 0 ? 1 : -1) * ((mouse_cap & 4) ? 0.1 : 1)); automate(17, 1); mouse_wheel = 0; );
+label("TEMPERAMENT", 30, 528);
+box(30, 542, 222, 28, temper_name(slider18), 2, 1) ? (
+  g_sel = gfx_showmenu(#tempermenu);
+  g_sel > 0 ? ( set_sl(18, TEMPER_ORDER[g_sel - 1]); automate(18, 1); );
+);
+font(1, 9, 0); gfx_set(0.56, 0.58, 0.62, 1);
+gfx_x = sx(30); gfx_y = sy(584); gfx_drawstr("Wheel on A4: 1 Hz.");
+gfx_x = sx(30); gfx_y = sy(598); gfx_drawstr("Drums are never retuned.");
+
+// reverb
+panel(278, 436, 250, 188, "REVERB", 1);
+label("SOURCE", 292, 470);
+toggle2(292, 484, 222, 26, 19, "CC91 SENDS", "WHOLE MIX", 1);
+label("ROOM", 292, 526);
+slider20 == 0 ? strcpy(#g_s, "Off") : slider20 == 1 ? strcpy(#g_s, "Large Hall") : slider20 == 2 ? strcpy(#g_s, "Hall") : slider20 == 3 ? strcpy(#g_s, "Chamber") : strcpy(#g_s, "Room");
+box(292, 540, 130, 28, #g_s, 1, 1) ? (
+  g_sel = gfx_showmenu(sprintf(#g_m, "%sOff|%sLarge Hall|%sHall|%sChamber|%sRoom", slider20 == 0 ? "!" : "", slider20 == 1 ? "!" : "", slider20 == 2 ? "!" : "", slider20 == 3 ? "!" : "", slider20 == 4 ? "!" : ""));
+  g_sel > 0 ? ( set_sl(20, g_sel - 1); automate(20, 1); );
+);
+knob(472, 560, 22, 21, "WET", 1);
+
+// chorus
+panel(540, 436, 318, 188, "CHORUS", 3);
+label("SOURCE", 554, 470);
+toggle2(554, 484, 184, 26, 22, "CC93 SENDS", "WHOLE MIX", 3);
+slider23 == 0 ? strcpy(#g_s, "Off") : sprintf(#g_s, "Chorus %d", slider23);
+box(746, 484, 98, 26, #g_s, 3, 1) ? (
+  g_sel = gfx_showmenu(sprintf(#g_m, "%sOff|%sChorus 1|%sChorus 2|%sChorus 3|%sChorus 4", slider23 == 0 ? "!" : "", slider23 == 1 ? "!" : "", slider23 == 2 ? "!" : "", slider23 == 3 ? "!" : "", slider23 == 4 ? "!" : ""));
+  g_sel > 0 ? ( set_sl(23, g_sel - 1); automate(23, 1); );
+);
+knob(584, 562, 18, 24, "RATE", 3);
+knob(656, 562, 18, 25, "DEPTH", 3);
+knob(728, 562, 18, 26, "LEVEL", 3);
+knob(800, 562, 18, 27, "DRY", 3);
+
+// master
+panel(870, 436, 114, 188, "MASTER", 4);
+knob(927, 540, 26, 28, "VOLUME", 4);
+
+g_hov_k > 0 || (g_now - g_touch_t < 1.2 && g_touch_k > 0) ? (
+  g_k = g_hov_k > 0 ? g_hov_k : g_touch_k;
+  g_hov_k > 0 ? acc(g_hov_c);
+  g_hov_k > 0 ? tooltip(g_hov_x, g_hov_y, fmt_sl(g_k, #g_s));
+);
+!loaded ? (
+  font(1, 16, 'b'); gfx_set(1, 0.45, 0.35, 1);
+  text_c("Samples not found: Data/MajorGeneralMIDI/MajorGeneralMIDI.flac", 500, 300);
+);
+g_lcap = mouse_cap;

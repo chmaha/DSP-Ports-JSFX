@@ -1,0 +1,315 @@
+Version: 1.0
+desc: Saturation (Airwindows ChannelX port) by chmaha
+author: chmaha
+changelog:
+  Initial release.
+// DSP from Airwindows ChannelX by Chris Johnson (MIT License).
+// https://github.com/airwindows/airwindows/tree/master/plugins/LinuxVST/src/ChannelX
+// JSFX port by chmaha. GPLv3.
+// Claude generated some of this code
+
+slider1:0<0,4,1{Burnley,Maryland,Oxford,Tokyo,Washington}>-Console
+slider2:100<0,200,1>-Drive (%)
+slider3:100<0,100,0.1>-Output (%)
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+@init
+gfx_ext_retina = 1;
+TINY = 1.18*10^-37;
+flip = 0;
+
+function sat_chan(inp, flipv, nonlin, rbamt, dens, phat, slew)
+instance(rbA, rbB, pvA, pvB, pvC, pvD, paA, paB, paC, paD, pbA, pbB, pbC, pbD, lsA, lsB, lsC)
+local(x, delta, dry, diel, rbk, phatS, distS, dA, dB, dC, dD, dE, clampv)
+(
+  x = inp;
+
+  diel = abs(2.0-((x+nonlin)/nonlin));
+  flipv ? (
+    rbA = (rbA*(1.0-(rbamt*diel))) + (x*rbamt*diel);
+    abs(rbA) > TINY ? (
+      delta = x;
+      rbk = rbA*0.96;
+      x *= rbk;
+      x = max(min(x, 1.25), -1.25);
+      x = ((x*x)*-0.166666666666666)*(x*x) + x;
+      x /= rbk;
+      dA = delta - x;
+      dB = paA - dA; paA = dA;
+      dC = paB - dB; paB = dB;
+      dD = paC - dC; paC = dC;
+      dE = paD - dD; paD = dD;
+      x *= (1.0 + (abs(dC)*0.0618) + (abs(dD)*-0.05982) + (abs(dE)*0.0206));
+    );
+    x -= rbA*0.92;
+  ) : (
+    rbB = (rbB*(1.0-(rbamt*diel))) + (x*rbamt*diel);
+    abs(rbB) > TINY ? (
+      delta = x;
+      rbk = rbB*0.96;
+      x *= rbk;
+      x = max(min(x, 1.25), -1.25);
+      x = ((x*x)*-0.166666666666666)*(x*x) + x;
+      x /= rbk;
+      dA = delta - x;
+      dB = pbA - dA; pbA = dA;
+      dC = pbB - dB; pbB = dB;
+      dD = pbC - dC; pbC = dC;
+      dE = pbD - dD; pbD = dD;
+      x *= (1.0 + (abs(dC)*0.0618) + (abs(dD)*-0.05982) + (abs(dE)*0.0206));
+    );
+    x -= rbB*0.92;
+  );
+
+  delta = x;
+  dry = x;
+  x = max(min(x, 1.0), -1.0);
+  phatS = sin(x*1.57079633);
+  x *= 1.2533141373155;
+  distS = sin(x*abs(x));
+  distS /= (abs(x) == 0.0) ? 1.0 : abs(x);
+  x = distS;
+  dens < 1.0 ? x = (dry*(1-dens)) + (distS*dens);
+  phat > 0.0 ? x = (x*(1-phat)) + (phatS*phat);
+
+  dA = delta - x;
+  dB = pvA - dA; pvA = dA;
+  dC = pvB - dB; pvB = dB;
+  dD = pvC - dC; pvC = dC;
+  dE = pvD - dD; pvD = dD;
+  x *= (1.0 + (abs(dC)*0.0618) + (abs(dD)*-0.05982) + (abs(dE)*0.0206));
+
+  clampv = (lsB - lsC)*0.381966011250105;
+  clampv -= (lsA - lsB)*0.6180339887498948482045;
+  clampv += x - lsA;
+  lsC = lsB; lsB = lsA; lsA = x;
+  clampv > slew ? x = lsB + slew;
+  -clampv > slew ? x = lsB - slew;
+  lsA = (lsA*0.381966011250105) + (x*0.6180339887498948482045);
+
+  x;
+);
+
+@block
+overallscale = 1.0;
+overallscale /= 44100.0;
+overallscale *= srate;
+
+con = floor(slider1 + 0.5);
+con == 0 ? ( rb_amt = 0.005832; slew_thr = 0.33362176; ) :
+con == 1 ? ( rb_amt = 0.004096; slew_thr = 0.59969536; ) :
+con == 2 ? ( rb_amt = 0.004913; slew_thr = 0.84934656; ) :
+con == 3 ? ( rb_amt = 0.009216; slew_thr = 0.149; ) :
+           ( rb_amt = 0.011449; slew_thr = 0.092; );
+
+drive_t = slider2/200;
+out_t = slider3/100;
+!sm_init ? ( drive_n = drive_t; out_gain = out_t; sm_init = 1; );
+sm_k = 1 - exp(-1 / (0.02 * srate));
+local_rb = rb_amt/overallscale;
+
+@sample
+drive_n += sm_k * (drive_t - drive_n); abs(drive_t - drive_n) < 0.000000001 ? drive_n = drive_t;
+out_gain += sm_k * (out_t - out_gain); abs(out_t - out_gain) < 0.000000001 ? out_gain = out_t;
+density = drive_n*2.0;
+phattity = density - 1.0;
+density > 1.0 ? density = 1.0;
+phattity < 0.0 ? phattity = 0.0;
+nonlin = 5.0 - density;
+spl0 = lch.sat_chan(spl0, flip, nonlin, local_rb, density, phattity, slew_thr);
+spl1 = rch.sat_chan(spl1, flip, nonlin, local_rb, density, phattity, slew_thr);
+flip = !flip;
+out_gain < 1.0 ? (
+  spl0 *= out_gain;
+  spl1 *= out_gain;
+);
+
+@gfx 460 210
+
+scale = max(0.5, min(gfx_w / 460, gfx_h / 210));
+win_w = gfx_w; win_h = gfx_h;
+gfx_w = floor(460*scale); gfx_h = floor(210*scale);
+ox = floor((win_w - gfx_w) * 0.5);
+oy = 0;
+mouse_x -= ox; mouse_y -= oy;
+gfx_setimgdim(127, gfx_w, gfx_h);
+gfx_dest = 127;
+
+MARGIN = 14*scale;
+HEADER_H = 46*scale;
+
+function hit_circle(mx, my, cx, cy, rad)
+(
+  sqr(mx - cx) + sqr(my - cy) <= sqr(rad);
+);
+function hit_rect(mx, my, x, y, w, h)
+(
+  mx >= x && mx <= x+w && my >= y && my <= y+h;
+);
+
+function draw_knob(cx, cy, rad, pos, cr, cg, cb, valtext, minlabel, maxlabel, name)
+local(ang0, ang1, ang, i, tx, ty)
+(
+  ang0 = -2.35619;
+  ang1 =  2.35619;
+
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(cx, cy, rad + 2*scale, 1, 1);
+  gfx_set(cr*0.55, cg*0.55, cb*0.55, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rad*0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(cx - rad*0.28, cy - rad*0.28, rad*0.42, 1, 1);
+
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.85, 0.85, 0.85, 0.7);
+    gfx_line(cx + sin(ang)*rad*0.82, cy - cos(ang)*rad*0.82,
+             cx + sin(ang)*rad*0.98, cy - cos(ang)*rad*0.98);
+    i += 1;
+  );
+
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(cx, cy, cx + sin(ang)*rad*0.85, cy - cos(ang)*rad*0.85, 1);
+
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.85, 0.85, 0.85, 1);
+  gfx_measurestr(valtext, tx, ty);
+  gfx_x = cx - tx*0.5; gfx_y = cy - rad - 16*scale;
+  gfx_drawstr(valtext);
+
+  gfx_setfont(1, "Arial", 12*scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_x = cx - rad - 4*scale; gfx_y = cy + rad + 4*scale;
+  gfx_drawstr(minlabel);
+  gfx_measurestr(maxlabel, tx, ty);
+  gfx_x = cx + rad - tx + 4*scale; gfx_y = cy + rad + 4*scale;
+  gfx_drawstr(maxlabel);
+
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.8, 0.8, 0.82, 1);
+  gfx_measurestr(name, tx, ty);
+  gfx_x = cx - tx*0.5; gfx_y = cy + rad + 18*scale;
+  gfx_drawstr(name);
+);
+
+function knob(id, cx, cy, rad, cr, cg, cb, name)
+(
+  id == 1 ? (
+    k_min = 0; k_max = 200; k_def = 100; k_val = slider2;
+    sprintf(#kval, "%.0f%%", slider2); #kmin = "0"; #kmax = "200";
+  ) : (
+    k_min = 0; k_max = 100; k_def = 100; k_val = slider3;
+    sprintf(#kval, "%.0f%%", slider3); #kmin = "0"; #kmax = "100";
+  );
+  k_pos = max(0, min(1, (k_val - k_min)/(k_max - k_min)));
+  draw_knob(cx, cy, rad, k_pos, cr, cg, cb, #kval, #kmin, #kmax, name);
+  mouse_just_down && hit_circle(mouse_x, mouse_y, cx, cy, rad) ? (
+    (click_target == id && time_precise() - click_time < 0.3) ? (
+      id == 1 ? ( slider2 = k_def; slider_automate(slider2); ) : ( slider3 = k_def; slider_automate(slider3); );
+    ) : (
+      drag_target = id; drag_start_y = mouse_y; drag_start_pos = k_pos;
+    );
+    click_target = id; click_time = time_precise();
+  );
+  wheel != 0 && hit_circle(mouse_x, mouse_y, cx, cy, rad) ? (
+    drag_target = id; drag_start_pos = max(0, min(1, k_pos + wheel/120*0.02)); drag_start_y = mouse_y; wheel_once = 1;
+  );
+);
+
+function draw_dropdown(x, y, w, h, txt, hover)
+local(tw, th)
+(
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(x - scale, y - scale, w + 2*scale, h + 2*scale, 1);
+  hover ? gfx_set(0.26, 0.27, 0.30, 1) : gfx_set(0.20, 0.21, 0.24, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.85, 0.85, 0.87, 1);
+  gfx_measurestr(txt, tw, th);
+  gfx_x = x + 10*scale; gfx_y = y + (h - th)*0.5;
+  gfx_drawstr(txt);
+  gfx_set(0.65, 0.65, 0.68, 1);
+  gfx_line(x + w - 18*scale, y + h*0.5 - 2*scale, x + w - 14*scale, y + h*0.5 + 2*scale, 1);
+  gfx_line(x + w - 14*scale, y + h*0.5 + 2*scale, x + w - 10*scale, y + h*0.5 - 2*scale, 1);
+);
+
+mouse_down = mouse_cap & 1;
+wheel = mouse_wheel; mouse_wheel = 0;
+wheel_once = 0;
+mouse_just_down = mouse_down && !mouse_state;
+
+gfx_set(0.12, 0.12, 0.14, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_setfont(1, "Arial", 22*scale, 'b');
+gfx_set(0.85, 0.35, 0.35, 1);
+gfx_x = MARGIN; gfx_y = 8*scale;
+gfx_drawstr("SATURATION");
+gfx_setfont(1, "Arial", 13*scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = MARGIN + 2*scale; gfx_y = 30*scale;
+gfx_drawstr("by chmaha  ·  based on Airwindows ChannelX");
+
+KNRAD = 32*scale;
+colw = (gfx_w - 2*MARGIN) / 3;
+cx0 = MARGIN + colw*0.5;
+cx1 = MARGIN + colw*1.5;
+cx2 = MARGIN + colw*2.5;
+row_y = HEADER_H + 30*scale + KNRAD;
+
+DDW = 132*scale; DDH = 28*scale;
+ddx = cx0 - DDW*0.5; ddy = row_y - DDH*0.5;
+sel_i = max(0, min(4, floor(slider1 + 0.5)));
+sel_name = sel_i == 0 ? "Burnley" : sel_i == 1 ? "Maryland" : sel_i == 2 ? "Oxford" : sel_i == 3 ? "Tokyo" : "Washington";
+
+gfx_setfont(1, "Arial", 13*scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_measurestr("Console", lbw, lbh);
+gfx_x = cx0 - lbw*0.5; gfx_y = ddy - 20*scale;
+gfx_drawstr("Console");
+
+draw_dropdown(ddx, ddy, DDW, DDH, sel_name, hit_rect(mouse_x, mouse_y, ddx, ddy, DDW, DDH));
+mouse_just_down && hit_rect(mouse_x, mouse_y, ddx, ddy, DDW, DDH) ? (
+  sprintf(#cmenu, "%sBurnley|%sMaryland|%sOxford|%sTokyo|%sWashington",
+    sel_i == 0 ? "!" : "", sel_i == 1 ? "!" : "", sel_i == 2 ? "!" : "", sel_i == 3 ? "!" : "", sel_i == 4 ? "!" : "");
+  gfx_x = mouse_x + ox; gfx_y = mouse_y + oy;
+  pick = gfx_showmenu(#cmenu);
+  pick > 0 ? ( slider1 = pick - 1; slider_automate(slider1); );
+);
+
+knob(1, cx1, row_y, KNRAD, 0.85, 0.42, 0.28, "Drive");
+knob(2, cx2, row_y, KNRAD, 0.70, 0.35, 0.80, "Output");
+
+drag_target > 0 && (mouse_down || wheel_once) ? (
+  mouse_down ? mouse_cap |= 65536;
+  newpos = max(0, min(1, drag_start_pos + (drag_start_y - mouse_y) / (150*scale)));
+  drag_target == 1 ? (
+    slider2 = floor(newpos*200 + 0.5); slider_automate(slider2);
+  ) : (
+    slider3 = floor(newpos*1000 + 0.5)/10; slider_automate(slider3);
+  );
+);
+!mouse_down ? drag_target = 0;
+mouse_state = mouse_down;
+
+gfx_dest = -1; gfx_a = 1; gfx_mode = 6;
+ox > 0 ? (
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, 0, 0, ox, win_h);
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, ox + gfx_w, 0, win_w - ox - gfx_w, win_h);
+);
+win_h > gfx_h ? (
+  gfx_blit(127, 1, 0, 0, gfx_h - 1, gfx_w, 1, ox, gfx_h, gfx_w, win_h - gfx_h);
+);
+gfx_blit(127, 1, 0, 0, 0, gfx_w, gfx_h, ox, oy, gfx_w, gfx_h);
+gfx_mode = 0;
+gfx_w = win_w; gfx_h = win_h;

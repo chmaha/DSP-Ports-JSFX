@@ -1,0 +1,1404 @@
+Version: 1.0
+desc: Tolerable Tines Electric Piano (ACE Reasonable Synth port) by chmaha
+tags: instrument
+author: chmaha
+changelog:
+  Initial release.
+about:
+  Simple piano-like synth with minimal controls, playable from an 88-key on-screen keyboard
+  or the computer keyboard, with a MIDI channel filter.
+  The Tolerable sound (the first screen) is ported from Ardour's ACE Reasonable Synth by Robin Gareus
+  https://github.com/Ardour/ardour/tree/master/libs/plugins/reasonablesynth.lv2 (GPLv2+)
+  Everything else is original to this plugin by chmaha: the mystery sound that changes a little
+  every day, the six keyboard games and the December lights (click them to play the Jingle Bells chorus, click again to stop).
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+
+slider1:3<0,6,1{C1,C2,C3,C4,C5,C6,C7}>-Keyboard Center
+slider2:0<0,16,1{Omni,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-MIDI Channel
+slider3:0<0,1,1{Tolerable,Mystery}>-Sound
+slider4:100<1,127,1>-Key Velocity
+
+in_pin:none
+out_pin:Left output
+out_pin:Right output
+options:no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+
+acnt = 0;
+aamp = 2048;
+ph = 4096;
+mt = 6144;
+mm = 8192;
+kcomp = 10240;
+sus = 10256;
+pbend = 10272;
+frq = 10288;
+bufl = 10416;
+bufr = 10480;
+chg = 10760;
+cgl = 10776;
+cgr = 10792;
+cc7 = 10808;
+cc11 = 10824;
+modw = 10840;
+vibm = 10856;
+tkn = 10880;
+tka = 10912;
+gq = 11100;
+nlog = 11400;
+jt = 11500;
+gpa = 11700;
+sseq = 12000;
+sbest = 12300;
+glv = 12700;
+gpg = 12800;
+gpx = 12870;
+gpb = 12940;
+gon = 13010;
+gonc = 13030;
+kheld = 13100;
+cdn = 13300;
+ctab = 13400;
+stab = 13450;
+qans = 13500;
+mem_set_values(ctab, 0, 4, 7, 0, 0, 3, 7, 0, 0, 3, 6, 0, 0, 4, 8, 0, 0, 2, 7, 0, 0, 5, 7, 0, 0, 4, 7, 10, 0, 4, 7, 11, 0, 3, 7, 10);
+mem_set_values(stab, 0, 2, 4, 5, 7, 9, 11, 12, 0, 2, 3, 5, 7, 8, 10, 12, 0, 2, 3, 5, 7, 8, 11, 12);
+mem_set_values(stab + 24, 0, 2, 3, 5, 7, 9, 11, 12, 0, 2, 3, 5, 7, 9, 10, 12, 0, 2, 4, 5, 7, 9, 10, 12);
+mwp = 12400;
+mcur = 12600;
+mpl = 12640;
+mpr = 12650;
+mrat = 12680;
+mact = 12690;
+mcx = 20000;
+msy = 80000;
+mrc = 12660;
+mrs = 12670;
+mpe = 40000;
+mdm = 60000;
+outl = 1000000;
+outr = 3000000;
+memset(tkn, -1, 29);
+mem_set_values(jt + 0, 71, 71, 71, 71, 71, 71, 71, 74, 67, 69, 71, 72, 72, 72, 72, 72, 71, 71, 71, 71, 71, 69, 69, 71, 69, 74, 71, 71, 71, 71, 71, 71, 71, 74, 67, 69, 71, 72, 72, 72);
+mem_set_values(jt + 40, 72, 72, 71, 71, 71, 71, 74, 74, 72, 69, 67, 62, 62, 71, 69, 67, 62, 62, 62, 62, 71, 69, 67, 64, 64, 64, 72, 71, 69, 66, 74, 76, 74, 72, 69, 71, 62, 62, 71, 69);
+mem_set_values(jt + 80, 67, 62, 62, 62, 62, 71, 69, 67, 64, 64, 64, 72, 71, 69, 74, 74, 74, 74, 76, 74, 72, 69, 67, 74, 71, 71, 71, 71, 71, 71, 71, 74, 67, 69, 71, 72, 72, 72, 72, 72);
+mem_set_values(jt + 120, 71, 71, 71, 71, 71, 69, 69, 71, 69, 74, 71, 71, 71, 71, 71, 71, 71, 74, 67, 69, 71, 72, 72, 72, 72, 72, 71, 71, 71, 71, 74, 74, 72, 69, 67);
+je = 14000; jhd = 16300;
+JN_EV = 228;
+mem_set_values(je + 0, 0, 71, 96, 0, 67, 58, 0, 62, 58, 0, 43, 70, 1.64, 71, 0, 2, 71, 96, 3.6, 43, 0, 3.64, 71, 0, 4, 71, 96, 4, 38, 62, 7.28, 71, 0, 7.52, 67, 0, 7.52, 62, 0, 7.6, 38, 0, 8, 71, 96, 8, 67, 58, 8, 62, 58, 8, 43, 70, 9.64, 71, 0, 10, 71, 96);
+mem_set_values(je + 60, 11.6, 43, 0, 11.64, 71, 0, 12, 71, 96, 12, 38, 62, 15.28, 71, 0, 15.52, 67, 0, 15.52, 62, 0, 15.6, 38, 0, 16, 71, 96, 16, 67, 58, 16, 62, 58, 16, 43, 70, 17.64, 71, 0, 18, 74, 96, 19.6, 43, 0, 19.64, 74, 0, 20, 67, 96, 20, 38, 62, 22.46, 67, 0, 23, 69, 96);
+mem_set_values(je + 120, 23.52, 67, 0, 23.52, 62, 0, 23.6, 38, 0, 23.82, 69, 0, 24, 71, 96, 24, 67, 58, 24, 62, 58, 24, 43, 70, 27.6, 43, 0, 28, 38, 62, 30.56, 71, 0, 31.52, 67, 0, 31.52, 62, 0, 31.6, 38, 0, 32, 72, 96, 32, 67, 58, 32, 64, 58, 32, 48, 70, 33.64, 72, 0, 34, 72, 96);
+mem_set_values(je + 180, 35.6, 48, 0, 35.64, 72, 0, 36, 72, 96, 36, 43, 62, 38.46, 72, 0, 39, 72, 96, 39.52, 67, 0, 39.52, 64, 0, 39.6, 43, 0, 39.82, 72, 0, 40, 72, 96, 40, 67, 58, 40, 62, 58, 40, 43, 70, 41.64, 72, 0, 42, 71, 96, 43.6, 43, 0, 43.64, 71, 0, 44, 71, 96, 44, 38, 62);
+mem_set_values(je + 240, 45.64, 71, 0, 46, 71, 96, 46.82, 71, 0, 47, 71, 96, 47.52, 67, 0, 47.52, 62, 0, 47.6, 38, 0, 47.82, 71, 0, 48, 71, 96, 48, 67, 58, 48, 64, 58, 48, 45, 70, 49.64, 71, 0, 50, 69, 96, 51.6, 45, 0, 51.64, 69, 0, 52, 69, 96, 52, 40, 62, 53.64, 69, 0, 54, 71, 96);
+mem_set_values(je + 300, 55.52, 67, 0, 55.52, 64, 0, 55.6, 40, 0, 55.64, 71, 0, 56, 69, 96, 56, 66, 58, 56, 62, 58, 56, 38, 70, 59.28, 69, 0, 59.6, 38, 0, 60, 74, 96, 60, 45, 62, 63.28, 74, 0, 63.52, 66, 0, 63.52, 62, 0, 63.6, 45, 0, 64, 71, 96, 64, 67, 58, 64, 62, 58, 64, 43, 70);
+mem_set_values(je + 360, 65.64, 71, 0, 66, 71, 96, 67.6, 43, 0, 67.64, 71, 0, 68, 71, 96, 68, 38, 62, 71.28, 71, 0, 71.52, 67, 0, 71.52, 62, 0, 71.6, 38, 0, 72, 71, 96, 72, 67, 58, 72, 62, 58, 72, 43, 70, 73.64, 71, 0, 74, 71, 96, 75.6, 43, 0, 75.64, 71, 0, 76, 71, 96, 76, 38, 62);
+mem_set_values(je + 420, 79.28, 71, 0, 79.52, 67, 0, 79.52, 62, 0, 79.6, 38, 0, 80, 71, 96, 80, 67, 58, 80, 62, 58, 80, 43, 70, 81.64, 71, 0, 82, 74, 96, 83.6, 43, 0, 83.64, 74, 0, 84, 67, 96, 84, 38, 62, 86.46, 67, 0, 87, 69, 96, 87.52, 67, 0, 87.52, 62, 0, 87.6, 38, 0, 87.82, 69, 0);
+mem_set_values(je + 480, 88, 71, 96, 88, 67, 58, 88, 62, 58, 88, 43, 70, 91.6, 43, 0, 92, 38, 62, 94.56, 71, 0, 95.52, 67, 0, 95.52, 62, 0, 95.6, 38, 0, 96, 72, 96, 96, 67, 58, 96, 64, 58, 96, 48, 70, 97.64, 72, 0, 98, 72, 96, 99.6, 48, 0, 99.64, 72, 0, 100, 72, 96, 100, 43, 62);
+mem_set_values(je + 540, 102.46, 72, 0, 103, 72, 96, 103.52, 67, 0, 103.52, 64, 0, 103.6, 43, 0, 103.82, 72, 0, 104, 72, 96, 104, 67, 58, 104, 62, 58, 104, 43, 70, 105.64, 72, 0, 106, 71, 96, 107.6, 43, 0, 107.64, 71, 0, 108, 71, 96, 108, 38, 62, 109.64, 71, 0, 110, 71, 96, 110.82, 71, 0, 111, 71, 96);
+mem_set_values(je + 600, 111.52, 67, 0, 111.52, 62, 0, 111.6, 38, 0, 111.82, 71, 0, 112, 74, 96, 112, 69, 58, 112, 66, 58, 112, 38, 70, 113.64, 74, 0, 114, 74, 96, 115.6, 38, 0, 115.64, 74, 0, 116, 72, 96, 116, 45, 62, 117.64, 72, 0, 118, 69, 96, 119.52, 69, 0, 119.52, 66, 0, 119.6, 45, 0, 119.64, 69, 0);
+mem_set_values(je + 660, 120, 67, 96, 120, 62, 58, 120, 59, 58, 120, 43, 70, 127.2, 67, 0, 127.2, 62, 0, 127.2, 59, 0, 127.2, 43, 0);
+mem_set_values(mwp + 0, 1, 0.55, 0.15, 0.1, 0.04, 0.03, 0.0, 0.12, 3.0, 1.4, 0.9, 0.7, 0.5, 0.4, 0.2, 0.05, 2, 0.22, 0.12, 4.5, 1.0, 0.3);
+mem_set_values(mwp + 22, 1, 0.3, 0.08, 0.05, 0.02, 0.02, 0.06, 0.35, 2.6, 1.0, 0.6, 0.5, 0.4, 0.3, 0.25, 0.18, 1.5, 0.3, 0.05, 5.0, 1.3, 0.45);
+mem_set_values(mwp + 44, 1, 0.02, 0.01, 0.45, 0.0, 0.0, 0.15, 0.0, 4.0, 1.0, 1.0, 1.6, 0.5, 0.5, 0.45, 0.1, 1.5, 0.5, 0.35, 5.2, 1.1, 0.35);
+mem_set_values(mwp + 66, 1, 0.03, 0.02, 0.3, 0.0, 0.02, 0.06, 0.0, 0.9, 0.4, 0.3, 0.25, 0.2, 0.15, 0.06, 0.05, 1.2, 0.15, 0.0, 4.0, 0.9, 0.3);
+mem_set_values(mwp + 88, 1, 0.25, 0.3, 0.12, 0.1, 0.05, 0.03, 0.02, 1.8, 0.9, 0.6, 0.45, 0.35, 0.3, 0.2, 0.12, 1.0, 0.3, 0.0, 4.0, 0.8, 0.5);
+mem_set_values(mrat, 1, 2, 3, 4, 5, 6, 10, 14);
+mwpos = 12530;
+mem_set_values(mwpos, 0.038, 0.288, 0.536, 0.789, 0.953);
+snd_mode = cur_mode = -1;
+
+function basech() local(ch) ( ch = floor(slider2 + 0.5); ch > 0 ? ch - 1 : 0; );
+
+function gq_send_ch(a, b, c, src, ch)
+(
+  gq[gq_w * 4] = a + ch; gq[gq_w * 4 + 1] = b; gq[gq_w * 4 + 2] = c; gq[gq_w * 4 + 3] = src;
+  gq_w = (gq_w + 1) % 64;
+);
+
+function gq_send(a, b, c, src) ( gq_send_ch(a, b, c, src, basech()); );
+
+function seq_release() local(k)
+(
+  k = 0;
+  loop(gon_n, gq_send_ch(128, gon[k], 0, 1, gonc[k]); k += 1; );
+  gon_n = 0;
+  gp_bent ? ( gq_send_ch(224, 0, 64, 1, (basech() + 1) % 16); gp_bent = 0; );
+);
+
+function gq_push(a, b, c) ( gq_send(a, b, c, 0); );
+
+function month_now() local(zz, era, doe, yoe, doy, mp)
+(
+  zz = floor(time() / 86400) + 719468;
+  era = floor(zz / 146097);
+  doe = zz - era * 146097;
+  yoe = floor((doe - floor(doe / 1460) + floor(doe / 36524) - floor(doe / 146096)) / 365);
+  doy = doe - (365 * yoe + floor(yoe / 4) - floor(yoe / 100));
+  mp = floor((5 * doy + 2) / 153);
+  mp < 10 ? mp + 3 : mp - 9;
+);
+
+function gui_release() local(k)
+(
+  k = 0;
+  loop(29, tkn[k] >= 0 ? ( gq_push(128, tkn[k], 0); tkn[k] = -1; ); k += 1; );
+  g_note >= 0 ? gq_push(128, g_note, 0);
+  g_note = -1; g_on = 0;
+  seq_release();
+  gp_play = 0;
+);
+
+function reset_channel(c) local(k, i)
+(
+  k = 0;
+  loop(128,
+    i = c * 128 + k;
+    acnt[i] = 0; aamp[i] = 0; ph[i] = -10; mt[i] = 0; mm[i] = 0;
+    k += 1;
+  );
+  kcomp[c] = 0;
+  pbend[c] = 1;
+);
+
+function set_gain(c)
+(
+  chg[c] = sqr(cc7[c] / 127) * sqr(cc11[c] / 127);
+);
+
+function set_pan(c, v) local(p)
+(
+  p = max(-1, min(1, (v - 64) / 63));
+  cgl[c] = p > 0 ? 1 - p : 1;
+  cgr[c] = p < 0 ? 1 + p : 1;
+);
+
+function init_synth() local(k, c)
+(
+  cur_sr = srate;
+  boffset = 64;
+  k = 0;
+  loop(128, frq[k] = ((440 / 32) * pow(2, (k - 9) / 12)) / srate; k += 1; );
+  kcfilt = 12 / srate;
+  c = 0;
+  loop(16, reset_channel(c); sus[c] = 0; cc7[c] = cc11[c] = 127; modw[c] = 0; set_gain(c); set_pan(c, 64); c += 1; );
+  kcgain = 0;
+  at_t = floor((5 * srate) / 1000);
+  dt_t = floor((800 * srate) / 1000);
+  rt_t = floor((100 * srate) / 1000);
+  at_v = 1;
+  su_v = 0;
+  off0 = at_t;
+  off1 = dt_t + off0;
+  off2 = rt_t + off1;
+  cur_mode = -1;
+);
+
+function m_params(tdays) local(y, i, j, u, a, b, q, w, lo, hi, x, per, sum)
+(
+  y = tdays / 365.2425; y -= floor(y);
+  i = 4;
+  j = 0; loop(5, y >= mwpos[j] ? i = j; j += 1; );
+  y < mwpos[0] ? i = 4;
+  j = (i + 1) % 5;
+  lo = mwpos[i]; hi = mwpos[j];
+  hi <= lo ? hi += 1;
+  x = y; x < lo ? x += 1;
+  u = (x - lo) / (hi - lo);
+  u = u * u * (3 - 2 * u);
+  q = 0;
+  loop(22,
+    a = mwp[i * 22 + q]; b = mwp[j * 22 + q];
+    (q >= 8 && q < 16) ? w = exp(log(a) + (log(b) - log(a)) * u) : w = a + (b - a) * u;
+    per = 365.2425 * (1.2 + 2.3 * ((q * 0.618034) - floor(q * 0.618034)));
+    w *= 1 + (q < 16 ? 0.12 : q == 16 ? 0.15 : q == 17 ? 0.1 : q == 18 ? 0.15 : 0.08) * sin(2 * $pi * tdays / per + q * 1.7);
+    mcur[q] = w;
+    q += 1;
+  );
+  mcur[0] = 1;
+  sum = 0; q = 0; loop(8, sum += mcur[q]; q += 1; );
+  m_norm = 1.55 / sum;
+  m_atk = max(1, min(30, mcur[16]));
+  m_rel = max(0.1, min(0.8, mcur[17]));
+  m_td = max(0, min(0.5, mcur[18]));
+  m_trate = mcur[19];
+  m_br = mcur[20];
+  q = 0;
+  loop(8,
+    x = mcur[21] * (q == 0 ? 0 : q == 1 ? -0.6 : q == 2 ? 0.6 : q == 3 ? -1 : q == 4 ? 1 : q == 5 ? -0.4 : q == 6 ? 0.4 : 0);
+    mpl[q] = 1 - 0.5 * x; mpr[q] = 1 + 0.5 * x;
+    q += 1;
+  );
+  m_time = time();
+);
+
+function set_mode(m)
+(
+  c_ = 0; loop(16, reset_channel(c_); c_ += 1; );
+  m ? (
+    m_params(time() / 86400);
+    at_t = max(33, floor(m_atk * srate / 1000));
+    dt_t = max(33, floor(0.002 * srate));
+    rt_t = max(33, floor(m_rel * srate));
+    at_v = 1; su_v = 1;
+  ) : (
+    at_t = floor((5 * srate) / 1000);
+    dt_t = floor((800 * srate) / 1000);
+    rt_t = floor((100 * srate) / 1000);
+    at_v = 1; su_v = 0;
+  );
+  off0 = at_t; off1 = dt_t + off0; off2 = rt_t + off1;
+  cur_mode = m;
+);
+
+function m_start(i, note, vel, retrig) local(f, ks, k, b, a)
+(
+  f = frq[note] * srate;
+  ks = max(0.25, min(3, sqrt(440 / f)));
+  b = i * 8;
+  k = 0;
+  loop(8,
+    a = mcur[k] * m_norm * pow(abs(vel) / 127, m_br * 0.5 * log(mrat[k]) / log(2));
+    retrig ? mpe[b + k] = max(mpe[b + k], a) : ( mpe[b + k] = a; mcx[b + k] = 1; msy[b + k] = 0; );
+    mdm[b + k] = exp(-1 / (mcur[8 + k] * ks * srate));
+    k += 1;
+  );
+);
+
+function adsr_env(i) local(p, d, r)
+(
+  acnt[i] < off0 ? (
+    acnt[i] += 1;
+    p = acnt[i];
+    p === at_t ? ( aamp[i] = at_v; r = at_v; ) : ( d = at_v - aamp[i]; r = aamp[i] + (p / at_t) * d; );
+  ) : acnt[i] < off1 ? (
+    acnt[i] += 1;
+    p = acnt[i] - off0;
+    p === dt_t ? ( aamp[i] = su_v; r = su_v; ) : ( d = su_v - aamp[i]; r = aamp[i] + (p / dt_t) * d; );
+  ) : acnt[i] === off1 ? (
+    r = su_v;
+  ) : acnt[i] < off2 ? (
+    acnt[i] += 1;
+    p = acnt[i] - off1;
+    p === rt_t ? ( aamp[i] = 0; r = 0; ) : ( d = 0 - aamp[i]; r = aamp[i] + (p / rt_t) * d; );
+  ) : (
+    acnt[i] = 0;
+    r = 0;
+  );
+  r;
+);
+
+function synthesize(c, i, vol, fq, n, lp, rp) local(phase, j, env, amp, al, ar, t, run)
+(
+  phase = ph[i];
+  pbend[c] !== 1 ? fq *= pbend[c];
+  modw[c] > 0 ? fq *= vibm[c];
+  j = 0; run = 1;
+  while (run && j < n) (
+    env = adsr_env(i);
+    acnt[i] === 0 ? run = 0 : (
+      amp = vol * env;
+      amp > 0.0000000001 ? (
+        al = amp * cgl[c];
+        ar = amp * cgr[c];
+        t = (2 * $pi) * phase;
+        lp[j] += al * sin(t);
+        lp[j] += (0.3 * al) * sin(t * 2);
+        lp[j] += (0.15 * al) * sin(t * 3);
+        lp[j] += (0.08 * al) * sin(t * 4);
+        lp[j] += (0.02 * al) * sin(t * 7);
+        phase += fq;
+        t = (2 * $pi) * phase;
+        rp[j] += ar * sin(t);
+        rp[j] += (0.3 * ar) * sin(t * 2);
+        rp[j] += (0.15 * ar) * sin(t * 3);
+        rp[j] -= (0.08 * ar) * sin(t * 4);
+        rp[j] -= (0.02 * ar) * sin(t * 7);
+      ) : (
+        phase += fq;
+      );
+      phase > 1 ? phase -= 2;
+      j += 1;
+    );
+  );
+  ph[i] = phase;
+);
+
+function m_synth(c, i, vol, fq, n, lp, rp) local(j, k, m, b, env, amp, sl, sr, x, y, cr, sn, g, run, tot, na)
+(
+  pbend[c] !== 1 ? fq *= pbend[c];
+  modw[c] > 0 ? fq *= vibm[c];
+  b = i * 8;
+  na = 0;
+  k = 0;
+  loop(8,
+    (mpe[b + k] > 0.000001 && mrat[k] * fq < 0.45) ? (
+      mact[na] = k;
+      x = 2 * $pi * fq * mrat[k];
+      mrc[k] = cos(x); mrs[k] = sin(x);
+      g = 1 / sqrt(sqr(mcx[b + k]) + sqr(msy[b + k]));
+      mcx[b + k] *= g; msy[b + k] *= g;
+      na += 1;
+    );
+    k += 1;
+  );
+  j = 0; run = 1;
+  while (run && j < n) (
+    env = adsr_env(i);
+    acnt[i] === 0 ? run = 0 : (
+      amp = vol * env;
+      sl = sr = 0;
+      m = 0;
+      loop(na,
+        k = mact[m];
+        x = mcx[b + k]; y = msy[b + k];
+        cr = mrc[k]; sn = mrs[k];
+        mcx[b + k] = x * cr - y * sn;
+        y = x * sn + y * cr;
+        msy[b + k] = y;
+        y *= mpe[b + k];
+        mpe[b + k] *= mdm[b + k];
+        sl += y * mpl[k];
+        sr += y * mpr[k];
+        m += 1;
+      );
+      lp[j] += amp * sl * cgl[c] * m_tl;
+      rp[j] += amp * sr * cgr[c] * m_tr;
+      j += 1;
+    );
+  );
+  run ? (
+    tot = 0; k = 0; loop(8, tot += mpe[b + k]; k += 1; );
+    tot < 0.00003 ? acnt[i] = 0;
+  );
+);
+
+function process_key(c, note, n, lp, rp) local(i, vel, msg, vol, phase, s, e, play)
+(
+  i = c * 128 + note;
+  vel = mt[i];
+  msg = mm[i];
+  vol = ((0.1 * abs(vel)) / 127) * chg[c];
+  phase = ph[i];
+  s = sus[c];
+  mm[i] -= mm[i] & 3;
+  play = 1;
+  (phase === -10 && vel > 0) ? (
+    mm[i] -= mm[i] & 4;
+    aamp[i] = 0;
+    acnt[i] = 0;
+    ph[i] = 0;
+    kcomp[c] += 1;
+    snd_mode ? m_start(i, note, vel, 0);
+  ) : (phase >= -1 && phase <= 1 && vel > 0) ? (
+    (acnt[i] > off1 || msg == 3 || msg == 5 || msg == 7) ? (
+      mm[i] -= mm[i] & 4;
+      e = adsr_env(i);
+      aamp[i] = e;
+      acnt[i] = 0;
+      snd_mode ? m_start(i, note, vel, 1);
+    );
+  ) : (phase >= -1 && phase <= 1 && vel < 0) ? (
+    mm[i] |= 4;
+    (acnt[i] <= off1 && !s) ? (
+      acnt[i] !== off1 ? ( e = adsr_env(i); aamp[i] = e; );
+      acnt[i] = off1 + 1;
+    ) : (s && acnt[i] === off1 && !snd_mode) ? (
+      acnt[i] = off1 + 1;
+    );
+  ) : (
+    mt[i] = 0;
+    acnt[i] = 0;
+    ph[i] = -10;
+    play = 0;
+  );
+  play ? (
+    snd_mode ? m_synth(c, i, vol, frq[note], n, lp, rp) : synthesize(c, i, vol, frq[note], n, lp, rp);
+    acnt[i] === 0 ? (
+      mm[i] = 0;
+      mt[i] = 0;
+      aamp[i] = 0;
+      ph[i] = -10;
+      kcomp[c] -= 1;
+    );
+  );
+);
+
+function fragment(n, lp, rp) local(c, k, kc, tgt, j, v)
+(
+  memset(lp, 0, n);
+  memset(rp, 0, n);
+  v = sin(2 * $pi * vib_ph);
+  c = 0;
+  loop(16, modw[c] > 0 ? vibm[c] = pow(2, (((50 / 127) * modw[c]) * v) / 1200); c += 1; );
+  vib_ph += (5.5 / srate) * n;
+  vib_ph >= 1 ? vib_ph -= 1;
+  snd_mode ? (
+    v = sin(2 * $pi * m_ph);
+    m_tl = 1 - m_td * (0.5 + 0.5 * v);
+    m_tr = 1 - m_td * (0.5 - 0.5 * v);
+    m_ph += (m_trate / srate) * n;
+    m_ph -= floor(m_ph);
+  );
+  kc = 0;
+  c = 0;
+  loop(16,
+    k = 0;
+    loop(128,
+      mt[c * 128 + k] !== 0 ? process_key(c, k, n, lp, rp);
+      k += 1;
+    );
+    kc = (kc + kcomp[c]) & 255;
+    c += 1;
+  );
+  tgt = 8 / (kc + 7);
+  tgt < 0.5 ? tgt = 0.5;
+  tgt > 1 ? tgt = 1;
+  j = 0;
+  loop(n,
+    kcgain += kcfilt * (tgt - kcgain);
+    lp[j] *= kcgain;
+    rp[j] *= kcgain;
+    j += 1;
+  );
+  kcgain += 0.000000000001;
+);
+
+function synth_sound(written, nframes) local(nrem, tos, nread)
+(
+  while (written < nframes) (
+    nrem = nframes - written;
+    boffset >= 64 ? (
+      tos = min(64, nrem);
+      boffset = 64 - tos;
+      fragment(tos, bufl + boffset, bufr + boffset);
+    );
+    nread = min(nrem, 64 - boffset);
+    memcpy(outl + written, bufl + boffset, nread);
+    memcpy(outr + written, bufr + boffset, nread);
+    written += nread;
+    boffset += nread;
+  );
+  written;
+);
+
+function parse_midi(b0, b1, b2) local(st, ch, i)
+(
+  st = b0 & 240;
+  ch = b0 & 15;
+  i = ch * 128 + (b1 & 127);
+  (st == 144 && b2 > 0) ? (
+    mm[i] |= 1;
+    mt[i] <= 0 ? mt[i] = b2 & 127;
+  ) : (st == 128 || st == 144) ? (
+    mm[i] |= 2;
+    mt[i] > 0 ? mt[i] = -mt[i];
+  ) : st == 176 ? (
+    b1 == 64 ? (
+      sus[ch] = b2 < 64 ? 0 : 1;
+    ) : b1 == 1 ? (
+      modw[ch] = b2;
+    ) : b1 == 7 ? (
+      cc7[ch] = b2;
+      set_gain(ch);
+    ) : b1 == 11 ? (
+      cc11[ch] = b2;
+      set_gain(ch);
+    ) : b1 == 10 ? (
+      set_pan(ch, b2);
+    ) : b1 == 121 ? (
+      sus[ch] = 0;
+      pbend[ch] = 1;
+      modw[ch] = 0;
+      cc11[ch] = 127;
+      set_gain(ch);
+    ) : (b1 == 120 || b1 == 123) ? (
+      reset_channel(ch);
+    );
+  ) : st == 224 ? (
+    pbend[ch] = pow(2, (((b2 & 127) * 128 + (b1 & 127) - 8192) / 4096) / 12);
+  );
+);
+
+function release_held() local(i)
+(
+  i = 0;
+  loop(2048, mt[i] > 0 ? ( mm[i] |= 2; mt[i] = -mt[i]; ); i += 1; );
+);
+
+function note_in(b0, b1, b2, src) local(st)
+(
+  st = b0 & 240;
+  (st == 144 && b2 > 0) ? (
+    src == 0 ? ( nlog[nlog_w] = b1; nlog_w = (nlog_w + 1) % 64; kheld[b1] = 1; );
+  ) : (st == 128 || st == 144) ? (
+    src == 0 ? kheld[b1] = 0;
+  );
+  parse_midi(b0, b1, b2);
+);
+
+init_synth();
+
+@block
+srate != cur_sr ? init_synth();
+snd_mode = slider3 >= 0.5;
+snd_mode != cur_mode ? set_mode(snd_mode);
+(snd_mode && time() - m_time >= 60) ? (
+  k_ = 0; c_ = 0; loop(16, k_ += kcomp[c_]; c_ += 1; );
+  k_ == 0 ? set_mode(1);
+);
+wr = 0;
+gui_beat += samplesblock;
+gui_beat > srate * 0.5 ? gui_release();
+mch = floor(slider2 + 0.5);
+while (gq_r != gq_w) (
+  note_in(gq[gq_r * 4], gq[gq_r * 4 + 1], gq[gq_r * 4 + 2], gq[gq_r * 4 + 3]);
+  gq_r = (gq_r + 1) % 64;
+);
+// Jingle Bells chorus (December lights): four parts at exact sample offsets; stops at the end or when the lights are clicked again
+jp_on = g_jingle_req && !g_game;
+jp_on != jplay ? (
+  jplay = jp_on;
+  jplay ? ( jidx = 0; jclk = 0; jbase = 0; jmel = 0; memset(jhd, 0, 128); ) : (
+    jn_ = 0; loop(128, jhd[jn_] > 0 ? ( note_in(128 | jch, jn_, 0, 2); jhd[jn_] = 0; ); jn_ += 1; );
+  );
+);
+jplay ? (
+  jeighth = srate / 6;
+  jch = mch > 0 ? mch - 1 : 0;
+  while (jplay && jbase + je[jidx * 3] * jeighth < jclk + samplesblock) (
+    jo = max(0, floor(jbase + je[jidx * 3] * jeighth - jclk));
+    (wr + 64 < jo) ? wr = synth_sound(wr, jo);
+    jn_ = je[jidx * 3 + 1]; jv_ = je[jidx * 3 + 2];
+    jv_ > 0 ? (
+      jhd[jn_] > 0 ? note_in(128 | jch, jn_, 0, 2);
+      note_in(144 | jch, jn_, jv_, 2); jhd[jn_] += 1;
+      jv_ == 96 ? jmel += 1;
+    ) : jhd[jn_] > 0 ? (
+      jhd[jn_] -= 1;
+      jhd[jn_] == 0 ? note_in(128 | jch, jn_, 0, 2);
+    );
+    jidx += 1;
+    jidx >= JN_EV ? ( jidx = 0; jplay = 0; g_jingle_req = 0; memset(jhd, 0, 128); );
+  );
+  jclk += samplesblock;
+);
+while (midirecv(mofs, m1, m2, m3)) (
+  (m1 >= 128 && m1 < 240 && (mch == 0 || (m1 & 15) == mch - 1)) ? (
+    (wr + 64 < mofs && mofs < samplesblock) ? wr = synth_sound(wr, mofs);
+    note_in(m1, m2, m3, 0);
+  );
+);
+synth_sound(wr, samplesblock);
+spos = 0;
+
+@sample
+spl0 = outl[spos];
+spl1 = outr[spos];
+spos += 1;
+
+@gfx 1040 340
+
+gui_beat = 0;
+g_now = time_precise();
+W0 = 1040; H0 = 340;
+z = max(0.3, min(gfx_w / W0, gfx_h / H0));
+ox = floor((gfx_w - W0 * z) * 0.5);
+oy = 0;
+
+function sx(x) ( ox + x * z; );
+function sy(y) ( oy + y * z; );
+function clamp01(x) ( max(0, min(1, x)); );
+function is_black(pc) ( pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10; );
+function wpos(n) local(o, p)
+(
+  o = floor(n / 12); p = n - o * 12;
+  o * 7 + (p < 1 ? 0 : p < 3 ? 1 : p < 5 ? 2 : p < 6 ? 3 : p < 8 ? 4 : p < 10 ? 5 : 6) - 12;
+);
+
+function tk_index(ch) local(k, r)
+(
+  (ch >= 65 && ch <= 90) ? ch += 32;
+  r = -1; k = 0;
+  loop(29, str_getchar("zsxdcvgbhnjmq2w3er5t6y7ui9o0p", k) == ch ? r = k; k += 1; );
+  r;
+);
+
+function typing(center) local(ch, k, n, dn)
+(
+  while ((ch = gfx_getchar()) > 0) (
+    k = tk_index(ch);
+    (k >= 0 && tkn[k] < 0) ? (
+      n = center - 12 + k;
+      gq_push(144, n, max(1, min(127, floor(slider4 + 0.5))));
+      tkn[k] = n; tka[k] = 0;
+    );
+  );
+  k = 0;
+  loop(29,
+    tkn[k] >= 0 ? (
+      tka[k] += 1;
+      ch = str_getchar("zsxdcvgbhnjmq2w3er5t6y7ui9o0p", k);
+      dn = gfx_getchar(ch) > 0 || (ch >= 97 && gfx_getchar(ch - 32) > 0);
+      (tka[k] > 1 && !dn) ? ( gq_push(128, tkn[k], 0); tkn[k] = -1; );
+    );
+    k += 1;
+  );
+);
+
+function key_letter(n, center) local(k, ch)
+(
+  k = n - center + 12;
+  (k >= 0 && k < 29) ? (
+    ch = str_getchar("zsxdcvgbhnjmq2w3er5t6y7ui9o0p", k);
+    ch >= 97 ? ch -= 32;
+    strcpy(#g_lt, " ");
+    str_setchar(#g_lt, 0, ch);
+    g_lt_first = k == 0 || k == 1 || k == 12 || k == 13 || k == 24 || k == 25;
+    1;
+  ) : 0;
+);
+
+function dbox(x, y, w, h, label, val) local(hv, r, tw, th)
+(
+  hv = mouse_x >= sx(x) && mouse_x < sx(x + w) && mouse_y >= sy(y) && mouse_y < sy(y + h);
+  gfx_setfont(1, "Arial", 12 * z, 'b');
+  gfx_set(0.62, 0.58, 0.53, 1);
+  gfx_x = sx(x); gfx_y = sy(y - 15); gfx_drawstr(label);
+  gfx_set(0.08, 0.075, 0.07, 1); gfx_rect(sx(x), sy(y), w * z, h * z, 1);
+  gfx_set(1, 0.68, 0.3, hv ? 0.8 : 0.35); gfx_roundrect(sx(x), sy(y), w * z, h * z, 3 * z, 1);
+  gfx_setfont(1, "Arial", 16 * z, 'b');
+  gfx_set(1, 0.72, 0.36, 1);
+  gfx_measurestr(val, tw, th);
+  gfx_x = sx(x + 10); gfx_y = floor(sy(y) + (h * z - th) * 0.5); gfx_drawstr(val);
+  gfx_triangle(sx(x + w - 17), sy(y + h * 0.5 - 2), sx(x + w - 9), sy(y + h * 0.5 - 2), sx(x + w - 13), sy(y + h * 0.5 + 3));
+  r = 0;
+  (hv && g_click) ? ( r = 1; g_click = 0; );
+  (hv && mouse_wheel != 0) ? ( r = mouse_wheel > 0 ? 2 : 3; mouse_wheel = 0; );
+  r;
+);
+
+function key_state(n) local(c, s)
+(
+  s = g_note == n ? 2 : 0;
+  c = 0;
+  loop(16,
+    mt[c * 128 + n] > 0 ? ( s = 2; ) : (s < 1 && ph[c * 128 + n] !== -10) ? ( s = 1; );
+    c += 1;
+  );
+  (g_game == 3 && n == nt_hide) ? 0 :
+  (g_game >= 4 && g_game <= 6 && q_st != 3) ? ( (kheld[n] || g_note == n) ? 2 : 0 ) : s;
+);
+
+function wrap_text(str, x, y, w, lh) local(n, i, ch, start, lastsp, tw, th)
+(
+  n = strlen(str); start = 0; lastsp = -1; i = 0;
+  while (i <= n) (
+    ch = i < n ? str_getchar(str, i) : 32;
+    ch == 32 ? (
+      strcpy_substr(#g_ln, str, start, i - start);
+      gfx_measurestr(#g_ln, tw, th);
+      (tw > w * z && lastsp > start) ? (
+        strcpy_substr(#g_ln, str, start, lastsp - start);
+        gfx_x = sx(x); gfx_y = sy(y); gfx_drawstr(#g_ln);
+        y += lh; start = lastsp + 1;
+      );
+      lastsp = i;
+    );
+    i += 1;
+  );
+  strcpy_substr(#g_ln, str, start, n - start);
+  gfx_x = sx(x); gfx_y = sy(y); gfx_drawstr(#g_ln);
+);
+
+function pill(x, y, w, h, label, en) local(hv, tw, th, r)
+(
+  hv = en && mouse_x >= sx(x) && mouse_x < sx(x + w) && mouse_y >= sy(y) && mouse_y < sy(y + h);
+  gfx_set(0.08, 0.075, 0.07, 1); gfx_rect(sx(x), sy(y), w * z, h * z, 1);
+  en ? gfx_set(1, 0.68, 0.3, hv ? 0.9 : 0.45) : gfx_set(0.5, 0.47, 0.43, 0.3);
+  gfx_roundrect(sx(x), sy(y), w * z, h * z, 3 * z, 1);
+  gfx_setfont(1, "Arial", 14 * z, 'b');
+  en ? gfx_set(1, 0.72, 0.36, 1) : gfx_set(0.42, 0.39, 0.36, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = floor(sx(x) + (w * z - tw) * 0.5); gfx_y = floor(sy(y) + (h * z - th) * 0.5); gfx_drawstr(label);
+  r = hv && g_click;
+  r ? g_click = 0;
+  r;
+);
+
+function mbutton(x, y, w, h, cr, cg, cb) local(hv, pulse, tw, th, res)
+(
+  hv = mouse_x >= sx(x) && mouse_x < sx(x + w) && mouse_y >= sy(y) && mouse_y < sy(y + h);
+  pulse = 0.5 + 0.5 * sin(g_now * 2.2);
+  gfx_set(cr * 0.18, cg * 0.18, cb * 0.18, 1); gfx_rect(sx(x), sy(y), w * z, h * z, 1);
+  gfx_set(cr, cg, cb, hv ? 1 : 0.5 + 0.35 * pulse);
+  gfx_roundrect(sx(x), sy(y), w * z, h * z, 3 * z, 1);
+  gfx_setfont(1, "Arial", 17 * z, 'b');
+  gfx_set(cr, cg, cb, 1);
+  gfx_measurestr("?", tw, th);
+  gfx_x = floor(sx(x) + (w * z - tw) * 0.5); gfx_y = floor(sy(y) + (h * z - th) * 0.5); gfx_drawstr("?");
+  res = hv && g_click;
+  res ? g_click = 0;
+  res;
+);
+
+function text_at(str, x, y, sz, dim)
+(
+  gfx_setfont(1, "Arial", (sz + 2) * z);
+  dim ? gfx_set(0.62, 0.58, 0.53, 1) : gfx_set(0.84, 0.81, 0.76, 1);
+  gfx_x = sx(x); gfx_y = sy(y); gfx_drawstr(str);
+);
+
+function row_text(str, y, sz, dim) ( text_at(str, 44, y, sz, dim); );
+
+function note_name(n, str) local(pc)
+(
+  pc = n % 12;
+  strcpy(str, pc == 0 ? "C" : pc == 1 ? "C#" : pc == 2 ? "D" : pc == 3 ? "Eb" : pc == 4 ? "E" : pc == 5 ? "F" :
+    pc == 6 ? "F#" : pc == 7 ? "G" : pc == 8 ? "Ab" : pc == 9 ? "A" : pc == 10 ? "Bb" : "B");
+);
+
+function seq_clear() ( memset(gpg, 0, 64); memset(gpx, 0, 64); memset(gpb, 0, 64); );
+
+function seq_note(i, n, grp, alt, cents) ( gpa[i] = n; gpg[i] = grp; gpx[i] = alt; gpb[i] = cents; );
+
+function seq_start(count, dur, gap, delay)
+(
+  seq_release();
+  gp_len = count; gp_i = 0; gp_dur = dur; gp_gap = gap; gp_t = g_now + delay; gp_play = 1;
+);
+
+function seq_tick() local(n, ch, v)
+(
+  (gon_n > 0 && g_now >= gp_off) ? ( seq_release(); gp_t = g_now + gp_gap; );
+  (gp_play && gon_n == 0 && g_now >= gp_t) ? (
+    gp_i < gp_len ? (
+      while (
+        n = gpa[gp_i];
+        ch = (basech() + gpx[gp_i]) % 16;
+        gpx[gp_i] ? (
+          v = floor(8192 + 40.96 * gpb[gp_i] + 0.5);
+          gq_send_ch(224, v & 127, floor(v / 128), 1, ch);
+          gp_bent = 1;
+        );
+        gq_send_ch(144, n, 100, 1, ch);
+        gon[gon_n] = n; gonc[gon_n] = ch; gon_n += 1;
+        gp_i += 1;
+        gp_i < gp_len && gpg[gp_i] && gon_n < 16;
+      );
+      gp_off = g_now + gp_dur;
+    ) : gp_play = 0;
+  );
+);
+
+function seq_busy() ( gp_play || gon_n > 0; );
+
+function seq_stop() ( seq_release(); gp_play = 0; );
+
+function played() local(n)
+(
+  g_lr != nlog_w ? ( n = nlog[g_lr]; g_lr = (g_lr + 1) % 64; n; ) : -1;
+);
+
+function white_off(k) ( k == 0 ? 0 : k == 1 ? 2 : k == 2 ? 4 : k == 3 ? 5 : k == 4 ? 7 : k == 5 ? 9 : k == 6 ? 11 : 12; );
+
+function in_range(n, lvl)
+(
+  lvl == 0 ? n >= g_center && n <= g_center + 12 && !is_black(n % 12) :
+  lvl == 1 ? n >= g_center - 12 && n <= g_center + 16 && !is_black(n % 12) :
+  lvl == 2 ? n >= g_center - 12 && n <= g_center + 16 : n >= 21 && n <= 108;
+);
+
+function in_pool(n)
+(
+  g_game == 2 ? (s_st == 0 || s_st == 3) && in_range(n, s_lvl) :
+  g_game == 3 ? nt_st == 0 && in_range(n, nt_lvl) : 0;
+);
+
+function seg(x, y, w, h, label, active) local(hv, tw, th, r)
+(
+  hv = mouse_x >= sx(x) && mouse_x < sx(x + w) && mouse_y >= sy(y) && mouse_y < sy(y + h);
+  active ? gfx_set(1, 0.68, 0.3, 0.9) : gfx_set(0.08, 0.075, 0.07, 1);
+  gfx_rect(sx(x), sy(y), w * z, h * z, 1);
+  gfx_set(1, 0.68, 0.3, hv || active ? 0.9 : 0.45);
+  gfx_roundrect(sx(x), sy(y), w * z, h * z, 3 * z, 1);
+  gfx_setfont(1, "Arial", 14 * z, 'b');
+  active ? gfx_set(0.12, 0.08, 0.04, 1) : gfx_set(1, 0.72, 0.36, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = floor(sx(x) + (w * z - tw) * 0.5); gfx_y = floor(sy(y) + (h * z - th) * 0.5); gfx_drawstr(label);
+  r = hv && g_click && !active;
+  r ? g_click = 0;
+  r;
+);
+
+function note_oct(n, str) ( note_name(n, #g_nt); sprintf(str, "%s%d", #g_nt, floor(n / 12) - 1); );
+
+function pick_note(lvl) local(k)
+(
+  max(0, min(127,
+    lvl == 0 ? g_center + white_off(floor(rand(8))) :
+    lvl == 1 ? ( k = floor(rand(17)); g_center - 12 + 12 * floor(k / 7) + white_off(k % 7); ) :
+    lvl == 2 ? g_center - 12 + floor(rand(29)) : 21 + floor(rand(88))
+  ));
+);
+
+function levels(x, lvl) local(r)
+(
+  r = -1;
+  g_lvhov = (mouse_y >= sy(134) && mouse_y < sy(160) && mouse_x >= sx(x) && mouse_x < sx(x + 300)) ? min(3, floor((mouse_x - sx(x)) / (76 * z))) : -1;
+  seg(x, 134, 72, 26, "Easy", lvl == 0) ? r = 0;
+  seg(x + 76, 134, 72, 26, "Medium", lvl == 1) ? r = 1;
+  seg(x + 152, 134, 72, 26, "Hard", lvl == 2) ? r = 2;
+  seg(x + 228, 134, 72, 26, "Extreme", lvl == 3) ? r = 3;
+  r;
+);
+
+function simon_round() local(i)
+(
+  sseq[s_len] = pick_note(s_lvl);
+  s_len += 1;
+  i = 0; loop(s_len, seq_note(i, sseq[i], 0, 0, 0); i += 1; );
+  seq_start(s_len, max(0.2, 0.45 - 0.012 * s_len), max(0.08, 0.18 - 0.005 * s_len), 0.6);
+  s_st = 1;
+);
+
+function simon() local(n)
+(
+  (s_st == 1 && !seq_busy()) ? ( s_st = 2; s_pos = 0; g_lr = nlog_w; );
+  s_st == 2 ? (
+    while (s_st == 2 && (n = played()) >= 0) (
+      n == sseq[s_pos] ? (
+        s_pos += 1;
+        s_pos >= s_len ? ( s_st = 4; s_t = g_now + 0.9; sbest[s_lvl] = max(sbest[s_lvl], s_len); );
+      ) : (
+        s_st = 3; s_wrong = n; sbest[s_lvl] = max(sbest[s_lvl], s_len - 1);
+        seq_note(0, sseq[s_pos], 0, 0, 0); seq_start(1, 0.7, 0.1, 0.4);
+      );
+    );
+  );
+  (s_st == 4 && g_now >= s_t) ? simon_round();
+  s_st == 0 ? row_text("Simon Plays: listen to the notes, then play them back. Each round adds one more note.", 106, 15, 0) :
+  s_st == 1 ? row_text(sprintf(#g_msg, "Round %d: listen...", s_len), 106, 15, 0) :
+  s_st == 2 ? row_text(sprintf(#g_msg, "Round %d: your turn (%d of %d)", s_len, s_pos + 1, s_len), 106, 15, 0) :
+  s_st == 4 ? row_text(sprintf(#g_msg, "Round %d: well done!", s_len), 106, 15, 0) : (
+    note_oct(s_wrong, #g_n1); note_oct(sseq[s_pos], #g_n2);
+    row_text(sprintf(#g_msg, "Oops: you played %s, the note was %s. You completed %d round%s.", #g_n1, #g_n2, s_len - 1, s_len == 2 ? "" : "s"), 106, 15, 0);
+  );
+  pill(44, 134, 110, 26, (s_st == 0 || s_st == 3) ? "Start" : "Restart", 1) ? ( seq_stop(); s_len = 0; simon_round(); );
+  text_at(sprintf(#g_msg, "Best: %d", sbest[s_lvl]), 170, 140, 13, 1);
+  (n = levels(260, s_lvl)) >= 0 ? ( seq_stop(); s_lvl = n; s_st = 0; s_len = 0; );
+);
+
+function nt_new() local(n)
+(
+  n = pick_note(nt_lvl);
+  while (n == nt_q) ( n = pick_note(nt_lvl); );
+  nt_q = n;
+  nt_hide = n;
+  seq_note(0, nt_q, 0, 0, 0); seq_start(1, 0.8, 0.1, 0.3);
+  nt_st = 1;
+);
+
+function name_note() local(n)
+(
+  (nt_st == 1 && !seq_busy()) ? ( nt_st = 2; g_lr = nlog_w; );
+  nt_st == 2 ? (
+    n = played();
+    n >= 0 ? (
+      nt_asked += 1; nt_ans = n;
+      (nt_lvl >= 2 ? n == nt_q : n % 12 == nt_q % 12) ? (
+        nt_ok = 1; nt_score += 1; nt_streak += 1; nt_t = g_now + 1.2; nt_hide = -1;
+      ) : (
+        nt_ok = 0; nt_streak = 0; nt_t = g_now + 2.6; nt_hide = -1;
+        seq_note(0, nt_q, 0, 0, 0); seq_start(1, 0.8, 0.1, 0.35);
+      );
+      nt_st = 3;
+    );
+  );
+  (nt_st == 3 && g_now >= nt_t && !seq_busy()) ? nt_new();
+  nt_st == 0 ? row_text(nt_lvl >= 2 ? "Name That Note: listen, then play the exact key you heard. Click New note to begin." :
+    "Name That Note: listen, then play the note you heard, in any octave. Click New note to begin.", 106, 15, 0) :
+  nt_st < 3 ? row_text(nt_lvl >= 2 ? "Which key was that? Play it on the keyboard, in the right octave." :
+    "Which note was that? Play your answer on the keyboard, in any octave.", 106, 15, 0) :
+  nt_ok ? ( nt_lvl >= 2 ? note_oct(nt_q, #g_n1) : note_name(nt_q, #g_n1); row_text(sprintf(#g_msg, "Yes, that was %s!", #g_n1), 106, 15, 0); ) : (
+    nt_lvl >= 2 ? ( note_oct(nt_ans, #g_n1); note_oct(nt_q, #g_n2); ) : ( note_name(nt_ans, #g_n1); note_name(nt_q, #g_n2); );
+    row_text(sprintf(#g_msg, "Not quite: you played %s, the note was %s.", #g_n1, #g_n2), 106, 15, 0);
+  );
+  pill(44, 134, 100, 26, "New note", 1) ? nt_new();
+  pill(152, 134, 100, 26, "Hear again", nt_st >= 1 && !seq_busy()) ? ( seq_note(0, nt_q, 0, 0, 0); seq_start(1, 0.8, 0.1, 0); );
+  pill(260, 134, 100, 26, "Hear C", !seq_busy()) ? ( seq_note(0, g_center, 0, 0, 0); seq_start(1, 0.8, 0.1, 0); );
+  (n = levels(372, nt_lvl)) >= 0 ? ( seq_stop(); nt_lvl = n; nt_st = 0; nt_hide = -1; nt_score = nt_asked = nt_streak = 0; );
+  text_at(sprintf(#g_msg, "Score %d / %d   ·   streak %d", nt_score, nt_asked, nt_streak), 786, 108, 13, 1);
+);
+
+function chord_short(t) ( t == 0 ? "Major" : t == 1 ? "Minor" : t == 2 ? "Dim" : t == 3 ? "Aug" : t == 4 ? "Sus2" : t == 5 ? "Sus4" : t == 6 ? "Dom 7" : t == 7 ? "Maj 7" : "Min 7"; );
+function chord_long(t) ( t == 0 ? "major" : t == 1 ? "minor" : t == 2 ? "diminished" : t == 3 ? "augmented" : t == 4 ? "sus2" : t == 5 ? "sus4" : t == 6 ? "dominant 7th" : t == 7 ? "major 7th" : "minor 7th"; );
+function iv_short(i) ( i == 1 ? "m2" : i == 2 ? "M2" : i == 3 ? "m3" : i == 4 ? "M3" : i == 5 ? "P4" : i == 6 ? "TT" : i == 7 ? "P5" : i == 8 ? "m6" : i == 9 ? "M6" : i == 10 ? "m7" : i == 11 ? "M7" : "P8"; );
+function iv_long(i) ( i == 1 ? "minor 2nd" : i == 2 ? "major 2nd" : i == 3 ? "minor 3rd" : i == 4 ? "major 3rd" : i == 5 ? "perfect 4th" : i == 6 ? "tritone" :
+  i == 7 ? "perfect 5th" : i == 8 ? "minor 6th" : i == 9 ? "major 6th" : i == 10 ? "minor 7th" : i == 11 ? "major 7th" : "octave"; );
+function scale_long(t) ( t == 0 ? "major" : t == 1 ? "natural minor" : t == 2 ? "harmonic minor" : t == 3 ? "melodic minor" : t == 4 ? "Dorian" : "Mixolydian"; );
+function root_name(pc, minor, str)
+(
+  strcpy(str, minor ? (pc == 1 ? "C#" : pc == 3 ? "Eb" : pc == 6 ? "F#" : pc == 8 ? "G#" : pc == 10 ? "Bb" : "") :
+    (pc == 1 ? "Db" : pc == 3 ? "Eb" : pc == 6 ? "F#" : pc == 8 ? "Ab" : pc == 10 ? "Bb" : ""));
+  !strlen(str) ? note_name(pc, str);
+  str;
+);
+
+function art(str) local(c) ( c = str_getchar(str, 0); (c == 65 || c == 69 || c == 70 || c == 97 || c == 101 || c == 111) ? "an" : "a"; );
+
+function set_ans(a0, a1, a2, a3, a4, n) ( qans[0] = a0; qans[1] = a1; qans[2] = a2; qans[3] = a3; qans[4] = a4; q_nans = n; );
+function set_range(lo, n) local(k) ( k = 0; loop(n, qans[k] = lo + k; k += 1; ); q_nans = n; );
+
+function level_desc(g, lv)
+(
+  g == 4 ? ( lv == 0 ? "50 cents apart (a quarter tone)" : lv == 1 ? "25 cents apart" : lv == 2 ? "12 cents apart" : "5 cents apart: golden ears only" ) :
+  g == 5 ? ( lv == 0 ? "Major and minor" : lv == 1 ? "Major, minor, diminished and augmented" : lv == 2 ? "Adds sus2, sus4 and 7th chords" : "All nine types, any inversion, wider range" ) :
+  g == 6 ? ( lv == 0 ? "Major 3rd, perfect 5th and octave" : lv == 1 ? "Adds minor 3rd and perfect 4th" : lv == 2 ? "All 12 intervals, going up" : "All 12 intervals: up, down or together" ) :
+  ( lv == 0 ? "Major/minor chords; C, G and F major scales" : lv == 1 ? "Any key; adds natural minor scales" : lv == 2 ? "Adds dim, aug and 7th chords; harmonic minor" : "Adds sus chords; melodic minor, Dorian, Mixolydian" );
+);
+
+function level_hint(g) ( text_at(level_desc(g, g_lvhov >= 0 ? g_lvhov : glv[g]), 476, 140, 12, 1); );
+
+function quiz_enter() ( seq_stop(); seq_clear(); q_st = 0; q_score = q_asked = q_streak = 0; pb_msg = 0; );
+
+function pick_ans() ( qans[floor(rand(q_nans))]; );
+
+function hl_play(d) ( seq_clear(); seq_note(0, hl_n, 0, 0, 0); seq_note(1, hl_n, 0, 1, hl_c); seq_start(2, 0.75, 0.25, d); );
+function hl_new() local(c, lv)
+(
+  lv = glv[4];
+  c = lv == 0 ? 50 : lv == 1 ? 25 : lv == 2 ? 12 : 5;
+  hl_n = g_center - 12 + floor(rand(29));
+  set_ans(0, 1, 0, 0, 0, 2);
+  q_right = pick_ans();
+  hl_c = q_right == 0 ? c : -c;
+  hl_play(0.3);
+  q_st = 1;
+);
+
+function cd_play(d) local(k) ( seq_clear(); k = 0; loop(cd_cnt, seq_note(k, cdn[k], k > 0, 0, 0); k += 1; ); seq_start(cd_cnt, 1.3, 0.1, d); );
+function cd_new() local(lv, t, root, k, inv)
+(
+  lv = glv[5];
+  lv == 0 ? set_range(0, 2) : lv == 1 ? set_range(0, 4) : set_range(0, 9);
+  t = pick_ans();
+  root = lv == 3 ? g_center - 12 + floor(rand(24)) : g_center - 5 + floor(rand(12));
+  cd_cnt = t >= 6 ? 4 : 3;
+  k = 0; loop(cd_cnt, cdn[k] = root + ctab[t * 4 + k]; k += 1; );
+  lv == 3 ? ( inv = floor(rand(cd_cnt)); k = 0; loop(inv, cdn[k] += 12; k += 1; ); );
+  q_right = t;
+  cd_play(0.3);
+  q_st = 1;
+);
+
+function iv_play(d)
+(
+  seq_clear();
+  iv_mode == 2 ? ( seq_note(0, iv_a, 0, 0, 0); seq_note(1, iv_b, 1, 0, 0); seq_start(2, 1.3, 0.1, d); ) :
+  iv_mode == 1 ? ( seq_note(0, iv_b, 0, 0, 0); seq_note(1, iv_a, 0, 0, 0); seq_start(2, 0.7, 0.1, d); ) :
+  ( seq_note(0, iv_a, 0, 0, 0); seq_note(1, iv_b, 0, 0, 0); seq_start(2, 0.7, 0.1, d); );
+);
+function iv_new() local(lv, iv)
+(
+  lv = glv[6];
+  lv == 0 ? set_ans(4, 7, 12, 0, 0, 3) : lv == 1 ? set_ans(3, 4, 5, 7, 12, 5) : set_range(1, 12);
+  iv = pick_ans();
+  iv_a = g_center - 5 + floor(rand(10));
+  iv_b = iv_a + iv;
+  iv_mode = lv == 3 ? floor(rand(3)) : 0;
+  q_right = iv;
+  iv_play(0.3);
+  q_st = 1;
+);
+
+function quiz_new() ( g_game == 4 ? hl_new() : g_game == 5 ? cd_new() : iv_new(); );
+function quiz_play(d) ( g_game == 4 ? hl_play(d) : g_game == 5 ? cd_play(d) : iv_play(d); );
+
+function quiz_answer(k)
+(
+  q_asked += 1; q_ans = k;
+  k == q_right ? ( q_ok = 1; q_score += 1; q_streak += 1; q_t = g_now + 1.1; ) :
+    ( q_ok = 0; q_streak = 0; q_t = g_now + 2.6; quiz_play(0.3); );
+  q_st = 3;
+);
+
+function quiz_score() ( text_at(sprintf(#g_msg, "Score %d / %d   ·   streak %d", q_score, q_asked, q_streak), 786, 108, 13, 1); );
+
+function quiz_game() local(k, w, x, lb, n)
+(
+  (q_st == 1 && !seq_busy()) ? q_st = 2;
+  (q_st == 3 && g_now >= q_t && !seq_busy()) ? quiz_new();
+  g_game == 4 ? (
+    q_st == 0 ? row_text("Higher or Lower?: two notes, the second slightly sharp or flat. Which way did it go?", 106, 15, 0) :
+    q_st < 3 ? row_text(sprintf(#g_msg, "Was the second note higher or lower? (%d cents apart)", abs(hl_c)), 106, 15, 0) :
+    row_text(sprintf(#g_msg, q_ok ? "Yes, it was %s by %d cents." : "No, it was %s by %d cents. Listen again.", hl_c > 0 ? "higher" : "lower", abs(hl_c)), 106, 15, 0);
+  ) : g_game == 5 ? (
+    q_st == 0 ? row_text("Chord Detective: listen to a chord and name its type.", 106, 15, 0) :
+    q_st < 3 ? row_text("What kind of chord was that?", 106, 15, 0) :
+    row_text(sprintf(#g_msg, q_ok ? "Yes, %s %s chord!" : "No, that was %s %s chord. Listen again.", art(chord_long(q_right)), chord_long(q_right)), 106, 15, 0);
+  ) : (
+    q_st == 0 ? row_text("Interval Spotter: hear two notes and name the distance between them.", 106, 15, 0) :
+    q_st < 3 ? row_text(glv[6] == 3 ? sprintf(#g_msg, "Which interval was that? (%s)", iv_mode == 0 ? "going up" : iv_mode == 1 ? "going down" : "played together") :
+      "Which interval was that?", 106, 15, 0) :
+    row_text(sprintf(#g_msg, q_ok ? "Yes, %s %s!" : "No, that was %s %s. Listen again.", art(iv_long(q_right)), iv_long(q_right)), 106, 15, 0);
+  );
+  quiz_score();
+  q_st == 0 ? (
+    pill(44, 134, 100, 26, "Start", 1) ? quiz_new();
+    (n = levels(160, glv[g_game])) >= 0 ? ( glv[g_game] = n; quiz_enter(); );
+    level_hint(g_game);
+  ) : (
+    w = g_game == 4 ? 90 : g_game == 5 ? 64 : 48;
+    x = 44; k = 0;
+    loop(q_nans,
+      lb = g_game == 4 ? (qans[k] == 0 ? "Higher" : "Lower") : g_game == 5 ? chord_short(qans[k]) : iv_short(qans[k]);
+      pill(x, 134, w, 26, lb, q_st == 2) ? quiz_answer(qans[k]);
+      x += w + 4; k += 1;
+    );
+    pill(x + 8, 134, 84, 26, "Hear again", q_st >= 2 && !seq_busy()) ? quiz_play(0);
+    pill(x + 96, 134, 60, 26, "Stop", 1) ? ( seq_stop(); q_st = 0; );
+  );
+);
+
+function pb_new() local(lv, r, kk)
+(
+  lv = glv[7];
+  pb_kind = rand(1) < 0.5;
+  r = floor(rand(12));
+  pb_kind == 0 ? (
+    lv == 0 ? ( r = floor(rand(6)); r = r == 0 ? 0 : r == 1 ? 2 : r == 2 ? 4 : r == 3 ? 5 : r == 4 ? 7 : 9; pb_type = floor(rand(2)); ) :
+    lv == 1 ? pb_type = floor(rand(2)) :
+    lv == 2 ? ( pb_type = floor(rand(7)); pb_type >= 4 ? pb_type += 2; ) : pb_type = floor(rand(9));
+    pb_n = pb_type >= 6 ? 4 : 3;
+    pb_mask = 0; kk = 0; loop(pb_n, pb_mask |= 2 ^ ((r + ctab[pb_type * 4 + kk]) % 12); kk += 1; );
+  ) : (
+    lv == 0 ? ( r = floor(rand(3)); r = r == 0 ? 0 : r == 1 ? 7 : 5; pb_type = 0; ) :
+    lv == 1 ? ( r = white_off(floor(rand(7))); pb_type = floor(rand(2)); ) :
+    lv == 2 ? pb_type = floor(rand(3)) : pb_type = floor(rand(6));
+  );
+  pb_root = r;
+  pb_pos = 0; pb_tries = 0; pb_peak = 0; pb_msg = 0;
+  g_lr = nlog_w;
+  q_st = 2;
+);
+
+function pb_show() local(k)
+(
+  seq_clear();
+  pb_kind == 0 ? (
+    k = 0; loop(pb_n, seq_note(k, g_center + pb_root + ctab[pb_type * 4 + k], k > 0, 0, 0); k += 1; );
+    seq_start(pb_n, 1.3, 0.1, 0);
+  ) : (
+    k = 0; loop(8, seq_note(k, g_center + pb_root + stab[pb_type * 8 + k], 0, 0, 0); k += 1; );
+    seq_start(8, 0.32, 0.04, 0);
+  );
+  pb_tries += 1;
+);
+
+function pb_done()
+(
+  q_asked += 1;
+  pb_tries == 0 ? ( q_score += 1; q_streak += 1; ) : q_streak = 0;
+  q_ok = 1; q_st = 3; q_t = g_now + 1.3;
+);
+
+function mask_names(m, str) local(k)
+(
+  strcpy(str, "");
+  k = 0; loop(12, (m & (2 ^ k)) ? ( note_name(k, #g_nt); strlen(str) ? strcat(str, " "); strcat(str, #g_nt); ); k += 1; );
+  str;
+);
+
+function play_back() local(k, n, m, cnt)
+(
+  (q_st == 3 && g_now >= q_t && !seq_busy()) ? pb_new();
+  q_st == 2 ? (
+    pb_kind == 0 ? (
+      m = 0; cnt = 0; k = 0;
+      loop(128, kheld[k] ? ( m |= 2 ^ (k % 12); cnt += 1; ); k += 1; );
+      (m == pb_mask && cnt >= pb_n) ? pb_done() : (
+        cnt >= pb_peak && cnt > 0 ? ( pb_peak = cnt; pb_last = m; );
+        (cnt == 0 && pb_peak >= 3) ? ( pb_tries += 1; pb_msg = 1; pb_peak = 0; );
+      );
+    ) : (
+      while (q_st == 2 && (n = played()) >= 0) (
+        pb_pos == 0 ? (
+          n % 12 == pb_root ? ( pb_base = n; pb_pos = 1; pb_msg = 0; ) : ( pb_tries += 1; pb_msg = 2; pb_bad = n; );
+        ) : n == pb_base + stab[pb_type * 8 + pb_pos] ? (
+          pb_pos += 1;
+          pb_pos >= 8 ? pb_done();
+        ) : (
+          pb_tries += 1; pb_msg = 3; pb_bad = n;
+          n % 12 == pb_root ? ( pb_base = n; pb_pos = 1; ) : pb_pos = 0;
+        );
+      );
+    );
+  );
+  root_name(pb_root, pb_kind == 0 ? (pb_type == 1 || pb_type == 2 || pb_type == 8) : pb_type != 0 && pb_type != 5, #g_n1);
+  q_st == 0 ? row_text("Play It Back: you get a chord or scale to play on the keyboard. Chords in any voicing, scales one octave up.", 106, 15, 0) :
+  q_st == 3 ? row_text("Yes, well played!", 106, 15, 0) :
+  pb_kind == 0 ? row_text(sprintf(#g_msg, "Play %s %s %s chord (any octave, any voicing).", art(#g_n1), #g_n1, chord_long(pb_type)), 106, 15, 0) :
+  row_text(sprintf(#g_msg, "Play the %s %s scale, one octave up from any %s  (%d of 8)", #g_n1, scale_long(pb_type), #g_n1, pb_pos), 106, 15, 0);
+  quiz_score();
+  q_st == 0 ? (
+    pill(44, 134, 100, 26, "Start", 1) ? pb_new();
+    (n = levels(160, glv[7])) >= 0 ? ( glv[7] = n; quiz_enter(); );
+    level_hint(7);
+  ) : (
+    pill(44, 134, 90, 26, "Show me", q_st == 2 && !seq_busy()) ? pb_show();
+    pill(138, 134, 70, 26, "Skip", q_st == 2) ? ( q_asked += 1; q_streak = 0; seq_stop(); pb_new(); );
+    pill(212, 134, 60, 26, "Stop", 1) ? ( seq_stop(); q_st = 0; );
+    q_st == 2 ? (
+      pb_msg == 1 ? text_at(sprintf(#g_msg, "Not quite: you played %s. Try again, or click Show me.", mask_names(pb_last, #g_n2)), 290, 140, 13, 1) :
+      pb_msg == 2 ? ( note_name(pb_bad, #g_n2); text_at(sprintf(#g_msg, "Start on %s (you played %s).", #g_n1, #g_n2), 290, 140, 13, 1); ) :
+      pb_msg == 3 ? ( note_name(pb_bad, #g_n2); text_at(sprintf(#g_msg, "%s isn't next. Start again from %s.", #g_n2, #g_n1), 290, 140, 13, 1); );
+    );
+  );
+);
+
+function lights() local(i, x, y, b, hv, cr, cg, cb, px, py)
+(
+  hv = mouse_y >= 0 && mouse_y < sy(20) && mouse_x >= 0 && mouse_x < gfx_w;
+  (hv && g_click) ? ( g_jingle_req = !g_jingle_req; g_click = 0; );
+  gfx_set(0.1, 0.22, 0.12, 1);
+  px = 0; py = sy(3);
+  x = 0;
+  loop(105,
+    x += 10;
+    y = 3 + 9 * sin($pi * (x % 130) / 130);
+    gfx_line(sx(x - 10), py, sx(x), sy(y), 1);
+    py = sy(y);
+  );
+  i = 0;
+  loop(40,
+    x = 13 + 26 * i;
+    y = 3 + 9 * sin($pi * (x % 130) / 130) + 5;
+    b = jplay ? ((i + jmel) % 5 == 0 ? 1 : 0.3) : 0.55 + 0.45 * sin(g_now * (1.1 + (i * 0.37) % 1.3) + i * 2.1);
+    hv ? b = min(1, b + 0.25);
+    i % 5 == 0 ? ( cr = 1; cg = 0.18; cb = 0.15; ) : i % 5 == 1 ? ( cr = 0.2; cg = 0.95; cb = 0.35; ) :
+    i % 5 == 2 ? ( cr = 1; cg = 0.8; cb = 0.2; ) : i % 5 == 3 ? ( cr = 0.3; cg = 0.55; cb = 1; ) : ( cr = 1; cg = 0.45; cb = 0.8; );
+    gfx_set(cr, cg, cb, 0.22 * b); gfx_circle(sx(x), sy(y + 2), 8 * z, 1, 1);
+    gfx_set(0.15, 0.15, 0.15, 1); gfx_rect(sx(x - 1.5), sy(y - 2), 3 * z, 2.5 * z, 1);
+    gfx_set(cr * (0.35 + 0.65 * b), cg * (0.35 + 0.65 * b), cb * (0.35 + 0.65 * b), 1); gfx_circle(sx(x), sy(y + 2.5), 3.4 * z, 1, 1);
+    gfx_set(1, 1, 1, 0.5 * b); gfx_circle(sx(x - 1), sy(y + 1.5), 1 * z, 1, 1);
+    i += 1;
+  );
+);
+
+function keyboard(x, y, w, h, center) local(ww, bw, bh, QX, QY, QH, n, wi, hov, hovh, down, vel, kx, kw, bx, st, cx, tw, th)
+(
+  ww = w / 52; bw = ww * 0.6; bh = h * 0.63;
+  QX = sx(x); QY = sy(y); QH = h * z;
+  hov = -1; hovh = h;
+  (mouse_x >= QX && mouse_x < QX + w * z && mouse_y >= QY && mouse_y < QY + QH) ? (
+    n = 22;
+    loop(86,
+      is_black(n % 12) ? (
+        cx = x + (wpos(n - 1) + 1) * ww;
+        (mouse_y < QY + bh * z && abs(mouse_x - sx(cx)) < bw * z * 0.5) ? ( hov = n; hovh = bh; );
+      );
+      n += 1;
+    );
+    hov < 0 ? (
+      wi = floor((mouse_x - QX) / (ww * z));
+      n = 21;
+      loop(88, (!is_black(n % 12) && wpos(n) == wi) ? hov = n; n += 1; );
+    );
+  );
+  down = mouse_cap & 1;
+  (g_click && hov >= 0) ? ( g_on = 1; g_note = -1; );
+  (g_on && !down) ? (
+    g_note >= 0 ? gq_push(128, g_note, 0);
+    g_note = -1; g_on = 0;
+  );
+  (g_on && down && hov >= 0 && hov != g_note) ? (
+    g_note >= 0 ? gq_push(128, g_note, 0);
+    vel = floor(40 + 87 * clamp01((mouse_y - QY) / (hovh * z)));
+    gq_push(144, hov, vel);
+    g_note = hov;
+  );
+
+  gfx_set(0, 0, 0, 0.5);
+  gfx_rect(sx(x) - 3 * z, sy(y) - 10 * z, (w + 6) * z, (h + 13) * z, 1);
+  gfx_gradrect(sx(x), sy(y) - 7 * z, w * z, 7 * z, 0.42, 0.07, 0.08, 1, 0, 0, 0, 0, -0.2 / (7 * z), -0.03 / (7 * z), -0.03 / (7 * z), 0);
+
+  n = 21;
+  loop(88,
+    !is_black(n % 12) ? (
+      wi = wpos(n);
+      kx = floor(sx(x + wi * ww)) + max(1, floor(z));
+      kw = floor(sx(x + (wi + 1) * ww)) - kx;
+      st = key_state(n);
+      st == 2 ? (
+        gfx_gradrect(kx, QY, kw, QH, 1, 0.72, 0.36, 1, 0, 0, 0, 0, -0.25 / QH, -0.3 / QH, -0.3 / QH, 0);
+      ) : (
+        in_pool(n) ? gfx_gradrect(kx, QY, kw, QH, 0.95, 0.86, 0.68, 1, 0, 0, 0, 0, 0.08 / QH, 0.08 / QH, 0.08 / QH, 0) :
+        gfx_gradrect(kx, QY, kw, QH, 0.86, 0.84, 0.79, 1, 0, 0, 0, 0, 0.11 / QH, 0.11 / QH, 0.11 / QH, 0);
+        st == 1 ? ( gfx_set(1, 0.62, 0.25, 0.55); gfx_rect(kx, QY + QH - 6 * z, kw, 6 * z, 1); );
+      );
+      gfx_set(0, 0, 0, 0.22); gfx_rect(kx, QY, kw, 2 * z, 1);
+      n % 12 == 0 ? (
+        gfx_setfont(1, "Arial", 11 * z, 'b');
+        st == 2 ? gfx_set(0.35, 0.16, 0.02, 1) : gfx_set(0.42, 0.4, 0.37, 1);
+        sprintf(#g_kl, "C%d", floor(n / 12) - 1);
+        gfx_measurestr(#g_kl, tw, th);
+        gfx_x = floor(kx + (kw - tw) * 0.5); gfx_y = QY + QH - 16 * z;
+        gfx_drawstr(#g_kl);
+      );
+      key_letter(n, center) ? (
+        gfx_setfont(1, "Arial", 13 * z, 'b');
+        st == 2 ? gfx_set(0.35, 0.16, 0.02, 1) : g_lt_first ? gfx_set(0.85, 0.5, 0.15, 1) : gfx_set(0.55, 0.52, 0.48, 1);
+        gfx_measurestr(#g_lt, tw, th);
+        gfx_x = floor(kx + (kw - tw) * 0.5); gfx_y = QY + QH - 32 * z;
+        gfx_drawstr(#g_lt);
+      );
+    );
+    n += 1;
+  );
+
+  n = 22;
+  loop(86,
+    is_black(n % 12) ? (
+      bx = floor(sx(x + (wpos(n - 1) + 1) * ww - bw * 0.5));
+      st = key_state(n);
+      gfx_set(0, 0, 0, 0.35); gfx_rect(bx + z, QY, bw * z, bh * z + 2 * z, 1);
+      st == 2 ? (
+        gfx_gradrect(bx, QY, bw * z, bh * z, 0.8, 0.5, 0.2, 1, 0, 0, 0, 0, 0.12 / (bh * z), 0.1 / (bh * z), 0.06 / (bh * z), 0);
+      ) : (
+        in_pool(n) ? gfx_gradrect(bx, QY, bw * z, bh * z, 0.3, 0.2, 0.1, 1, 0, 0, 0, 0, 0.1 / (bh * z), 0.1 / (bh * z), 0.1 / (bh * z), 0) :
+        gfx_gradrect(bx, QY, bw * z, bh * z, 0.07, 0.065, 0.06, 1, 0, 0, 0, 0, 0.1 / (bh * z), 0.1 / (bh * z), 0.1 / (bh * z), 0);
+        gfx_set(1, 1, 1, 0.1); gfx_rect(bx + 2 * z, QY + bh * z - 7 * z, bw * z - 4 * z, 5 * z, 1);
+        st == 1 ? ( gfx_set(1, 0.62, 0.25, 0.6); gfx_rect(bx + 2 * z, QY + bh * z - 7 * z, bw * z - 4 * z, 5 * z, 1); );
+      );
+      key_letter(n, center) ? (
+        gfx_setfont(1, "Arial", 12 * z, 'b');
+        st == 2 ? gfx_set(0.3, 0.14, 0.02, 1) : g_lt_first ? gfx_set(0.85, 0.5, 0.15, 1) : gfx_set(0.6, 0.57, 0.53, 1);
+        gfx_measurestr(#g_lt, tw, th);
+        gfx_x = floor(bx + (bw * z - tw) * 0.5); gfx_y = QY + bh * z - 22 * z;
+        gfx_drawstr(#g_lt);
+      );
+    );
+    n += 1;
+  );
+);
+
+g_down = mouse_cap & 1;
+g_click = g_down && !g_prev;
+
+gfx_set(0.07, 0.066, 0.062, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+gfx_gradrect(0, 0, gfx_w, gfx_h, 0.12, 0.11, 0.1, 1, 0, 0, 0, 0, -0.06 / gfx_h, -0.055 / gfx_h, -0.05 / gfx_h, 0);
+
+g_center = 24 + 12 * max(0, min(6, floor(slider1 + 0.5)));
+typing(g_center);
+seq_tick();
+
+gfx_set(0, 0, 0, 0.3);
+gfx_rect(sx(24), sy(24), 996 * z, 150 * z, 1);
+gfx_set(0.14, 0.13, 0.12, 1);
+gfx_rect(sx(20), sy(20), 1000 * z, 150 * z, 1);
+gfx_set(1, 0.68, 0.3, 0.9);
+gfx_rect(sx(20), sy(20), 4 * z, 150 * z, 1);
+
+gfx_setfont(2, "Georgia", 34 * z, 'b');
+gfx_set(1, 0.72, 0.36, 1);
+gfx_x = sx(44); gfx_y = sy(34);
+gfx_drawstr("Tolerable Tines");
+gfx_setfont(1, "Arial", 14 * z);
+gfx_set(0.62, 0.58, 0.53, 1);
+gfx_x = sx(46); gfx_y = sy(74);
+g_game == 0 && slider3 < 0.5 ? gfx_drawstr("by chmaha  ·  based on ACE Reasonable Synth") : gfx_drawstr("by chmaha");
+gfx_set(1, 0.68, 0.3, 0.35);
+gfx_rect(sx(44), sy(96), 952 * z, max(1, z), 1);
+
+g_game == 0 ? (
+  slider3 < 0.5 ? (
+    g_mys_seen = 0;
+    row_text("A simple synthesizer with minimal controls but a tolerable sound. Quickly audition your MIDI notes without fuss!", 106, 15, 0);
+    row_text("If you still find the sound only tolerable after auditioning, click the button.", 140, 13, 1);
+    mbutton(946, 134, 50, 26, 1, 0.68, 0.3) ? ( slider3 = 1; sliderchange(slider3); );
+  ) : (
+    g_mys_seen != 1 ? ( g_mys_t = g_now; g_mys_seen = 1; );
+    g_b = min(1, max(0, (g_now - g_mys_t) / 1.5));
+    g_b = sin($pi * g_b) * (g_b < 1);
+    gfx_setfont(1, "Arial", 17 * z);
+    g_b > 0 ? (
+      gfx_set(0.35, 0.85, 0.8, 0.35 * g_b);
+      g_i = -1; loop(3, gfx_x = sx(44) + g_i * z; gfx_y = sy(106); gfx_drawstr("Mystery mode: a different sound that slowly changes through the year, a little each day, and never quite repeats."); g_i += 1; );
+    );
+    gfx_set(0.84 + (0.45 - 0.84) * g_b, 0.81 + (0.95 - 0.81) * g_b, 0.76 + (0.9 - 0.76) * g_b, 1);
+    gfx_x = sx(44); gfx_y = sy(106);
+    gfx_drawstr("Mystery mode: a different sound that slowly changes through the year, a little each day, and never quite repeats.");
+    row_text("Still not been able to move past sub-optimal sound? Take a break and click the button.", 140, 13, 1);
+    mbutton(946, 134, 50, 26, 0.35, 0.85, 0.8) ? g_game = 1;
+  );
+) : (
+  g_game == 1 ? (
+    row_text("Take a break. Pick a game:", 108, 15, 0);
+    g_pick = 0;
+    pill(240, 102, 170, 26, "Simon Plays", 1) ? g_pick = 2;
+    pill(420, 102, 170, 26, "Name That Note", 1) ? g_pick = 3;
+    pill(600, 102, 170, 26, "Higher or Lower?", 1) ? g_pick = 4;
+    pill(240, 134, 170, 26, "Chord Detective", 1) ? g_pick = 5;
+    pill(420, 134, 170, 26, "Interval Spotter", 1) ? g_pick = 6;
+    pill(600, 134, 170, 26, "Play It Back", 1) ? g_pick = 7;
+    g_pick ? ( g_game = g_pick; s_st = 0; nt_st = 0; nt_hide = -1; quiz_enter(); );
+  ) : g_game == 2 ? simon() : g_game == 3 ? name_note() : g_game == 7 ? play_back() : quiz_game();
+  g_game >= 2 ? ( pill(846, 134, 84, 26, "Exit game", 1) ? ( seq_stop(); g_game = 1; nt_hide = -1; ); );
+  mbutton(946, 134, 50, 26, 0.75, 0.6, 1) ? ( seq_stop(); g_game = 0; slider3 = 0; sliderchange(slider3); );
+);
+
+g_oct = max(0, min(6, floor(slider1 + 0.5)));
+sprintf(#g_cv, "C%d", g_oct + 1);
+g_r = dbox(786, 46, 100, 30, "KEYBOARD CENTER", #g_cv);
+g_r == 1 ? (
+  strcpy(#g_menu, "");
+  g_i = 0;
+  loop(7, strcat(#g_menu, sprintf(#g_mi, "%s%sC%d", g_i > 0 ? "|" : "", g_i == g_oct ? "!" : "", g_i + 1)); g_i += 1; );
+  g_sel = gfx_showmenu(#g_menu);
+  g_sel > 0 ? ( slider1 = g_sel - 1; sliderchange(slider1); );
+) : g_r >= 2 ? (
+  slider1 = max(0, min(6, g_oct + (g_r == 2 ? 1 : -1))); sliderchange(slider1);
+);
+
+g_vel = max(1, min(127, floor(slider4 + 0.5)));
+sprintf(#g_vv, "%d", g_vel);
+g_r = dbox(686, 46, 80, 30, "KEY VELOCITY", #g_vv);
+g_r == 1 ? (
+  strcpy(#g_menu, "");
+  g_i = 0;
+  loop(9,
+    g_v = g_i == 0 ? 16 : g_i == 1 ? 32 : g_i == 2 ? 48 : g_i == 3 ? 64 : g_i == 4 ? 80 : g_i == 5 ? 96 : g_i == 6 ? 100 : g_i == 7 ? 112 : 127;
+    strcat(#g_menu, sprintf(#g_mi, "%s%s%d", g_i > 0 ? "|" : "", g_v == g_vel ? "!" : "", g_v));
+    g_i += 1;
+  );
+  g_sel = gfx_showmenu(#g_menu);
+  g_sel > 0 ? (
+    slider4 = g_sel == 1 ? 16 : g_sel == 2 ? 32 : g_sel == 3 ? 48 : g_sel == 4 ? 64 : g_sel == 5 ? 80 : g_sel == 6 ? 96 : g_sel == 7 ? 100 : g_sel == 8 ? 112 : 127;
+    sliderchange(slider4);
+  );
+) : g_r >= 2 ? (
+  slider4 = max(1, min(127, g_vel + (g_r == 2 ? 1 : -1))); sliderchange(slider4);
+);
+
+g_ch = max(0, min(16, floor(slider2 + 0.5)));
+g_ch == 0 ? strcpy(#g_mv, "Omni") : sprintf(#g_mv, "Ch %d", g_ch);
+g_r = dbox(906, 46, 90, 30, "MIDI CHANNEL", #g_mv);
+g_r == 1 ? (
+  strcpy(#g_menu, g_ch == 0 ? "!Omni" : "Omni");
+  g_i = 1;
+  loop(16, strcat(#g_menu, sprintf(#g_mi, "|%s%d", g_i == g_ch ? "!" : "", g_i)); g_i += 1; );
+  g_sel = gfx_showmenu(#g_menu);
+  g_sel > 0 ? ( slider2 = g_sel - 1; sliderchange(slider2); );
+) : g_r >= 2 ? (
+  slider2 = max(0, min(16, g_ch + (g_r == 2 ? 1 : -1))); sliderchange(slider2);
+);
+
+keyboard(20, 198, 1000, 124, g_center);
+month_now() == 12 ? lights() : g_jingle_req = 0;
+
+g_prev = g_down;
+mouse_wheel = 0;

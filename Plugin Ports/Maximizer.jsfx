@@ -1,0 +1,469 @@
+Version: 1.0
+desc: Maximizer (ZaMaximX2 port) by chmaha
+author: chmaha
+changelog:
+  Initial release.
+// DSP from ZaMaximX2 by Damien Zammit (zam-plugins). GPLv2+.
+// JSFX port by chmaha.
+// https://github.com/zamaudio/zam-plugins/tree/master/plugins/ZaMaximX2
+//
+// Sliding-window max (lookahead) and moving average are computed with a
+// monotonic-deque / running-sum instead of ZaMaximX2's per-sample linear
+// scans; verified bit-identical (< 3e-13 dB) against a brute-force port,
+// ~20x cheaper.
+//
+// "Ceiling" is ZaMaximX2's own Input Gain parameter under the hood -- its
+// own background artwork labels that knob "Ceiling" even though it feeds
+// the limiter's input trim, so this port keeps that same real-plugin name.
+// Claude generated some of this code
+
+slider1:25<1,100,0.1>-Release (ms)
+slider2:0<-30,0,0.1>-Threshold (dB)
+slider3:0<-20,20,0.1>-Ceiling (dB)
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+@init
+gfx_ext_retina = 1;
+ext_nodenorm = 1;
+DENORM = 0.0000000000000000555111512312578270211815834045;
+
+MAX_DELAY = 480;
+MAX_AVG = 120;
+
+aatt = 1 - pow((1.0001 - 1)/1.0001, 1/(MAX_DELAY + 1));
+beta = 0;
+i = 0;
+loop(MAX_AVG,
+  beta += pow(1 - aatt, MAX_DELAY + 1 - i);
+  i += 1;
+);
+beta /= MAX_AVG;
+
+fbase = 0;
+zl_base = fbase; fbase += MAX_DELAY;
+zr_base = fbase; fbase += MAX_DELAY;
+emaxn_base = fbase; fbase += MAX_AVG;
+// +1: the query window [n-MAX_DELAY, n-1] can legitimately hold MAX_DELAY
+// entries in the deque at once, and the sample just pushed this same
+// sample makes MAX_DELAY+1 before the next sample's eviction catches up.
+DQ_CAP = MAX_DELAY + 1;
+dq_val = fbase; fbase += DQ_CAP;
+dq_idx = fbase; fbase += DQ_CAP;
+
+i = 0;
+loop(MAX_DELAY, zl_base[i] = 0; zr_base[i] = 0; i += 1;);
+i = 0;
+loop(DQ_CAP, dq_val[i] = 0; dq_idx[i] = 0; i += 1;);
+i = 0;
+loop(MAX_AVG, emaxn_base[i] = 0; i += 1;);
+
+posz = 0; pose = 0; emax_old = 0; e_old = 0; esum = 0;
+dq_head = 0; dq_tail = 0; dq_len = 0; sample_n = 0;
+gainred = 0; maxx = 0; outlevel_disp = -160;
+mi_gr = 0; di_gr = 0; last_gfx_time = 0;
+gr_hold = 0; ol_hold = -160; play_prev = 0;
+
+function dq_push_max(val, idx)
+(
+  while (dq_len > 0 && abs(dq_val[(dq_tail - 1 + DQ_CAP) % DQ_CAP]) <= abs(val)) (
+    dq_tail = (dq_tail - 1 + DQ_CAP) % DQ_CAP;
+    dq_len -= 1;
+  );
+  dq_val[dq_tail] = val;
+  dq_idx[dq_tail] = idx;
+  dq_tail = (dq_tail + 1) % DQ_CAP;
+  dq_len += 1;
+);
+
+function dq_evict(min_valid_idx)
+(
+  while (dq_len > 0 && dq_idx[dq_head] < min_valid_idx) (
+    dq_head = (dq_head + 1) % DQ_CAP;
+    dq_len -= 1;
+  );
+);
+
+@block
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+pdc_delay = MAX_DELAY;
+
+(play_state & 1) && play_prev == 0 ? ( gr_hold = 0; ol_hold = -160; );
+play_prev = play_state;
+
+gain_t = exp(slider3*(log(10)*0.05));
+thresh_t = exp(slider2*(log(10)*0.05));
+!sm_init ? ( gain_lin = gain_t; thresh_lin = thresh_t; sm_init = 1; );
+sm_k = 1 - exp(-1 / (0.02 * srate));
+release_ms = slider1;
+a_att = 1000/(aatt*srate);
+a_rel = 1000/(release_ms*srate);
+
+outlevel_disp = maxx == 0 ? -160 : 20*log10(maxx);
+maxx = 0;
+
+@sample
+gain_lin += sm_k * (gain_t - gain_lin); thresh_lin += sm_k * (thresh_t - thresh_lin);
+inL = spl0*gain_lin;
+inR = spl1*gain_lin;
+absx = max(abs(inL), abs(inR));
+c = max(absx, (absx - beta*e_old)/(1 - beta));
+
+dq_evict(sample_n - MAX_DELAY);
+xmax = dq_len > 0 ? dq_val[dq_head] : 0;
+target = xmax;
+
+target > emax_old ? a_coef = a_att : a_coef = a_rel;
+emax = a_coef*target + (1 - a_coef)*emax_old;
+
+e = esum/MAX_AVG;
+e += emaxn_base[(pose + 1) % MAX_AVG]/(MAX_AVG + 1);
+
+e == 0 ? g = 1 : (
+  g = thresh_lin/e;
+  g > 1 ? g = 1;
+);
+gainred = g > 0 ? -20*log10(g) : 40;
+gainred > mi_gr ? mi_gr = gainred;
+
+outL = zl_base[(posz + 1) % MAX_DELAY]*g;
+outR = zr_base[(posz + 1) % MAX_DELAY]*g;
+
+peak = max(abs(outL), abs(outR));
+peak > maxx ? maxx = peak;
+
+pose = (pose + 1) % MAX_AVG;
+esum -= emaxn_base[pose];
+emaxn_base[pose] = abs(emax) < DENORM ? 0 : emax;
+esum += emaxn_base[pose];
+
+dq_push_max(abs(c) < DENORM ? 0 : c, sample_n);
+
+posz = (posz + 1) % MAX_DELAY;
+zl_base[posz] = abs(inL) < DENORM ? 0 : inL;
+zr_base[posz] = abs(inR) < DENORM ? 0 : inR;
+
+emax_old = abs(emax) < DENORM ? 0 : emax;
+e_old = abs(e) < DENORM ? 0 : e;
+sample_n += 1;
+
+spl0 = outL;
+spl1 = outR;
+
+@gfx 540 240
+
+scale = max(0.5, min(gfx_w / 540, gfx_h / 240));
+win_w = gfx_w; win_h = gfx_h;
+gfx_w = floor(540*scale); gfx_h = floor(240*scale);
+ox = floor((win_w - gfx_w) * 0.5);
+oy = 0;
+mouse_x -= ox; mouse_y -= oy;
+gfx_setimgdim(127, gfx_w, gfx_h);
+gfx_dest = 127;
+
+MARGIN = 14*scale;
+HEADER_H = 46*scale;
+
+function hit_circle(mx, my, cx, cy, rad)
+(
+  sqr(mx - cx) + sqr(my - cy) <= sqr(rad);
+);
+function hit_rect(mx, my, x, y, w, h)
+(
+  mx >= x && mx <= x+w && my >= y && my <= y+h;
+);
+
+function draw_knob(cx, cy, rad, pos, cr, cg, cb, valtext, minlabel, maxlabel, name)
+local(ang0, ang1, ang, i, tx, ty)
+(
+  ang0 = -2.35619;
+  ang1 =  2.35619;
+
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(cx, cy, rad + 2*scale, 1, 1);
+  gfx_set(cr*0.55, cg*0.55, cb*0.55, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rad*0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(cx - rad*0.28, cy - rad*0.28, rad*0.42, 1, 1);
+
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.85, 0.85, 0.85, 0.7);
+    gfx_line(cx + sin(ang)*rad*0.82, cy - cos(ang)*rad*0.82,
+             cx + sin(ang)*rad*0.98, cy - cos(ang)*rad*0.98);
+    i += 1;
+  );
+
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(cx, cy, cx + sin(ang)*rad*0.85, cy - cos(ang)*rad*0.85, 1);
+
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.85, 0.85, 0.85, 1);
+  gfx_measurestr(valtext, tx, ty);
+  gfx_x = cx - tx*0.5; gfx_y = cy - rad - 16*scale;
+  gfx_drawstr(valtext);
+
+  gfx_setfont(1, "Arial", 12*scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_x = cx - rad - 4*scale; gfx_y = cy + rad + 4*scale;
+  gfx_drawstr(minlabel);
+  gfx_measurestr(maxlabel, tx, ty);
+  gfx_x = cx + rad - tx + 4*scale; gfx_y = cy + rad + 4*scale;
+  gfx_drawstr(maxlabel);
+
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.8, 0.8, 0.82, 1);
+  gfx_measurestr(name, tx, ty);
+  gfx_x = cx - tx*0.5; gfx_y = cy + rad + 18*scale;
+  gfx_drawstr(name);
+);
+
+function knob_is_log(id) ( id == 1 );
+
+function val_to_pos(id, val, mn, mx)
+(
+  knob_is_log(id) ? log(val/mn)/log(mx/mn) : (val - mn)/(mx - mn);
+);
+
+function pos_to_val(id, pos, mn, mx)
+(
+  knob_is_log(id) ? mn*pow(mx/mn, pos) : mn + pos*(mx - mn);
+);
+
+function load_knob(id)
+(
+  id == 1 ? (
+    k_min = 1; k_max = 100; k_def = 25; k_val = slider1;
+    sprintf(#kval, "%.1f ms", slider1); #kmin = "1"; #kmax = "100";
+  ) : id == 2 ? (
+    k_min = -30; k_max = 0; k_def = 0; k_val = slider2;
+    sprintf(#kval, "%+.1f dB", slider2); #kmin = "-30"; #kmax = "0";
+  ) : (
+    k_min = -20; k_max = 20; k_def = 0; k_val = slider3;
+    sprintf(#kval, "%+.1f dB", slider3); #kmin = "-20"; #kmax = "20";
+  );
+  k_pos = max(0, min(1, val_to_pos(id, k_val, k_min, k_max)));
+);
+
+function store_knob(id, v)
+(
+  id == 1 ? ( slider1 = v; slider_automate(slider1); ) :
+  id == 2 ? ( slider2 = v; slider_automate(slider2); ) :
+            ( slider3 = v; slider_automate(slider3); );
+);
+
+function knob(id, cx, cy, rad, cr, cg, cb, name)
+(
+  load_knob(id);
+  draw_knob(cx, cy, rad, k_pos, cr, cg, cb, #kval, #kmin, #kmax, name);
+  mouse_just_down && hit_circle(mouse_x, mouse_y, cx, cy, rad) ? (
+    (click_target == id && time_precise() - click_time < 0.3) ? (
+      store_knob(id, k_def);
+    ) : (
+      drag_target = id; drag_start_y = mouse_y; drag_start_pos = k_pos;
+    );
+    click_target = id; click_time = time_precise();
+  );
+  wheel != 0 && hit_circle(mouse_x, mouse_y, cx, cy, rad) ? (
+    drag_target = id; drag_start_pos = max(0, min(1, k_pos + wheel/120*0.02)); drag_start_y = mouse_y; wheel_once = 1;
+  );
+);
+
+// Meter widgets below are a direct port of Inflator's own
+// draw_zone/draw_tick/clip-lamp meter code, adapted from Inflator's
+// stereo L/R pair to a single mono bar per meter.
+function meter_x(x0, w, db, bot, top) ( x0 + w*(max(bot, min(top, db)) - bot)/(top - bot); );
+
+function draw_zone(x0, w, y, h, band_lo, band_hi, live_db, bot, top, zr, zg, zb)
+local(top_db, xa, xb)
+(
+  live_db > band_lo && band_lo < top ? (
+    top_db = min(band_hi, live_db);
+    xa = meter_x(x0, w, band_lo, bot, top);
+    xb = meter_x(x0, w, top_db, bot, top);
+    gfx_set(zr, zg, zb, 1);
+    gfx_rect(xa, y, xb - xa, h, 1);
+  );
+);
+
+// align: 1 = right-edge tick, else a normal tick. gfx_rect's width is
+// exclusive of the last pixel column (rightmost drawn pixel is x+w-1),
+// so a right-edge tick's line is nudged 1px left to land exactly on it;
+// the left edge needs no such nudge since x0 itself is the first pixel.
+// The label always stays centered on the (possibly nudged) tick.
+function draw_tick(x0, w, ybot, db, bot, top, align)
+local(tx, tw, th)
+(
+  tx = meter_x(x0, w, db, bot, top);
+  align == 1 ? tx -= 1*scale;
+  gfx_set(0.4, 0.4, 0.43, 0.8);
+  gfx_line(tx, ybot, tx, ybot + 3*scale, 0);
+  db > 0 ? sprintf(#tk, "+%d", db) : sprintf(#tk, "%d", db);
+  gfx_setfont(1, "Arial", 11*scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_measurestr(#tk, tw, th);
+  gfx_x = tx - tw*0.5;
+  gfx_y = ybot + 4*scale;
+  gfx_drawstr(#tk);
+);
+
+MBW = 132*scale;
+
+GR_BOT = 0; GR_TOP = 40;
+
+function draw_gr_meter(cx)
+local(x0, y0, h, ybot, xb, tw, th)
+(
+  x0 = cx - MBW*0.5; y0 = row_y + KNRAD + 40*scale; h = 12*scale; ybot = y0 + h;
+
+  gfx_set(0.03, 0.03, 0.04, 1);
+  gfx_rect(x0, y0, MBW, h, 1);
+
+  draw_zone(x0, MBW, y0, h, GR_BOT, GR_TOP, di_gr, GR_BOT, GR_TOP, 0.85, 0.20, 0.20);
+
+  gfx_set(0, 0, 0, 0.6);
+  xb = x0 + 0.5*scale;
+  loop(floor(MBW / (2*scale)),
+    gfx_line(xb, y0, xb, y0 + h - 1, 0);
+    xb += 2*scale;
+  );
+
+  gr_hold = max(gr_hold, di_gr);
+  gr_hold > 0.1 ? (
+    xb = meter_x(x0, MBW, gr_hold, GR_BOT, GR_TOP);
+    gfx_set(1, 1, 1, 0.9);
+    gfx_rect(xb - 1*scale, y0, 2*scale, h, 1);
+  );
+
+  gfx_set(0.3, 0.3, 0.33, 1);
+  gfx_rect(x0, y0, MBW, h, 0);
+
+  gfx_setfont(1, "Arial", 13*scale);
+  gfx_set(0.8, 0.8, 0.82, 1);
+  sprintf(#grt, "GR %.1f dB (max)", gr_hold);
+  gfx_measurestr(#grt, tw, th);
+  gfx_x = cx - tw*0.5; gfx_y = ybot + 6*scale;
+  gfx_drawstr(#grt);
+
+  mouse_just_down && hit_rect(mouse_x, mouse_y, x0, y0, MBW + 14*scale, ybot + 30*scale - y0) ? gr_hold = 0;
+);
+
+OL_BOT = -45; OL_TOP = 0;
+
+function draw_ol_meter(cx)
+local(x0, y0, h, ybot, xb, tw, th)
+(
+  x0 = cx - MBW*0.5; y0 = row_y + KNRAD + 40*scale; h = 12*scale; ybot = y0 + h;
+
+  gfx_set(0.03, 0.03, 0.04, 1);
+  gfx_rect(x0, y0, MBW, h, 1);
+
+  draw_zone(x0, MBW, y0, h, OL_BOT, -18, outlevel_disp, OL_BOT, OL_TOP, 0, 0.6, 0.133);
+  draw_zone(x0, MBW, y0, h, -18, -9, outlevel_disp, OL_BOT, OL_TOP, 0, 1, 0);
+  draw_zone(x0, MBW, y0, h, -9, -3, outlevel_disp, OL_BOT, OL_TOP, 1, 0.941, 0);
+  draw_zone(x0, MBW, y0, h, -3, OL_TOP, outlevel_disp, OL_BOT, OL_TOP, 1, 0.502, 0);
+
+  gfx_set(0, 0, 0, 0.6);
+  xb = x0 + 0.5*scale;
+  loop(floor(MBW / (2*scale)),
+    gfx_line(xb, y0, xb, y0 + h - 1, 0);
+    xb += 2*scale;
+  );
+
+  ol_hold = max(ol_hold, outlevel_disp);
+  ol_hold > OL_BOT ? (
+    xb = meter_x(x0, MBW, ol_hold, OL_BOT, OL_TOP);
+    gfx_set(1, 1, 1, 0.9);
+    gfx_rect(xb - 1*scale, y0, 2*scale, h, 1);
+  );
+
+  gfx_set(0.3, 0.3, 0.33, 1);
+  gfx_rect(x0, y0, MBW, h, 0);
+
+  draw_tick(x0, MBW, ybot, OL_TOP, OL_BOT, OL_TOP, 1);
+  draw_tick(x0, MBW, ybot, -18, OL_BOT, OL_TOP, 0);
+  draw_tick(x0, MBW, ybot, -36, OL_BOT, OL_TOP, 0);
+  draw_tick(x0, MBW, ybot, OL_BOT, OL_BOT, OL_TOP, 0);
+
+  gfx_setfont(1, "Arial", 13*scale);
+  gfx_set(0.8, 0.8, 0.82, 1);
+  ol_hold > OL_BOT ? sprintf(#olt, "Out %.1f dB", ol_hold) : strcpy(#olt, "Out -inf");
+  gfx_measurestr(#olt, tw, th);
+  gfx_x = cx - tw*0.5; gfx_y = ybot + 17*scale;
+  gfx_drawstr(#olt);
+
+  mouse_just_down && hit_rect(mouse_x, mouse_y, x0, y0, MBW + 14*scale, ybot + 30*scale - y0) ? ol_hold = -160;
+);
+
+mouse_down = mouse_cap & 1;
+wheel = mouse_wheel; mouse_wheel = 0;
+wheel_once = 0;
+mouse_just_down = mouse_down && !mouse_state;
+
+gfx_set(0.12, 0.12, 0.14, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_setfont(1, "Arial", 20*scale, 'b');
+gfx_set(0.85, 0.35, 0.35, 1);
+gfx_x = MARGIN; gfx_y = 8*scale;
+gfx_drawstr("MAXIMIZER");
+gfx_setfont(1, "Arial", 13*scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = MARGIN + 2*scale; gfx_y = 30*scale;
+gfx_drawstr("by chmaha  ·  based on ZaMaximX2");
+
+KNRAD = 32*scale;
+colw = (gfx_w - 2*MARGIN) / 3;
+row_y = HEADER_H + 30*scale + KNRAD;
+cx0 = MARGIN + colw*0.5;
+cx1 = MARGIN + colw*1.5;
+cx2 = MARGIN + colw*2.5;
+
+knob(1, cx0, row_y, KNRAD, 0.30, 0.55, 0.80, "Release");
+knob(2, cx1, row_y, KNRAD, 0.85, 0.42, 0.28, "Threshold");
+knob(3, cx2, row_y, KNRAD, 0.70, 0.35, 0.80, "Ceiling");
+
+// GR readout ballistics: instant attack (mi_gr, accumulated per-sample in
+// @sample), slow dB/sec release here -- display smoothing only, the audio
+// path's gain (g/gainred) is untouched.
+DECAY_DB_PER_SEC = 20;
+gfx_time = time_precise();
+dt = last_gfx_time > 0 ? gfx_time - last_gfx_time : 0;
+last_gfx_time = gfx_time;
+di_gr = max(mi_gr, di_gr - DECAY_DB_PER_SEC*dt);
+di_gr = max(0, di_gr);
+mi_gr = 0;
+
+draw_gr_meter(cx1);
+draw_ol_meter(cx2);
+
+drag_target > 0 && (mouse_down || wheel_once) ? (
+  mouse_down ? mouse_cap |= 65536;
+  load_knob(drag_target);
+  newpos = max(0, min(1, drag_start_pos + (drag_start_y - mouse_y) / (150*scale)));
+  store_knob(drag_target, floor(pos_to_val(drag_target, newpos, k_min, k_max)*10 + 0.5)/10);
+);
+!mouse_down ? drag_target = 0;
+mouse_state = mouse_down;
+
+gfx_dest = -1; gfx_a = 1; gfx_mode = 6;
+ox > 0 ? (
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, 0, 0, ox, win_h);
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, ox + gfx_w, 0, win_w - ox - gfx_w, win_h);
+);
+win_h > gfx_h ? (
+  gfx_blit(127, 1, 0, 0, gfx_h - 1, gfx_w, 1, ox, gfx_h, gfx_w, win_h - gfx_h);
+);
+gfx_blit(127, 1, 0, 0, 0, gfx_w, gfx_h, ox, oy, gfx_w, gfx_h);
+gfx_mode = 0;
+gfx_w = win_w; gfx_h = win_h;

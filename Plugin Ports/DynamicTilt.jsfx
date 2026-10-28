@@ -1,0 +1,792 @@
+Version: 1.0
+desc: Dynamic Tilt by chmaha
+author: chmaha
+changelog:
+  Initial release.
+// A tilt EQ whose slope follows the signal. Original design by chmaha. GPLv3.
+//
+// Tilt path: a TPT one-pole split per channel, y = lp/q + hp*q with
+// q = 10^(tilt/40). The split frequency is pivot*q, which puts the pivot at
+// the geometric centre of the shelf transition, so the plateaus sit at
+// exactly +/- tilt/2 dB and the pivot itself stays at 0 dB. lp + hp == x for
+// any coefficient, so a moving tilt never glitches and 0 dB tilt is
+// transparent.
+//
+// Level mode (open loop): broadband RMS of the input over the threshold,
+// through a 6 dB soft knee, times Amount = dB of tilt per dB over, capped
+// at Max Tilt, whose sign picks the direction.
+//
+// Brightness mode (closed loop): HF/LF power ratio across a fixed
+// Linkwitz-Riley 24 dB/oct split at the pivot (measurement only; with a
+// first-order split so much LF leaks into the HF band that a big tilt
+// barely moves the reading), taken at both the input and the tilt's
+// output. The input reading and the knee/Ratio law say where the output
+// should land (2:1 = half the excess); an integrator moves the tilt until
+// the output reading gets there. How far a tilt moves the reading depends
+// on the spectrum, so an open-loop ratio would only be approximate; the
+// loop makes it exact for equal Attack/Release (unequal times lean it
+// toward the moments the attack side serves, as a compressor's ballistics
+// track peaks). Range's sign picks the side: negative darkens only when
+// brighter than the threshold, positive brightens only when duller;
+// Two-Sided does both, up to |Range| either way. The loop's detector
+// averages over 20 ms, so Attack/Release floor at 40 ms to keep it from
+// ringing. Held below -70 dB so reverb tails and silence don't swing the
+// tone.
+//
+// Learn (Brightness only): averages the input's brightness reading over
+// 5 s of ungated audio (pauses don't count), then sets the Threshold to
+// that average +3 dB for darken-only, -3 dB for brighten-only, or exactly
+// the average as Two-Sided's Target. 3 dB puts the knee's near edge
+// (it spans +/-3 dB) right at the typical reading: nothing happens at
+// normal brightness, it eases in as soon as the material departs from it,
+// and reaches the full ratio 6 dB past it.
+//
+// Auto Gain: the split is power-complementary (|LP|^2 + |HP|^2 = 1), so the
+// tilt's power gain is exactly (P_lo/q^2 + P_hi*q^2)/(P_lo + P_hi) for band
+// powers P_lo/P_hi across it. Those are K-weighted (BS.1770, Fons
+// Adriaensen's one-section form from Loudness Meter) and averaged
+// over 400 ms, which only tracks the programme's spectral split; the
+// compensation itself follows q sample by sample, so it keeps pace with
+// the tilt instead of lagging it. Held below -70 dB.
+// Claude generated some of this code
+
+slider1:1000<200,5000,1>-Pivot (Hz)
+slider2:1<0,1,1{Level,Brightness}>-Detector
+slider3:-24<-60,0,0.1>-Level Threshold (dB)
+slider4:50<0,100,0.1>-Level Amount (%)
+slider5:-6<-12,12,0.1>-Level Max Tilt (dB)
+slider6:10<0.1,200,0.1>-Level Attack (ms)
+slider7:150<10,2000,1>-Level Release (ms)
+slider8:-6<-30,10,0.1>-Brightness Threshold (dB)
+slider9:2<1,20,0.1>-Brightness Ratio
+slider10:-6<-12,12,0.1>-Brightness Range (dB)
+slider11:100<40,1000,1>-Brightness Attack (ms)
+slider12:300<40,3000,1>-Brightness Release (ms)
+slider13:0<0,1,1{Off,On}>-Two-Sided
+slider14:1<0,1,1{Off,On}>-Auto Gain
+slider15:0<-12,12,0.1>-Output (dB)
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+@init
+gfx_ext_retina = 1;
+ext_nodenorm = 1;
+LN10_20 = log(10)/20;
+KNEE = 6;
+LOOP_G = 1;
+BAL_MIN_MS = 40;
+LEARN_OFS = 3;
+LEARN_LEN = 5*srate;
+learn_on = 0; learn_req = 0; learn_n = 0; learn_sum = 0;
+GATE_P = 0.0000001;
+
+s0 = 0; s1 = 0;
+p_hi = 0; p_lo = 0; p_bb = 0;
+cur_t = 0; tgt_t = 0; det_db = -200; bal_in = -200; bal_gated = 1;
+po_hi = 0; po_lo = 0;
+e_lo = 0; e_hi = 0; frac_hi = 0.5; ag = 1;
+
+r0 = 1 / tan(4712.3890 / srate);
+w1 = r0 / 1.12201;
+w2 = r0 * 1.12201;
+u12 = 1.4085 + 210.0 / srate;
+ka = u12 * w1;
+kb = w1 * w1;
+kc = u12 * w2;
+kd = w2 * w2;
+r0 = 1 + ka + kb;
+k_a0 = (1 + kc + kd) / r0;
+k_a1 = (2 - 2*kd) / r0;
+k_a2 = (1 - kc + kd) / r0;
+k_b1 = (2 - 2*kb) / r0;
+k_b2 = (1 - ka + kb) / r0;
+r0 = 48.0 / srate;
+ka = 4.9886075 * r0;
+kb = 6.2298014 * r0 * r0;
+r0 = 1 + ka + kb;
+ka *= 2 / r0;
+kb *= 4 / r0;
+k_c3 = ka + kb;
+k_c4 = kb;
+r0 = 1.004995 / r0;
+k_a0 *= r0;
+k_a1 *= r0;
+k_a2 *= r0;
+
+function kw(x)
+instance(z1, z2, z3, z4, xk, yk)
+(
+  xk = x - k_b1*z1 - k_b2*z2 + 0.000000000000001;
+  yk = k_a0*xk + k_a1*z1 + k_a2*z2 - k_c3*z3 - k_c4*z4;
+  z2 = z1; z1 = xk; z4 += z3; z3 += yk;
+  yk;
+);
+
+function kw_reset()
+instance(z1, z2, z3, z4)
+(
+  z1 = 0; z2 = 0; z3 = 0; z4 = 0;
+);
+
+// Butterworth biquads (Q = 1/sqrt2), cascaded in pairs for the LR4
+// detector bands. Coefficients are per-block globals set from the pivot.
+function bq_lp(x)
+instance(z1, z2, y)
+(
+  y = lb0*x + z1;
+  z1 = lb1*x - la1*y + z2;
+  z2 = lb0*x - la2*y;
+  y;
+);
+function bq_hp(x)
+instance(z1, z2, y)
+(
+  y = hb0*x + z1;
+  z1 = hb1*x - la1*y + z2;
+  z2 = hb0*x - la2*y;
+  y;
+);
+function bq_flush()
+instance(z1, z2)
+(
+  abs(z1) < 0.000000000000000000000000000001 ? z1 = 0;
+  abs(z2) < 0.000000000000000000000000000001 ? z2 = 0;
+);
+
+// Soft-knee reduction law: how many dB of an excess ov to take away.
+function comp_law(ov, k)
+(
+  ov <= -0.5*KNEE ? 0 :
+  ov >= 0.5*KNEE ? ov*k :
+  k*sqr(ov + 0.5*KNEE)/(2*KNEE);
+);
+
+@block
+piv = max(20, min(slider1, 0.45*srate));
+bw_w = 2*$pi*piv/srate; bw_c = cos(bw_w); bw_al = sin(bw_w)/(2*0.7071067811865476);
+bw_n = 1/(1 + bw_al);
+lb0 = 0.5*(1 - bw_c)*bw_n; lb1 = (1 - bw_c)*bw_n;
+hb0 = 0.5*(1 + bw_c)*bw_n; hb1 = -(1 + bw_c)*bw_n;
+la1 = -2*bw_c*bw_n; la2 = (1 - bw_al)*bw_n;
+bal_mode = slider2 >= 0.5;
+
+// Learn: toggled from @gfx via learn_req; accumulated in @sample so it
+// keeps going whether or not the UI is open.
+learn_req ? ( learn_on = bal_mode && !learn_on; learn_n = 0; learn_sum = 0; learn_req = 0; );
+!bal_mode ? learn_on = 0;
+learn_on && learn_n >= LEARN_LEN ? (
+  l_off = slider13 >= 0.5 ? 0 : slider10 < 0 ? LEARN_OFS : -LEARN_OFS;
+  slider8 = max(-30, min(10, floor((learn_sum/learn_n + l_off)*10 + 0.5)/10));
+  sliderchange(slider8);
+  learn_on = 0;
+);
+
+bal_mode ? (
+  thr = slider8;
+  ratio_k = 1 - 1/max(1, slider9);
+  two_sided = slider13 >= 0.5;
+  t_lo_t = two_sided ? -abs(slider10) : min(0, slider10);
+  t_hi_t = two_sided ? abs(slider10) : max(0, slider10);
+  !lim_init ? ( t_lo = t_lo_t; t_hi = t_hi_t; lim_init = 1; );
+  bal_dir = slider10 < 0 ? -1 : 1;
+  att_c = exp(-1/(max(BAL_MIN_MS, slider11)*0.001*srate));
+  rel_c = exp(-1/(max(BAL_MIN_MS, slider12)*0.001*srate));
+) : (
+  thr = slider3;
+  ratio_k = max(0, min(1, slider4*0.01));
+  rng = slider5;
+  att_c = exp(-1/(max(0.05, slider6)*0.001*srate));
+  rel_c = exp(-1/(max(1, slider7)*0.001*srate));
+);
+env_c = exp(-1/((bal_mode ? 0.02 : 0.01)*srate));
+out_t = exp(slider15*LN10_20);
+!sm_init ? ( out_g = out_t; sm_init = 1; );
+sm_k = 1 - exp(-1 / (0.02 * srate));
+fp_max = 0.45*srate;
+ag_on = slider14 >= 0.5;
+ag_c = exp(-1/(0.4*srate));
+
+(kin0.z3 != kin0.z3 || kin0.z4 != kin0.z4) ? kin0.kw_reset();
+(kin1.z3 != kin1.z3 || kin1.z4 != kin1.z4) ? kin1.kw_reset();
+(klp0.z3 != klp0.z3 || klp0.z4 != klp0.z4) ? klp0.kw_reset();
+(klp1.z3 != klp1.z3 || klp1.z4 != klp1.z4) ? klp1.kw_reset();
+
+abs(s0) < 0.000000000000000000000000000001 ? s0 = 0;
+abs(s1) < 0.000000000000000000000000000001 ? s1 = 0;
+il0a.bq_flush(); il0b.bq_flush(); ih0a.bq_flush(); ih0b.bq_flush();
+il1a.bq_flush(); il1b.bq_flush(); ih1a.bq_flush(); ih1b.bq_flush();
+ol0a.bq_flush(); ol0b.bq_flush(); oh0a.bq_flush(); oh0b.bq_flush();
+ol1a.bq_flush(); ol1b.bq_flush(); oh1a.bq_flush(); oh1b.bq_flush();
+p_hi < 0.000000000000000000000000000001 ? p_hi = 0;
+p_lo < 0.000000000000000000000000000001 ? p_lo = 0;
+po_hi < 0.000000000000000000000000000001 ? po_hi = 0;
+po_lo < 0.000000000000000000000000000001 ? po_lo = 0;
+p_bb < 0.000000000000000000000000000001 ? p_bb = 0;
+
+@sample
+x0 = spl0;
+x1 = spl1;
+
+bal_mode ? (
+  dlo0 = il0b.bq_lp(il0a.bq_lp(x0)); dhi0 = ih0b.bq_hp(ih0a.bq_hp(x0));
+  dlo1 = il1b.bq_lp(il1a.bq_lp(x1)); dhi1 = ih1b.bq_hp(ih1a.bq_hp(x1));
+  p_hi = env_c*p_hi + (1 - env_c)*(dhi0*dhi0 + dhi1*dhi1);
+  p_lo = env_c*p_lo + (1 - env_c)*(dlo0*dlo0 + dlo1*dlo1);
+) : (
+  p_bb = env_c*p_bb + (1 - env_c)*0.5*(x0*x0 + x1*x1);
+  det_db = 10*log10(p_bb + 0.00000000000000000001);
+  tgt_t = min(comp_law(det_db - thr, ratio_k), abs(rng));
+  rng < 0 ? tgt_t = -tgt_t;
+  abs(tgt_t) > abs(cur_t) ? bc = att_c : bc = rel_c;
+  cur_t = tgt_t + bc*(cur_t - tgt_t);
+);
+
+q = exp(cur_t*LN10_20*0.5);
+tg = tan($pi*min(piv*q, fp_max)/srate);
+ta = tg/(1 + tg);
+
+v = (x0 - s0)*ta; lp0 = v + s0; s0 = lp0 + v;
+v = (x1 - s1)*ta; lp1 = v + s1; s1 = lp1 + v;
+y0 = lp0/q + (x0 - lp0)*q;
+y1 = lp1/q + (x1 - lp1)*q;
+
+// Brightness loop: measure the output's brightness, compare with where the
+// law says it should be, and integrate the tilt toward it (next sample).
+bal_mode ? (
+  olo0 = ol0b.bq_lp(ol0a.bq_lp(y0)); ohi0 = oh0b.bq_hp(oh0a.bq_hp(y0));
+  olo1 = ol1b.bq_lp(ol1a.bq_lp(y1)); ohi1 = oh1b.bq_hp(oh1a.bq_hp(y1));
+  po_hi = env_c*po_hi + (1 - env_c)*(ohi0*ohi0 + ohi1*ohi1);
+  po_lo = env_c*po_lo + (1 - env_c)*(olo0*olo0 + olo1*olo1);
+  p_hi + p_lo > GATE_P ? (
+    bal_gated = 0;
+    bal_in = 10*log10(max(p_hi, 0.00000000000000000001)/max(p_lo, 0.00000000000000000001));
+    det_db = 10*log10(max(po_hi, 0.00000000000000000001)/max(po_lo, 0.00000000000000000001));
+    learn_on ? ( learn_sum += bal_in; learn_n += 1; );
+    ov = bal_in - thr;
+    amt = two_sided ? comp_law(ov, ratio_k) - comp_law(-ov, ratio_k) :
+          bal_dir < 0 ? comp_law(ov, ratio_k) : -comp_law(-ov, ratio_k);
+    err = det_db - (bal_in - amt);
+    (cur_t == 0 || err*cur_t < 0) ? bc = att_c : bc = rel_c;
+    t_lo += sm_k * (t_lo_t - t_lo); t_hi += sm_k * (t_hi_t - t_hi);
+    cur_t = max(t_lo, min(t_hi, cur_t - LOOP_G*(1 - bc)*err));
+  ) : bal_gated = 1;
+);
+
+ag_on ? (
+  kx0 = kin0.kw(x0); kl0 = klp0.kw(lp0);
+  kx1 = kin1.kw(x1); kl1 = klp1.kw(lp1);
+  e_lo = ag_c*e_lo + (1 - ag_c)*(kl0*kl0 + kl1*kl1);
+  e_hi = ag_c*e_hi + (1 - ag_c)*(sqr(kx0 - kl0) + sqr(kx1 - kl1));
+  e_lo + e_hi > GATE_P ? frac_hi = e_hi/(e_lo + e_hi);
+  ag = 1/sqrt((1 - frac_hi)/(q*q) + frac_hi*q*q);
+) : ag = 1;
+
+out_g += sm_k * (out_t - out_g);
+spl0 = y0*ag*out_g;
+spl1 = y1*ag*out_g;
+
+@gfx 640 340
+
+scale = max(0.5, min(gfx_w / 640, gfx_h / 340));
+win_w = gfx_w; win_h = gfx_h;
+gfx_w = floor(640*scale); gfx_h = floor(340*scale);
+ox = floor((win_w - gfx_w) * 0.5);
+oy = 0;
+mouse_x -= ox; mouse_y -= oy;
+gfx_setimgdim(127, gfx_w, gfx_h);
+gfx_dest = 127;
+
+MARGIN = 14*scale;
+HEADER_H = 46*scale;
+
+function hit_circle(mx, my, cx, cy, rad)
+(
+  sqr(mx - cx) + sqr(my - cy) <= sqr(rad);
+);
+function hit_rect(mx, my, x, y, w, h)
+(
+  mx >= x && mx <= x+w && my >= y && my <= y+h;
+);
+
+function draw_knob(cx, cy, rad, pos, cr, cg, cb, valtext, minlabel, maxlabel, name)
+local(ang0, ang1, ang, i, tx, ty)
+(
+  ang0 = -2.35619;
+  ang1 =  2.35619;
+
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(cx, cy, rad + 2*scale, 1, 1);
+  gfx_set(cr*0.55, cg*0.55, cb*0.55, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rad*0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(cx - rad*0.28, cy - rad*0.28, rad*0.42, 1, 1);
+
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.85, 0.85, 0.85, 0.7);
+    gfx_line(cx + sin(ang)*rad*0.82, cy - cos(ang)*rad*0.82,
+             cx + sin(ang)*rad*0.98, cy - cos(ang)*rad*0.98);
+    i += 1;
+  );
+
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(cx, cy, cx + sin(ang)*rad*0.85, cy - cos(ang)*rad*0.85, 1);
+
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.85, 0.85, 0.85, 1);
+  gfx_measurestr(valtext, tx, ty);
+  gfx_x = cx - tx*0.5; gfx_y = cy - rad - 16*scale;
+  gfx_drawstr(valtext);
+
+  gfx_setfont(1, "Arial", 12*scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_x = cx - rad - 4*scale; gfx_y = cy + rad + 4*scale;
+  gfx_drawstr(minlabel);
+  gfx_measurestr(maxlabel, tx, ty);
+  gfx_x = cx + rad - tx + 4*scale; gfx_y = cy + rad + 4*scale;
+  gfx_drawstr(maxlabel);
+
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.8, 0.8, 0.82, 1);
+  gfx_measurestr(name, tx, ty);
+  gfx_x = cx - tx*0.5; gfx_y = cy + rad + 18*scale;
+  gfx_drawstr(name);
+);
+
+function header_btn(txt, active, right_edge, by, dim, tint, refstr)
+local(tw, th, rw, rh, bw, bh, bx, cr, cg, cb, gap)
+global(gfx_x, gfx_y, hb_x, hb_y, hb_w, hb_h, scale)
+(
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_measurestr(txt, tw, th);
+  gfx_measurestr(refstr, rw, rh);
+  bw = max(tw, rw) + 16*scale; bh = 20*scale;
+  bx = right_edge - bw;
+
+  tint == 1 ? ( cr = 0.15; cg = 0.62; cb = 0.60; ) :
+  tint == 2 ? ( cr = 0.58; cg = 0.40; cb = 0.88; ) :
+  active ? ( cr = 0.82; cg = 0.42; cb = 0.15; ) : ( cr = 0.22; cg = 0.22; cb = 0.25; );
+  gap = max(1, scale);
+
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(bx - gap, by - gap, bw + 2*gap, bh + 2*gap, 1);
+
+  gfx_set(cr*0.6, cg*0.6, cb*0.6, 1);
+  gfx_rect(bx, by, bw, bh, 1);
+
+  gfx_set(cr, cg, cb, 1);
+  gfx_rect(bx + gap, by + gap, bw - 2*gap, bh*0.5, 1);
+
+  gfx_set(1, 1, 1, active ? 0.22 : 0.10);
+  gfx_rect(bx + gap, by + gap, bw - 2*gap, bh*0.32, 1);
+
+  gfx_set(1, 1, 1, active ? 0.4 : 0.22);
+  gfx_rect(bx, by, bw, gap, 1);
+
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(bx, by + bh - gap, bw, gap, 1);
+
+  gfx_set(0.03, 0.03, 0.04, 1);
+  gfx_rect(bx - gap, by - gap, bw + 2*gap, bh + 2*gap, 0);
+
+  gfx_set(1, 1, 1, dim == 1 ? 0.3 : dim == 2 ? 0.6 : 0.9);
+  gfx_x = bx + (bw - tw)*0.5; gfx_y = by + 3*scale;
+  gfx_drawstr(txt);
+  hb_x = bx; hb_y = by; hb_w = bw; hb_h = bh;
+  bx;
+);
+
+// Knobs 2-6 map onto per-mode sliders: Level and Brightness each keep their
+// own Threshold, Amount/Ratio, Max Tilt/Range, Attack and Release.
+function knob_is_log(id) ( id == 1 || (id == 3 && slider2 >= 0.5) || id == 5 || id == 6 );
+
+function val_to_pos(id, val, mn, mx)
+(
+  knob_is_log(id) ? log(val/mn)/log(mx/mn) : (val - mn)/(mx - mn);
+);
+
+function pos_to_val(id, pos, mn, mx)
+(
+  knob_is_log(id) ? mn*pow(mx/mn, pos) : mn + pos*(mx - mn);
+);
+
+function load_knob(id)
+(
+  id == 1 ? (
+    k_min = 200; k_max = 5000; k_def = 1000; k_val = slider1;
+    slider1 >= 1000 ? sprintf(#kval, "%.2f kHz", slider1/1000) : sprintf(#kval, "%.0f Hz", slider1);
+    #kmin = "200"; #kmax = "5k";
+  ) : id == 7 ? (
+    k_min = -12; k_max = 12; k_def = 0; k_val = slider15;
+    sprintf(#kval, "%+.1f dB", slider15); #kmin = "-12"; #kmax = "+12";
+  ) : slider2 >= 0.5 ? (
+    id == 2 ? (
+      k_min = -30; k_max = 10; k_def = -6; k_val = slider8;
+      sprintf(#kval, "%+.1f dB", slider8); #kmin = "-30"; #kmax = "+10";
+    ) : id == 3 ? (
+      k_min = 1; k_max = 20; k_def = 2; k_val = slider9;
+      sprintf(#kval, "%.1f:1", slider9); #kmin = "1"; #kmax = "20";
+    ) : id == 4 ? (
+      k_min = -12; k_max = 12; k_def = -6; k_val = slider10;
+      sprintf(#kval, "%+.1f dB", slider10); #kmin = "-12"; #kmax = "+12";
+    ) : id == 5 ? (
+      k_min = 40; k_max = 1000; k_def = 100; k_val = slider11;
+      sprintf(#kval, "%.0f ms", slider11); #kmin = "40"; #kmax = "1k";
+    ) : (
+      k_min = 40; k_max = 3000; k_def = 300; k_val = slider12;
+      sprintf(#kval, "%.0f ms", slider12); #kmin = "40"; #kmax = "3k";
+    );
+  ) : (
+    id == 2 ? (
+      k_min = -60; k_max = 0; k_def = -24; k_val = slider3;
+      sprintf(#kval, "%+.1f dB", slider3); #kmin = "-60"; #kmax = "0";
+    ) : id == 3 ? (
+      k_min = 0; k_max = 100; k_def = 50; k_val = slider4;
+      sprintf(#kval, "%.1f%%", slider4); #kmin = "0"; #kmax = "100";
+    ) : id == 4 ? (
+      k_min = -12; k_max = 12; k_def = -6; k_val = slider5;
+      sprintf(#kval, "%+.1f dB", slider5); #kmin = "-12"; #kmax = "+12";
+    ) : id == 5 ? (
+      k_min = 0.1; k_max = 200; k_def = 10; k_val = slider6;
+      sprintf(#kval, "%.1f ms", slider6); #kmin = "0.1"; #kmax = "200";
+    ) : (
+      k_min = 10; k_max = 2000; k_def = 150; k_val = slider7;
+      sprintf(#kval, "%.0f ms", slider7); #kmin = "10"; #kmax = "2k";
+    );
+  );
+  k_pos = max(0, min(1, val_to_pos(id, k_val, k_min, k_max)));
+);
+
+// Pivot and the ms knobs (bar Level Attack) round to whole units,
+// everything else to 0.1.
+function round_knob(id, v)
+(
+  id == 1 || id == 6 || (id == 5 && slider2 >= 0.5) ? floor(v + 0.5) : floor(v*10 + 0.5)/10;
+);
+
+function store_knob(id, v)
+(
+  id == 1 ? ( slider1 = v; slider_automate(slider1); ) :
+  id == 7 ? ( slider15 = v; slider_automate(slider15); ) :
+  slider2 >= 0.5 ? (
+    id == 2 ? ( slider8 = v; slider_automate(slider8); ) :
+    id == 3 ? ( slider9 = v; slider_automate(slider9); ) :
+    id == 4 ? ( slider10 = v; slider_automate(slider10); ) :
+    id == 5 ? ( slider11 = v; slider_automate(slider11); ) :
+              ( slider12 = v; slider_automate(slider12); );
+  ) : (
+    id == 2 ? ( slider3 = v; slider_automate(slider3); ) :
+    id == 3 ? ( slider4 = v; slider_automate(slider4); ) :
+    id == 4 ? ( slider5 = v; slider_automate(slider5); ) :
+    id == 5 ? ( slider6 = v; slider_automate(slider6); ) :
+              ( slider7 = v; slider_automate(slider7); );
+  );
+);
+
+function knob(id, cx, cy, rad, cr, cg, cb, name)
+(
+  load_knob(id);
+  draw_knob(cx, cy, rad, k_pos, cr, cg, cb, #kval, #kmin, #kmax, name);
+  mouse_just_down && hit_circle(mouse_x, mouse_y, cx, cy, rad) ? (
+    (click_target == id && time_precise() - click_time < 0.3) ? (
+      store_knob(id, k_def);
+    ) : (
+      drag_target = id; drag_start_y = mouse_y; drag_start_pos = k_pos;
+    );
+    click_target = id; click_time = time_precise();
+  );
+  wheel != 0 && hit_circle(mouse_x, mouse_y, cx, cy, rad) ? (
+    drag_target = id; drag_start_pos = max(0, min(1, k_pos + wheel/120*0.02)); drag_start_y = mouse_y; wheel_once = 1;
+  );
+);
+
+// Response graph: 20 Hz - 20 kHz log, +/- GDB dB.
+GDB = 8;
+
+function freq_x(f) ( GX0 + (GX1 - GX0)*log(f/20)/log(1000); );
+function db_y(db) ( (GY0 + GY1)*0.5 - (GY1 - GY0)*0.5*max(-GDB, min(GDB, db))/GDB; );
+
+// Same analog prototype as the audio path (split at pivot*q, plateaus
+// 1/q and q); the bilinear warp only matters well above 10 kHz.
+function tilt_resp_db(f, t)
+local(qq, xx)
+(
+  qq = exp(t*LN10_20*0.5);
+  xx = f/(max(20, slider1)*qq);
+  10*log10((1/(qq*qq) + qq*qq*xx*xx)/(1 + xx*xx));
+);
+
+function draw_curve(t)
+local(px, f, first)
+(
+  first = 1;
+  px = GX0;
+  while (px <= GX1) (
+    f = 20*pow(1000, (px - GX0)/(GX1 - GX0));
+    first ? ( gfx_x = px; gfx_y = db_y(tilt_resp_db(f, t)); first = 0; ) :
+            gfx_lineto(px, db_y(tilt_resp_db(f, t)), 1);
+    px += 2*scale;
+  );
+);
+
+function draw_vgrid(f, lbl)
+local(gx, tw, th)
+(
+  gx = freq_x(f);
+  gfx_set(0.26, 0.26, 0.29, 1);
+  gfx_line(gx, GY0, gx, GY1, 0);
+  gfx_setfont(1, "Arial", 11*scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_measurestr(lbl, tw, th);
+  gfx_x = gx + 3*scale; gfx_y = GY1 - th - 2*scale;
+  gfx_drawstr(lbl);
+);
+
+function draw_hgrid(db, lbl)
+local(gy, th, tw)
+(
+  gy = db_y(db);
+  db == 0 ? gfx_set(0.38, 0.38, 0.42, 1) : gfx_set(0.22, 0.22, 0.25, 1);
+  gfx_line(GX0, gy, GX1, gy, 0);
+  gfx_setfont(1, "Arial", 11*scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_measurestr(lbl, tw, th);
+  gfx_x = GX0 + 3*scale; gfx_y = gy - th - 1*scale;
+  gfx_drawstr(lbl);
+);
+
+function draw_graph()
+local(gx, tw, th)
+(
+  gfx_set(0.06, 0.06, 0.07, 1);
+  gfx_rect(GX0, GY0, GX1 - GX0, GY1 - GY0, 1);
+
+  draw_hgrid(6, "+6");
+  draw_hgrid(3, "+3");
+  draw_hgrid(0, "0 dB");
+  draw_hgrid(-3, "-3");
+  draw_hgrid(-6, "-6");
+  draw_vgrid(50, "50");
+  draw_vgrid(100, "100");
+  draw_vgrid(200, "200");
+  draw_vgrid(500, "500");
+  draw_vgrid(1000, "1k");
+  draw_vgrid(2000, "2k");
+  draw_vgrid(5000, "5k");
+  draw_vgrid(10000, "10k");
+
+  gx = freq_x(max(20, slider1));
+  gfx_set(0.82, 0.42, 0.15, 0.5);
+  gfx_line(gx, GY0, gx, GY1, 0);
+
+  gfx_set(0.55, 0.55, 0.6, 0.45);
+  slider2 >= 0.5 ? (
+    draw_curve(slider10);
+    slider13 >= 0.5 ? draw_curve(-slider10);
+  ) : draw_curve(slider5);
+
+  cur_t < 0 ? gfx_set(0.40, 0.65, 0.95, 1) : gfx_set(0.95, 0.78, 0.30, 1);
+  draw_curve(cur_t);
+  draw_curve(cur_t);
+
+  slider14 >= 0.5 ? (
+    sprintf(#agt, "Auto Gain %+.1f dB", 20*log10(ag));
+    gfx_setfont(1, "Arial", 12*scale);
+    gfx_set(0.7, 0.7, 0.73, 1);
+    gfx_measurestr(#agt, tw, th);
+    gfx_x = GX1 - tw - 6*scale; gfx_y = GY0 + 4*scale;
+    gfx_drawstr(#agt);
+  );
+
+  gfx_set(0.3, 0.3, 0.33, 1);
+  gfx_rect(GX0, GY0, GX1 - GX0, GY1 - GY0, 0);
+);
+
+function bar_x(x0, w, v, lo, hi) ( x0 + w*(max(lo, min(hi, v)) - lo)/(hi - lo); );
+
+function bar_bg(x0, y0, w, h)
+(
+  gfx_set(0.03, 0.03, 0.04, 1);
+  gfx_rect(x0, y0, w, h, 1);
+);
+
+function bar_fg(x0, y0, w, h)
+local(xb)
+(
+  gfx_set(0, 0, 0, 0.6);
+  xb = x0 + 0.5*scale;
+  loop(floor(w / (2*scale)),
+    gfx_line(xb, y0, xb, y0 + h - 1, 0);
+    xb += 2*scale;
+  );
+  gfx_set(0.3, 0.3, 0.33, 1);
+  gfx_rect(x0, y0, w, h, 0);
+);
+
+function bar_label(x0, y0, h, lbl)
+local(tw, th)
+(
+  gfx_setfont(1, "Arial", 13*scale);
+  gfx_set(0.8, 0.8, 0.82, 1);
+  gfx_measurestr(lbl, tw, th);
+  gfx_x = x0 - tw - 8*scale; gfx_y = y0 + (h - th)*0.5;
+  gfx_drawstr(lbl);
+);
+
+// Detector bar: the live detector reading with the threshold marked, so
+// the threshold can be set by eye in either mode. In Brightness mode the fill
+// is the output's brightness (what the loop steers) and the thin white line
+// is the input's.
+function draw_det_bar(x0, y0, w, h)
+local(lo, hi, xa, xt)
+(
+  slider2 >= 0.5 ? ( lo = -30; hi = 10; ) : ( lo = -60; hi = 0; );
+  bar_bg(x0, y0, w, h);
+  xa = bar_x(x0, w, det_db, lo, hi);
+  slider2 >= 0.5 && bal_gated ? gfx_set(0.3, 0.3, 0.32, 1) : gfx_set(0, 0.6, 0.133, 1);
+  gfx_rect(x0, y0, xa - x0, h, 1);
+  bar_fg(x0, y0, w, h);
+  slider2 >= 0.5 && !bal_gated ? (
+    xa = bar_x(x0, w, bal_in, lo, hi);
+    gfx_set(1, 1, 1, 0.8);
+    gfx_rect(xa - 0.5*scale, y0, max(1, scale), h, 1);
+  );
+  xt = bar_x(x0, w, slider2 >= 0.5 ? slider8 : slider3, lo, hi);
+  gfx_set(0.95, 0.5, 0.15, 1);
+  gfx_rect(xt - 1*scale, y0 - 2*scale, 2*scale, h + 4*scale, 1);
+
+  slider2 >= 0.5 ? (
+    bal_gated ? strcpy(#dett, "Brightness --") : sprintf(#dett, "Brightness %+.1f dB", det_db);
+  ) : (
+    det_db > -100 ? sprintf(#dett, "Level %.1f dB", det_db) : strcpy(#dett, "Level -inf");
+  );
+  bar_label(x0, y0, h, #dett);
+);
+
+// Tilt bar: bipolar, filled from the centre; blue = darker, gold = brighter.
+function draw_tilt_bar(x0, y0, w, h)
+local(xc, xa)
+(
+  bar_bg(x0, y0, w, h);
+  xc = x0 + w*0.5;
+  xa = bar_x(x0, w, cur_t, -12, 12);
+  cur_t < 0 ? (
+    gfx_set(0.40, 0.65, 0.95, 1);
+    gfx_rect(xa, y0, xc - xa, h, 1);
+  ) : (
+    gfx_set(0.95, 0.78, 0.30, 1);
+    gfx_rect(xc, y0, xa - xc, h, 1);
+  );
+  bar_fg(x0, y0, w, h);
+  gfx_set(0.8, 0.8, 0.82, 1);
+  gfx_line(xc, y0 - 2*scale, xc, y0 + h + 1*scale, 0);
+  sprintf(#tiltt, "Tilt %+.1f dB", cur_t);
+  bar_label(x0, y0, h, #tiltt);
+);
+
+mouse_down = mouse_cap & 1;
+wheel = mouse_wheel; mouse_wheel = 0;
+wheel_once = 0;
+mouse_just_down = mouse_down && !mouse_state;
+
+gfx_set(0.12, 0.12, 0.14, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_setfont(1, "Arial", 20*scale, 'b');
+gfx_set(0.85, 0.35, 0.35, 1);
+gfx_x = MARGIN; gfx_y = 8*scale;
+gfx_drawstr("DYNAMIC TILT");
+gfx_setfont(1, "Arial", 13*scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = MARGIN + 2*scale; gfx_y = 30*scale;
+gfx_drawstr("by chmaha");
+
+KNRAD = 26*scale;
+colw = (gfx_w - 2*MARGIN) / 7;
+
+// Flush with the graph's right edge (header_btn's dark outline sits one gap
+// outside the face); the pair touch, sharing a single outline pixel.
+right_edge = gfx_w - MARGIN - max(1, scale);
+right_edge = header_btn("Brightness", slider2 >= 0.5, right_edge, 6*scale, 0, 0, "");
+bal_x = hb_x; bal_y = hb_y; bal_w = hb_w; bal_h = hb_h;
+right_edge = header_btn("Level", slider2 < 0.5, right_edge, 6*scale, 0, 0, "Brightness");
+lvl_x = hb_x; lvl_y = hb_y; lvl_w = hb_w; lvl_h = hb_h;
+right_edge -= 8*scale;
+// Two-Sided and Learn only exist in Brightness mode: greyed out and inert
+// in Level.
+right_edge = header_btn("Two-Sided", slider2 >= 0.5 && slider13 >= 0.5, right_edge, 6*scale, slider2 >= 0.5 ? 0 : 1, 0, "");
+tsb_x = hb_x; tsb_y = hb_y; tsb_w = hb_w; tsb_h = hb_h;
+right_edge -= 8*scale;
+learn_on ? sprintf(#lrn, "Learn %d%%", min(99, floor(100*learn_n/LEARN_LEN))) : strcpy(#lrn, "Learn");
+right_edge = header_btn(#lrn, learn_on, right_edge, 6*scale, slider2 >= 0.5 ? 0 : 1, 0, "Learn 100%");
+lrb_x = hb_x; lrb_y = hb_y; lrb_w = hb_w; lrb_h = hb_h;
+right_edge -= 8*scale;
+right_edge = header_btn("Auto Gain", slider14 >= 0.5, right_edge, 6*scale, 0, 0, "");
+agb_x = hb_x; agb_y = hb_y; agb_w = hb_w; agb_h = hb_h;
+
+mouse_just_down && hit_rect(mouse_x, mouse_y, agb_x, agb_y, agb_w, agb_h) ? (
+  slider14 = slider14 >= 0.5 ? 0 : 1; slider_automate(slider14);
+);
+mouse_just_down && slider2 >= 0.5 && hit_rect(mouse_x, mouse_y, lrb_x, lrb_y, lrb_w, lrb_h) ? learn_req = 1;
+mouse_just_down && slider2 >= 0.5 && hit_rect(mouse_x, mouse_y, tsb_x, tsb_y, tsb_w, tsb_h) ? (
+  slider13 = slider13 >= 0.5 ? 0 : 1; slider_automate(slider13);
+);
+mouse_just_down && hit_rect(mouse_x, mouse_y, bal_x, bal_y, bal_w, bal_h) ? (
+  slider2 = 1; slider_automate(slider2);
+);
+mouse_just_down && hit_rect(mouse_x, mouse_y, lvl_x, lvl_y, lvl_w, lvl_h) ? (
+  slider2 = 0; slider_automate(slider2);
+);
+
+GX0 = MARGIN; GX1 = gfx_w - MARGIN;
+GY0 = HEADER_H; GY1 = GY0 + 130*scale;
+draw_graph();
+
+BAR_Y = GY1 + 12*scale;
+BAR_H = 10*scale;
+BAR_W = (gfx_w - 2*MARGIN)*0.5 - 130*scale;
+draw_det_bar(MARGIN + 120*scale, BAR_Y, BAR_W, BAR_H);
+draw_tilt_bar(gfx_w - MARGIN - BAR_W, BAR_Y, BAR_W, BAR_H);
+
+row_y = BAR_Y + BAR_H + 34*scale + KNRAD;
+knob(1, MARGIN + colw*0.5, row_y, KNRAD, 0.85, 0.42, 0.28, "Pivot");
+// Two-Sided pulls toward the value from both sides, so it's a target
+// there; everywhere else it only acts past it, so it's a threshold.
+slider2 >= 0.5 && slider13 >= 0.5 ? #kn2 = "Target" : #kn2 = "Threshold";
+knob(2, MARGIN + colw*1.5, row_y, KNRAD, 0.30, 0.55, 0.80, #kn2);
+slider2 >= 0.5 ? ( #kn3 = "Ratio"; #kn4 = "Range"; ) : ( #kn3 = "Amount"; #kn4 = "Max Tilt"; );
+knob(3, MARGIN + colw*2.5, row_y, KNRAD, 0.50, 0.42, 0.90, #kn3);
+knob(4, MARGIN + colw*3.5, row_y, KNRAD, 0.15, 0.62, 0.60, #kn4);
+knob(5, MARGIN + colw*4.5, row_y, KNRAD, 0.30, 0.55, 0.80, "Attack");
+knob(6, MARGIN + colw*5.5, row_y, KNRAD, 0.30, 0.55, 0.80, "Release");
+knob(7, MARGIN + colw*6.5, row_y, KNRAD, 0.70, 0.35, 0.80, "Output");
+
+drag_target > 0 && (mouse_down || wheel_once) ? (
+  mouse_down ? mouse_cap |= 65536;
+  load_knob(drag_target);
+  newpos = max(0, min(1, drag_start_pos + (drag_start_y - mouse_y) / (150*scale)));
+  store_knob(drag_target, max(k_min, min(k_max, round_knob(drag_target, pos_to_val(drag_target, newpos, k_min, k_max)))));
+);
+!mouse_down ? drag_target = 0;
+mouse_state = mouse_down;
+
+gfx_dest = -1; gfx_a = 1; gfx_mode = 6;
+ox > 0 ? (
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, 0, 0, ox, win_h);
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, ox + gfx_w, 0, win_w - ox - gfx_w, win_h);
+);
+win_h > gfx_h ? (
+  gfx_blit(127, 1, 0, 0, gfx_h - 1, gfx_w, 1, ox, gfx_h, gfx_w, win_h - gfx_h);
+);
+gfx_blit(127, 1, 0, 0, 0, gfx_w, gfx_h, ox, oy, gfx_w, gfx_h);
+gfx_mode = 0;
+gfx_w = win_w; gfx_h = win_h;

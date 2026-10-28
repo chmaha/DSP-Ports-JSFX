@@ -1,0 +1,454 @@
+Version: 1.0
+desc: Delay (ZamDelay port) by chmaha
+author: chmaha
+changelog:
+  Initial release.
+// DSP from ZamDelay by Damien Zammit (zam-plugins). GPLv2+.
+// JSFX port by chmaha.
+// https://github.com/zamaudio/zam-plugins/tree/master/plugins/ZamDelay
+// Claude generated some of this code
+
+slider1:160<1,8000,1>-Time (ms)
+slider2:0<0,1,1{Off,On}>-Sync BPM
+slider3:3<1,5,1{Whole,Half,Quarter,Eighth,Sixteenth}>-Division
+slider4:6000<20,20000,1>-LPF (Hz)
+slider5:0<0,100,0.1>-Feedback (%)
+slider6:50<0,100,0.1>-Dry/Wet (%)
+slider7:0<-60,0,0.01>-Gain (dB)
+slider8:0<0,1,1{Off,On}>-Invert
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+@init
+gfx_ext_retina = 1;
+ext_nodenorm = 1;
+DENORM = 0.0000000000000000555111512312578270211815834045;
+
+buflen = ceil(8*srate) + 8;
+fbase = 0;
+lch.zbase = fbase; fbase += buflen;
+rch.zbase = fbase; fbase += buflen;
+
+function d_reset(bufbase, n)
+instance(zbase, len, posz, fbstate, st0, st1, st2, st3)
+local(i)
+(
+  this.zbase = bufbase;
+  this.len = n;
+  this.posz = 0;
+  this.fbstate = 0;
+  this.st0 = 0; this.st1 = 0; this.st2 = 0; this.st3 = 0;
+  i = 0;
+  loop(n,
+    this.zbase[i] = 0;
+    i += 1;
+  );
+);
+
+lch.d_reset(lch.zbase, buflen);
+rch.d_reset(rch.zbase, buflen);
+
+function lpf_rbj(fc, sr)
+local(w0, sw, cw, alpha)
+(
+  w0 = 2*$pi*fc/sr;
+  sw = sin(w0);
+  cw = cos(w0);
+  alpha = sw/(2*0.707);
+  A0 = 1 + alpha;
+  A1 = -2*cw;
+  A2 = 1 - alpha;
+  B0 = (1 - cw)/2;
+  B1 = (1 - cw);
+  B2 = B0;
+);
+
+function d_process(x)
+instance(zbase, len, posz, fbstate, st0, st1, st2, st3)
+local(p, p2, w, filt_in, out)
+(
+  w = x + feedb*this.fbstate;
+  this.zbase[this.posz] = w;
+  this.fbstate = 0;
+
+  p = this.posz - tap_active;
+  p < 0 ? p += this.len;
+  this.fbstate += this.zbase[p];
+
+  recalc ? (
+    this.fbstate *= (1 - xfade);
+    p2 = this.posz - tap_next;
+    p2 < 0 ? p2 += this.len;
+    this.fbstate += this.zbase[p2]*xfade;
+  );
+
+  filt_in = abs(this.fbstate) < DENORM ? 0 : this.fbstate;
+  out = B0/A0*filt_in + B1/A0*this.st0 + B2/A0*this.st1
+        - A1/A0*this.st2 - A2/A0*this.st3 + 0.000000000001;
+  this.st1 = this.st0; this.st0 = filt_in;
+  this.st3 = this.st2; this.st2 = out;
+
+  this.posz += 1;
+  this.posz >= this.len ? this.posz = 0;
+
+  og*(dry*x + wet*polarity*out);
+);
+
+tap_a = floor(slider1*srate/1000);
+tap_b = tap_a;
+active_is_a = 1;
+recalc_prev = 0;
+
+lpf_rbj(slider4, srate);
+
+@block
+recalc_prev ? ( active_is_a = !active_is_a; );
+
+lpf_t = slider4;
+
+divisor = floor(slider3 + 0.5);
+sync_on = slider2 >= 0.5;
+manual_ms = slider1;
+
+sync_on && tempo > 0 ? (
+  eff_ms = ts_denom*60000/(tempo*pow(2, divisor - 1));
+) : (
+  eff_ms = manual_ms;
+);
+eff_ms = max(1, min(8000, eff_ms));
+
+delaysamples = floor(eff_ms*srate/1000);
+delaysamples = max(1, min(buflen - 4, delaysamples));
+
+feedb = slider5*0.01;
+wet_t = slider6*0.01;
+dry_t = 1 - wet_t;
+outgain = exp(slider7*(log(10)*0.05));
+!sm_init ? ( wet = wet_t; dry = dry_t; og = outgain; lpf_f = lpf_t; sm_init = 1; );
+sm_k = 1 - exp(-1 / (0.02 * srate));
+polarity = slider8 >= 0.5 ? -1 : 1;
+
+recalc = divisor != divisor_old || sync_on != sync_old || manual_ms != manual_ms_old ||
+         eff_ms != eff_ms_old || outgain != outgain_old || polarity != polarity_old;
+
+recalc ? (
+  active_is_a ? ( tap_b = delaysamples; ) : ( tap_a = delaysamples; );
+);
+tap_active = active_is_a ? tap_a : tap_b;
+tap_next   = active_is_a ? tap_b : tap_a;
+
+xfade = 0;
+xinc = recalc && samplesblock > 0 ? 1/samplesblock : 0;
+recalc_prev = recalc;
+
+divisor_old = divisor;
+sync_old = sync_on;
+manual_ms_old = manual_ms;
+eff_ms_old = eff_ms;
+outgain_old = outgain;
+polarity_old = polarity;
+
+@sample
+wet += sm_k * (wet_t - wet); dry += sm_k * (dry_t - dry); og += sm_k * (outgain - og);
+lpf_f !== lpf_t ? (
+  lpf_f += sm_k * (lpf_t - lpf_f);
+  abs(lpf_t - lpf_f) < 0.01 ? lpf_f = lpf_t;
+  lpf_cnt += 1;
+  lpf_cnt >= 16 || lpf_f === lpf_t ? ( lpf_cnt = 0; lpf_rbj(lpf_f, srate); );
+);
+recalc ? xfade += xinc;
+spl0 = lch.d_process(spl0);
+spl1 = rch.d_process(spl1);
+
+@gfx 660 320
+
+scale = max(0.5, min(gfx_w / 660, gfx_h / 320));
+win_w = gfx_w; win_h = gfx_h;
+gfx_w = floor(660*scale); gfx_h = floor(320*scale);
+ox = floor((win_w - gfx_w) * 0.5);
+oy = 0;
+mouse_x -= ox; mouse_y -= oy;
+gfx_setimgdim(127, gfx_w, gfx_h);
+gfx_dest = 127;
+
+MARGIN = 14*scale;
+HEADER_H = 46*scale;
+
+function hit_circle(mx, my, cx, cy, rad)
+(
+  sqr(mx - cx) + sqr(my - cy) <= sqr(rad);
+);
+function hit_rect(mx, my, x, y, w, h)
+(
+  mx >= x && mx <= x+w && my >= y && my <= y+h;
+);
+
+function draw_knob(cx, cy, rad, pos, cr, cg, cb, valtext, minlabel, maxlabel, name)
+local(ang0, ang1, ang, i, tx, ty)
+(
+  ang0 = -2.35619;
+  ang1 =  2.35619;
+
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(cx, cy, rad + 2*scale, 1, 1);
+  gfx_set(cr*0.55, cg*0.55, cb*0.55, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rad*0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(cx - rad*0.28, cy - rad*0.28, rad*0.42, 1, 1);
+
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.85, 0.85, 0.85, 0.7);
+    gfx_line(cx + sin(ang)*rad*0.82, cy - cos(ang)*rad*0.82,
+             cx + sin(ang)*rad*0.98, cy - cos(ang)*rad*0.98);
+    i += 1;
+  );
+
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(cx, cy, cx + sin(ang)*rad*0.85, cy - cos(ang)*rad*0.85, 1);
+
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.85, 0.85, 0.85, 1);
+  gfx_measurestr(valtext, tx, ty);
+  gfx_x = cx - tx*0.5; gfx_y = cy - rad - 16*scale;
+  gfx_drawstr(valtext);
+
+  gfx_setfont(1, "Arial", 12*scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_x = cx - rad - 4*scale; gfx_y = cy + rad + 4*scale;
+  gfx_drawstr(minlabel);
+  gfx_measurestr(maxlabel, tx, ty);
+  gfx_x = cx + rad - tx + 4*scale; gfx_y = cy + rad + 4*scale;
+  gfx_drawstr(maxlabel);
+
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.8, 0.8, 0.82, 1);
+  gfx_measurestr(name, tx, ty);
+  gfx_x = cx - tx*0.5; gfx_y = cy + rad + 18*scale;
+  gfx_drawstr(name);
+);
+
+function header_btn(txt, active, xref, by, dim, tint, refstr, align)
+local(tw, th, rw, rh, bw, bh, bx, cr, cg, cb, gap)
+global(gfx_x, gfx_y, hb_x, hb_y, hb_w, hb_h, scale)
+(
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_measurestr(txt, tw, th);
+  gfx_measurestr(refstr, rw, rh);
+  bw = max(tw, rw) + 16*scale; bh = 20*scale;
+  bx = align ? xref - bw*0.5 : xref - bw;
+
+  tint == 1 ? ( cr = 0.15; cg = 0.62; cb = 0.60; ) :
+  tint == 2 ? ( cr = 0.58; cg = 0.40; cb = 0.88; ) :
+  tint == 3 ? ( active ? ( cr = 0.25; cg = 0.70; cb = 0.30; ) : ( cr = 0.75; cg = 0.20; cb = 0.20; ) ) :
+  active ? ( cr = 0.82; cg = 0.42; cb = 0.15; ) : ( cr = 0.22; cg = 0.22; cb = 0.25; );
+  gap = max(1, scale);
+
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(bx - gap, by - gap, bw + 2*gap, bh + 2*gap, 1);
+
+  gfx_set(cr*0.6, cg*0.6, cb*0.6, 1);
+  gfx_rect(bx, by, bw, bh, 1);
+
+  gfx_set(cr, cg, cb, 1);
+  gfx_rect(bx + gap, by + gap, bw - 2*gap, bh*0.5, 1);
+
+  gfx_set(1, 1, 1, active ? 0.22 : 0.10);
+  gfx_rect(bx + gap, by + gap, bw - 2*gap, bh*0.32, 1);
+
+  gfx_set(1, 1, 1, active ? 0.4 : 0.22);
+  gfx_rect(bx, by, bw, gap, 1);
+
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(bx, by + bh - gap, bw, gap, 1);
+
+  gfx_set(0.03, 0.03, 0.04, 1);
+  gfx_rect(bx - gap, by - gap, bw + 2*gap, bh + 2*gap, 0);
+
+  gfx_set(1, 1, 1, dim == 1 ? 0.3 : dim == 2 ? 0.6 : 0.9);
+  gfx_x = bx + (bw - tw)*0.5; gfx_y = by + 3*scale;
+  gfx_drawstr(txt);
+  hb_x = bx; hb_y = by; hb_w = bw; hb_h = bh;
+  bx;
+);
+
+function load_knob(id)
+(
+  id == 1 ? (
+    k_min = 1; k_max = 8000; k_def = 160;
+    sync_on ? (
+      k_val = eff_ms;
+      sprintf(#kval, "%.1f ms", eff_ms);
+    ) : (
+      k_val = slider1;
+      sprintf(#kval, "%.1f ms", slider1);
+    );
+    #kmin = "1"; #kmax = "8000";
+  ) : id == 2 ? (
+    k_min = 20; k_max = 20000; k_def = 6000; k_val = slider4;
+    sprintf(#kval, "%.0f Hz", slider4); #kmin = "20"; #kmax = "20000";
+  ) : id == 3 ? (
+    k_min = 0; k_max = 100; k_def = 0; k_val = slider5;
+    sprintf(#kval, "%.1f%%", slider5); #kmin = "0"; #kmax = "100";
+  ) : id == 4 ? (
+    k_min = 0; k_max = 100; k_def = 50; k_val = slider6;
+    sprintf(#kval, "%.1f%%", slider6); #kmin = "0"; #kmax = "100";
+  ) : (
+    k_min = -60; k_max = 0; k_def = 0; k_val = slider7;
+    sprintf(#kval, "%+.2f dB", slider7); #kmin = "-60"; #kmax = "0";
+  );
+  k_pos = max(0, min(1, (k_val - k_min)/(k_max - k_min)));
+);
+
+function store_knob(id, v)
+(
+  id == 1 ? ( slider1 = v; slider_automate(slider1); ) :
+  id == 2 ? ( slider4 = v; slider_automate(slider4); ) :
+  id == 3 ? ( slider5 = v; slider_automate(slider5); ) :
+  id == 4 ? ( slider6 = v; slider_automate(slider6); ) :
+            ( slider7 = v; slider_automate(slider7); );
+);
+
+function knob(id, cx, cy, rad, cr, cg, cb, name)
+local(locked)
+(
+  locked = (id == 1 && sync_on);
+  load_knob(id);
+  draw_knob(cx, cy, rad, k_pos, cr, cg, cb, #kval, #kmin, #kmax, name);
+  !locked && mouse_just_down && hit_circle(mouse_x, mouse_y, cx, cy, rad) ? (
+    (click_target == id && time_precise() - click_time < 0.3) ? (
+      store_knob(id, k_def);
+    ) : (
+      drag_target = id; drag_start_y = mouse_y; drag_start_pos = k_pos;
+    );
+    click_target = id; click_time = time_precise();
+  );
+  !locked && wheel != 0 && hit_circle(mouse_x, mouse_y, cx, cy, rad) ? (
+    drag_target = id; drag_start_pos = max(0, min(1, k_pos + wheel/120*0.02)); drag_start_y = mouse_y; wheel_once = 1;
+  );
+);
+
+function draw_dropdown(x, y, w, h, txt, hover)
+local(tw, th)
+(
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(x - scale, y - scale, w + 2*scale, h + 2*scale, 1);
+  hover ? gfx_set(0.26, 0.27, 0.30, 1) : gfx_set(0.20, 0.21, 0.24, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_setfont(1, "Arial", 14*scale);
+  gfx_set(0.85, 0.85, 0.87, 1);
+  gfx_measurestr(txt, tw, th);
+  gfx_x = x + 10*scale; gfx_y = y + (h - th)*0.5;
+  gfx_drawstr(txt);
+  gfx_set(0.65, 0.65, 0.68, 1);
+  gfx_line(x + w - 18*scale, y + h*0.5 - 2*scale, x + w - 14*scale, y + h*0.5 + 2*scale, 1);
+  gfx_line(x + w - 14*scale, y + h*0.5 + 2*scale, x + w - 10*scale, y + h*0.5 - 2*scale, 1);
+);
+
+mouse_down = mouse_cap & 1;
+wheel = mouse_wheel; mouse_wheel = 0;
+wheel_once = 0;
+mouse_just_down = mouse_down && !mouse_state;
+
+gfx_set(0.12, 0.12, 0.14, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_setfont(1, "Arial", 20*scale, 'b');
+gfx_set(0.85, 0.35, 0.35, 1);
+gfx_x = MARGIN; gfx_y = 8*scale;
+gfx_drawstr("DELAY");
+gfx_setfont(1, "Arial", 13*scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = MARGIN + 2*scale; gfx_y = 30*scale;
+gfx_drawstr("by chmaha  ·  based on ZamDelay");
+
+// Column layout mirrors ZamDelay's own GUI: LPF/Output stacked on the left,
+// Feedback/Dry-Wet stacked on the right, a big central Time knob with the
+// Sync BPM toggle + Division selector grouped directly beneath it.
+colw = (gfx_w - 2*MARGIN) / 3;
+cx_left = MARGIN + colw*0.5;
+cx_center = MARGIN + colw*1.5;
+cx_right = MARGIN + colw*2.5;
+
+KNRAD = 28*scale;
+KNRAD_BIG = 44*scale;
+TXT_GAP = 28*scale;
+TOP_PAD = 6*scale;
+ROW_GAP = 10*scale;
+GAP_V = 14*scale;
+BTN_H = 20*scale;
+DD_H = 22*scale;
+
+UPPER_Y = HEADER_H + KNRAD_BIG + TXT_GAP + TOP_PAD;
+LOWER_Y = UPPER_Y + KNRAD + TXT_GAP + ROW_GAP + KNRAD + TXT_GAP;
+
+right_edge = cx_right + KNRAD;
+right_edge = header_btn("Invert", slider8 >= 0.5, right_edge, 26*scale, 0, 3, "", 0);
+inv_x = hb_x; inv_y = hb_y; inv_w = hb_w; inv_h = hb_h;
+
+mouse_just_down && hit_rect(mouse_x, mouse_y, inv_x, inv_y, inv_w, inv_h) ? (
+  slider8 = slider8 >= 0.5 ? 0 : 1; slider_automate(slider8);
+);
+
+sel_i = max(0, min(4, floor(slider3 + 0.5) - 1));
+sel_name = sel_i == 0 ? "Whole" : sel_i == 1 ? "Half" : sel_i == 2 ? "Quarter" : sel_i == 3 ? "Eighth" : "Sixteenth";
+
+// Sync BPM + Division stacked under the Time knob, vertically centered
+// on the same line as the Output/Dry-Wet row.
+DDW = 108*scale;
+GROUP_TOTAL_H = BTN_H + GAP_V + DD_H;
+group_top = LOWER_Y - GROUP_TOTAL_H*0.5;
+sync_top = group_top;
+div_top = group_top + BTN_H + GAP_V;
+
+header_btn("Sync BPM", sync_on, cx_center, sync_top, 0, 3, "", 1);
+sy_x = hb_x; sy_y = hb_y; sy_w = hb_w; sy_h = hb_h;
+mouse_just_down && hit_rect(mouse_x, mouse_y, sy_x, sy_y, sy_w, sy_h) ? (
+  slider2 = slider2 >= 0.5 ? 0 : 1; slider_automate(slider2);
+);
+
+div_left = cx_center - DDW*0.5;
+draw_dropdown(div_left, div_top, DDW, DD_H, sel_name, hit_rect(mouse_x, mouse_y, div_left, div_top, DDW, DD_H));
+mouse_just_down && hit_rect(mouse_x, mouse_y, div_left, div_top, DDW, DD_H) ? (
+  sprintf(#dmenu, "%sWhole|%sHalf|%sQuarter|%sEighth|%sSixteenth",
+    sel_i == 0 ? "!" : "", sel_i == 1 ? "!" : "", sel_i == 2 ? "!" : "", sel_i == 3 ? "!" : "", sel_i == 4 ? "!" : "");
+  gfx_x = mouse_x + ox; gfx_y = mouse_y + oy;
+  pick = gfx_showmenu(#dmenu);
+  pick > 0 ? ( slider3 = pick; slider_automate(slider3); );
+);
+
+knob(1, cx_center, UPPER_Y, KNRAD_BIG, 0.30, 0.55, 0.80, sync_on ? "Time (Synced)" : "Time");
+knob(2, cx_left, UPPER_Y, KNRAD, 0.85, 0.42, 0.28, "LPF");
+knob(3, cx_right, UPPER_Y, KNRAD, 0.50, 0.42, 0.90, "Feedback");
+knob(4, cx_right, LOWER_Y, KNRAD, 0.35, 0.75, 0.45, "Dry/Wet");
+knob(5, cx_left, LOWER_Y, KNRAD, 0.70, 0.35, 0.80, "Gain");
+
+drag_target > 0 && (mouse_down || wheel_once) ? (
+  mouse_down ? mouse_cap |= 65536;
+  load_knob(drag_target);
+  newpos = max(0, min(1, drag_start_pos + (drag_start_y - mouse_y) / (150*scale)));
+  store_knob(drag_target, floor((k_min + newpos*(k_max - k_min))*10 + 0.5)/10);
+);
+!mouse_down ? drag_target = 0;
+mouse_state = mouse_down;
+
+gfx_dest = -1; gfx_a = 1; gfx_mode = 6;
+ox > 0 ? (
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, 0, 0, ox, win_h);
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, ox + gfx_w, 0, win_w - ox - gfx_w, win_h);
+);
+win_h > gfx_h ? (
+  gfx_blit(127, 1, 0, 0, gfx_h - 1, gfx_w, 1, ox, gfx_h, gfx_w, win_h - gfx_h);
+);
+gfx_blit(127, 1, 0, 0, 0, gfx_w, gfx_h, ox, oy, gfx_w, gfx_h);
+gfx_mode = 0;
+gfx_w = win_w; gfx_h = win_h;

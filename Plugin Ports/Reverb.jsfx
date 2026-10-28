@@ -1,0 +1,1598 @@
+Version: 1.0
+desc: Reverb (Zita-Rev1 port) by chmaha
+author: chmaha
+changelog:
+  Initial release.
+// Ported from Fons Adriaensen's Zita-Rev1. GPLv3.
+// https://kokkinizita.linuxaudio.org/linuxaudio/downloads/index.html
+// Claude generated some of this code
+
+slider1:40<20,100,1>-Delay (ms)
+slider2:200<50,1000,1>-XOver (Hz)
+slider3:1.5<0.5,2,0.05>-Bass Multiplier
+slider4:2.0<1,8,0.1>-RT Mid (s)
+slider5:6000<1500,24000,100>-F Damp (Hz)
+slider6:160<40,2500,1>-EQ1 Freq (Hz)
+slider7:0<-15,15,0.5>-EQ1 Gain (dB)
+slider8:2500<160,10000,1>-EQ2 Freq (Hz)
+slider9:0<-15,15,0.5>-EQ2 Gain (dB)
+slider10:0.5<0,1,0.01>-Output Mix
+slider11:0<0,2,1{ZR1,MK VII,LEXIS}>-Model
+slider12:50<0,100,1>-Modulation Amount (%)
+
+options:no_meter
+
+@init
+gfx_ext_retina = 1;
+
+
+function alloc(sz) (
+  memset((alloc.top += sz) - sz, 0, sz);
+);
+
+function set_filt_params(del, tmf, tlo, wlo_in, thi, chi_in)
+local(g_val, t_val)
+(
+  this.gmf = pow(0.001, del / tmf);
+  this.glo = pow(0.001, del / tlo) / this.gmf - 1.0;
+  this.wlo = wlo_in;
+  g_val = pow(0.001, del / thi) / this.gmf;
+  t_val = (1 - g_val * g_val) / (2 * g_val * g_val * chi_in);
+  this.whi = (sqrt(1 + 4 * t_val) - 1) / (2 * t_val);
+);
+
+er_mk7_size = floor(0.220 * srate);
+er_mk7_line_l = alloc(er_mk7_size);
+er_mk7_line_r = alloc(er_mk7_size);
+er_mk7_write = 0;
+
+er_mk7_diff_size = floor(0.004 * srate);
+er_mk7_diff_l = alloc(er_mk7_diff_size);
+er_mk7_diff_r = alloc(er_mk7_diff_size);
+er_mk7_diff_i = 0;
+
+er_mk7_diff2_size = floor(0.006 * srate);
+er_mk7_diff2_l = alloc(er_mk7_diff2_size);
+er_mk7_diff2_r = alloc(er_mk7_diff2_size);
+er_mk7_diff2_i = 0;
+
+
+
+
+
+er_zr1_size = floor(0.220 * srate);
+er_zr1_line_l = alloc(er_zr1_size);
+er_zr1_line_r = alloc(er_zr1_size);
+er_zr1_write = 0;
+
+er_zr1_diff_size = floor(0.004 * srate);
+er_zr1_diff_l = alloc(er_zr1_diff_size);
+er_zr1_diff_r = alloc(er_zr1_diff_size);
+er_zr1_diff_i = 0;
+
+er_zr1_diff2_size = floor(0.006 * srate);
+er_zr1_diff2_l = alloc(er_zr1_diff2_size);
+er_zr1_diff2_r = alloc(er_zr1_diff2_size);
+er_zr1_diff2_i = 0;
+
+er_lexis_size = floor(0.220 * srate);
+er_lexis_line_l = alloc(er_lexis_size);
+er_lexis_line_r = alloc(er_lexis_size);
+er_lexis_write = 0;
+
+
+
+
+
+
+
+
+
+VN_TEND = 0.06;
+VN_RHO0 = 300;
+VN_RHO1 = 400;
+VN_TAU = 0.038;
+VN_MAXTAPS = 64;
+
+vn_seed = 987654321;
+
+function vn_rand01()
+(
+  vn_seed = (vn_seed * 48271) % 2147483647;
+  vn_seed / 2147483647;
+);
+
+vn_pos_l  = alloc(VN_MAXTAPS);
+vn_sign_l = alloc(VN_MAXTAPS);
+vn_gain_l = alloc(VN_MAXTAPS);
+vn_pos_r  = alloc(VN_MAXTAPS);
+vn_sign_r = alloc(VN_MAXTAPS);
+vn_gain_r = alloc(VN_MAXTAPS);
+
+function vn_generate(pos_arr, sign_arr, gain_arr)
+local(t, rho, grid_w, jitter, n, i, sumsq, norm)
+(
+  t = 0; n = 0;
+  while (t < VN_TEND && n < VN_MAXTAPS) (
+    rho = VN_RHO0 * pow(VN_RHO1 / VN_RHO0, t / VN_TEND);
+    grid_w = 1 / rho;
+    jitter = vn_rand01() * grid_w;
+    pos_arr[n] = floor((t + jitter) * srate);
+    sign_arr[n] = (vn_rand01() < 0.5) ? -1 : 1;
+    gain_arr[n] = exp(-t / VN_TAU) / sqrt(rho);
+    n += 1;
+    t += grid_w;
+  );
+
+  
+  
+  
+  
+  
+  
+  sumsq = 0;
+  i = 0;
+  loop(n, sumsq += gain_arr[i] * gain_arr[i]; i += 1;);
+  norm = sumsq > 0 ? 1 / sqrt(sumsq) : 1;
+  i = 0;
+  loop(n, gain_arr[i] *= norm; i += 1;);
+
+  n;
+);
+
+vn_count_l = vn_generate(vn_pos_l, vn_sign_l, vn_gain_l);
+vn_count_r = vn_generate(vn_pos_r, vn_sign_r, vn_gain_r);
+
+er_lexis_diff_size = floor(0.005 * srate);
+er_lexis_diff_l = alloc(er_lexis_diff_size);
+er_lexis_diff_r = alloc(er_lexis_diff_size);
+er_lexis_diff_i = 0;
+
+<?
+q1 = 64; mem_set_values(q1, 0.0011, 0.0017, 0.0023);
+loop(r = 0; 3,
+  printf("hf_diff%d_size = floor(%.4f * srate);\n", 1 + r, q1[r]);
+  printf("hf_diff%d_l = alloc(hf_diff%d_size);\n", 1 + r, 1 + r);
+  printf("hf_diff%d_r = alloc(hf_diff%d_size);\n", 1 + r, 1 + r);
+  printf("hf_diff%d_i = 0;\n", 1 + r);
+  printf("\n");
+  r += 1); ?>
+hf_split_lp_l = 0;
+hf_split_lp_r = 0;
+hf_split_hp_l = 0;
+hf_split_hp_r = 0;
+
+mod_phase_0 = 0;
+mod_phase_1 = 0.25;
+mod_phase_2 = 0.5;
+mod_phase_3 = 0.75;
+mod_phase_4 = 0.125;
+mod_phase_5 = 0.375;
+mod_phase_6 = 0.625;
+mod_phase_7 = 0.875;
+
+mod_phase_t0 = 0.1;
+mod_phase_t1 = 0.35;
+mod_phase_t2 = 0.6;
+mod_phase_t3 = 0.85;
+mod_phase_t4 = 0.2;
+mod_phase_t5 = 0.45;
+mod_phase_t6 = 0.7;
+mod_phase_t7 = 0.95;
+
+mod_phase_d0 = 0.17;
+mod_phase_d1 = 0.42;
+mod_phase_d2 = 0.67;
+mod_phase_d3 = 0.92;
+mod_phase_d4 = 0.07;
+mod_phase_d5 = 0.32;
+mod_phase_d6 = 0.57;
+mod_phase_d7 = 0.82;
+
+
+
+
+tank_mod_phase_0 = 0.06;
+tank_mod_phase_1 = 0.31;
+tank_mod_phase_2 = 0.56;
+tank_mod_phase_3 = 0.81;
+tank_mod_phase_4 = 0.19;
+tank_mod_phase_5 = 0.44;
+tank_mod_phase_6 = 0.69;
+tank_mod_phase_7 = 0.94;
+
+tank_mod_rate_0 = 0.017;
+tank_mod_rate_1 = 0.023;
+tank_mod_rate_2 = 0.019;
+tank_mod_rate_3 = 0.029;
+tank_mod_rate_4 = 0.021;
+tank_mod_rate_5 = 0.027;
+tank_mod_rate_6 = 0.015;
+tank_mod_rate_7 = 0.031;
+
+tank_mod_0 = tank_mod_1 = tank_mod_2 = tank_mod_3 = 0;
+tank_mod_4 = tank_mod_5 = tank_mod_6 = tank_mod_7 = 0;
+
+d2mod_phase_0 = 0.05;
+d2mod_phase_1 = 0.3;
+d2mod_phase_2 = 0.55;
+d2mod_phase_3 = 0.8;
+
+shimmer_phase = 0;
+
+tdiff1_0 = 20346*10^-6;
+tdiff1_1 = 24421*10^-6;
+tdiff1_2 = 31604*10^-6;
+tdiff1_3 = 27333*10^-6;
+tdiff1_4 = 22904*10^-6;
+tdiff1_5 = 29291*10^-6;
+tdiff1_6 = 13458*10^-6;
+tdiff1_7 = 19123*10^-6;
+
+tdelay_0 = 153129*10^-6;
+tdelay_1 = 210389*10^-6;
+tdelay_2 = 127837*10^-6;
+tdelay_3 = 256891*10^-6;
+tdelay_4 = 174713*10^-6;
+tdelay_5 = 192303*10^-6;
+tdelay_6 = 125000*10^-6;
+tdelay_7 = 219991*10^-6;
+
+vdelay0_size = floor(0.1 * srate);
+vdelay0_line = alloc(vdelay0_size);
+vdelay0_ir = 0;
+vdelay0_iw = 0;
+
+vdelay1_size = floor(0.1 * srate);
+vdelay1_line = alloc(vdelay1_size);
+vdelay1_ir = 0;
+vdelay1_iw = 0;
+
+
+
+
+
+max_mod_samples = floor(0.010 * srate);
+max_tank_mod_samples = floor(0.005 * srate);
+
+<?
+loop(r = 0; 4,
+  printf("diff1_%d_size = floor(tdiff1_%d * srate + 0.5) + max_mod_samples;\n", 2*r, 2*r);
+  printf("diff1_%d_line = alloc(diff1_%d_size);\n", 2*r, 2*r);
+  printf("diff1_%d_i = 0;\n", 2*r);
+  printf("diff1_%d_c = 0.6;\n", 2*r);
+  printf("\n");
+  printf("diff1_%d_size = floor(tdiff1_%d * srate + 0.5) + max_mod_samples;\n", 1 + 2*r, 1 + 2*r);
+  printf("diff1_%d_line = alloc(diff1_%d_size);\n", 1 + 2*r, 1 + 2*r);
+  printf("diff1_%d_i = 0;\n", 1 + 2*r);
+  printf("diff1_%d_c = -0.6;\n", 1 + 2*r);
+  printf("\n");
+  r += 1); ?>
+diff1_0_base = floor(tdiff1_0 * srate + 0.5);
+diff1_1_base = floor(tdiff1_1 * srate + 0.5);
+diff1_2_base = floor(tdiff1_2 * srate + 0.5);
+diff1_3_base = floor(tdiff1_3 * srate + 0.5);
+diff1_4_base = floor(tdiff1_4 * srate + 0.5);
+diff1_5_base = floor(tdiff1_5 * srate + 0.5);
+diff1_6_base = floor(tdiff1_6 * srate + 0.5);
+diff1_7_base = floor(tdiff1_7 * srate + 0.5);
+
+tdiff2_0 = 7.3*10^-3;
+tdiff2_1 = 9.7*10^-3;
+tdiff2_2 = 12.1*10^-3;
+tdiff2_3 = 14.9*10^-3;
+tdiff2_4 = 17.6*10^-3;
+tdiff2_5 = 20.3*10^-3;
+tdiff2_6 = 23.8*10^-3;
+tdiff2_7 = 27.4*10^-3;
+
+max_mod_samples2 = floor(0.003 * srate);
+
+<?
+loop(r = 0; 4,
+  printf("diff2_%d_base = floor(tdiff2_%d * srate + 0.5);\n", 2*r, 2*r);
+  printf("diff2_%d_size = diff2_%d_base + max_mod_samples2;\n", 2*r, 2*r);
+  printf("diff2_%d_line = alloc(diff2_%d_size);\n", 2*r, 2*r);
+  printf("diff2_%d_c = 0.625;\n", 2*r);
+  printf("\n");
+  printf("diff2_%d_base = floor(tdiff2_%d * srate + 0.5);\n", 1 + 2*r, 1 + 2*r);
+  printf("diff2_%d_size = diff2_%d_base + max_mod_samples2;\n", 1 + 2*r, 1 + 2*r);
+  printf("diff2_%d_line = alloc(diff2_%d_size);\n", 1 + 2*r, 1 + 2*r);
+  printf("diff2_%d_c = -0.625;\n", 1 + 2*r);
+  printf("\n");
+  r += 1); ?>
+diff3_l0_size = floor(0.0031 * srate);
+diff3_l0_line = alloc(diff3_l0_size);
+diff3_l0_i = 0;
+
+diff3_l1_size = floor(0.0043 * srate);
+diff3_l1_line = alloc(diff3_l1_size);
+diff3_l1_i = 0;
+
+diff3_r0_size = floor(0.0037 * srate);
+diff3_r0_line = alloc(diff3_r0_size);
+diff3_r0_i = 0;
+
+diff3_r1_size = floor(0.0049 * srate);
+diff3_r1_line = alloc(diff3_r1_size);
+diff3_r1_i = 0;
+
+<?
+loop(r = 0; 8,
+  printf("delay_%d_base = floor(tdelay_%d * srate + 0.5) - diff1_%d_base;\n", r, r, r);
+  printf("delay_%d_size = delay_%d_base + max_tank_mod_samples;\n", r, r);
+  printf("delay_%d_line = alloc(delay_%d_size);\n", r, r);
+  printf("delay_%d_i = 0;\n", r);
+  printf("\n");
+  r += 1); ?>
+filt1_0_slo = 0; filt1_0_shi = 0;
+filt1_1_slo = 0; filt1_1_shi = 0;
+filt1_2_slo = 0; filt1_2_shi = 0;
+filt1_3_slo = 0; filt1_3_shi = 0;
+filt1_4_slo = 0; filt1_4_shi = 0;
+filt1_5_slo = 0; filt1_5_shi = 0;
+filt1_6_slo = 0; filt1_6_shi = 0;
+filt1_7_slo = 0; filt1_7_shi = 0;
+
+pareq1_z1_l = 0; pareq1_z2_l = 0;
+pareq1_z1_r = 0; pareq1_z2_r = 0;
+pareq2_z1_l = 0; pareq2_z2_l = 0;
+pareq2_z1_r = 0; pareq2_z2_r = 0;
+
+pareq1_state = 0;
+pareq2_state = 0;
+pareq1_g1 = 1.0;
+pareq1_f1 = 1000.0;
+pareq2_g1 = 1.0;
+pareq2_f1 = 1000.0;
+
+model_bass_z1_l = 0; model_bass_z2_l = 0;
+model_bass_z1_r = 0; model_bass_z2_r = 0;
+model_bass_state = 0;
+model_bass_g1 = 1.0;
+model_bass_f1 = 120.0;
+
+g0 = 0.75;
+g1 = 0.371;
+d0 = 0;
+d1 = 0;
+
+out_meter_l = 0;
+out_meter_r = 0;
+
+@slider
+
+@block
+
+ipdel = slider1 * 0.001;
+xover = slider2;
+rtlow = slider3*slider4;
+rtmid = slider4;
+fdamp = slider5;
+eq1_freq = slider6;
+eq1_gain = slider7;
+eq2_freq = slider8;
+eq2_gain = slider9;
+opmix = slider10;
+mod_type = slider11;
+mod_amount = slider12 * 0.01;
+
+mod_type == 1 ? (
+  model_bass_freq = 120;
+  model_bass_gain = 4.0;
+  model_xover_offset = 1.0;
+  model_damp_offset = 1.1;
+  sat_drive = 2.0;
+  tank_sat_drive = 1.18;
+  diff1_coeff = 0.70;
+
+  er_level = 0.65;
+  tank_mod_depth_base = 0.0004;
+
+) : mod_type == 2 ? (
+  model_bass_freq = 120;
+  model_bass_gain = 5.0;
+  model_xover_offset = 0.95;
+  model_damp_offset = 0.9;
+  sat_drive = 1.4;
+  tank_sat_drive = 1.08;
+  diff1_coeff = 0.75;
+
+  er_level = 0.6;
+  er_feedback = 0.2;
+
+  hf_split_coeff = exp(-2 * $pi * 3000 / srate);
+  tank_mod_depth_base = 0.0004;
+
+) : (
+  model_bass_freq = 120;
+  model_bass_gain = 0;
+  model_xover_offset = 1.0;
+  model_damp_offset = 1.0;
+  er_level = 0.55;
+  sat_drive = 1.0;
+  tank_sat_drive = 1.0;
+  diff1_coeff = 0.60;
+  tank_mod_depth_base = 0.0004;
+);
+
+diff1_0_c =  diff1_coeff;
+diff1_1_c = -diff1_coeff;
+diff1_2_c =  diff1_coeff;
+diff1_3_c = -diff1_coeff;
+diff1_4_c =  diff1_coeff;
+diff1_5_c = -diff1_coeff;
+diff1_6_c =  diff1_coeff;
+diff1_7_c = -diff1_coeff;
+
+sat_makeup = 1.0 / sat_drive;
+tank_sat_makeup = 1.0 / tank_sat_drive;
+
+eq1_freq_final = eq1_freq;
+eq1_gain_final = eq1_gain;
+eq2_freq_final = eq2_freq;
+eq2_gain_final = eq2_gain;
+
+model_bass_g0 = pow(10.0, 0.05 * model_bass_gain);
+model_bass_f0 = model_bass_freq;
+
+xover_final = xover * model_xover_offset;
+fdamp_final = fdamp * model_damp_offset;
+
+mod_type == 1 ? (
+  mod_rate = 0.31;
+  mod_depth_base = 0.00045;
+  mod_rate2 = 0.41;
+  mod_rate3 = 0;
+  mod_mix = 0.30;
+  mod_mix3 = 0;
+  drift_rate = 0.08;
+  drift_mix = 0.30;
+  d2mod_rate = 0;
+  d2mod_depth_base = 0;
+) : mod_type == 2 ? (
+  mod_rate = 0.21;
+  mod_depth_base = 0.0015;
+  mod_rate2 = 0.34;
+  mod_rate3 = 0.13;
+  mod_mix = 0.18;
+  mod_mix3 = 0.12;
+  drift_rate = 0.06;
+  drift_mix = 0.15;
+  d2mod_rate = 0.15;
+  d2mod_depth_base = 0.0002;
+) : (
+  mod_rate = 0;
+  mod_depth_base = 0;
+  mod_rate2 = 0;
+  mod_rate3 = 0;
+  mod_mix = 0;
+  mod_mix3 = 0;
+  drift_rate = 0;
+  drift_mix = 0;
+  d2mod_rate = 0;
+  d2mod_depth_base = 0;
+);
+
+mod_depth = mod_depth_base * mod_amount;
+mod_depth_samples = mod_depth * srate;
+
+mod_inc = 2 * $pi * mod_rate / srate;
+mod_inc2 = 2 * $pi * mod_rate2 / srate;
+mod_inc3 = mod_type == 2 ? 2 * $pi * mod_rate3 / srate : 0;
+mod_drift_inc = 2 * $pi * drift_rate / srate;
+d2mod_inc = mod_type == 2 ? 2 * $pi * d2mod_rate / srate : 0;
+d2mod_depth_samples = d2mod_depth_base * mod_amount * srate;
+
+tank_mod_depth_samples = tank_mod_depth_base * mod_amount * srate;
+tank_mod_inc_0 = 2 * $pi * tank_mod_rate_0 / srate;
+tank_mod_inc_1 = 2 * $pi * tank_mod_rate_1 / srate;
+tank_mod_inc_2 = 2 * $pi * tank_mod_rate_2 / srate;
+tank_mod_inc_3 = 2 * $pi * tank_mod_rate_3 / srate;
+tank_mod_inc_4 = 2 * $pi * tank_mod_rate_4 / srate;
+tank_mod_inc_5 = 2 * $pi * tank_mod_rate_5 / srate;
+tank_mod_inc_6 = 2 * $pi * tank_mod_rate_6 / srate;
+tank_mod_inc_7 = 2 * $pi * tank_mod_rate_7 / srate;
+
+mod_type == 1 ? (
+  shimmer_rate = 0.05;
+  shimmer_depth = 0.06;
+) : mod_type == 2 ? (
+  shimmer_rate = 0.07;
+  shimmer_depth = 0.09;
+) : (
+  shimmer_rate = 0;
+  shimmer_depth = 0;
+);
+shimmer_inc = 2 * $pi * shimmer_rate / srate;
+shimmer_smooth_coeff = exp(-2 * $pi * 3 / srate);
+shimmer_smooth = 0;
+
+meter_release = exp(-1.0 / (0.15 * srate));
+
+k = floor(ipdel * srate + 0.5);
+k = max(0, min(k, vdelay0_size - 1));
+pdel_t = k;
+!pdel_init ? ( pdel = pdel_t; pdel_init = 1; );
+pdel_k = 1 - exp(-1 / (0.05 * srate));
+
+wlo = 6.2832 * xover_final / srate;
+(fdamp_final > 0.49 * srate) ? (
+  chi = 2;
+) : (
+  chi = 1 - cos(6.2832 * fdamp_final / srate);
+);
+
+t0 = (1 - opmix) * (1 + opmix);
+t1 = 0.7 * opmix * (2 - opmix) / sqrt(rtmid);
+d0 = (t0 - g0) / samplesblock;
+d1 = (t1 - g1) / samplesblock;
+
+pareq1_g0 = pow(10.0, 0.05 * eq1_gain_final);
+pareq1_f0 = eq1_freq_final;
+pareq2_g0 = pow(10.0, 0.05 * eq2_gain_final);
+pareq2_f0 = eq2_freq_final;
+
+filt1_0.set_filt_params(tdelay_0, rtmid, rtlow, wlo, 0.5 * rtmid, chi);
+filt1_1.set_filt_params(tdelay_1, rtmid, rtlow, wlo, 0.5 * rtmid, chi);
+filt1_2.set_filt_params(tdelay_2, rtmid, rtlow, wlo, 0.5 * rtmid, chi);
+filt1_3.set_filt_params(tdelay_3, rtmid, rtlow, wlo, 0.5 * rtmid, chi);
+filt1_4.set_filt_params(tdelay_4, rtmid, rtlow, wlo, 0.5 * rtmid, chi);
+filt1_5.set_filt_params(tdelay_5, rtmid, rtlow, wlo, 0.5 * rtmid, chi);
+filt1_6.set_filt_params(tdelay_6, rtmid, rtlow, wlo, 0.5 * rtmid, chi);
+filt1_7.set_filt_params(tdelay_7, rtmid, rtlow, wlo, 0.5 * rtmid, chi);
+
+function pareq_calcpar(g, f)
+local(b, c1, c2, gg, ff)
+(
+  ff = f * $pi / srate;
+  b = 2 * ff / sqrt(g);
+  gg = 0.5 * (g - 1);
+  c1 = -cos(2 * ff);
+  c2 = (1 - b) / (1 + b);
+  this.c1 = c1;
+  this.c2 = c2;
+  this.gg = gg;
+);
+
+pareq1_upd = 0;
+(pareq1_g0 != pareq1_g1) ? (
+  pareq1_upd = 1;
+  (pareq1_g0 > 2 * pareq1_g1) ? pareq1_g1 *= 2
+  : (pareq1_g1 > 2 * pareq1_g0) ? pareq1_g1 /= 2
+  : pareq1_g1 = pareq1_g0;
+);
+(pareq1_f0 != pareq1_f1) ? (
+  pareq1_upd = 1;
+  (pareq1_f0 > 2 * pareq1_f1) ? pareq1_f1 *= 2
+  : (pareq1_f1 > 2 * pareq1_f0) ? pareq1_f1 /= 2
+  : pareq1_f1 = pareq1_f0;
+);
+(pareq1_upd) ? (
+  pareq1.pareq_calcpar(pareq1_g1, pareq1_f1);
+  pareq1_state = 1;
+) : (
+  (abs(pareq1_g1 - 1) < 0.001) ? (
+    pareq1_state = 0;
+    pareq1_z1_l = 0; pareq1_z2_l = 0;
+    pareq1_z1_r = 0; pareq1_z2_r = 0;
+  ) : pareq1_state = 1;
+);
+
+pareq2_upd = 0;
+(pareq2_g0 != pareq2_g1) ? (
+  pareq2_upd = 1;
+  (pareq2_g0 > 2 * pareq2_g1) ? pareq2_g1 *= 2
+  : (pareq2_g1 > 2 * pareq2_g0) ? pareq2_g1 /= 2
+  : pareq2_g1 = pareq2_g0;
+);
+(pareq2_f0 != pareq2_f1) ? (
+  pareq2_upd = 1;
+  (pareq2_f0 > 2 * pareq2_f1) ? pareq2_f1 *= 2
+  : (pareq2_f1 > 2 * pareq2_f0) ? pareq2_f1 /= 2
+  : pareq2_f1 = pareq2_f0;
+);
+(pareq2_upd) ? (
+  pareq2.pareq_calcpar(pareq2_g1, pareq2_f1);
+  pareq2_state = 1;
+) : (
+  (abs(pareq2_g1 - 1) < 0.001) ? (
+    pareq2_state = 0;
+    pareq2_z1_l = 0; pareq2_z2_l = 0;
+    pareq2_z1_r = 0; pareq2_z2_r = 0;
+  ) : pareq2_state = 1;
+);
+
+model_bass_upd = 0;
+(model_bass_g0 != model_bass_g1) ? (
+  model_bass_upd = 1;
+  (model_bass_g0 > 2 * model_bass_g1) ? model_bass_g1 *= 2
+  : (model_bass_g1 > 2 * model_bass_g0) ? model_bass_g1 /= 2
+  : model_bass_g1 = model_bass_g0;
+);
+(model_bass_f0 != model_bass_f1) ? (
+  model_bass_upd = 1;
+  (model_bass_f0 > 2 * model_bass_f1) ? model_bass_f1 *= 2
+  : (model_bass_f1 > 2 * model_bass_f0) ? model_bass_f1 /= 2
+  : model_bass_f1 = model_bass_f0;
+);
+(model_bass_upd) ? (
+  model_bass.pareq_calcpar(model_bass_g1, model_bass_f1);
+  model_bass_state = 1;
+) : (
+  (abs(model_bass_g1 - 1) < 0.001) ? (
+    model_bass_state = 0;
+    model_bass_z1_l = 0; model_bass_z2_l = 0;
+    model_bass_z1_r = 0; model_bass_z2_r = 0;
+  ) : model_bass_state = 1;
+);
+
+@sample
+
+mod_type > 0 ? (
+<?
+loop(r = 0; 4,
+  printf("  mod_phase_%d += mod_inc;\n", r);
+  printf("  mod_phase_%d >= 2 * $pi ? mod_phase_%d -= 2 * $pi;\n", r, r);
+  printf("\n");
+  r += 1); ?>
+<?
+loop(r = 0; 4,
+  printf("  mod_phase_%d += mod_inc2;\n", 4 + r);
+  printf("  mod_phase_%d >= 2 * $pi ? mod_phase_%d -= 2 * $pi;\n", 4 + r, 4 + r);
+  printf("\n");
+  r += 1); ?>
+  mod_type == 2 ? (
+<?
+loop(r = 0; 7,
+  printf("    mod_phase_t%d += mod_inc3;\n", r);
+  printf("    mod_phase_t%d >= 2 * $pi ? mod_phase_t%d -= 2 * $pi;\n", r, r);
+  printf("\n");
+  r += 1); ?>
+    mod_phase_t7 += mod_inc3;
+    mod_phase_t7 >= 2 * $pi ? mod_phase_t7 -= 2 * $pi;
+  );
+
+<?
+loop(r = 0; 8,
+  printf("  mod_phase_d%d += mod_drift_inc;\n", r);
+  printf("  mod_phase_d%d >= 2 * $pi ? mod_phase_d%d -= 2 * $pi;\n", r, r);
+  printf("\n");
+  r += 1); ?>
+  mod_type == 2 ? (
+    d2mod_phase_0 += d2mod_inc;
+    d2mod_phase_0 >= 2 * $pi ? d2mod_phase_0 -= 2 * $pi;
+
+    d2mod_phase_1 += d2mod_inc;
+    d2mod_phase_1 >= 2 * $pi ? d2mod_phase_1 -= 2 * $pi;
+
+    d2mod_phase_2 += d2mod_inc;
+    d2mod_phase_2 >= 2 * $pi ? d2mod_phase_2 -= 2 * $pi;
+
+    d2mod_phase_3 += d2mod_inc;
+    d2mod_phase_3 >= 2 * $pi ? d2mod_phase_3 -= 2 * $pi;
+  );
+
+  mod_type == 1 ? (
+    mod_0 = mod_depth_samples * (sin(mod_phase_0) + mod_mix * sin(mod_phase_4) + drift_mix * sin(mod_phase_d0));
+    mod_1 = mod_depth_samples * (sin(mod_phase_1) + mod_mix * sin(mod_phase_5) + drift_mix * sin(mod_phase_d1));
+    mod_2 = mod_depth_samples * (sin(mod_phase_2) + mod_mix * sin(mod_phase_6) + drift_mix * sin(mod_phase_d2));
+    mod_3 = mod_depth_samples * (sin(mod_phase_3) + mod_mix * sin(mod_phase_7) + drift_mix * sin(mod_phase_d3));
+    mod_4 = mod_depth_samples * (sin(mod_phase_4) + mod_mix * sin(mod_phase_0) + drift_mix * sin(mod_phase_d4));
+    mod_5 = mod_depth_samples * (sin(mod_phase_5) + mod_mix * sin(mod_phase_1) + drift_mix * sin(mod_phase_d5));
+    mod_6 = mod_depth_samples * (sin(mod_phase_6) + mod_mix * sin(mod_phase_2) + drift_mix * sin(mod_phase_d6));
+    mod_7 = mod_depth_samples * (sin(mod_phase_7) + mod_mix * sin(mod_phase_3) + drift_mix * sin(mod_phase_d7));
+  ) : (
+    mod_0 = mod_depth_samples * (sin(mod_phase_0) + mod_mix * sin(mod_phase_4) + mod_mix3 * sin(mod_phase_t0) + drift_mix * sin(mod_phase_d0));
+    mod_1 = mod_depth_samples * (sin(mod_phase_1) + mod_mix * sin(mod_phase_5) + mod_mix3 * sin(mod_phase_t1) + drift_mix * sin(mod_phase_d1));
+    mod_2 = mod_depth_samples * (sin(mod_phase_2) + mod_mix * sin(mod_phase_6) + mod_mix3 * sin(mod_phase_t2) + drift_mix * sin(mod_phase_d2));
+    mod_3 = mod_depth_samples * (sin(mod_phase_3) + mod_mix * sin(mod_phase_7) + mod_mix3 * sin(mod_phase_t3) + drift_mix * sin(mod_phase_d3));
+    mod_4 = mod_depth_samples * (sin(mod_phase_4) + mod_mix * sin(mod_phase_0) + mod_mix3 * sin(mod_phase_t4) + drift_mix * sin(mod_phase_d4));
+    mod_5 = mod_depth_samples * (sin(mod_phase_5) + mod_mix * sin(mod_phase_1) + mod_mix3 * sin(mod_phase_t5) + drift_mix * sin(mod_phase_d5));
+    mod_6 = mod_depth_samples * (sin(mod_phase_6) + mod_mix * sin(mod_phase_2) + mod_mix3 * sin(mod_phase_t6) + drift_mix * sin(mod_phase_d6));
+    mod_7 = mod_depth_samples * (sin(mod_phase_7) + mod_mix * sin(mod_phase_3) + mod_mix3 * sin(mod_phase_t7) + drift_mix * sin(mod_phase_d7));
+  );
+
+  mod_type == 2 ? (
+    d2mod_0 = -0.6 * d2mod_depth_samples * sin(d2mod_phase_0);
+    d2mod_1 = d2mod_depth_samples * sin(d2mod_phase_0);
+    d2mod_2 = d2mod_depth_samples * sin(d2mod_phase_1);
+    d2mod_3 = -0.6 * d2mod_depth_samples * sin(d2mod_phase_1);
+    d2mod_4 = -0.6 * d2mod_depth_samples * sin(d2mod_phase_2);
+    d2mod_5 = d2mod_depth_samples * sin(d2mod_phase_2);
+    d2mod_6 = d2mod_depth_samples * sin(d2mod_phase_3);
+    d2mod_7 = -0.6 * d2mod_depth_samples * sin(d2mod_phase_3);
+  ) : (
+    d2mod_0 = d2mod_1 = d2mod_2 = d2mod_3 = 0;
+    d2mod_4 = d2mod_5 = d2mod_6 = d2mod_7 = 0;
+  );
+
+  shimmer_raw = sin(shimmer_phase);
+  shimmer_phase += shimmer_inc;
+  shimmer_phase >= 2 * $pi ? shimmer_phase -= 2 * $pi;
+  shimmer_smooth += (1 - shimmer_smooth_coeff) * (shimmer_raw - shimmer_smooth);
+
+) : (
+  mod_0 = mod_1 = mod_2 = mod_3 = mod_4 = mod_5 = mod_6 = mod_7 = 0;
+  d2mod_0 = d2mod_1 = d2mod_2 = d2mod_3 = 0;
+  d2mod_4 = d2mod_5 = d2mod_6 = d2mod_7 = 0;
+  shimmer_smooth = 0;
+);
+
+
+
+
+
+
+
+<?
+loop(r = 0; 8,
+  printf("tank_mod_phase_%d += tank_mod_inc_%d;\n", r, r);
+  printf("tank_mod_phase_%d >= 2 * $pi ? tank_mod_phase_%d -= 2 * $pi;\n", r, r);
+  printf("\n");
+  r += 1); ?>
+tank_mod_0 = tank_mod_depth_samples * sin(tank_mod_phase_0);
+tank_mod_1 = tank_mod_depth_samples * sin(tank_mod_phase_1);
+tank_mod_2 = tank_mod_depth_samples * sin(tank_mod_phase_2);
+tank_mod_3 = tank_mod_depth_samples * sin(tank_mod_phase_3);
+tank_mod_4 = tank_mod_depth_samples * sin(tank_mod_phase_4);
+tank_mod_5 = tank_mod_depth_samples * sin(tank_mod_phase_5);
+tank_mod_6 = tank_mod_depth_samples * sin(tank_mod_phase_6);
+tank_mod_7 = tank_mod_depth_samples * sin(tank_mod_phase_7);
+
+vdelay0_line[vdelay0_iw] = spl0;
+vdelay0_iw += 1;
+(vdelay0_iw >= vdelay0_size) ? vdelay0_iw = 0;
+
+vdelay1_line[vdelay1_iw] = spl1;
+vdelay1_iw += 1;
+(vdelay1_iw >= vdelay1_size) ? vdelay1_iw = 0;
+
+pdel !== pdel_t ? ( pdel += pdel_k * (pdel_t - pdel); abs(pdel_t - pdel) < 0.000001 ? pdel = pdel_t; );
+vdelay0_rd = vdelay0_iw - pdel;
+(vdelay0_rd < 0) ? vdelay0_rd += vdelay0_size;
+pd_i = floor(vdelay0_rd); pd_f = vdelay0_rd - pd_i;
+pd_n = pd_i + 1; (pd_n >= vdelay0_size) ? pd_n = 0;
+pd0v = vdelay0_line[pd_i] * (1 - pd_f) + vdelay0_line[pd_n] * pd_f;
+pd1v = vdelay1_line[pd_i] * (1 - pd_f) + vdelay1_line[pd_n] * pd_f;
+
+
+
+
+
+
+mod_type == 1 ? (
+  er_mk7_line_l[er_mk7_write] = pd0v;
+  er_mk7_line_r[er_mk7_write] = pd1v;
+
+  er_mix_l = 0;
+  vn_i = 0;
+  loop(vn_count_l,
+    vn_idx = er_mk7_write - vn_pos_l[vn_i];
+    vn_idx < 0 ? vn_idx += er_mk7_size;
+    er_mix_l += vn_sign_l[vn_i] * vn_gain_l[vn_i] * er_mk7_line_l[vn_idx];
+    vn_i += 1;
+  );
+
+  er_mix_r = 0;
+  vn_i = 0;
+  loop(vn_count_r,
+    vn_idx = er_mk7_write - vn_pos_r[vn_i];
+    vn_idx < 0 ? vn_idx += er_mk7_size;
+    er_mix_r += vn_sign_r[vn_i] * vn_gain_r[vn_i] * er_mk7_line_r[vn_idx];
+    vn_i += 1;
+  );
+
+  z_l = er_mk7_diff_l[er_mk7_diff_i];
+  z_r = er_mk7_diff_r[er_mk7_diff_i];
+  er_mk7_diff_l[er_mk7_diff_i] = er_mix_l + 0.3 * z_l;
+  er_mk7_diff_r[er_mk7_diff_i] = er_mix_r + 0.3 * z_r;
+  er_diffused_l = z_l - 0.3 * er_mk7_diff_l[er_mk7_diff_i];
+  er_diffused_r = z_r - 0.3 * er_mk7_diff_r[er_mk7_diff_i];
+  er_mk7_diff_i += 1;
+  er_mk7_diff_i >= er_mk7_diff_size ? er_mk7_diff_i = 0;
+
+  z2_l = er_mk7_diff2_l[er_mk7_diff2_i];
+  z2_r = er_mk7_diff2_r[er_mk7_diff2_i];
+  er_mk7_diff2_l[er_mk7_diff2_i] = er_diffused_l + 0.4 * z2_l;
+  er_mk7_diff2_r[er_mk7_diff2_i] = er_diffused_r + 0.4 * z2_r;
+  er_diffused2_l = z2_l - 0.4 * er_mk7_diff2_l[er_mk7_diff2_i];
+  er_diffused2_r = z2_r - 0.4 * er_mk7_diff2_r[er_mk7_diff2_i];
+  er_mk7_diff2_i += 1;
+  er_mk7_diff2_i >= er_mk7_diff2_size ? er_mk7_diff2_i = 0;
+
+  er_mk7_write += 1;
+  er_mk7_write >= er_mk7_size ? er_mk7_write = 0;
+
+  er_inject_l = er_diffused2_l * er_level;
+  er_inject_r = er_diffused2_r * er_level;
+
+) : mod_type == 2 ? (
+  er_lexis_line_l[er_lexis_write] = pd0v;
+  er_lexis_line_r[er_lexis_write] = pd1v;
+
+  er_mix_l = 0;
+  vn_i = 0;
+  loop(vn_count_l,
+    vn_idx = er_lexis_write - vn_pos_l[vn_i];
+    vn_idx < 0 ? vn_idx += er_lexis_size;
+    er_mix_l += vn_sign_l[vn_i] * vn_gain_l[vn_i] * er_lexis_line_l[vn_idx];
+    vn_i += 1;
+  );
+
+  er_mix_r = 0;
+  vn_i = 0;
+  loop(vn_count_r,
+    vn_idx = er_lexis_write - vn_pos_r[vn_i];
+    vn_idx < 0 ? vn_idx += er_lexis_size;
+    er_mix_r += vn_sign_r[vn_i] * vn_gain_r[vn_i] * er_lexis_line_r[vn_idx];
+    vn_i += 1;
+  );
+
+  er_lexis_line_l[er_lexis_write] += er_mix_l * er_feedback;
+  er_lexis_line_r[er_lexis_write] += er_mix_r * er_feedback;
+
+  z_l = er_lexis_diff_l[er_lexis_diff_i];
+  z_r = er_lexis_diff_r[er_lexis_diff_i];
+  er_lexis_diff_l[er_lexis_diff_i] = er_mix_l + 0.35 * z_l;
+  er_lexis_diff_r[er_lexis_diff_i] = er_mix_r + 0.35 * z_r;
+  er_diffused_l = z_l - 0.35 * er_lexis_diff_l[er_lexis_diff_i];
+  er_diffused_r = z_r - 0.35 * er_lexis_diff_r[er_lexis_diff_i];
+  er_lexis_diff_i += 1;
+  er_lexis_diff_i >= er_lexis_diff_size ? er_lexis_diff_i = 0;
+
+  er_lexis_write += 1;
+  er_lexis_write >= er_lexis_size ? er_lexis_write = 0;
+
+  er_inject_l = er_diffused_l * er_level;
+  er_inject_r = er_diffused_r * er_level;
+
+) : (
+  er_zr1_line_l[er_zr1_write] = pd0v;
+  er_zr1_line_r[er_zr1_write] = pd1v;
+
+  er_mix_l = 0;
+  vn_i = 0;
+  loop(vn_count_l,
+    vn_idx = er_zr1_write - vn_pos_l[vn_i];
+    vn_idx < 0 ? vn_idx += er_zr1_size;
+    er_mix_l += vn_sign_l[vn_i] * vn_gain_l[vn_i] * er_zr1_line_l[vn_idx];
+    vn_i += 1;
+  );
+
+  er_mix_r = 0;
+  vn_i = 0;
+  loop(vn_count_r,
+    vn_idx = er_zr1_write - vn_pos_r[vn_i];
+    vn_idx < 0 ? vn_idx += er_zr1_size;
+    er_mix_r += vn_sign_r[vn_i] * vn_gain_r[vn_i] * er_zr1_line_r[vn_idx];
+    vn_i += 1;
+  );
+
+  z_l = er_zr1_diff_l[er_zr1_diff_i];
+  z_r = er_zr1_diff_r[er_zr1_diff_i];
+  er_zr1_diff_l[er_zr1_diff_i] = er_mix_l + 0.3 * z_l;
+  er_zr1_diff_r[er_zr1_diff_i] = er_mix_r + 0.3 * z_r;
+  er_diffused_l = z_l - 0.3 * er_zr1_diff_l[er_zr1_diff_i];
+  er_diffused_r = z_r - 0.3 * er_zr1_diff_r[er_zr1_diff_i];
+  er_zr1_diff_i += 1;
+  er_zr1_diff_i >= er_zr1_diff_size ? er_zr1_diff_i = 0;
+
+  z2_l = er_zr1_diff2_l[er_zr1_diff2_i];
+  z2_r = er_zr1_diff2_r[er_zr1_diff2_i];
+  er_zr1_diff2_l[er_zr1_diff2_i] = er_diffused_l + 0.4 * z2_l;
+  er_zr1_diff2_r[er_zr1_diff2_i] = er_diffused_r + 0.4 * z2_r;
+  er_diffused2_l = z2_l - 0.4 * er_zr1_diff2_l[er_zr1_diff2_i];
+  er_diffused2_r = z2_r - 0.4 * er_zr1_diff2_r[er_zr1_diff2_i];
+  er_zr1_diff2_i += 1;
+  er_zr1_diff2_i >= er_zr1_diff2_size ? er_zr1_diff2_i = 0;
+
+  er_zr1_write += 1;
+  er_zr1_write >= er_zr1_size ? er_zr1_write = 0;
+
+  er_inject_l = er_diffused2_l * er_level;
+  er_inject_r = er_diffused2_r * er_level;
+);
+
+
+
+
+
+
+vd0 = er_inject_l;
+vd1 = er_inject_r;
+
+t = 0.3 * vd0;
+
+<?
+q2 = 128; mem_set_values(q2, '+', '+', '-', '-');
+loop(r = 0; 4,
+  printf("read_pos = diff1_%d_i - diff1_%d_base - mod_%d;\n", r, r, r);
+  printf("read_pos < 0 ? read_pos += diff1_%d_size;\n", r);
+  printf("read_idx = floor(read_pos);\n");
+  printf("read_frac = read_pos - read_idx;\n");
+  printf("read_idx2 = read_idx + 1;\n");
+  printf("read_idx2 >= diff1_%d_size ? read_idx2 -= diff1_%d_size;\n", r, r);
+  printf("z%d = diff1_%d_line[read_idx] * (1 - read_frac) + diff1_%d_line[read_idx2] * read_frac;\n", r, r, r);
+  printf("trd_pos = delay_%d_i - delay_%d_base - tank_mod_%d;\n", r, r, r);
+  printf("trd_pos < 0 ? trd_pos += delay_%d_size;\n", r);
+  printf("trd_idx = floor(trd_pos);\n");
+  printf("trd_frac = trd_pos - trd_idx;\n");
+  printf("trd_idx2 = trd_idx + 1;\n");
+  printf("trd_idx2 >= delay_%d_size ? trd_idx2 -= delay_%d_size;\n", r, r);
+  printf("inp%d = delay_%d_line[trd_idx] * (1 - trd_frac) + delay_%d_line[trd_idx2] * trd_frac %c t;\n", r, r, r, q2[r]);
+  printf("inp%d -= diff1_%d_c * z%d;\n", r, r, r);
+  printf("diff1_%d_line[diff1_%d_i] = inp%d;\n", r, r, r);
+  printf("diff1_%d_i += 1;\n", r);
+  printf("(diff1_%d_i >= diff1_%d_size) ? diff1_%d_i = 0;\n", r, r, r);
+  printf("x%d = z%d + diff1_%d_c * inp%d;\n", r, r, r, r);
+  printf("\n");
+  r += 1); ?>
+t = 0.3 * vd1;
+
+<?
+q3 = 192; mem_set_values(q3, '+', '+', '-', '-');
+loop(r = 0; 4,
+  printf("read_pos = diff1_%d_i - diff1_%d_base - mod_%d;\n", 4 + r, 4 + r, 4 + r);
+  printf("read_pos < 0 ? read_pos += diff1_%d_size;\n", 4 + r);
+  printf("read_idx = floor(read_pos);\n");
+  printf("read_frac = read_pos - read_idx;\n");
+  printf("read_idx2 = read_idx + 1;\n");
+  printf("read_idx2 >= diff1_%d_size ? read_idx2 -= diff1_%d_size;\n", 4 + r, 4 + r);
+  printf("z%d = diff1_%d_line[read_idx] * (1 - read_frac) + diff1_%d_line[read_idx2] * read_frac;\n", 4 + r, 4 + r, 4 + r);
+  printf("trd_pos = delay_%d_i - delay_%d_base - tank_mod_%d;\n", 4 + r, 4 + r, 4 + r);
+  printf("trd_pos < 0 ? trd_pos += delay_%d_size;\n", 4 + r);
+  printf("trd_idx = floor(trd_pos);\n");
+  printf("trd_frac = trd_pos - trd_idx;\n");
+  printf("trd_idx2 = trd_idx + 1;\n");
+  printf("trd_idx2 >= delay_%d_size ? trd_idx2 -= delay_%d_size;\n", 4 + r, 4 + r);
+  printf("inp%d = delay_%d_line[trd_idx] * (1 - trd_frac) + delay_%d_line[trd_idx2] * trd_frac %c t;\n", 4 + r, 4 + r, 4 + r, q3[r]);
+  printf("inp%d -= diff1_%d_c * z%d;\n", 4 + r, 4 + r, 4 + r);
+  printf("diff1_%d_line[diff1_%d_i] = inp%d;\n", 4 + r, 4 + r, 4 + r);
+  printf("diff1_%d_i += 1;\n", 4 + r);
+  printf("(diff1_%d_i >= diff1_%d_size) ? diff1_%d_i = 0;\n", 4 + r, 4 + r, 4 + r);
+  printf("x%d = z%d + diff1_%d_c * inp%d;\n", 4 + r, 4 + r, 4 + r, 4 + r);
+  printf("\n");
+  r += 1); ?>
+t = x0 - x1; x0 += x1; x1 = t;
+t = x2 - x3; x2 += x3; x3 = t;
+t = x4 - x5; x4 += x5; x5 = t;
+t = x6 - x7; x6 += x7; x7 = t;
+t = x0 - x2; x0 += x2; x2 = t;
+t = x1 - x3; x1 += x3; x3 = t;
+t = x4 - x6; x4 += x6; x6 = t;
+t = x5 - x7; x5 += x7; x7 = t;
+t = x0 - x4; x0 += x4; x4 = t;
+t = x1 - x5; x1 += x5; x5 = t;
+t = x2 - x6; x2 += x6; x6 = t;
+t = x3 - x7; x3 += x7; x7 = t;
+
+g1 += d1;
+out_l = g1 * (x1 + x2);
+out_r = g1 * (x1 - x2);
+
+mod_type > 0 ? (
+<?
+loop(r = 0; 4,
+  printf("  d2_rpos = d2_%d_i - diff2_%d_base + d2mod_%d;\n", r, r, r);
+  printf("  d2_rpos < 0 ? d2_rpos += diff2_%d_size;\n", r);
+  printf("  d2_rpos >= diff2_%d_size ? d2_rpos -= diff2_%d_size;\n", r, r);
+  printf("  d2_idx = floor(d2_rpos);\n");
+  printf("  d2_frac = d2_rpos - d2_idx;\n");
+  printf("  d2_idx_next = d2_idx + 1;\n");
+  printf("  d2_idx_next >= diff2_%d_size ? d2_idx_next = 0;\n", r);
+  printf("  z_l = diff2_%d_line[d2_idx] * (1 - d2_frac) + diff2_%d_line[d2_idx_next] * d2_frac;\n", r, r);
+  printf("  diff2_%d_line[d2_%d_i] = out_l + diff2_%d_c * z_l;\n", r, r, r);
+  printf("  out_l = z_l - diff2_%d_c * diff2_%d_line[d2_%d_i];\n", r, r, r);
+  printf("  d2_%d_i += 1;\n", r);
+  printf("  d2_%d_i >= diff2_%d_size ? d2_%d_i = 0;\n", r, r, r);
+  printf("\n");
+  r += 1); ?>
+<?
+loop(r = 0; 3,
+  printf("  d2_rpos = d2_%d_i - diff2_%d_base + d2mod_%d;\n", 4 + r, 4 + r, 4 + r);
+  printf("  d2_rpos < 0 ? d2_rpos += diff2_%d_size;\n", 4 + r);
+  printf("  d2_rpos >= diff2_%d_size ? d2_rpos -= diff2_%d_size;\n", 4 + r, 4 + r);
+  printf("  d2_idx = floor(d2_rpos);\n");
+  printf("  d2_frac = d2_rpos - d2_idx;\n");
+  printf("  d2_idx_next = d2_idx + 1;\n");
+  printf("  d2_idx_next >= diff2_%d_size ? d2_idx_next = 0;\n", 4 + r);
+  printf("  z_r = diff2_%d_line[d2_idx] * (1 - d2_frac) + diff2_%d_line[d2_idx_next] * d2_frac;\n", 4 + r, 4 + r);
+  printf("  diff2_%d_line[d2_%d_i] = out_r + diff2_%d_c * z_r;\n", 4 + r, 4 + r, 4 + r);
+  printf("  out_r = z_r - diff2_%d_c * diff2_%d_line[d2_%d_i];\n", 4 + r, 4 + r, 4 + r);
+  printf("  d2_%d_i += 1;\n", 4 + r);
+  printf("  d2_%d_i >= diff2_%d_size ? d2_%d_i = 0;\n", 4 + r, 4 + r, 4 + r);
+  printf("\n");
+  r += 1); ?>
+  d2_rpos = d2_7_i - diff2_7_base + d2mod_7;
+  d2_rpos < 0 ? d2_rpos += diff2_7_size;
+  d2_rpos >= diff2_7_size ? d2_rpos -= diff2_7_size;
+  d2_idx = floor(d2_rpos);
+  d2_frac = d2_rpos - d2_idx;
+  d2_idx_next = d2_idx + 1;
+  d2_idx_next >= diff2_7_size ? d2_idx_next = 0;
+  z_r = diff2_7_line[d2_idx] * (1 - d2_frac) + diff2_7_line[d2_idx_next] * d2_frac;
+  diff2_7_line[d2_7_i] = out_r + diff2_7_c * z_r;
+  out_r = z_r - diff2_7_c * diff2_7_line[d2_7_i];
+  d2_7_i += 1;
+  d2_7_i >= diff2_7_size ? d2_7_i = 0;
+);
+
+mod_type == 1 ? (
+  z_l = diff3_l0_line[diff3_l0_i];
+  diff3_l0_line[diff3_l0_i] = out_l + 0.5 * z_l;
+  out_l = z_l - 0.5 * diff3_l0_line[diff3_l0_i];
+  diff3_l0_i += 1;
+  diff3_l0_i >= diff3_l0_size ? diff3_l0_i = 0;
+
+  z_l = diff3_l1_line[diff3_l1_i];
+  diff3_l1_line[diff3_l1_i] = out_l - 0.5 * z_l;
+  out_l = z_l + 0.5 * diff3_l1_line[diff3_l1_i];
+  diff3_l1_i += 1;
+  diff3_l1_i >= diff3_l1_size ? diff3_l1_i = 0;
+
+  z_r = diff3_r0_line[diff3_r0_i];
+  diff3_r0_line[diff3_r0_i] = out_r + 0.5 * z_r;
+  out_r = z_r - 0.5 * diff3_r0_line[diff3_r0_i];
+  diff3_r0_i += 1;
+  diff3_r0_i >= diff3_r0_size ? diff3_r0_i = 0;
+
+  z_r = diff3_r1_line[diff3_r1_i];
+  diff3_r1_line[diff3_r1_i] = out_r - 0.5 * z_r;
+  out_r = z_r + 0.5 * diff3_r1_line[diff3_r1_i];
+  diff3_r1_i += 1;
+  diff3_r1_i >= diff3_r1_size ? diff3_r1_i = 0;
+);
+
+mod_type == 2 ? (
+  hf_split_lp_l += hf_split_coeff * (out_l - hf_split_lp_l);
+  hf_split_lp_r += hf_split_coeff * (out_r - hf_split_lp_r);
+  hf_split_hp_l = out_l - hf_split_lp_l;
+  hf_split_hp_r = out_r - hf_split_lp_r;
+
+  z_l = hf_diff1_l[hf_diff1_i];
+  z_r = hf_diff1_r[hf_diff1_i];
+  hf_diff1_l[hf_diff1_i] = hf_split_hp_l + 0.5 * z_l;
+  hf_diff1_r[hf_diff1_i] = hf_split_hp_r + 0.5 * z_r;
+  hf_out1_l = z_l - 0.5 * hf_diff1_l[hf_diff1_i];
+  hf_out1_r = z_r - 0.5 * hf_diff1_r[hf_diff1_i];
+  hf_diff1_i += 1;
+  hf_diff1_i >= hf_diff1_size ? hf_diff1_i = 0;
+
+  z_l = hf_diff2_l[hf_diff2_i];
+  z_r = hf_diff2_r[hf_diff2_i];
+  hf_diff2_l[hf_diff2_i] = hf_out1_l + 0.5 * z_l;
+  hf_diff2_r[hf_diff2_i] = hf_out1_r + 0.5 * z_r;
+  hf_out2_l = z_l - 0.5 * hf_diff2_l[hf_diff2_i];
+  hf_out2_r = z_r - 0.5 * hf_diff2_r[hf_diff2_i];
+  hf_diff2_i += 1;
+  hf_diff2_i >= hf_diff2_size ? hf_diff2_i = 0;
+
+  z_l = hf_diff3_l[hf_diff3_i];
+  z_r = hf_diff3_r[hf_diff3_i];
+  hf_diff3_l[hf_diff3_i] = hf_out2_l + 0.5 * z_l;
+  hf_diff3_r[hf_diff3_i] = hf_out2_r + 0.5 * z_r;
+  hf_diffused_l = z_l - 0.5 * hf_diff3_l[hf_diff3_i];
+  hf_diffused_r = z_r - 0.5 * hf_diff3_r[hf_diff3_i];
+  hf_diff3_i += 1;
+  hf_diff3_i >= hf_diff3_size ? hf_diff3_i = 0;
+
+  out_l = hf_split_lp_l + hf_diffused_l;
+  out_r = hf_split_lp_r + hf_diffused_r;
+);
+
+g = sqrt(0.125);
+
+<?
+loop(r = 0; 8,
+  printf("fv%d = g * x%d;\n", r, r);
+  printf("filt1_%d_slo += filt1_%d.wlo * (fv%d - filt1_%d_slo) + 1*10^-10;\n", r, r, r, r);
+  printf("fv%d += filt1_%d.glo * filt1_%d_slo;\n", r, r, r);
+  printf("filt1_%d_shi += filt1_%d.whi * (fv%d - filt1_%d_shi);\n", r, r, r, r);
+  printf("fv%d = filt1_%d.gmf * filt1_%d_shi;\n", r, r, r);
+  printf("mod_type > 0 ? (\n");
+  printf("  tw%d = fv%d * tank_sat_drive;\n", r, r);
+  printf("  (tw%d > 1) ? tw%d = 1;\n", r, r);
+  printf("  (tw%d < -1) ? tw%d = -1;\n", r, r);
+  printf("  fv%d = (tw%d - tw%d*tw%d*tw%d/3) * tank_sat_makeup;\n", r, r, r, r, r);
+  printf(");\n");
+  printf("delay_%d_line[delay_%d_i] = fv%d;\n", r, r, r);
+  printf("delay_%d_i += 1;\n", r);
+  printf("(delay_%d_i >= delay_%d_size) ? delay_%d_i = 0;\n", r, r, r);
+  printf("\n");
+  r += 1); ?>
+(pareq1_state != 0) ? (
+  c1 = pareq1.c1; c2 = pareq1.c2; gg = pareq1.gg;
+  z1 = pareq1_z1_l; z2 = pareq1_z2_l;
+  xx = out_l;
+  yy = xx - c2 * z2;
+  out_l = xx - gg * (z2 + c2 * yy - xx);
+  yy -= c1 * z1;
+  z2 = z1 + c1 * yy;
+  z1 = yy + 1*10^-20;
+  pareq1_z1_l = z1; pareq1_z2_l = z2;
+);
+
+(pareq1_state != 0) ? (
+  c1 = pareq1.c1; c2 = pareq1.c2; gg = pareq1.gg;
+  z1 = pareq1_z1_r; z2 = pareq1_z2_r;
+  xx = out_r;
+  yy = xx - c2 * z2;
+  out_r = xx - gg * (z2 + c2 * yy - xx);
+  yy -= c1 * z1;
+  z2 = z1 + c1 * yy;
+  z1 = yy + 1*10^-20;
+  pareq1_z1_r = z1; pareq1_z2_r = z2;
+);
+
+(pareq2_state != 0) ? (
+  c1 = pareq2.c1; c2 = pareq2.c2; gg = pareq2.gg;
+  z1 = pareq2_z1_l; z2 = pareq2_z2_l;
+  xx = out_l;
+  yy = xx - c2 * z2;
+  out_l = xx - gg * (z2 + c2 * yy - xx);
+  yy -= c1 * z1;
+  z2 = z1 + c1 * yy;
+  z1 = yy + 1*10^-20;
+  pareq2_z1_l = z1; pareq2_z2_l = z2;
+);
+
+(pareq2_state != 0) ? (
+  c1 = pareq2.c1; c2 = pareq2.c2; gg = pareq2.gg;
+  z1 = pareq2_z1_r; z2 = pareq2_z2_r;
+  xx = out_r;
+  yy = xx - c2 * z2;
+  out_r = xx - gg * (z2 + c2 * yy - xx);
+  yy -= c1 * z1;
+  z2 = z1 + c1 * yy;
+  z1 = yy + 1*10^-20;
+  pareq2_z1_r = z1; pareq2_z2_r = z2;
+);
+
+(model_bass_state != 0) ? (
+  c1 = model_bass.c1; c2 = model_bass.c2; gg = model_bass.gg;
+  z1 = model_bass_z1_l; z2 = model_bass_z2_l;
+  xx = out_l;
+  yy = xx - c2 * z2;
+  out_l = xx - gg * (z2 + c2 * yy - xx);
+  yy -= c1 * z1;
+  z2 = z1 + c1 * yy;
+  z1 = yy + 1*10^-20;
+  model_bass_z1_l = z1; model_bass_z2_l = z2;
+);
+
+(model_bass_state != 0) ? (
+  c1 = model_bass.c1; c2 = model_bass.c2; gg = model_bass.gg;
+  z1 = model_bass_z1_r; z2 = model_bass_z2_r;
+  xx = out_r;
+  yy = xx - c2 * z2;
+  out_r = xx - gg * (z2 + c2 * yy - xx);
+  yy -= c1 * z1;
+  z2 = z1 + c1 * yy;
+  z1 = yy + 1*10^-20;
+  model_bass_z1_r = z1; model_bass_z2_r = z2;
+);
+
+g0 += d0;
+
+mod_type > 0 ? (
+  w_l = out_l * sat_drive;
+  (w_l > 1) ? w_l = 1;
+  (w_l < -1) ? w_l = -1;
+  out_l = (w_l - w_l * w_l * w_l / 3) * sat_makeup;
+
+  w_r = out_r * sat_drive;
+  (w_r > 1) ? w_r = 1;
+  (w_r < -1) ? w_r = -1;
+  out_r = (w_r - w_r * w_r * w_r / 3) * sat_makeup;
+
+  shimmer = shimmer_depth * shimmer_smooth;
+  shimmer_diff = 0.5 * (out_l - out_r);
+  out_l += shimmer * shimmer_diff;
+  out_r -= shimmer * shimmer_diff;
+
+  spl0 = out_l + g0 * spl0;
+  spl1 = out_r + g0 * spl1;
+) : (
+  spl0 = out_l + g0 * spl0;
+  spl1 = out_r + g0 * spl1;
+);
+
+out_meter_l = max(abs(spl0), out_meter_l * meter_release);
+out_meter_r = max(abs(spl1), out_meter_r * meter_release);
+
+@gfx 620 520
+
+scale = max(0.5, min(gfx_w / 620, gfx_h / 520));
+win_w = gfx_w; win_h = gfx_h;
+gfx_w = floor(620*scale); gfx_h = floor(520*scale);
+ox = floor((win_w - gfx_w) * 0.5);
+oy = 0;
+mouse_x -= ox; mouse_y -= oy;
+gfx_setimgdim(127, gfx_w, gfx_h);
+gfx_dest = 127;
+
+function draw_knob(x, y, radius, value, min_val, max_val, label, unit, disabled, col_r, col_g, col_b)
+local(pos, ang0, ang1, ang, i, tx, ty, kr, kg, kb, kminw, kspread)
+(
+  pos = (value - min_val) / (max_val - min_val);
+  disabled ? ( kr = 0.35; kg = 0.35; kb = 0.38; ) : ( kr = col_r; kg = col_g; kb = col_b; );
+
+  ang0 = -2.35619;
+  ang1 =  2.35619;
+
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(x, y, radius + 2*scale, 1, 1);
+  gfx_set(kr*0.55, kg*0.55, kb*0.55, 1);
+  gfx_circle(x, y, radius, 1, 1);
+  gfx_set(kr, kg, kb, 1);
+  gfx_circle(x, y, radius*0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(x - radius*0.28, y - radius*0.28, radius*0.42, 1, 1);
+
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.85, 0.85, 0.85, 0.7);
+    gfx_line(x + sin(ang)*radius*0.82, y - cos(ang)*radius*0.82,
+             x + sin(ang)*radius*0.98, y - cos(ang)*radius*0.98);
+    i += 1;
+  );
+
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(x, y, x + sin(ang)*radius*0.85, y - cos(ang)*radius*0.85);
+
+  (label == "BASS") ?
+    sprintf(#kval, "%.2f%s", value, unit) :
+    sprintf(#kval, "%.1f%s", value, unit);
+  sprintf(#kmin, "%.5g%s", min_val, unit);
+  sprintf(#kmax, "%.5g%s", max_val, unit);
+
+  gfx_setfont(5, "Arial", 14*scale);
+  disabled ? gfx_set(0.5, 0.5, 0.5, 1) : gfx_set(0.85, 0.85, 0.85, 1);
+  gfx_measurestr(#kval, tx, ty);
+  gfx_x = x - tx*0.5; gfx_y = y - radius - 16*scale;
+  gfx_drawstr(#kval);
+
+  gfx_setfont(6, "Arial", 12*scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_measurestr(#kmin, kminw, ty);
+  gfx_measurestr(#kmax, tx, ty);
+  kspread = max(0, (kminw + tx + 8*scale) - (2*radius + 8*scale)) * 0.5;
+  gfx_x = x - radius - 4*scale - kspread; gfx_y = y + radius + 4*scale;
+  gfx_drawstr(#kmin);
+  gfx_x = x + radius - tx + 4*scale + kspread; gfx_y = y + radius + 4*scale;
+  gfx_drawstr(#kmax);
+
+  gfx_setfont(5, "Arial", 14*scale);
+  disabled ? gfx_set(0.4, 0.4, 0.4, 1) : gfx_set(0.8, 0.8, 0.82, 1);
+  gfx_measurestr(label, tx, ty);
+  gfx_x = x - tx*0.5; gfx_y = y + radius + 18*scale;
+  gfx_drawstr(label);
+);
+
+function draw_slider(x, y, w, h, value, min_val, max_val, label, unit)
+local(norm_val, fill_h, val_str)
+(
+  norm_val = (value - min_val) / (max_val - min_val);
+  fill_h = (h - 4 * scale) * norm_val;
+  gfx_set(0.2, 0.2, 0.25);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(accent_r, accent_g, accent_b);
+  gfx_rect(x + 2 * scale, y + h - fill_h - 2 * scale, w - 4 * scale, fill_h, 1);
+  gfx_set(0.4, 0.4, 0.45);
+  gfx_rect(x, y, w, h, 0);
+  gfx_set(0.8, 0.8, 0.8);
+  gfx_measurestr(label, str_w, str_h);
+  gfx_x = x + w * 0.5 - str_w * 0.5;
+  gfx_y = y + h + 8 * scale;
+  gfx_drawstr(label);
+  gfx_set(0.6, 0.6, 0.6);
+  sprintf(val_str, "%.1f%s", value, unit);
+  gfx_measurestr(val_str, str_w, str_h);
+  gfx_x = x + w * 0.5 - str_w * 0.5;
+  gfx_y = y + h + 24 * scale;
+  gfx_drawstr(val_str);
+);
+
+function draw_glass_seg(bx, by, bw, bh, cr, cg, cb)
+local(gap)
+(
+  gap = max(1, scale);
+  gfx_set(0.04, 0.04, 0.05);
+  gfx_rect(bx - gap, by - gap, bw + 2*gap, bh + 2*gap, 1);
+  gfx_set(cr*0.6, cg*0.6, cb*0.6);
+  gfx_rect(bx, by, bw, bh, 1);
+  gfx_set(cr, cg, cb);
+  gfx_rect(bx + gap, by + gap, bw - 2*gap, bh*0.5, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_rect(bx + gap, by + gap, bw - 2*gap, bh*0.32, 1);
+  gfx_set(1, 1, 1, 0.3);
+  gfx_rect(bx, by, bw, gap, 1);
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(bx, by + bh - gap, bw, gap, 1);
+  gfx_set(0.03, 0.03, 0.04);
+  gfx_rect(bx - gap, by - gap, bw + 2*gap, bh + 2*gap, 0);
+);
+
+function draw_mod_selector(x, y, w, h, value)
+local(box_w, label, mcr, mcg, mcb)
+(
+  gfx_set(0.2, 0.2, 0.25);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.4, 0.4, 0.45);
+  gfx_rect(x, y, w, h, 0);
+  box_w = (w - 8 * scale) / 3;
+  value == 0 ? ( mcr = 0.55; mcg = 0.72; mcb = 0.95; ) : ( mcr = 0.15; mcg = 0.15; mcb = 0.18; );
+  draw_glass_seg(x + 2 * scale, y + 2 * scale, box_w, h - 4 * scale, mcr, mcg, mcb);
+  value == 1 ? ( mcr = 0.95; mcg = 0.55; mcb = 0.58; ) : ( mcr = 0.15; mcg = 0.15; mcb = 0.18; );
+  draw_glass_seg(x + box_w + 4 * scale, y + 2 * scale, box_w, h - 4 * scale, mcr, mcg, mcb);
+  value == 2 ? ( mcr = 0.55; mcg = 0.88; mcb = 0.62; ) : ( mcr = 0.15; mcg = 0.15; mcb = 0.18; );
+  draw_glass_seg(x + 2 * box_w + 6 * scale, y + 2 * scale, box_w, h - 4 * scale, mcr, mcg, mcb);
+  gfx_setfont(4, "Arial", 11 * scale);
+  value == 0 ? gfx_set(0, 0, 0) : gfx_set(0.8, 0.8, 0.8);
+  gfx_measurestr("ZR1", str_w, str_h);
+  gfx_x = x + box_w * 0.5 - str_w * 0.5;
+  gfx_y = y + h * 0.5 - str_h * 0.5;
+  gfx_drawstr("ZR1");
+  value == 1 ? gfx_set(0, 0, 0) : gfx_set(0.8, 0.8, 0.8);
+  gfx_measurestr("MK VII", str_w, str_h);
+  gfx_x = x + box_w * 1.5 + 4 * scale - str_w * 0.5;
+  gfx_y = y + h * 0.5 - str_h * 0.5;
+  gfx_drawstr("MK VII");
+  value == 2 ? gfx_set(0, 0, 0) : gfx_set(0.8, 0.8, 0.8);
+  gfx_measurestr("LEXIS", str_w, str_h);
+  gfx_x = x + box_w * 2.5 + 6 * scale - str_w * 0.5;
+  gfx_y = y + h * 0.5 - str_h * 0.5;
+  gfx_drawstr("LEXIS");
+  gfx_set(0.8, 0.8, 0.8);
+  gfx_setfont(4, "Arial", 13 * scale);
+  gfx_measurestr("MOD TYPE", str_w, str_h);
+);
+
+function hue_rotate(r, g, b, deg)
+global(hr_r, hr_g, hr_b)
+local(rad, c, s, w, a, bc)
+(
+  rad = deg * 0.0174533;
+  c = cos(rad); s = sin(rad);
+  w = (1 - c) / 3;
+  a = w - 0.5773503 * s;
+  bc = w + 0.5773503 * s;
+  hr_r = (c + w) * r + a * g + bc * b;
+  hr_g = bc * r + (c + w) * g + a * b;
+  hr_b = a * r + bc * g + (c + w) * b;
+  hr_r = min(max(hr_r, 0), 1);
+  hr_g = min(max(hr_g, 0), 1);
+  hr_b = min(max(hr_b, 0), 1);
+);
+
+function point_in_circle(px, py, cx, cy, radius)
+(
+  sqrt((px - cx)^2 + (py - cy)^2) <= radius;
+);
+
+function point_in_rect(px, py, rx, ry, rw, rh)
+(
+  px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
+);
+
+mod_type == 1 ? (
+  accent_r = 0.95; accent_g = 0.55; accent_b = 0.58;
+) : mod_type == 2 ? (
+  accent_r = 0.55; accent_g = 0.88; accent_b = 0.62;
+) : (
+  accent_r = 0.55; accent_g = 0.72; accent_b = 0.95;
+);
+
+gfx_set(0.13, 0.13, 0.15);
+gfx_rect(0, 0, gfx_w, gfx_h);
+gfx_gradrect(0, 0, gfx_w, gfx_h, 0.13, 0.13, 0.15, 0, 0.07, 0.08, 0.1, 0, 1);
+
+gfx_set(0.9, 0.9, 0.9);
+gfx_setfont(1, "Arial", 22 * scale, 'b');
+gfx_x = 20 * scale;
+gfx_y = 20 * scale;
+gfx_set(accent_r, accent_g, accent_b);
+gfx_drawstr("REVERB");
+
+gfx_set(0.6, 0.6, 0.6);
+gfx_setfont(2, "Arial", 13 * scale);
+gfx_x = 20 * scale;
+gfx_y = 50 * scale;
+gfx_drawstr("by chmaha  ·  based on Zita-Rev1");
+
+gfx_setfont(3, "Arial", 16 * scale, 'b');
+
+gfx_set(0.7, 0.7, 0.7);
+gfx_x = 60 * scale;
+gfx_y = 90 * scale;
+gfx_drawstr("INPUT");
+
+gfx_x = 172 * scale;
+gfx_y = 90 * scale;
+gfx_drawstr("REVERB");
+
+gfx_x = 512 * scale;
+gfx_y = 165 * scale;
+gfx_drawstr("OUTPUT");
+
+gfx_x = 60 * scale;
+gfx_y = 240 * scale;
+gfx_drawstr("TONE");
+
+gfx_x = 60 * scale;
+gfx_y = 390 * scale;
+gfx_drawstr("MODEL");
+
+gfx_setfont(4, "Arial", 13 * scale);
+
+knob_r = 28 * scale;
+knob_y1 = 150 * scale;
+knob_y2 = 300 * scale;
+
+hue_rotate(accent_r, accent_g, accent_b, -60);
+draw_knob(80 * scale, knob_y1, knob_r, slider1, 20, 100, "DELAY", "ms", 0, hr_r, hr_g, hr_b);
+
+hue_rotate(accent_r, accent_g, accent_b, -45);
+draw_knob(200 * scale, knob_y1, knob_r, slider4, 1, 8, "RT MID", "s", 0, hr_r, hr_g, hr_b);
+hue_rotate(accent_r, accent_g, accent_b, -30);
+draw_knob(310 * scale, knob_y1, knob_r, slider2, 50, 1000, "XOVER", "Hz", 0, hr_r, hr_g, hr_b);
+hue_rotate(accent_r, accent_g, accent_b, -15);
+draw_knob(420 * scale, knob_y1, knob_r, slider3, 0.5, 2, "BASS", "x", 0, hr_r, hr_g, hr_b);
+
+hue_rotate(accent_r, accent_g, accent_b, 0);
+draw_knob(80 * scale, knob_y2, knob_r, slider5, 1500, 24000, "DAMP", "Hz", 0, hr_r, hr_g, hr_b);
+hue_rotate(accent_r, accent_g, accent_b, 15);
+draw_knob(200 * scale, knob_y2, knob_r, slider6, 40, 2500, "EQ1 F", "Hz", 0, hr_r, hr_g, hr_b);
+draw_slider(260 * scale, knob_y2 - 40 * scale, 22 * scale, 80 * scale, slider7, -15, 15, "EQ1 G", "dB");
+hue_rotate(accent_r, accent_g, accent_b, 30);
+draw_knob(350 * scale, knob_y2, knob_r, slider8, 160, 10000, "EQ2 F", "Hz", 0, hr_r, hr_g, hr_b);
+draw_slider(410 * scale, knob_y2 - 40 * scale, 22 * scale, 80 * scale, slider9, -15, 15, "EQ2 G", "dB");
+
+hue_rotate(accent_r, accent_g, accent_b, 45);
+draw_knob(540 * scale, 225 * scale, knob_r, slider10 * 100, 0, 100, "DRY/WET", "%", 0, hr_r, hr_g, hr_b);
+
+MTR_MIN_DB = -48;
+function mtr_frac(lin)
+local(db)
+(
+  lin < 0.00001 ? 0 : (
+    db = max(MTR_MIN_DB, min(0, 20*log10(lin)));
+    (db - MTR_MIN_DB) / (0 - MTR_MIN_DB);
+  );
+);
+
+meter_x = 584 * scale;
+meter_w = 6 * scale;
+meter_h = 100 * scale;
+meter_y = 175 * scale;
+mtr_l = mtr_frac(out_meter_l);
+mtr_r = mtr_frac(out_meter_r);
+gfx_set(0.18, 0.18, 0.22);
+gfx_rect(meter_x, meter_y, meter_w, meter_h, 1);
+gfx_set(0.4, 0.4, 0.45);
+gfx_rect(meter_x, meter_y, meter_w, meter_h, 0);
+mtr_l > 0.001 ? (
+  gfx_set(accent_r * 0.7, accent_g * 0.7, accent_b * 0.7);
+  gfx_rect(meter_x + 1 * scale, meter_y + meter_h * (1 - mtr_l), meter_w - 2 * scale, meter_h * mtr_l, 1);
+);
+gfx_set(0.18, 0.18, 0.22);
+gfx_rect(meter_x + meter_w + 4 * scale, meter_y, meter_w, meter_h, 1);
+gfx_set(0.4, 0.4, 0.45);
+gfx_rect(meter_x + meter_w + 4 * scale, meter_y, meter_w, meter_h, 0);
+mtr_r > 0.001 ? (
+  gfx_set(accent_r * 0.7, accent_g * 0.7, accent_b * 0.7);
+  gfx_rect(meter_x + meter_w + 5 * scale, meter_y + meter_h * (1 - mtr_r), meter_w - 2 * scale, meter_h * mtr_r, 1);
+);
+
+draw_mod_selector(60 * scale, 425 * scale, 180 * scale, 30 * scale, slider11);
+hue_rotate(accent_r, accent_g, accent_b, 60);
+draw_knob(320 * scale, 440 * scale, knob_r, slider12, 0, 100, "MOD AMT", "%", slider11 == 0, hr_r, hr_g, hr_b);
+
+mouse_wheel ? (
+  wheel_slider = 0;
+  point_in_circle(mouse_x, mouse_y, 80 * scale, knob_y1, knob_r) ? wheel_slider = 1 :
+  point_in_circle(mouse_x, mouse_y, 200 * scale, knob_y1, knob_r) ? wheel_slider = 4 :
+  point_in_circle(mouse_x, mouse_y, 310 * scale, knob_y1, knob_r) ? wheel_slider = 2 :
+  point_in_circle(mouse_x, mouse_y, 420 * scale, knob_y1, knob_r) ? wheel_slider = 3 :
+  point_in_circle(mouse_x, mouse_y, 80 * scale, knob_y2, knob_r) ? wheel_slider = 5 :
+  point_in_circle(mouse_x, mouse_y, 200 * scale, knob_y2, knob_r) ? wheel_slider = 6 :
+  point_in_rect(mouse_x, mouse_y, 260 * scale, knob_y2 - 40 * scale, 22 * scale, 80 * scale) ? wheel_slider = 7 :
+  point_in_circle(mouse_x, mouse_y, 350 * scale, knob_y2, knob_r) ? wheel_slider = 8 :
+  point_in_rect(mouse_x, mouse_y, 410 * scale, knob_y2 - 40 * scale, 22 * scale, 80 * scale) ? wheel_slider = 9 :
+  point_in_circle(mouse_x, mouse_y, 540 * scale, 225 * scale, knob_r) ? wheel_slider = 10 :
+  point_in_rect(mouse_x, mouse_y, 60 * scale, 425 * scale, 180 * scale, 30 * scale) ? wheel_slider = 11 :
+  (slider11 != 0 && point_in_circle(mouse_x, mouse_y, 320 * scale, 440 * scale, knob_r)) ? wheel_slider = 12;
+
+  wheel_slider > 0 ? (
+    wheel_delta = mouse_wheel / 120;
+    wheel_slider == 1 ? slider1 = max(20, min(100, slider1 + wheel_delta * 1)) :
+    wheel_slider == 2 ? slider2 = max(50, min(1000, slider2 + wheel_delta * 25)) :
+    wheel_slider == 3 ? slider3 = max(0.5, min(2, slider3 + wheel_delta * 0.05)) :
+    wheel_slider == 4 ? slider4 = max(1, min(8, slider4 + wheel_delta * 0.1)) :
+    wheel_slider == 5 ? slider5 = max(1500, min(24000, slider5 + wheel_delta * 500)) :
+    wheel_slider == 6 ? slider6 = max(40, min(2500, slider6 + wheel_delta * 50)) :
+    wheel_slider == 7 ? slider7 = max(-15, min(15, slider7 + wheel_delta * 0.5)) :
+    wheel_slider == 8 ? slider8 = max(160, min(10000, slider8 + wheel_delta * 200)) :
+    wheel_slider == 9 ? slider9 = max(-15, min(15, slider9 + wheel_delta * 0.5)) :
+    wheel_slider == 10 ? slider10 = max(0, min(1, slider10 + wheel_delta * 0.01)) :
+    wheel_slider == 11 ? slider11 = max(0, min(2, slider11 + (wheel_delta > 0 ? 1 : -1))) :
+    wheel_slider == 12 ? slider12 = max(0, min(100, slider12 + wheel_delta * 5));
+  );
+  mouse_wheel = 0;
+);
+
+mouse_cap ? (
+  !mouse_state ? (
+    (time_precise() - last_click_time < 0.3) && last_clicked_slider > 0 ? (
+      last_clicked_slider == 1 ? slider1 = 40 :
+      last_clicked_slider == 2 ? slider2 = 200 :
+      last_clicked_slider == 3 ? slider3 = 1.5 :
+      last_clicked_slider == 4 ? slider4 = 2.0 :
+      last_clicked_slider == 5 ? slider5 = 6000 :
+      last_clicked_slider == 6 ? slider6 = 160 :
+      last_clicked_slider == 7 ? slider7 = 0 :
+      last_clicked_slider == 8 ? slider8 = 2500 :
+      last_clicked_slider == 9 ? slider9 = 0 :
+      last_clicked_slider == 10 ? slider10 = 0.5 :
+      last_clicked_slider == 11 ? slider11 = 0 :
+      last_clicked_slider == 12 ? slider12 = 50;
+      last_clicked_slider = 0;
+    ) : (
+      point_in_circle(mouse_x, mouse_y, 80 * scale, knob_y1, knob_r) ? (active_slider = 1; drag_start_y = mouse_y; drag_start_val = slider1;) :
+      point_in_circle(mouse_x, mouse_y, 200 * scale, knob_y1, knob_r) ? (active_slider = 4; drag_start_y = mouse_y; drag_start_val = slider4;) :
+      point_in_circle(mouse_x, mouse_y, 310 * scale, knob_y1, knob_r) ? (active_slider = 2; drag_start_y = mouse_y; drag_start_val = slider2;) :
+      point_in_circle(mouse_x, mouse_y, 420 * scale, knob_y1, knob_r) ? (active_slider = 3; drag_start_y = mouse_y; drag_start_val = slider3;) :
+      point_in_circle(mouse_x, mouse_y, 80 * scale, knob_y2, knob_r) ? (active_slider = 5; drag_start_y = mouse_y; drag_start_val = slider5;) :
+      point_in_circle(mouse_x, mouse_y, 200 * scale, knob_y2, knob_r) ? (active_slider = 6; drag_start_y = mouse_y; drag_start_val = slider6;) :
+      point_in_rect(mouse_x, mouse_y, 260 * scale, knob_y2 - 40 * scale, 22 * scale, 80 * scale) ? (active_slider = 7; drag_start_y = mouse_y; drag_start_val = slider7;) :
+      point_in_circle(mouse_x, mouse_y, 350 * scale, knob_y2, knob_r) ? (active_slider = 8; drag_start_y = mouse_y; drag_start_val = slider8;) :
+      point_in_rect(mouse_x, mouse_y, 410 * scale, knob_y2 - 40 * scale, 22 * scale, 80 * scale) ? (active_slider = 9; drag_start_y = mouse_y; drag_start_val = slider9;) :
+      point_in_circle(mouse_x, mouse_y, 540 * scale, 225 * scale, knob_r) ? (active_slider = 10; drag_start_y = mouse_y; drag_start_val = slider10;) :
+      point_in_rect(mouse_x, mouse_y, 60 * scale, 425 * scale, 180 * scale, 30 * scale) ? (
+        rel_x = mouse_x - 80 * scale;
+        box_w = (180 * scale - 8 * scale) / 3;
+        rel_x < box_w + 2 * scale ? slider11 = 0 :
+        rel_x < 2 * box_w + 4 * scale ? slider11 = 1 :
+        slider11 = 2;
+        active_slider = 11;
+      ) :
+      (slider11 != 0 && point_in_circle(mouse_x, mouse_y, 320 * scale, 440 * scale, knob_r)) ? (active_slider = 12; drag_start_y = mouse_y; drag_start_val = slider12;);
+      last_clicked_slider = active_slider;
+      last_click_time = time_precise();
+    );
+    mouse_state = 1;
+  );
+  active_slider > 0 && active_slider != 11 ? (
+    delta = (drag_start_y - mouse_y) * 0.6;
+    active_slider == 1 ? slider1 = max(20, min(100, drag_start_val + delta)) :
+    active_slider == 2 ? slider2 = max(50, min(1000, drag_start_val + delta * 3)) :
+    active_slider == 3 ? slider3 = max(0.5, min(2, drag_start_val + delta * 0.005)) :
+    active_slider == 4 ? slider4 = max(1, min(8, drag_start_val + delta * 0.02)) :
+    active_slider == 5 ? slider5 = max(1500, min(24000, drag_start_val + delta * 50)) :
+    active_slider == 6 ? slider6 = max(40, min(2500, drag_start_val + delta * 5)) :
+    active_slider == 7 ? slider7 = max(-15, min(15, drag_start_val + (drag_start_y - mouse_y) / (76 * scale) * 30)) :
+    active_slider == 8 ? slider8 = max(160, min(10000, drag_start_val + delta * 20)) :
+    active_slider == 9 ? slider9 = max(-15, min(15, drag_start_val + (drag_start_y - mouse_y) / (76 * scale) * 30)) :
+    active_slider == 10 ? slider10 = max(0, min(1, drag_start_val + delta * 0.003)) :
+    active_slider == 12 ? slider12 = max(0, min(100, drag_start_val + delta));
+    active_slider != 7 && active_slider != 9 ? mouse_cap |= 65536;
+  );
+) : (
+  mouse_state = 0;
+  active_slider = 0;
+);
+
+gfx_dest = -1; gfx_a = 1; gfx_mode = 6;
+ox > 0 ? (
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, 0, 0, ox, win_h);
+  gfx_blit(127, 1, 0, 0, 0, 1, gfx_h, ox + gfx_w, 0, win_w - ox - gfx_w, win_h);
+);
+win_h > gfx_h ? (
+  gfx_blit(127, 1, 0, 0, gfx_h - 1, gfx_w, 1, ox, gfx_h, gfx_w, win_h - gfx_h);
+);
+gfx_blit(127, 1, 0, 0, 0, gfx_w, gfx_h, ox, oy, gfx_w, gfx_h);
+gfx_mode = 0;
+gfx_w = win_w; gfx_h = win_h;

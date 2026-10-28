@@ -1,0 +1,238 @@
+Version: 1.0
+desc: True Peak (x42-dpl port) by chmaha
+author: chmaha
+changelog:
+  Initial release.
+// Ported from x42/dpl.lv2's True Peak DSP (Robin Gareus). GPLv3+.
+// https://github.com/x42/dpl.lv2
+// Claude generated some of this code
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+@init
+gfx_ext_retina = 1;
+<?
+tp_c = 0;
+mem_set_values(tp_c, -0.0000233079,0.0001321291,-0.0003394408,0.0006562235,-0.0010941380,0.0016658070,-0.0023852300,0.0032683710,-0.0043340120,0.0056049850,-0.0071099890,0.0088863140,-0.0109840300,0.0134726400,-0.0164520600,0.0200715500,-0.0245643200,0.0303153100,-0.0380064400,0.0489666700,-0.0661685300,0.0978814100,-0.1788607000,0.9000753000,0.2993829000,-0.1269367000,0.0792239800,-0.0564774800,0.0429509300,-0.0338570600,0.0272494600,-0.0221894300,0.0181697600,-0.0148931300,0.0121741100,-0.0098912110,0.0079614700,-0.0063261440,0.0049422020,-0.0037770650,0.0028052400,-0.0020061060,0.0013624160,-0.0008592768,0.0004834383,-0.0002228007,0.0000660727,-0.0000025371);
+mem_set_values(tp_c + 48, -0.0000145005,0.0001359163,-0.0003928527,0.0008006445,-0.0013755100,0.0021349150,-0.0030981030,0.0042868600,-0.0057266140,0.0074480180,-0.0094892860,0.0118996600,-0.0147447100,0.0181147200,-0.0221382800,0.0270055700,-0.0330102300,0.0406297100,-0.0506934500,0.0647749900,-0.0862561900,0.1239454000,-0.2101678000,0.6359382000,0.6359382000,-0.2101678000,0.1239454000,-0.0862561900,0.0647749900,-0.0506934500,0.0406297100,-0.0330102300,0.0270055700,-0.0221382800,0.0181147200,-0.0147447100,0.0118996600,-0.0094892860,0.0074480180,-0.0057266140,0.0042868600,-0.0030981030,0.0021349150,-0.0013755100,0.0008006445,-0.0003928527,0.0001359163,-0.0000145005);
+mem_set_values(tp_c + 96, -0.0000025371,0.0000660727,-0.0002228007,0.0004834383,-0.0008592768,0.0013624160,-0.0020061060,0.0028052400,-0.0037770650,0.0049422020,-0.0063261440,0.0079614700,-0.0098912110,0.0121741100,-0.0148931300,0.0181697600,-0.0221894300,0.0272494600,-0.0338570600,0.0429509300,-0.0564774800,0.0792239800,-0.1269367000,0.2993829000,0.9000753000,-0.1788607000,0.0978814100,-0.0661685300,0.0489666700,-0.0380064400,0.0303153100,-0.0245643200,0.0200715500,-0.0164520600,0.0134726400,-0.0109840300,0.0088863140,-0.0071099890,0.0056049850,-0.0043340120,0.0032683710,-0.0023852300,0.0016658070,-0.0010941380,0.0006562235,-0.0003394408,0.0001321291,-0.0000233079);
+function tp_sum(ch, ph) ( loop(i = 0; 48, printf("%sr%s%02d*%.10f", i ? " + " : "", ch, i, tp_c[(ph - 1) * 48 + i]); i += 1); );
+function tp_zero(ch) ( loop(i = 0; 48, printf("r%s%02d = ", ch, i); i += 1); );
+function tp_shift(ch) ( loop(i = 0; 47, printf("r%s%02d=r%s%02d; ", ch, i, ch, i + 1); i += 1); );
+?>
+
+<? tp_zero("L"); ?>0;
+<? tp_zero("R"); ?>0;
+
+frame_max_L = 0; frame_max_R = 0;
+hold_L = 0; hold_R = 0;
+disp_L = 0; disp_R = 0;
+last_gfx_time = -1;
+
+@sample
+
+x0 = spl0;
+x1 = spl1;
+
+rL47 = x0;
+u0L = rL47;
+u1L = <? tp_sum("L", 1); ?>;
+u2L = <? tp_sum("L", 2); ?>;
+u3L = <? tp_sum("L", 3); ?>;
+pxL = max(max(abs(u0L), abs(u1L)), max(abs(u2L), abs(u3L)));
+
+rR47 = x1;
+u0R = rR47;
+u1R = <? tp_sum("R", 1); ?>;
+u2R = <? tp_sum("R", 2); ?>;
+u3R = <? tp_sum("R", 3); ?>;
+pxR = max(max(abs(u0R), abs(u1R)), max(abs(u2R), abs(u3R)));
+
+<? tp_shift("L"); ?>
+<? tp_shift("R"); ?>
+
+pxL > frame_max_L ? frame_max_L = pxL;
+pxR > frame_max_R ? frame_max_R = pxR;
+pxL > hold_L ? hold_L = pxL;
+pxR > hold_R ? hold_R = pxR;
+
+@gfx 489 427
+
+scale = max(0.5, min(gfx_w / 489, gfx_h / 427));
+
+function db_of(lin) ( lin > 0.00001 ? 20*log10(lin) : -200; );
+
+gfx_set(0.09, 0.09, 0.10, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_setfont(1, "Arial", 18*scale, 'b');
+gfx_set(0.85, 0.3, 0.4, 1);
+gfx_x = 12*scale; gfx_y = 8*scale;
+gfx_drawstr("TRUE PEAK");
+gfx_setfont(1, "Arial", 13*scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = 14*scale; gfx_y = 28*scale;
+gfx_drawstr("by chmaha  ·  based on x42-dpl");
+
+function draw_glass(bx, by, bw, bh, cr, cg, cb)
+local(gap)
+(
+  gap = max(1, scale);
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(bx - gap, by - gap, bw + 2*gap, bh + 2*gap, 1);
+  gfx_set(cr*0.6, cg*0.6, cb*0.6, 1);
+  gfx_rect(bx, by, bw, bh, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_rect(bx + gap, by + gap, bw - 2*gap, bh*0.5, 1);
+  gfx_set(1, 1, 1, 0.10);
+  gfx_rect(bx + gap, by + gap, bw - 2*gap, bh*0.32, 1);
+  gfx_set(1, 1, 1, 0.22);
+  gfx_rect(bx, by, bw, gap, 1);
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(bx, by + bh - gap, bw, gap, 1);
+  gfx_set(0.03, 0.03, 0.04, 1);
+  gfx_rect(bx - gap, by - gap, bw + 2*gap, bh + 2*gap, 0);
+);
+
+strcpy(#rst_txt, "Reset");
+gfx_setfont(1, "Arial", 14*scale);
+gfx_measurestr(#rst_txt, rst_tw, rst_th);
+rst_w = rst_tw + 16*scale; rst_h = 22*scale;
+rst_x = gfx_w - rst_w - 12*scale; rst_y = 16*scale;
+draw_glass(rst_x, rst_y, rst_w, rst_h, 0.30, 0.30, 0.33);
+gfx_set(1, 1, 1, 0.9);
+gfx_x = rst_x + 8*scale; gfx_y = rst_y + 4*scale;
+gfx_drawstr(#rst_txt);
+
+mouse_down = mouse_cap & 1;
+(mouse_down && !mouse_state) ? (
+  (mouse_x >= rst_x && mouse_x <= rst_x + rst_w && mouse_y >= rst_y && mouse_y <= rst_y + rst_h) ? (
+    hold_L = 0; hold_R = 0;
+  );
+);
+mouse_state = mouse_down;
+
+METER_TOP = 56*scale; METER_BOT = gfx_h - 77*scale;
+METER_H = METER_BOT - METER_TOP;
+DB_TOP = 3; DB_BOT = -60;
+
+function y_of_db(db) ( floor(METER_TOP + METER_H * (DB_TOP - max(DB_BOT, min(DB_TOP, db))) / (DB_TOP - DB_BOT)); );
+
+BAR_W = floor(gfx_w * 0.07);
+HALF_GAP = floor(gfx_w * 0.03);
+barL_x = floor(gfx_w*0.5) - HALF_GAP - BAR_W;
+barR_x = floor(gfx_w*0.5) + HALF_GAP;
+
+function draw_zone_band(bx, band_lo, band_hi, live_db, zr, zg, zb)
+local(top_db, y0, y1)
+(
+  live_db > band_lo ? (
+    top_db = min(band_hi, live_db);
+    y0 = y_of_db(top_db);
+    y1 = y_of_db(band_lo);
+    gfx_set(zr, zg, zb, 1);
+    gfx_rect(bx, y0, BAR_W, y1 - y0, 1);
+  );
+);
+
+function draw_meter(bx, live_lin, hold_lin, label)
+local(live_db, hold_db, y0, i, db, ty, tw, th, ly)
+(
+  gfx_set(0.03, 0.03, 0.04, 1);
+  gfx_rect(bx, METER_TOP, BAR_W, METER_H, 1);
+
+  live_db = db_of(live_lin);
+  draw_zone_band(bx, DB_BOT, -18, live_db, 0, 0.6, 0.133);
+  draw_zone_band(bx, -18, -9, live_db, 0, 1, 0);
+  draw_zone_band(bx, -9, -3, live_db, 1, 0.941, 0);
+  draw_zone_band(bx, -3, 0, live_db, 1, 0.502, 0);
+  draw_zone_band(bx, 0, DB_TOP, live_db, 1, 0, 0);
+
+  gfx_set(0, 0, 0, 0.6);
+  ly = METER_TOP + 0.5*scale;
+  loop(floor(METER_H / (2*scale)),
+    gfx_line(bx, ly, bx + BAR_W - 1, ly, 0);
+    ly += 2*scale;
+  );
+
+  hold_db = db_of(hold_lin);
+  hold_db > DB_BOT ? (
+    ty = y_of_db(hold_db);
+    hold_db >= 0 ? gfx_set(0.95, 0.3, 0.35, 1) : gfx_set(1, 1, 1, 0.9);
+    gfx_rect(bx, ty - 1*scale, BAR_W, 2*scale, 1);
+  );
+
+  gfx_set(0.3, 0.3, 0.33, 1);
+  gfx_rect(bx, METER_TOP, BAR_W, METER_H, 0);
+
+  gfx_setfont(1, "Arial", 14*scale, 'b');
+  gfx_set(0.85, 0.85, 0.87, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = bx + (BAR_W - tw)*0.5; gfx_y = METER_TOP - 18*scale;
+  gfx_drawstr(label);
+
+  gfx_setfont(1, "Arial", 13*scale);
+  hold_db >= 0 ? gfx_set(0.95, 0.3, 0.35, 1) : gfx_set(0.8, 0.8, 0.82, 1);
+  hold_db > DB_BOT ? sprintf(#htxt, "%.1f", hold_db) : strcpy(#htxt, "-inf");
+  gfx_measurestr(#htxt, tw, th);
+  gfx_x = bx + (BAR_W - tw)*0.5; gfx_y = METER_BOT + 6*scale;
+  gfx_drawstr(#htxt);
+);
+
+DECAY_DB_PER_SEC = 20;
+gfx_time = time_precise();
+dt = last_gfx_time > 0 ? gfx_time - last_gfx_time : 0;
+last_gfx_time = gfx_time;
+decay_mul = pow(10, -DECAY_DB_PER_SEC * dt / 20);
+disp_L = max(frame_max_L, disp_L * decay_mul);
+disp_R = max(frame_max_R, disp_R * decay_mul);
+
+draw_meter(barL_x, disp_L, hold_L, "L");
+draw_meter(barR_x, disp_R, hold_R, "R");
+
+TICK_LEN = 10*scale;
+function tick(db) (
+  (db >= DB_BOT && db <= DB_TOP) ? (
+    ty = y_of_db(db);
+    db == 0 ? strcpy(#dbtxt, " 0dB") : sprintf(#dbtxt, "%+ddB", db);
+    gfx_measurestr(#dbtxt, tw, th);
+
+    gfx_set(0.4, 0.4, 0.43, 0.5);
+    gfx_line(barL_x - TICK_LEN, ty, barL_x, ty, 0);
+    gfx_line(barL_x + BAR_W, ty, barR_x, ty, 0);
+    gfx_line(barR_x + BAR_W, ty, barR_x + BAR_W + TICK_LEN, ty, 0);
+
+    gfx_set(0.6, 0.6, 0.63, 1);
+    gfx_x = barL_x - TICK_LEN - 4*scale - tw; gfx_y = ty - th*0.5;
+    gfx_drawstr(#dbtxt);
+    gfx_x = barR_x + BAR_W + TICK_LEN + 4*scale; gfx_y = ty - th*0.5;
+    gfx_drawstr(#dbtxt);
+  );
+);
+gfx_setfont(1, "Arial", 11*scale);
+gfx_set(0.55, 0.55, 0.58, 1);
+tick(3); tick(0); tick(-3); tick(-9); tick(-15); tick(-18); tick(-20); tick(-25);
+tick(-30); tick(-40); tick(-50); tick(-60);
+
+gfx_setfont(1, "Arial", 12*scale, 'b');
+gfx_set(0.6, 0.6, 0.63, 1);
+strcpy(#unittxt, "dBTP");
+gfx_measurestr(#unittxt, tw, th);
+gfx_x = gfx_w*0.5 - tw*0.5; gfx_y = METER_BOT + 44*scale;
+gfx_drawstr(#unittxt);
+
+(db_of(hold_L) >= 0 || db_of(hold_R) >= 0) ? (
+  gfx_setfont(1, "Arial", 14*scale, 'b');
+  gfx_set(0.95, 0.3, 0.35, 1);
+  strcpy(#warntxt, "TRUE PEAK OVER 0 dBTP");
+  gfx_measurestr(#warntxt, tw, th);
+  gfx_x = (gfx_w - tw)*0.5; gfx_y = METER_BOT + 24*scale;
+  gfx_drawstr(#warntxt);
+);
+
+frame_max_L = 0; frame_max_R = 0;
