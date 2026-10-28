@@ -5,7 +5,7 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 ## Instruments
 
 - **Synthy McSynthface**: four instruments in one (ePiano, JX10, DX10 and Piano), ported from the mda plugins via [mda-lv2](https://gitlab.com/drobilla/mda-lv2).
-- **Jexed**: DX7-style FM synthesizer, ported from [Dexed](https://github.com/asb2m10/dexed). Includes 1056 voices (Dexed_01 and SynprezFM_01–32 cartridges) and a full voice editor: every DX7 parameter is an automatable control, with an algorithm diagram, six operator pages with live envelopes, LFO, pitch envelope and key scaling, plus Dexed's filter, mono mode, tuning, pitch-bend and controller routing. A 32-slot user cartridge stores your own voices with the project. Polyphony from 1 to 256 and a MIDI channel filter.
+- **Jexed**: DX7-style FM synthesizer, ported from [Dexed](https://github.com/asb2m10/dexed). Includes 1056 voices (Dexed_01 and SynprezFM_01–32 cartridges) and a full voice editor.
 - **JamSynth**: subtractive synthesizer with 28 factory banks and a 128-slot user bank, ported from [amsynth](https://github.com/amsynth/amsynth).
 - **Tolerable Tines**: electric piano, ported from Ardour's ACE Reasonable Synth.
 - **Dr. Nine**: drum synthesizer, ported from [9W9](https://github.com/athousanddetails/schwung-9W9).
