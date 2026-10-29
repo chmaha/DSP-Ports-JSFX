@@ -1,8 +1,8 @@
-Version: 1.0
+Version: 1.1
 desc: Test Signal Generator (x42 Test Signal port) by chmaha
 author: chmaha
 changelog:
-  Initial release.
+  Fix band limiting, volume reduction on samplerate increase etc
 // Ported from x42/testsignal.lv2 (Robin Gareus). GPLv2+.
 // https://github.com/x42/testsignal.lv2
 // Claude generated some of this code
@@ -46,6 +46,9 @@ rseed == 0 ? rseed = 1;
 g_pass = 0; g_rn1 = 0;
 pk_b0 = 0; pk_b1 = 0; pk_b2 = 0; pk_b3 = 0; pk_b4 = 0; pk_b5 = 0; pk_b6 = 0;
 br_last = 0;
+br_a = 1 - exp(log(1/1.02) * 48000/srate);
+wn_g = sqrt(srate/48000);
+br_g = 3.5 * wn_g;
 single_fired = 0;
 
 reflevel_db = slider2;
@@ -58,11 +61,10 @@ prev_mode = mode;
 function next_rand_int()
 local(lo, hi)
 (
-  lo = 48271 * (rseed & 0x7fff);
-  hi = 48271 * (rseed >> 15);
-  lo += (hi & 0xffff) << 15;
-  lo += hi >> 16;
-  lo = (lo & 0x7fffffff) + (lo >> 31);
+  hi = floor(rseed / 44488);
+  lo = rseed - hi * 44488;
+  lo = 48271 * lo - 3399 * hi;
+  lo < 0 ? lo += 2147483647;
   rseed = lo;
   lo;
 );
@@ -96,10 +98,23 @@ local(s)
   s;
 );
 
-function gen_square_sample()
-local(s)
+function polyblep(t, dt)
 (
-  s = sin(phase) >= 0 ? lvl_coeff : -lvl_coeff;
+  t < dt ? ( t /= dt; t+t - t*t - 1; ) :
+  t > 1-dt ? ( t = (t-1)/dt; t*t + t+t + 1; ) :
+  0;
+);
+
+function gen_square_sample()
+local(s, t, t2)
+(
+  t = phase / (2*PI);
+  t2 = t + 0.5;
+  t2 >= 1 ? t2 -= 1;
+  s = t < 0.5 ? 1 : -1;
+  s += polyblep(t, phase_inc/(2*PI));
+  s -= polyblep(t2, phase_inc/(2*PI));
+  s *= lvl_coeff;
   phase += phase_inc;
   phase >= 2*PI ? phase -= 2*PI;
   s;
@@ -107,12 +122,12 @@ local(s)
 
 function gen_uniform_white_sample()
 (
-  lvl_coeff * next_rand_float();
+  lvl_coeff * wn_g * next_rand_float();
 );
 
 function gen_gaussian_white_sample()
 (
-  lvl_coeff * 0.7079 * next_rand_gauss();
+  lvl_coeff * wn_g * 0.7079 * next_rand_gauss();
 );
 
 function gen_pink_sample()
@@ -143,7 +158,7 @@ function gen_sawtooth_sample(period)
 local(s)
 (
   k_cnt = k_cnt % period;
-  s = lvl_coeff * (-1 + 2*k_cnt/period);
+  s = lvl_coeff * (-1 + 2*k_cnt/period - polyblep(k_cnt/period, 1/period));
   k_cnt = (k_cnt+1) % period;
   s;
 );
@@ -169,8 +184,8 @@ function gen_brown_sample()
 local(white)
 (
   white = next_rand_float();
-  br_last = (br_last + 0.02*white) / 1.02;
-  lvl_coeff * br_last * 3.5;
+  br_last += br_a * (white - br_last);
+  lvl_coeff * br_last * br_g;
 );
 
 function gen_sweep_linear_sample()
