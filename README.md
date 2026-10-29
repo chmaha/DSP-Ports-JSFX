@@ -7,27 +7,27 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 - **Synthy McSynthface**: four instruments in one (ePiano, JX10, DX10 and Piano), ported from the mda plugins via [mda-lv2](https://gitlab.com/drobilla/mda-lv2).
 - **Jexed**: DX7-style FM synthesizer, ported from [Dexed](https://github.com/asb2m10/dexed). Includes 1056 voices (Dexed_01 and SynprezFM_01–32 cartridges) and a full voice editor.
 - **JamSynth**: subtractive synthesizer with 28 factory banks and a 128-slot user bank, ported from [amsynth](https://github.com/amsynth/amsynth).
-- **Tolerable Tines**: electric piano, ported from Ardour's ACE Reasonable Synth.
+- **Tolerable Tines**: electric piano, ported from Ardour's [ACE Reasonable Synth](https://github.com/Ardour/ardour/tree/master/libs/plugins/reasonablesynth.lv2).
 - **Dr. Nine**: drum synthesizer, ported from [9W9](https://github.com/athousanddetails/schwung-9W9).
 - **Chamber Organ**: pipe organ, ported from [Aeolus](https://kokkinizita.linuxaudio.org/linuxaudio/aeolus/).
 - **Lord of the Rinks**: tonewheel organ, ported from [setBfree](https://github.com/pantherb/setBfree).
 - **AVL Drumkits**: four sampled kits, ported from [avldrums.lv2](https://github.com/x42/avldrums.lv2) with the samples from Glen MacArthur's [AVL Drumkits](http://www.bandshed.net/avldrumkits/): **Captain's Kit**, **Led Head** and **Goldibops** (acoustic kits with five velocity layers) and **Busk Stop** (hand percussion). Each kit maps to the General MIDI drum notes, with hi-hat and cymbal chokes and a clickable kit photo.
-- **Major General MIDI**: General MIDI wavetable synthesizer, ported from the Sonivox EAS engine.
-- **Super Color**: sampler with fifteen sounds playable from B3 to G5, ported from unplugred's MPaint.
+- **Major General MIDI**: General MIDI wavetable synthesizer, ported from the [Sonivox EAS](https://github.com/pedrolcl/sonivox) engine.
+- **Super Color**: sampler with fifteen sounds playable from B3 to G5, ported from unplugred's [MPaint](https://github.com/unplugred/vsts).
 
 ## Effects
 
 - **Mixing and mastering, from the x42 plugins** (Robin Gareus): Compressor ([darc](https://github.com/x42/darc.lv2)), EQ ([fil4](https://github.com/x42/fil4.lv2)), Limiter ([dpl](https://github.com/x42/dpl.lv2)) and Dizzy rotary speaker (b_whirl from [setBfree](https://github.com/pantherb/setBfree)).
-- **From the zam-plugins** (Damien Zammit): Gate, Maximizer, Multiband Compressor and Delay.
-- **From lkjb**: Analog EQ ([Luftikus](https://github.com/lkjbdsp/lkjb-plugins/tree/master/Luftikus)) and Final Touch (ReFine).
-- **From Airwindows**: De-Esser (DeEss and DeBess) and Saturation (ChannelX).
-- **Other ports**: Reverb ([Zita-Rev1](https://kokkinizita.linuxaudio.org/linuxaudio/zita-rev1-doc/quickguide.html)), Inflator (RCInflator2), Intelligent Spectral Compressor ([Spectral Compressor](https://github.com/robbert-vdh/nih-plug)), JuKnow Chorus ([junologue-chorus](https://github.com/peterall/junologue-chorus)), ChronoDupe automatic double tracking ([ADT](https://github.com/SpotlightKid/adt)) and Analog Jam tape stop/start ([cStop](https://github.com/calgoheen/cStop)).
+- **From the [zam-plugins](https://github.com/zamaudio/zam-plugins)** (Damien Zammit): Gate ([ZamGateX2](https://github.com/zamaudio/zam-plugins/tree/master/plugins/ZamGateX2)), Maximizer ([ZaMaximX2](https://github.com/zamaudio/zam-plugins/tree/master/plugins/ZaMaximX2)), Multiband Compressor ([ZaMultiCompX2](https://github.com/zamaudio/zam-plugins/tree/master/plugins/ZaMultiCompX2)) and Delay ([ZamDelay](https://github.com/zamaudio/zam-plugins/tree/master/plugins/ZamDelay)).
+- **From [lkjb](https://github.com/lkjbdsp/lkjb-plugins)**: Analog EQ ([Luftikus](https://github.com/lkjbdsp/lkjb-plugins/tree/master/Luftikus)) and Final Touch ([ReFine](https://github.com/lkjbdsp/lkjb-plugins/tree/master/ReFine)).
+- **From [Airwindows](https://github.com/airwindows/airwindows)**: De-Esser ([DeEss](https://github.com/airwindows/airwindows/tree/master/plugins/LinuxVST/src/DeEss) and [DeBess](https://github.com/airwindows/airwindows/tree/master/plugins/LinuxVST/src/DeBess)) and Saturation ([ChannelX](https://github.com/airwindows/airwindows/tree/master/plugins/LinuxVST/src/ChannelX)).
+- **Other ports**: Reverb ([Zita-Rev1](https://kokkinizita.linuxaudio.org/linuxaudio/downloads/index.html)), Inflator ([RCInflator2](https://github.com/ReaTeam/JSFX/tree/master/Distortion)), Intelligent Spectral Compressor ([Spectral Compressor](https://github.com/robbert-vdh/nih-plug)), JuKnow Chorus ([junologue-chorus](https://github.com/peterall/junologue-chorus)), ChronoDupe automatic double tracking ([ADT](https://github.com/SpotlightKid/adt)) and Analog Jam tape stop/start ([cStop](https://github.com/calgoheen/cStop)).
 - **Lumina Channel Strip**: HPF/LPF, gate, analog EQ, compressor, saturation, limiter and true peak metering in one plugin, built from the ports above.
 - **Original design**: Dynamic Tilt, a tilt EQ whose slope follows the signal.
 
 ## Metering and analysis
 
-- **From the x42 meters, [spectra](https://github.com/x42/spectra.lv2) and [testsignal](https://github.com/x42/testsignal.lv2) plugins**: K-Meter, Loudness Meter (EBU R128), True Peak, Needle Meter, Bit Meter, Multiband Correlation Meter, Phase/Frequency Wheel, Stereo Phase Scope (goniometer), Stereo/Frequency Scope, Spectrum Analyzer, Test Signal Generator and Tuner ([tuna](https://github.com/x42/tuna.lv2)).
+- **From the x42 [meters](https://github.com/x42/meters.lv2), [spectra](https://github.com/x42/spectra.lv2) and [testsignal](https://github.com/x42/testsignal.lv2) plugins**: K-Meter, Loudness Meter (EBU R128), True Peak, Needle Meter, Bit Meter, Multiband Correlation Meter, Phase/Frequency Wheel, Stereo Phase Scope (goniometer), Stereo/Frequency Scope, Spectrum Analyzer, Test Signal Generator and Tuner ([tuna](https://github.com/x42/tuna.lv2)).
 - **From [unplugred's vsts](https://github.com/unplugred/vsts)**: Oscilloscope (XY mode, sync, grid and colour settings) and VU Meter (adjustable nominal level, rise and decay speed).
 
 ## Install
