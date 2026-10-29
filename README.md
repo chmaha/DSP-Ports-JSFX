@@ -21,7 +21,7 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 - **From the zam-plugins** (Damien Zammit): Gate, Maximizer, Multiband Compressor and Delay.
 - **From lkjb**: Analog EQ ([Luftikus](https://github.com/lkjbdsp/lkjb-plugins/tree/master/Luftikus)) and Final Touch (ReFine).
 - **From Airwindows**: De-Esser (DeEss and DeBess) and Saturation (ChannelX).
-- **Other ports**: Reverb ([Zita-Rev1](https://kokkinizita.linuxaudio.org/linuxaudio/zita-rev1-doc/quickguide.html)), Inflator (RCInflator2), Intelligent Spectral Compressor ([Spectral Compressor](https://github.com/robbert-vdh/nih-plug)), JuKnow Chorus ([junologue-chorus](https://github.com/peterall/junologue-chorus)) and ChronoDupe automatic double tracking ([ADT](https://github.com/SpotlightKid/adt)).
+- **Other ports**: Reverb ([Zita-Rev1](https://kokkinizita.linuxaudio.org/linuxaudio/zita-rev1-doc/quickguide.html)), Inflator (RCInflator2), Intelligent Spectral Compressor ([Spectral Compressor](https://github.com/robbert-vdh/nih-plug)), JuKnow Chorus ([junologue-chorus](https://github.com/peterall/junologue-chorus)), ChronoDupe automatic double tracking ([ADT](https://github.com/SpotlightKid/adt)) and Analog Jam tape stop/start ([cStop](https://github.com/calgoheen/cStop)).
 - **Lumina Channel Strip**: HPF/LPF, gate, analog EQ, compressor, saturation, limiter and true peak metering in one plugin, built from the ports above.
 - **Original design**: Dynamic Tilt, a tilt EQ whose slope follows the signal.
 
