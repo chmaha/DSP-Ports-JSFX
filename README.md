@@ -28,6 +28,10 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 - **Lumina Channel Strip**: HPF/LPF, gate, analog EQ, compressor, saturation, limiter and true peak metering in one plugin, built from the ports above.
 - **Original design**: Dynamic Tilt, a tilt EQ whose slope follows the signal.
 
+## MIDI
+
+- **Spaghetti Junction**: modular rack for the 34 x42 MIDI filters, ported from [midifilter.lv2](https://github.com/x42/midifilter.lv2). Patch up to eight filters with cables from MIDI IN to MIDI OUT for serial chains, parallel branches, key splits and layers. Requires REAPER 7 or later.
+
 ## Metering and analysis
 
 - **From the x42 [meters](https://github.com/x42/meters.lv2), [spectra](https://github.com/x42/spectra.lv2) and [testsignal](https://github.com/x42/testsignal.lv2) plugins**: K-Meter, Loudness Meter (EBU R128), True Peak, Needle Meter, Bit Meter, Multiband Correlation Meter, Phase/Frequency Wheel, Stereo Phase Scope (goniometer), Stereo/Frequency Scope, Spectrum Analyzer, Test Signal Generator and Tuner ([tuna](https://github.com/x42/tuna.lv2)).
