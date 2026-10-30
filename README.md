@@ -14,6 +14,7 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 - **AVL Drumkits**: four sampled kits, ported from [avldrums.lv2](https://github.com/x42/avldrums.lv2) with the samples from Glen MacArthur's [AVL Drumkits](http://www.bandshed.net/avldrumkits/): **Captain's Kit**, **Led Head** and **Goldibops** (acoustic kits with five velocity layers) and **Busk Stop** (hand percussion). Each kit maps to the General MIDI drum notes, with hi-hat and cymbal chokes and a clickable kit photo.
 - **Major General MIDI**: General MIDI wavetable synthesizer, ported from the [Sonivox EAS](https://github.com/pedrolcl/sonivox) engine.
 - **Scoring Synth**: General MIDI and GS workstation, ported from [FluidSynth](https://www.fluidsynth.org) and playing S. Christian Collins' [GeneralUser GS](https://www.schristiancollins.com) sound set.
+- **Sound Blasted!**: 16-channel multitimbral SoundFont (SF2) General MIDI synthesizer, ported from [FluidSynth](https://www.fluidsynth.org) and playing Stardream Studios' HL4MGM sound set. Includes FluidSynth's reverb and chorus, 80 historical temperaments and GM, GM2, GS and XG reset SysEx.
 - **Super Color**: sampler with fifteen sounds playable from B3 to G5, ported from unplugred's [MPaint](https://github.com/unplugred/vsts).
 
 ## Effects
