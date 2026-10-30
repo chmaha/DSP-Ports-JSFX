@@ -15,6 +15,7 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 - **Major General MIDI**: General MIDI wavetable synthesizer, ported from the [Sonivox EAS](https://github.com/pedrolcl/sonivox) engine.
 - **Scoring Synth**: General MIDI and GS workstation, ported from [FluidSynth](https://www.fluidsynth.org) and playing S. Christian Collins' [GeneralUser GS](https://www.schristiancollins.com) sound set.
 - **Sound Blasted!**: 16-channel multitimbral SoundFont (SF2) General MIDI synthesizer, ported from [FluidSynth](https://www.fluidsynth.org) and playing Stardream Studios' HL4MGM sound set. Includes FluidSynth's reverb and chorus, 80 historical temperaments and GM, GM2, GS and XG reset SysEx.
+- **Kaminari**: taiko drums, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing S. Christian Collins' SCC Taiko Drums. Fifteen drums and hits on key pairs from C2 to A#4, with velocity layers and round robins.
 - **Super Color**: sampler with fifteen sounds playable from B3 to G5, ported from unplugred's [MPaint](https://github.com/unplugred/vsts).
 
 ## Effects
