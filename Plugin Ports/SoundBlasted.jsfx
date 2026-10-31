@@ -1,9 +1,9 @@
 desc: Sound Blasted! (FluidSynth port) by chmaha
 tags: instrument
 author: chmaha
-version: 0.3
+version: 1.1
 changelog:
-  Initial preview.
+  Fix a possible freeze (no sound, unresponsive GUI) when a looped sample wrapped many times in one block
 about:
   SoundFont (SF2) General MIDI synthesizer with 16 multitimbral channels playing HL4MGM,
   FluidSynth's reverb engines (FDN, Freeverb, Dattorro) and chorus, per-channel level, pan and Follows layering,
@@ -544,6 +544,8 @@ function phase_incr_split(incr)
   inc_f = floor((incr - itrunc(incr)) * FRACT);
 );
 
+function loop_fold(p, thr, llen) ( p > thr + llen ? p - llen * floor((p - thr - 1) / llen) : p; );
+
 function rv_silence(rp, looping) local(end_i, i, pi, pf, done)
 (
   phase_incr_split(rp[R_INCR]);
@@ -556,7 +558,10 @@ function rv_silence(rp, looping) local(end_i, i, pi, pf, done)
       pf += inc_f; pf >= FRACT ? ( pf -= FRACT; pi += 1; ); pi += inc_i;
     );
     !looping ? done = 1 : (
-      pi + (pf >= 2147483648) > end_i ? ( pi -= rp[R_LE] - rp[R_LS]; rp[R_LOOPED] = 1; );
+      pi + (pf >= 2147483648) > end_i ? (
+        pi -= rp[R_LE] - rp[R_LS]; rp[R_LOOPED] = 1;
+        i < 64 ? pi = loop_fold(pi, end_i, rp[R_LE] - rp[R_LS]);
+      );
       i >= 64 ? done = 1;
     );
   );
@@ -581,6 +586,7 @@ function rv_interp(rp, looping) local(end_i, start_i, sp0, ep1, ep2, i, pi, pf, 
       !looping ? done = 1 : (
         pi -= rp[R_LE] - rp[R_LS];
         !looped ? ( looped = 1; start_i = rp[R_LS]; sp0 = d[rp[R_LE] - 1]; );
+        pi = loop_fold(pi, max(start_i, end_i + 2), rp[R_LE] - rp[R_LS]);
       );
     ) : (
       seg === 1 ? ( s0 = sp0; s1 = d[idx]; s2 = d[idx + 1]; s3 = d[idx + 2]; ) :
@@ -616,7 +622,10 @@ function rv_interp_none(rp, looping) local(end_i, i, pi, pf, done, d)
       pf += inc_f; pf >= FRACT ? ( pf -= FRACT; pi += 1; ); pi += inc_i;
     );
     !looping ? done = 1 : (
-      pi + (pf >= 2147483648) > end_i ? ( pi -= rp[R_LE] - rp[R_LS]; rp[R_LOOPED] = 1; );
+      pi + (pf >= 2147483648) > end_i ? (
+        pi -= rp[R_LE] - rp[R_LS]; rp[R_LOOPED] = 1;
+        i < 64 ? pi = loop_fold(pi, end_i, rp[R_LE] - rp[R_LS]);
+      );
       i >= 64 ? done = 1;
     );
   );
@@ -636,7 +645,7 @@ function rv_interp_linear(rp, looping) local(end_i, pt, i, pi, pf, idx, seg, las
     idx = pi;
     seg = idx <= end_i ? 1 : idx <= end_i + 1 ? 2 : 0;
     seg === 0 ? (
-      !looping ? done = 1 : ( pi -= rp[R_LE] - rp[R_LS]; rp[R_LOOPED] = 1; );
+      !looping ? done = 1 : ( pi = loop_fold(pi, end_i + 1, rp[R_LE] - rp[R_LS]); pi -= rp[R_LE] - rp[R_LS]; rp[R_LOOPED] = 1; );
     ) : (
       c = floor(pf / 16777216) / 256;
       DSPBUF[i] = ((1 - c) * d[idx]) + (c * (seg === 1 ? d[idx + 1] : pt));
@@ -684,6 +693,7 @@ function rv_interp_sinc(rp, looping, n) local(half, rg, llen, end_i, start_i, i,
           looped = 1; start_i = rp[R_LS];
           j = 0; loop(half, SINC_SP[j] = d[rp[R_LE] - 1 - (j - llen * floor(j / llen))]; j += 1; );
         );
+        pi = loop_fold(pi, max(start_i + half - 1, end_i + rg), llen);
       );
     ) : (
       j = 0;
@@ -742,9 +752,12 @@ function rv_write(rp) local(ticks, count, menv, is_looping, fmod, sec, mode)
           rp[R_POFS] < 0 ? ( rp[R_POFS] = 0; rp[R_PINC] = 0; );
         );
         rp[R_INCR] === 0 ? rp[R_INCR] = 1;
+        !(abs(rp[R_INCR]) < 1048576) ? rp[R_INCR] = rp[R_INCR] > 0 ? 1048576 : 1;
         sec = rp[R_VE + E_SEC]; mode = rp[R_MODE];
+        !(abs(rp[R_PHI]) < 1099511627776) || !(rp[R_PHF] >= 0 && rp[R_PHF] < FRACT) ? ( rv_voiceoff(rp); 0; ) :
         mode === 2 && sec < ENV_RELEASE ? -1 : (
           is_looping = mode === 1 || (mode === 3 && sec < ENV_RELEASE);
+          is_looping && !(rp[R_LE] - rp[R_LS] >= 2) ? is_looping = 0;
           fmod = (rp[R_ML] * rp[R_ML2FC]) + (menv * rp[R_ME2FC]);
           filt_calc(rp, fmod);
           count < 0 ? rv_silence(rp, is_looping) : (
