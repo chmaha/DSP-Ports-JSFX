@@ -37,6 +37,10 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 - **From the x42 [meters](https://github.com/x42/meters.lv2), [spectra](https://github.com/x42/spectra.lv2) and [testsignal](https://github.com/x42/testsignal.lv2) plugins**: K-Meter, Loudness Meter (EBU R128), True Peak, Needle Meter, Bit Meter, Multiband Correlation Meter, Phase/Frequency Wheel, Stereo Phase Scope (goniometer), Stereo/Frequency Scope, Spectrum Analyzer, Test Signal Generator and Tuner ([tuna](https://github.com/x42/tuna.lv2)).
 - **From [unplugred's vsts](https://github.com/unplugred/vsts)**: Oscilloscope (XY mode, sync, grid and colour settings) and VU Meter (adjustable nominal level, rise and decay speed).
 
+## User guide
+
+See [CONTROLS.html](https://htmlpreview.github.io/?https://github.com/chmaha/DSP-Ports-JSFX/blob/main/CONTROLS.html) for the chmaha DSP to JSFX user guide, a quick start for each plugin's controls.
+
 ## Install
 
 1. In REAPER, open **Extensions → ReaPack → Import repositories…** and paste:
