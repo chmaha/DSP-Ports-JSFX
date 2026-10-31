@@ -18,7 +18,6 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 - **Kaminari**: taiko drums, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing S. Christian Collins' SCC Taiko Drums. Fifteen drums and hits on key pairs from C2 to A#4, with velocity layers and round robins.
 - **Evangelina Symphonica Espressivo String Ensemble**: string ensemble, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing S. Christian Collins' SCC Expressive Strings. Seven key-switched articulations (legato with expression or velocity control, staccato, pizzicato, tremolo and a legato/tremolo crossfade on the soft pedal), with expression on the mod wheel, breath, foot or expression controller.
 - **Super Color**: sampler with fifteen sounds playable from B3 to G5, ported from unplugred's [MPaint](https://github.com/unplugred/vsts).
-- **Partiality**: additive and modulation synthesizer, ported from the ADsynth engine of [ZynAddSubFX](https://github.com/zynaddsubfx/zynaddsubfx). Eight voices per note, each with a 128-harmonic oscillator editor, morph/ring/phase/frequency/pulse-width modulation, sync and unison, plus analog, formant, state-variable, Moog and comb filters, resonance and 19 factory sounds. A Play page with quick controls and a clickable keyboard makes it an easy first synth.
 
 ## Effects
 
@@ -64,7 +63,7 @@ Copy the plugin's `.jsfx` file into your REAPER `Effects` folder (**Options → 
 
 Each plugin keeps its original's license, and the JSFX code is released under the same or a compatible license (GPLv3 or later unless stated). The header of each `.jsfx` file gives the details, and each license file sits next to the assets it covers in `Dependencies`.
 
-- **GPLv3 or later** (JSFX code): ports of GPL originals, including the x42 plugins (GPLv2 or later), zam-plugins (GPLv2 or later), Zita-Rev1, Aeolus, setBfree, amsynth, Dexed, mda-lv2, ZynAddSubFX (GPLv2 or later) and Spectral Compressor.
+- **GPLv3 or later** (JSFX code): ports of GPL originals, including the x42 plugins (GPLv2 or later), zam-plugins (GPLv2 or later), Zita-Rev1, Aeolus, setBfree, amsynth, Dexed, mda-lv2 and Spectral Compressor.
 - **MIT**: JuKnow Chorus (Peter Allwin), ChronoDupe (Christopher Arndt), Analog EQ and Final Touch (lkjb), and the Airwindows ports (Chris Johnson).
 - **AGPLv3 or later**: the unplugred ports (Oscilloscope, VU Meter, Super Color). unplugred's image assets and samples are CC BY-NC (non-commercial).
 - **Samples**: the AVL Drumkits samples and photos by Glen MacArthur are CC-BY-SA 3.0, and music made with the kits can be licensed freely.
