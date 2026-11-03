@@ -1,0 +1,2446 @@
+Version: 1.0
+desc: Reel Talk Tape Machine (CHOW Tape Model port) by chmaha
+tags: tape saturation hysteresis wow flutter lofi analog effect
+author: chmaha
+changelog:
+  Initial release.
+about:
+  A physically modelled reel-to-reel tape machine. The heart of it is a magnetic hysteresis model
+  of the tape itself (Drive, Saturation and Bias), solved with your choice of Runge-Kutta or
+  Newton-Raphson solvers, a small neural network (STN) or the original v1 sound, and oversampled
+  up to 16x. Around it sit the rest of the machine: input filters, tone, a tape-style compressor,
+  playback head loss (speed, spacing, thickness, gap and azimuth, with the head bump), wow and
+  flutter, degradation noise and "chew" for damaged tape, plus mid/side and stereo balance.
+  Comes with the 95 factory presets.
+  Needs Dependencies/ReelTalk/stn_weights.txt for the STN tape mode.
+  Ported from CHOW Tape Model by Jatin Chowdhury (Chowdhury DSP)
+  https://github.com/jatinchowdhury18/AnalogTapeModel (GPLv3)
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/ReelTalk/stn_weights.txt
+
+slider1:p_ingain=0<-30,6,0.01>-Input Gain (dB)
+slider2:p_outgain=0<-30,30,0.01>-Output Gain (dB)
+slider3:p_drywet=1<0,1,0.0001>-Dry/Wet
+slider4:p_if_on=0<0,1,1{Off,On}>-Input Filters
+slider5:p_lowcut=20<20,2000,0.01>-Low Cut (Hz)
+slider6:p_highcut=22000<2000,22000,0.1>-High Cut (Hz)
+slider7:p_ifmk=0<0,1,1{Off,On}>-Cut Makeup
+slider8:p_tone_on=1<0,1,1{Off,On}>-Tone
+slider9:p_bass=0<-1,1,0.0001>-Bass
+slider10:p_treble=0<-1,1,0.0001>-Treble
+slider11:p_tfreq=500<100,4000,0.01>-Tone Transition (Hz)
+slider12:p_comp_on=0<0,1,1{Off,On}>-Compression
+slider13:p_comp_amt=0<0,9,0.001>-Compression Amount (dB)
+slider14:p_comp_att=5<0.1,50,0.001>-Compression Attack (ms)
+slider15:p_comp_rel=200<10,1000,0.01>-Compression Release (ms)
+slider16:p_hyst_on=1<0,1,1{Off,On}>-Tape
+slider17:p_drive=0.5<0,1,0.0001>-Drive
+slider18:p_sat=0.5<0,1,0.0001>-Saturation
+slider19:p_bias=0.5<0,1,0.0001>-Bias
+slider20:p_mode=0<0,5,1{RK2,RK4,NR4,NR8,STN,V1}>-Tape Mode
+slider21:p_os=1<0,4,1{1x,2x,4x,8x,16x}>-Oversampling
+slider22:p_osmode=0<0,1,1{Min Phase,Linear Phase}>-Oversampling Mode
+slider23:p_loss_on=1<0,1,1{Off,On}>-Loss
+slider24:p_speed=30<1,50,0.0001>-Tape Speed (ips)
+slider25:p_spacing=0.1<0.1,20,0.0001>-Spacing (microns)
+slider26:p_thick=0.1<0.1,50,0.0001>-Thickness (microns)
+slider27:p_gap=1<1,50,0.0001>-Gap (microns)
+slider28:p_azimuth=0<-75,75,0.01>-Azimuth (degrees)
+slider29:p_wf_on=1<0,1,1{Off,On}>-Wow/Flutter
+slider30:p_frate=0.3<0,1,0.0001>-Flutter Rate
+slider31:p_fdepth=0<0,1,0.0001>-Flutter Depth
+slider32:p_wrate=0.25<0,1,0.0001>-Wow Rate
+slider33:p_wdepth=0<0,1,0.0001>-Wow Depth
+slider34:p_wvar=0<0,1,0.0001>-Wow Variance
+slider35:p_wdrift=0<0,1,0.0001>-Wow Drift
+slider36:p_deg_on=0<0,1,1{Off,On}>-Degrade
+slider37:p_deg_p1=0<0,1,1{Off,On}>-Degrade 0.1x
+slider38:p_deg_depth=0<0,1,0.0001>-Degrade Depth
+slider39:p_deg_amt=0<0,1,0.0001>-Degrade Amount
+slider40:p_deg_var=0<0,1,0.0001>-Degrade Variance
+slider41:p_deg_env=0<0,1,0.0001>-Degrade Envelope
+slider42:p_chew_on=0<0,1,1{Off,On}>-Chew
+slider43:p_chew_depth=0<0,1,0.0001>-Chew Depth
+slider44:p_chew_freq=0<0,1,0.0001>-Chew Frequency
+slider45:p_chew_var=0<0,1,0.0001>-Chew Variance
+slider46:p_ms=0<0,1,1{Off,On}>-Mid/Side
+slider47:p_bal=0<-1,1,0.0001>-Stereo Balance
+slider48:p_balmk=1<0,1,1{Off,On}>-Balance Makeup
+slider49:p_preset=0<0,93,1>-Preset
+
+in_pin:Left input
+in_pin:Right input
+out_pin:Left output
+out_pin:Right output
+options:no_meter
+
+@init
+
+ext_noinit = gfx_ext_retina = 1;
+ext_nodenorm = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+alloc.mp = 0;
+
+BS = 512;
+ALPHA = 0.0016;
+TWOPI = 2 * $pi;
+
+FIRC = alloc(1024);
+OSST = alloc(22 * 1024);
+OSA = alloc(32);
+OSB = alloc(32);
+OSE = alloc(32);
+OSF = alloc(32);
+OSA2 = alloc(32);
+OSB2 = alloc(32);
+OSE2 = alloc(32);
+OSF2 = alloc(32);
+STNW = alloc(11320);
+STNR = alloc(11400);
+LFH = alloc(320);
+LFC = alloc(320);
+LFZ = alloc(2 * 1664);
+WFDL = alloc(32768);
+WFDR = alloc(32768);
+AZDL = alloc(4096);
+AZDR = alloc(4096);
+DRYL = alloc(4096);
+DRYR = alloc(4096);
+MKDL = alloc(4096);
+MKDR = alloc(4096);
+CTHL = alloc(8);
+CTHR = alloc(8);
+SCOPE = alloc(2048);
+PRV = alloc(96 * 48);
+RMSI = alloc(2048);
+RMSO = alloc(2048);
+SLP = alloc(64);
+
+FIRC[0] = 119; FIRC[1] = -0.00001441364320428803; FIRC[3] = 0.000025607165518062805; FIRC[5] = -0.00004758974707520588; FIRC[7] = 0.00008118035843816286; FIRC[9] = -0.0001303507811928737; FIRC[11] = 0.00019990012122566236; FIRC[13] = -0.0002955278752621341; FIRC[15] = 0.000423903395987423; FIRC[17] = -0.0005927348163999366; FIRC[19] = 0.000810843454721746; FIRC[21] = -0.0010882538277072332; FIRC[23] = 0.0014363151404255285; FIRC[25] = -0.0018678783047220843; FIRC[27] = 0.00239756454357205; FIRC[29] = -0.003042179856323514; FIRC[31] = 0.003821358304771116; FIRC[33] = -0.004758564009491858; FIRC[35] = 0.005882661603823703; FIRC[37] = -0.007230406473414671; FIRC[39] = 0.008850468434373888; FIRC[41] = -0.010810112990628644; FIRC[43] = 0.013206715313174813; FIRC[45] = -0.016188594753774755; FIRC[47] = 0.01999517359667636; FIRC[49] = -0.02504100746813503; FIRC[51] = 0.03211186877507917; FIRC[53] = -0.04289690423153201; FIRC[55] = 0.06179775632312948; FIRC[57] = -0.10497363058393087; FIRC[59] = 0.31792506886555627; FIRC[60] = 0.5;
+FIRC[128] = 79; FIRC[129] = -0.00010302477071399778; FIRC[131] = 0.00018579387127058553; FIRC[133] = -0.0003459158001996813; FIRC[135] = 0.0005886403587882263; FIRC[137] = -0.0009401905956685449; FIRC[139] = 0.001431476565278991; FIRC[141] = -0.0020986659825272492; FIRC[143] = 0.0029841770541056477; FIRC[145] = -0.004138472791416931; FIRC[147] = 0.0056233099922130625; FIRC[149] = -0.007517615632080987; FIRC[151] = 0.009928220000686095; FIRC[153] = -0.013009989916797212; FIRC[155] = 0.01700541768625597; FIRC[157] = -0.022328255933723472; FIRC[159] = 0.029759405027019577; FIRC[161] = -0.040979063025220544; FIRC[163] = 0.060375898753259306; FIRC[165] = -0.1040913719637115; FIRC[167] = 0.31758757030718965; FIRC[168] = 0.5;
+FIRC[256] = 51; FIRC[257] = 0.00009495770062742957; FIRC[259] = -0.0003065069567770426; FIRC[261] = 0.0007643893624077703; FIRC[263] = -0.0016196422765817722; FIRC[265] = 0.0030788969712568707; FIRC[267] = -0.005412098025635257; FIRC[269] = 0.008978303173060967; FIRC[271] = -0.014292589562343364; FIRC[273] = 0.02220495716388092; FIRC[275] = -0.034418364200415955; FIRC[277] = 0.05528964538771408; FIRC[279] = -0.10087405669611742; FIRC[281] = 0.3165121119354815; FIRC[282] = 0.5;
+FIRC[384] = 35; FIRC[385] = 0.0004214593864456509; FIRC[387] = -0.0014465681941393054; FIRC[389] = 0.003697798133836971; FIRC[391] = -0.007942202460178288; FIRC[393] = 0.01531123949260015; FIRC[395] = -0.02773482873012245; FIRC[397] = 0.04967261949795454; FIRC[399] = -0.09711286321194776; FIRC[401] = 0.31513334016210515; FIRC[402] = 0.5;
+FIRC[512] = 47; FIRC[513] = -0.00016913107584986276; FIRC[515] = 0.0005155776783796914; FIRC[517] = -0.0012414180753450496; FIRC[519] = 0.002557418326321293; FIRC[521] = -0.004750997386046256; FIRC[523] = 0.008202658456267204; FIRC[525] = -0.013449439956462417; FIRC[527] = 0.02135967575206623; FIRC[529] = -0.03364704227053235; FIRC[531] = 0.054668485335975264; FIRC[533] = -0.10046709600531903; FIRC[535] = 0.3163521008529734; FIRC[536] = 0.5;
+FIRC[640] = 31; FIRC[641] = -0.0008397865018086459; FIRC[643] = 0.0026756755193490804; FIRC[645] = -0.006547139083306988; FIRC[647] = 0.013654755193224562; FIRC[649] = -0.026021518081414684; FIRC[651] = 0.048162007844492476; FIRC[653] = -0.09605521020885105; FIRC[655] = 0.3146587289043739; FIRC[656] = 0.5;
+FIRC[768] = 39; FIRC[769] = -0.0005420817031426713; FIRC[771] = 0.0014622848054031995; FIRC[773] = -0.0032807948038658676; FIRC[775] = 0.006402778191396955; FIRC[777] = -0.011428734287473399; FIRC[779] = 0.019283001909132944; FIRC[781] = -0.03171500199418609; FIRC[783] = 0.05308677327604207; FIRC[785] = -0.09940806417536759; FIRC[787] = 0.3158723972010865; FIRC[788] = 0.5;
+FIRC[896] = 23; FIRC[897] = -0.0034198002033952847; FIRC[899] = 0.009336928054652499; FIRC[901] = -0.021282995663652923; FIRC[903] = 0.0437877759745078; FIRC[905] = -0.09282179074631729; FIRC[907] = 0.3127484680976435; FIRC[908] = 0.5;
+
+// ---------------------------------------------------------------------- helpers
+
+function db2g(x) ( x > -100 ? 10 ^ (x * 0.05) : 0; );
+function g2db(x) ( x > 0 ? max(-100, log10(x) * 20) : -100; );
+
+function f32(x) local(a, e, q, r, fl, d) (
+  x === 0 ? 0 : (
+    a = abs(x);
+    e = floor(log(a) / log(2));
+    2 ^ e > a ? e -= 1;
+    2 ^ (e + 1) <= a ? e += 1;
+    q = 2 ^ (e - 23);
+    r = a / q;
+    fl = floor(r);
+    d = r - fl;
+    (d > 0.5 || (d === 0.5 && (fl - 2 * floor(fl / 2)) === 1)) ? fl += 1;
+    x < 0 ? -fl * q : fl * q;
+  );
+);
+
+function ftan(x) local(x2) (
+  x2 = x * x;
+  x * (-135135 + x2 * (17325 + x2 * (-378 + x2))) / (-135135 + x2 * (62370 + x2 * (-3150 + 28 * x2)));
+);
+
+function tanh_acc(x) local(ax, y, u, em, t) (
+  ax = abs(x);
+  ax < 0.5 ? (
+    y = 2 * ax;
+    u = exp(y);
+    em = u === 1 ? y : (u - 1) * y / log(u);
+    t = em / (em + 2);
+  ) : (
+    u = exp(-2 * ax);
+    t = (1 - u) / (1 + u);
+  );
+  x < 0 ? -t : t;
+);
+
+function jr_seed(s) instance(sd) ( sd = s; );
+function jr_next() instance(sd) local(sh, sl, t, r) (
+  sh = floor(sd / 16777216);
+  sl = sd - sh * 16777216;
+  t = sh * 15525485 + sl * 1502;
+  t -= floor(t / 16777216) * 16777216;
+  r = sl * 15525485 + t * 16777216 + 11;
+  r -= floor(r / 281474976710656) * 281474976710656;
+  sd = r;
+  floor(r / 65536);
+);
+function f32u(u) local(q, r, fl, d) (
+  u < 16777216 ? u : (
+    q = u < 33554432 ? 2 : u < 67108864 ? 4 : u < 134217728 ? 8 : u < 268435456 ? 16 : u < 536870912 ? 32 : u < 1073741824 ? 64 : u < 2147483648 ? 128 : 256;
+    r = u / q; fl = floor(r); d = r - fl;
+    (d > 0.5 || (d === 0.5 && (fl - 2 * floor(fl / 2)) === 1)) ? fl += 1;
+    fl * q;
+  );
+);
+function jr_float() local(r) (
+  r = f32u(this.jr_next()) / 4294967296;
+  r === 1 ? 1 - 2 ^ -23 : r;
+);
+function jr_skip1024() instance(sd) local(sh, sl, t, r) (
+  sh = floor(sd / 16777216);
+  sl = sd - sh * 16777216;
+  t = sh * 14585857 + sl * 12213447;
+  t -= floor(t / 16777216) * 16777216;
+  r = sl * 14585857 + t * 16777216 + 188734207353856;
+  r -= floor(r / 281474976710656) * 281474976710656;
+  sd = r;
+);
+function jr_double() ( this.jr_next() / 4294967296; );
+function jr_int(mx) ( floor(this.jr_next() * mx / 4294967296); );
+function jr_range(a, b) ( a + this.jr_int(max(a, b) - a); );
+
+function sv_init(v, n) instance(cur, tgt, cnt, stp, steps) ( cur = tgt = v; cnt = 0; stp = 0; steps = n; );
+function sv_reset(n) instance(cur, tgt, cnt, steps) ( steps = n; cur = tgt; cnt = 0; );
+function sv_set(v) instance(cur, tgt, cnt, stp, steps) (
+  v !== tgt ? (
+    steps <= 0 ? ( cur = tgt = v; cnt = 0; ) : ( tgt = v; cnt = steps; stp = (tgt - cur) / cnt; );
+  );
+);
+function sv_next() instance(cur, tgt, cnt, stp) (
+  cnt > 0 ? ( cnt -= 1; cnt > 0 ? cur += stp : cur = tgt; cur; ) : tgt;
+);
+function sv_skip(n) instance(cur, tgt, cnt, stp) (
+  n >= cnt ? ( cur = tgt; cnt = 0; tgt; ) : ( cur += stp * n; cnt -= n; cur; );
+);
+function sv_now(v) instance(cur, tgt, cnt) ( cur = tgt = v; cnt = 0; );
+
+function sm_init(v, n) instance(cur, tgt, cnt, stp, steps) ( cur = tgt = v; cnt = 0; stp = 1; steps = n; );
+function sm_reset(n) instance(cur, tgt, cnt, steps) ( steps = n; cur = tgt; cnt = 0; );
+function sm_set(v) instance(cur, tgt, cnt, stp, steps) (
+  v !== tgt ? (
+    steps <= 0 ? ( cur = tgt = v; cnt = 0; ) : ( tgt = v; cnt = steps; stp = exp((log(abs(tgt)) - log(abs(cur))) / cnt); );
+  );
+);
+function sm_next() instance(cur, tgt, cnt, stp) (
+  cnt > 0 ? ( cnt -= 1; cnt > 0 ? cur *= stp : cur = tgt; cur; ) : tgt;
+);
+function sm_now(v) instance(cur, tgt, cnt) ( cur = tgt = v; cnt = 0; );
+
+function byp_begin(on) instance(prev, act, fade, gw, gd, iw, id) local(s, e) (
+  act = on || prev;
+  fade = act && (on != prev);
+  fade ? (
+    s = !on ? 1 : 0;
+    e = 1 - s;
+    gw = s; iw = (e - s) / BS;
+    gd = 1 - s; id = ((1 - e) - (1 - s)) / BS;
+  );
+  prev = on;
+  act;
+);
+
+function lr_set(fc) instance(g, h) (
+  g = tan($pi * fc / srate);
+  h = 1 / (1 + 1.41421356237 * g + g * g);
+);
+function lr_tick(x) instance(g, h, s0, s1, s2, s3, lo, hi) local(yh, tb, yb, tl, yl, yh2, tb2, yb2, tl2, yl2) (
+  yh = (x - (1.41421356237 + g) * s0 - s1) * h;
+  tb = g * yh; yb = tb + s0; s0 = tb + yb;
+  tl = g * yb; yl = tl + s1; s1 = tl + yl;
+  yh2 = (yl - (1.41421356237 + g) * s2 - s3) * h;
+  tb2 = g * yh2; yb2 = tb2 + s2; s2 = tb2 + yb2;
+  tl2 = g * yb2; yl2 = tl2 + s3; s3 = tl2 + yl2;
+  lo = yl2;
+  hi = yl - 1.41421356237 * yb + yh - yl2;
+);
+
+function shelf_coefs(lg, hg, fc) instance(b0, b1, a1) local(rr, kk, a0i) (
+  lg === hg ? (
+    b0 = lg; b1 = 0; a1 = 0;
+  ) : (
+    rr = 1 / sqrt(hg / lg);
+    kk = 1 / tan($pi * fc / srate);
+    a0i = 1 / (rr * kk + 1);
+    b0 = (hg * rr * kk + lg) * a0i;
+    b1 = (hg * rr * -kk + lg) * a0i;
+    a1 = (rr * -kk + 1) * a0i;
+  );
+);
+
+function dcb_init(fc) instance(b0, b1, a1, a2, c0, c1, d1, d2, z1, z2, w1, w2) local(wc, c, phi, kk, a0) (
+  wc = TWOPI * fc / srate;
+  c = 1 / ftan(wc / 2);
+  phi = c * c;
+  kk = c / (1 / (-2 * cos(5 * $pi / 8)));
+  a0 = phi + kk + 1;
+  b0 = phi / a0; b1 = -2 * b0; a1 = 2 * (1 - phi) / a0; a2 = (phi - kk + 1) / a0;
+  kk = c / (1 / (-2 * cos(7 * $pi / 8)));
+  a0 = phi + kk + 1;
+  c0 = phi / a0; c1 = -2 * c0; d1 = 2 * (1 - phi) / a0; d2 = (phi - kk + 1) / a0;
+  z1 = z2 = w1 = w2 = 0;
+);
+function dcb_tick(x) instance(b0, b1, a1, a2, c0, c1, d1, d2, z1, z2, w1, w2) local(y) (
+  y = z1 + x * b0;
+  z1 = z2 + x * b1 - y * a1;
+  z2 = x * b0 - y * a2;
+  x = y;
+  y = w1 + x * c0;
+  w1 = w2 + x * c1 - y * d1;
+  w2 = x * c0 - y * d2;
+  y;
+);
+
+function snapz(x) ( (x < -0.00000001 || x > 0.00000001) ? x : 0; );
+
+// ---------------------------------------------------------------------- oversampling
+
+function fir_up(x, cf, st) local(nn, h, w, k, o) (
+  nn = cf[0]; h = floor(nn / 2);
+  w = (st[64] + 1) & 63; st[64] = w;
+  st[w] = 2 * x;
+  o = 0; k = 0;
+  loop(floor((h + 1) / 2),
+    o += (st[(w - ((nn - 1 - k) / 2)) & 63] + st[(w - k / 2) & 63]) * cf[1 + k];
+    k += 2;
+  );
+  OSY0 = o;
+  OSY1 = st[(w - ((nn - 1 - (h + 1)) / 2)) & 63] * cf[1 + h];
+);
+function fir_down(x0, x1, cf, st) local(nn, h, h4, w, k, o, ps) (
+  nn = cf[0]; h = floor(nn / 2); h4 = floor(h / 2);
+  w = (st[64] + 1) & 63; st[64] = w;
+  st[w] = x0;
+  o = 0; k = 0;
+  loop(floor((h + 1) / 2),
+    o += (st[(w - ((nn - 1 - k) / 2)) & 63] + st[(w - k / 2) & 63]) * cf[1 + k];
+    k += 2;
+  );
+  ps = st[65];
+  o += st[66 + ps] * cf[1 + h];
+  st[66 + ps] = x1;
+  st[65] = ps === 0 ? h4 : ps - 1;
+  o;
+);
+
+function fos_up(x, cfg, ch, fac) local(st, n, c, i, src, dst, t) (
+  st = OSST + (cfg * 2 + ch) * 1024;
+  src = ch ? OSA2 : OSA; dst = ch ? OSB2 : OSB;
+  src[0] = x; c = 1; n = 0;
+  loop(fac,
+    i = 0;
+    loop(c,
+      fir_up(src[i], FIRC + n * 256, st + n * 256);
+      dst[2 * i] = OSY0; dst[2 * i + 1] = OSY1;
+      i += 1;
+    );
+    c *= 2; n += 1;
+    t = src; src = dst; dst = t;
+  );
+  src;
+);
+function fos_down(buf, cfg, ch, fac) local(st, n, c, i, src, dst, t) (
+  st = OSST + (cfg * 2 + ch) * 1024;
+  src = buf; dst = ch ? OSE2 : OSE;
+  c = 2 ^ fac; n = fac - 1;
+  loop(fac,
+    c *= 0.5; i = 0;
+    loop(c,
+      dst[i] = fir_down(src[2 * i], src[2 * i + 1], FIRC + n * 256 + 128, st + n * 256 + 128);
+      i += 1;
+    );
+    n -= 1;
+    t = src; src = dst; dst = t === buf ? (ch ? OSF2 : OSF) : t;
+  );
+  src[0];
+);
+
+function iu0(x) instance(s0, s1, s2, s3, s4, s5, s6) local(v, o) (
+  v = x;
+  o = 0.04572814762408269 * v + s0; s0 = v - 0.04572814762408269 * o; v = o;
+  o = 0.33250110957929974 * v + s1; s1 = v - 0.33250110957929974 * o; v = o;
+  o = 0.6632020200410513 * v + s2; s2 = v - 0.6632020200410513 * o; v = o;
+  o = 0.933855803088384 * v + s3; s3 = v - 0.933855803088384 * o; v = o;
+  OSY0 = v;
+  v = x;
+  o = 0.16808754441358362 * v + s4; s4 = v - 0.16808754441358362 * o; v = o;
+  o = 0.5044857477257907 * v + s5; s5 = v - 0.5044857477257907 * o; v = o;
+  o = 0.8037808662029036 * v + s6; s6 = v - 0.8037808662029036 * o; v = o;
+  OSY1 = v;
+);
+
+function iu0_snap() instance(s0, s1, s2, s3, s4, s5, s6) (
+  s0 = snapz(s0); s1 = snapz(s1); s2 = snapz(s2); s3 = snapz(s3); s4 = snapz(s4); s5 = snapz(s5); s6 = snapz(s6);
+);
+
+function iu0_clear() instance(s0, s1, s2, s3, s4, s5, s6) ( s0 = s1 = s2 = s3 = s4 = s5 = s6 = 0; );
+
+function id0(x0, x1) instance(s0, s1, s2, s3, s4, s5, dd) local(v, o, r) (
+  v = x0;
+  o = 0.05421752647884499 * v + s0; s0 = v - 0.05421752647884499 * o; v = o;
+  o = 0.3830873308979566 * v + s1; s1 = v - 0.3830873308979566 * o; v = o;
+  o = 0.7487209474673948 * v + s2; s2 = v - 0.7487209474673948 * o; v = o;
+  r = v;
+  v = x1;
+  o = 0.19679797212217914 * v + s3; s3 = v - 0.19679797212217914 * o; v = o;
+  o = 0.5731364150302121 * v + s4; s4 = v - 0.5731364150302121 * o; v = o;
+  o = 0.9142937109129919 * v + s5; s5 = v - 0.9142937109129919 * o; v = o;
+  r = (dd + r) * 0.5;
+  dd = v;
+  r;
+);
+
+function id0_snap() instance(s0, s1, s2, s3, s4, s5, dd) (
+  s0 = snapz(s0); s1 = snapz(s1); s2 = snapz(s2); s3 = snapz(s3); s4 = snapz(s4); s5 = snapz(s5);
+);
+
+function id0_clear() instance(s0, s1, s2, s3, s4, s5, dd) ( s0 = s1 = s2 = s3 = s4 = s5 = dd = 0; );
+
+function iu1(x) instance(s0, s1, s2, s3, s4) local(v, o) (
+  v = x;
+  o = 0.05423078033756513 * v + s0; s0 = v - 0.05423078033756513 * o; v = o;
+  o = 0.3987969709870654 * v + s1; s1 = v - 0.3987969709870654 * o; v = o;
+  o = 0.8629178114945566 * v + s2; s2 = v - 0.8629178114945566 * o; v = o;
+  OSY0 = v;
+  v = x;
+  o = 0.1996995777257178 * v + s3; s3 = v - 0.1996995777257178 * o; v = o;
+  o = 0.6210968426530332 * v + s4; s4 = v - 0.6210968426530332 * o; v = o;
+  OSY1 = v;
+);
+
+function iu1_snap() instance(s0, s1, s2, s3, s4) (
+  s0 = snapz(s0); s1 = snapz(s1); s2 = snapz(s2); s3 = snapz(s3); s4 = snapz(s4);
+);
+
+function iu1_clear() instance(s0, s1, s2, s3, s4) ( s0 = s1 = s2 = s3 = s4 = 0; );
+
+function id1(x0, x1) instance(s0, s1, s2, s3, dd) local(v, o, r) (
+  v = x0;
+  o = 0.07076595004514598 * v + s0; s0 = v - 0.07076595004514598 * o; v = o;
+  o = 0.5131675786802034 * v + s1; s1 = v - 0.5131675786802034 * o; v = o;
+  r = v;
+  v = x1;
+  o = 0.2578530816176995 * v + s2; s2 = v - 0.2578530816176995 * o; v = o;
+  o = 0.8173173565564809 * v + s3; s3 = v - 0.8173173565564809 * o; v = o;
+  r = (dd + r) * 0.5;
+  dd = v;
+  r;
+);
+
+function id1_snap() instance(s0, s1, s2, s3, dd) (
+  s0 = snapz(s0); s1 = snapz(s1); s2 = snapz(s2); s3 = snapz(s3);
+);
+
+function id1_clear() instance(s0, s1, s2, s3, dd) ( s0 = s1 = s2 = s3 = dd = 0; );
+
+function iu2(x) instance(s0, s1, s2, s3) local(v, o) (
+  v = x;
+  o = 0.07986642546205996 * v + s0; s0 = v - 0.07986642546205996 * o; v = o;
+  o = 0.5453236484423104 * v + s1; s1 = v - 0.5453236484423104 * o; v = o;
+  OSY0 = v;
+  v = x;
+  o = 0.2838293427015688 * v + s2; s2 = v - 0.2838293427015688 * o; v = o;
+  o = 0.8344118901154804 * v + s3; s3 = v - 0.8344118901154804 * o; v = o;
+  OSY1 = v;
+);
+
+function iu2_snap() instance(s0, s1, s2, s3) (
+  s0 = snapz(s0); s1 = snapz(s1); s2 = snapz(s2); s3 = snapz(s3);
+);
+
+function iu2_clear() instance(s0, s1, s2, s3) ( s0 = s1 = s2 = s3 = 0; );
+
+function id2(x0, x1) instance(s0, s1, s2, dd) local(v, o, r) (
+  v = x0;
+  o = 0.11447494436992425 * v + s0; s0 = v - 0.11447494436992425 * o; v = o;
+  o = 0.769943153822725 * v + s1; s1 = v - 0.769943153822725 * o; v = o;
+  r = v;
+  v = x1;
+  o = 0.39783669193079757 * v + s2; s2 = v - 0.39783669193079757 * o; v = o;
+  r = (dd + r) * 0.5;
+  dd = v;
+  r;
+);
+
+function id2_snap() instance(s0, s1, s2, dd) (
+  s0 = snapz(s0); s1 = snapz(s1); s2 = snapz(s2);
+);
+
+function id2_clear() instance(s0, s1, s2, dd) ( s0 = s1 = s2 = dd = 0; );
+
+function iu3(x) instance(s0, s1, s2, s3) local(v, o) (
+  v = x;
+  o = 0.07986642546205996 * v + s0; s0 = v - 0.07986642546205996 * o; v = o;
+  o = 0.5453236484423104 * v + s1; s1 = v - 0.5453236484423104 * o; v = o;
+  OSY0 = v;
+  v = x;
+  o = 0.2838293427015688 * v + s2; s2 = v - 0.2838293427015688 * o; v = o;
+  o = 0.8344118901154804 * v + s3; s3 = v - 0.8344118901154804 * o; v = o;
+  OSY1 = v;
+);
+
+function iu3_snap() instance(s0, s1, s2, s3) (
+  s0 = snapz(s0); s1 = snapz(s1); s2 = snapz(s2); s3 = snapz(s3);
+);
+
+function iu3_clear() instance(s0, s1, s2, s3) ( s0 = s1 = s2 = s3 = 0; );
+
+function id3(x0, x1) instance(s0, s1, s2, dd) local(v, o, r) (
+  v = x0;
+  o = 0.11447494436992425 * v + s0; s0 = v - 0.11447494436992425 * o; v = o;
+  o = 0.769943153822725 * v + s1; s1 = v - 0.769943153822725 * o; v = o;
+  r = v;
+  v = x1;
+  o = 0.39783669193079757 * v + s2; s2 = v - 0.39783669193079757 * o; v = o;
+  r = (dd + r) * 0.5;
+  dd = v;
+  r;
+);
+
+function id3_snap() instance(s0, s1, s2, dd) (
+  s0 = snapz(s0); s1 = snapz(s1); s2 = snapz(s2);
+);
+
+function id3_clear() instance(s0, s1, s2, dd) ( s0 = s1 = s2 = dd = 0; );
+
+function hu1l(x) local(i) (
+  OSA[0] = x;
+  i = 0; loop(1, o1l0u.iu0(OSA[i]); OSB[2 * i] = OSY0; OSB[2 * i + 1] = OSY1; i += 1;);
+  OSB;
+);
+
+function hd1l(buf) local(i) (
+  i = 0; loop(1, OSE[i] = o1l0d.id0(buf[2 * i], buf[2 * i + 1]); i += 1;);
+  OSE[0];
+);
+
+function hu1r(x) local(i) (
+  OSA2[0] = x;
+  i = 0; loop(1, o1r0u.iu0(OSA2[i]); OSB2[2 * i] = OSY0; OSB2[2 * i + 1] = OSY1; i += 1;);
+  OSB2;
+);
+
+function hd1r(buf) local(i) (
+  i = 0; loop(1, OSE2[i] = o1r0d.id0(buf[2 * i], buf[2 * i + 1]); i += 1;);
+  OSE2[0];
+);
+
+function hu2l(x) local(i) (
+  OSA[0] = x;
+  i = 0; loop(1, o2l0u.iu0(OSA[i]); OSB[2 * i] = OSY0; OSB[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(2, o2l1u.iu1(OSB[i]); OSA[2 * i] = OSY0; OSA[2 * i + 1] = OSY1; i += 1;);
+  OSA;
+);
+
+function hd2l(buf) local(i) (
+  i = 0; loop(2, OSE[i] = o2l1d.id1(buf[2 * i], buf[2 * i + 1]); i += 1;);
+  i = 0; loop(1, OSF[i] = o2l0d.id0(OSE[2 * i], OSE[2 * i + 1]); i += 1;);
+  OSF[0];
+);
+
+function hu2r(x) local(i) (
+  OSA2[0] = x;
+  i = 0; loop(1, o2r0u.iu0(OSA2[i]); OSB2[2 * i] = OSY0; OSB2[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(2, o2r1u.iu1(OSB2[i]); OSA2[2 * i] = OSY0; OSA2[2 * i + 1] = OSY1; i += 1;);
+  OSA2;
+);
+
+function hd2r(buf) local(i) (
+  i = 0; loop(2, OSE2[i] = o2r1d.id1(buf[2 * i], buf[2 * i + 1]); i += 1;);
+  i = 0; loop(1, OSF2[i] = o2r0d.id0(OSE2[2 * i], OSE2[2 * i + 1]); i += 1;);
+  OSF2[0];
+);
+
+function hu3l(x) local(i) (
+  OSA[0] = x;
+  i = 0; loop(1, o3l0u.iu0(OSA[i]); OSB[2 * i] = OSY0; OSB[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(2, o3l1u.iu1(OSB[i]); OSA[2 * i] = OSY0; OSA[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(4, o3l2u.iu2(OSA[i]); OSB[2 * i] = OSY0; OSB[2 * i + 1] = OSY1; i += 1;);
+  OSB;
+);
+
+function hd3l(buf) local(i) (
+  i = 0; loop(4, OSE[i] = o3l2d.id2(buf[2 * i], buf[2 * i + 1]); i += 1;);
+  i = 0; loop(2, OSF[i] = o3l1d.id1(OSE[2 * i], OSE[2 * i + 1]); i += 1;);
+  i = 0; loop(1, OSE[i] = o3l0d.id0(OSF[2 * i], OSF[2 * i + 1]); i += 1;);
+  OSE[0];
+);
+
+function hu3r(x) local(i) (
+  OSA2[0] = x;
+  i = 0; loop(1, o3r0u.iu0(OSA2[i]); OSB2[2 * i] = OSY0; OSB2[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(2, o3r1u.iu1(OSB2[i]); OSA2[2 * i] = OSY0; OSA2[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(4, o3r2u.iu2(OSA2[i]); OSB2[2 * i] = OSY0; OSB2[2 * i + 1] = OSY1; i += 1;);
+  OSB2;
+);
+
+function hd3r(buf) local(i) (
+  i = 0; loop(4, OSE2[i] = o3r2d.id2(buf[2 * i], buf[2 * i + 1]); i += 1;);
+  i = 0; loop(2, OSF2[i] = o3r1d.id1(OSE2[2 * i], OSE2[2 * i + 1]); i += 1;);
+  i = 0; loop(1, OSE2[i] = o3r0d.id0(OSF2[2 * i], OSF2[2 * i + 1]); i += 1;);
+  OSE2[0];
+);
+
+function hu4l(x) local(i) (
+  OSA[0] = x;
+  i = 0; loop(1, o4l0u.iu0(OSA[i]); OSB[2 * i] = OSY0; OSB[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(2, o4l1u.iu1(OSB[i]); OSA[2 * i] = OSY0; OSA[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(4, o4l2u.iu2(OSA[i]); OSB[2 * i] = OSY0; OSB[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(8, o4l3u.iu3(OSB[i]); OSA[2 * i] = OSY0; OSA[2 * i + 1] = OSY1; i += 1;);
+  OSA;
+);
+
+function hd4l(buf) local(i) (
+  i = 0; loop(8, OSE[i] = o4l3d.id3(buf[2 * i], buf[2 * i + 1]); i += 1;);
+  i = 0; loop(4, OSF[i] = o4l2d.id2(OSE[2 * i], OSE[2 * i + 1]); i += 1;);
+  i = 0; loop(2, OSE[i] = o4l1d.id1(OSF[2 * i], OSF[2 * i + 1]); i += 1;);
+  i = 0; loop(1, OSF[i] = o4l0d.id0(OSE[2 * i], OSE[2 * i + 1]); i += 1;);
+  OSF[0];
+);
+
+function hu4r(x) local(i) (
+  OSA2[0] = x;
+  i = 0; loop(1, o4r0u.iu0(OSA2[i]); OSB2[2 * i] = OSY0; OSB2[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(2, o4r1u.iu1(OSB2[i]); OSA2[2 * i] = OSY0; OSA2[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(4, o4r2u.iu2(OSA2[i]); OSB2[2 * i] = OSY0; OSB2[2 * i + 1] = OSY1; i += 1;);
+  i = 0; loop(8, o4r3u.iu3(OSB2[i]); OSA2[2 * i] = OSY0; OSA2[2 * i + 1] = OSY1; i += 1;);
+  OSA2;
+);
+
+function hd4r(buf) local(i) (
+  i = 0; loop(8, OSE2[i] = o4r3d.id3(buf[2 * i], buf[2 * i + 1]); i += 1;);
+  i = 0; loop(4, OSF2[i] = o4r2d.id2(OSE2[2 * i], OSE2[2 * i + 1]); i += 1;);
+  i = 0; loop(2, OSE2[i] = o4r1d.id1(OSF2[2 * i], OSF2[2 * i + 1]); i += 1;);
+  i = 0; loop(1, OSF2[i] = o4r0d.id0(OSE2[2 * i], OSE2[2 * i + 1]); i += 1;);
+  OSF2[0];
+);
+
+function os_clear_all() (
+  o1l0u.iu0_clear(); o1l0d.id0_clear();
+  o1r0u.iu0_clear(); o1r0d.id0_clear();
+  o2l0u.iu0_clear(); o2l0d.id0_clear();
+  o2l1u.iu1_clear(); o2l1d.id1_clear();
+  o2r0u.iu0_clear(); o2r0d.id0_clear();
+  o2r1u.iu1_clear(); o2r1d.id1_clear();
+  o3l0u.iu0_clear(); o3l0d.id0_clear();
+  o3l1u.iu1_clear(); o3l1d.id1_clear();
+  o3l2u.iu2_clear(); o3l2d.id2_clear();
+  o3r0u.iu0_clear(); o3r0d.id0_clear();
+  o3r1u.iu1_clear(); o3r1d.id1_clear();
+  o3r2u.iu2_clear(); o3r2d.id2_clear();
+  o4l0u.iu0_clear(); o4l0d.id0_clear();
+  o4l1u.iu1_clear(); o4l1d.id1_clear();
+  o4l2u.iu2_clear(); o4l2d.id2_clear();
+  o4l3u.iu3_clear(); o4l3d.id3_clear();
+  o4r0u.iu0_clear(); o4r0d.id0_clear();
+  o4r1u.iu1_clear(); o4r1d.id1_clear();
+  o4r2u.iu2_clear(); o4r2d.id2_clear();
+  o4r3u.iu3_clear(); o4r3d.id3_clear();
+  cpl0u.iu0_clear(); cpl0d.id0_clear(); cpr0u.iu0_clear(); cpr0d.id0_clear();
+);
+
+function os_snap1() (
+  o1l0u.iu0_snap(); o1l0d.id0_snap();
+  o1r0u.iu0_snap(); o1r0d.id0_snap();
+);
+
+function os_snap2() (
+  o2l0u.iu0_snap(); o2l0d.id0_snap();
+  o2l1u.iu1_snap(); o2l1d.id1_snap();
+  o2r0u.iu0_snap(); o2r0d.id0_snap();
+  o2r1u.iu1_snap(); o2r1d.id1_snap();
+);
+
+function os_snap3() (
+  o3l0u.iu0_snap(); o3l0d.id0_snap();
+  o3l1u.iu1_snap(); o3l1d.id1_snap();
+  o3l2u.iu2_snap(); o3l2d.id2_snap();
+  o3r0u.iu0_snap(); o3r0d.id0_snap();
+  o3r1u.iu1_snap(); o3r1d.id1_snap();
+  o3r2u.iu2_snap(); o3r2d.id2_snap();
+);
+
+function os_snap4() (
+  o4l0u.iu0_snap(); o4l0d.id0_snap();
+  o4l1u.iu1_snap(); o4l1d.id1_snap();
+  o4l2u.iu2_snap(); o4l2d.id2_snap();
+  o4l3u.iu3_snap(); o4l3d.id3_snap();
+  o4r0u.iu0_snap(); o4r0d.id0_snap();
+  o4r1u.iu1_snap(); o4r1d.id1_snap();
+  o4r2u.iu2_snap(); o4r2d.id2_snap();
+  o4r3u.iu3_snap(); o4r3d.id3_snap();
+);
+
+// ---------------------------------------------------------------------- hysteresis
+
+function hp_cook(drv, wid, sat, v1) local(sf, wf) (
+  sf = f32(sat); wf = f32(wid);
+  hs_sat = min(max(floor(f32(20 * sf)), 0), 20);
+  hs_wid = min(max(floor(f32(10 * wf)), 0), 10);
+  hp_ms = 0.5 + 1.5 * (1 - sat);
+  hp_a = hp_ms / (0.01 + 6 * drv);
+  hp_c = sqrt(1 - wid) - 0.01;
+  hp_k = 0.47875;
+  hp_lim = 20;
+  v1 ? (
+    hp_k = 27000;
+    hp_c = 0.17;
+    hp_ms *= 50000;
+    hp_a = hp_ms / (0.01 + 40 * drv);
+    hp_lim = 100000;
+  );
+  hp_nc = 1 - hp_c;
+  hp_ia = 1 / hp_a;
+  hp_nck = hp_nc * hp_k;
+  hp_msoa = hp_ms / hp_a;
+  hp_msoa_ta = ALPHA * hp_msoa;
+  hp_msoa_tc = hp_c * hp_msoa;
+  hp_msoa_tc_ta = ALPHA * hp_msoa_tc;
+  hp_msoasq_tc_ta = hp_msoa_tc_ta / hp_a;
+  hp_msoasq_tc_tasq = ALPHA * hp_msoasq_tc_ta;
+);
+
+function hf(mm, hh, hd) local(q, aq, q2, u, ct, oq, l, lp, md, kap, f1d) (
+  q = (hh + mm * ALPHA) * hp_ia;
+  aq = abs(q);
+  aq < 0.001 ? (
+    l = q * (1 / 3); lp = 1 / 3;
+  ) : aq < 0.25 ? (
+    q2 = q * q;
+    l = q * (0.3333333333333333 + q2 * (-0.022222222222222223 + q2 * (0.0021164021164021165 + q2 * (-0.00021164021164021165 + q2 * (0.000021377799155576935 + q2 * (-0.0000021644042808063972 + q2 * (0.00000021925947851873778 + q2 * (-0.000000022214608789979678 + q2 * (0.0000000022507846516808994)))))))));
+    lp = 0.3333333333333333 + q2 * (-0.06666666666666667 + q2 * (0.010582010582010581 + q2 * (-0.0014814814814814814 + q2 * (0.0001924001924001924 + q2 * (-0.00002380844708887037 + q2 * (0.0000028503732207435913 + q2 * (-0.0000003332191318496952 + q2 * (0.000000038263339078575285))))))));
+  ) : (
+    u = exp(-2 * aq);
+    ct = (1 + u) / (1 - u);
+    q < 0 ? ct = -ct;
+    oq = 1 / q;
+    l = ct - oq;
+    lp = oq * oq - ct * ct + 1;
+  );
+  md = l * hp_ms - mm;
+  hd >= 0 ? ( kap = md > 0; f1d = hp_nck - ALPHA * md; ) : ( kap = md < 0; f1d = -hp_nck - ALPHA * md; );
+  hd * ((kap ? hp_nc * md / f1d : 0) + lp * hp_msoa_tc) / (1 - lp * hp_msoa_tc_ta);
+);
+
+function hfn(mm, hh, hd) local(q, aq, q2, u, ct, oq, l, md, kap) (
+  q = (hh + mm * ALPHA) * hp_ia;
+  aq = abs(q);
+  aq < 0.001 ? (
+    l = q * (1 / 3); hn_lp = 1 / 3; hn_lpp = (-2 / 15) * q;
+  ) : aq < 0.25 ? (
+    q2 = q * q;
+    l = q * (0.3333333333333333 + q2 * (-0.022222222222222223 + q2 * (0.0021164021164021165 + q2 * (-0.00021164021164021165 + q2 * (0.000021377799155576935 + q2 * (-0.0000021644042808063972 + q2 * (0.00000021925947851873778 + q2 * (-0.000000022214608789979678 + q2 * (0.0000000022507846516808994)))))))));
+    hn_lp = 0.3333333333333333 + q2 * (-0.06666666666666667 + q2 * (0.010582010582010581 + q2 * (-0.0014814814814814814 + q2 * (0.0001924001924001924 + q2 * (-0.00002380844708887037 + q2 * (0.0000028503732207435913 + q2 * (-0.0000003332191318496952 + q2 * (0.000000038263339078575285))))))));
+    hn_lpp = q * (-0.13333333333333333 + q2 * (0.042328042328042326 + q2 * (-0.008888888888888889 + q2 * (0.0015392015392015391 + q2 * (-0.0002380844708887037 + q2 * (0.000034204478648923095 + q2 * (-0.000004665067845895733 + q2 * (0.0000006122134252572046 + q2 * (-0.00000007799361711970527)))))))));
+  ) : (
+    u = exp(-2 * aq);
+    ct = (1 + u) / (1 - u);
+    q < 0 ? ct = -ct;
+    oq = 1 / q;
+    l = ct - oq;
+    hn_lp = oq * oq - ct * ct + 1;
+    hn_lpp = 2 * ct * (ct * ct - 1) - 2 * oq * oq * oq;
+  );
+  md = l * hp_ms - mm;
+  hd >= 0 ? ( kap = md > 0; hn_f1d = hp_nck - ALPHA * md; ) : ( kap = md < 0; hn_f1d = -hp_nck - ALPHA * md; );
+  hn_kap = kap ? hp_nc : 0;
+  hn_md = md;
+  hn_f3 = 1 - hn_lp * hp_msoa_tc_ta;
+  hd * ((kap ? hp_nc * md / hn_f1d : 0) + hn_lp * hp_msoa_tc) / hn_f3;
+);
+
+function hfp(hd, dmdt) local(md2, of1d, f1p) (
+  md2 = hn_lp * hp_msoa_ta - 1;
+  of1d = 1 / hn_f1d;
+  f1p = md2 * of1d;
+  f1p += hn_md * ALPHA * md2 * (of1d * of1d);
+  f1p *= hn_kap;
+  (hd * (f1p + hn_lpp * hp_msoasq_tc_ta) - dmdt * (hn_lpp * (-hp_msoasq_tc_tasq))) / hn_f3;
+);
+
+function stn_fwd(i0, i1, i2, i3, i4) local(w, a0, a1, a2, a3, b0, b1, b2, b3) (
+  w = STNW + (hs_wid * 21 + hs_sat) * 49;
+  a0 = tanh_acc(0 + w[0] * i0 + w[1] * i1 + w[2] * i2 + w[3] * i3 + w[4] * i4 + w[20]);
+  a1 = tanh_acc(0 + w[5] * i0 + w[6] * i1 + w[7] * i2 + w[8] * i3 + w[9] * i4 + w[21]);
+  a2 = tanh_acc(0 + w[10] * i0 + w[11] * i1 + w[12] * i2 + w[13] * i3 + w[14] * i4 + w[22]);
+  a3 = tanh_acc(0 + w[15] * i0 + w[16] * i1 + w[17] * i2 + w[18] * i3 + w[19] * i4 + w[23]);
+  b0 = tanh_acc(0 + w[24] * a0 + w[25] * a1 + w[26] * a2 + w[27] * a3 + w[40]);
+  b1 = tanh_acc(0 + w[28] * a0 + w[29] * a1 + w[30] * a2 + w[31] * a3 + w[41]);
+  b2 = tanh_acc(0 + w[32] * a0 + w[33] * a1 + w[34] * a2 + w[35] * a3 + w[42]);
+  b3 = tanh_acc(0 + w[36] * a0 + w[37] * a1 + w[38] * a2 + w[39] * a3 + w[43]);
+  0 + w[44] * b0 + w[45] * b1 + w[46] * b2 + w[47] * b3 + w[48];
+);
+
+function hproc(hh, solver) instance(mn1, hn1, hdn1) local(hd, m, k1, k2, k3, k4, h12, hd12, ldm, dmdt, dmp, dnr, sc) (
+  hd = ((1 + 0.75) / hy_t) * (hh - hn1) - 0.75 * hdn1;
+  solver === 0 ? (
+    k1 = hf(mn1, hn1, hdn1) * hy_t;
+    k2 = hf(mn1 + (k1 * 0.5), (hh + hn1) * 0.5, (hd + hdn1) * 0.5) * hy_t;
+    m = mn1 + k2;
+  ) : solver === 1 ? (
+    h12 = (hh + hn1) * 0.5;
+    hd12 = (hd + hdn1) * 0.5;
+    k1 = hf(mn1, hn1, hdn1) * hy_t;
+    k2 = hf(mn1 + (k1 * 0.5), h12, hd12) * hy_t;
+    k3 = hf(mn1 + (k2 * 0.5), h12, hd12) * hy_t;
+    k4 = hf(mn1 + k3, hh, hd) * hy_t;
+    m = mn1 + k1 * (1 / 6) + k2 * (1 / 3) + k3 * (1 / 3) + k4 * (1 / 6);
+  ) : solver === 4 ? (
+    sc = 0.7071 / hp_a;
+    m = stn_fwd(hh * sc, hd * (1 / 60000) * sc, hn1 * sc, hdn1 * (1 / 60000) * sc, mn1) * hs_corr + mn1;
+  ) : (
+    m = mn1;
+    ldm = hf(mn1, hn1, hdn1);
+    loop(solver === 2 ? 4 : 8,
+      dmdt = hfn(m, hh, hd);
+      dmp = hfp(hd, dmdt);
+      dnr = (m - mn1 - hy_ta * (dmdt + ldm)) / (1 - hy_ta * dmp);
+      m -= dnr;
+    );
+  );
+  !(m <= hp_lim) ? ( m = 0; hd = 0; );
+  mn1 = m; hn1 = hh; hdn1 = hd;
+  m;
+);
+function hreset() instance(mn1, hn1, hdn1) ( mn1 = hn1 = hdn1 = 0; );
+
+function stn_load() local(h, n) (
+  h = file_open("ReelTalk/stn_weights.txt");
+  h < 0 ? h = file_open("Dependencies/ReelTalk/stn_weights.txt");
+  stn_ok = 0;
+  h >= 0 ? (
+    n = file_mem(h, STNR, 11400);
+    file_close(h);
+    (n == 11320 && STNR[0] == 11319) ? (
+      memcpy(STNW, STNR + 1, 11319);
+      stn_ok = STNW[0] < -0.38389 && STNW[0] > -0.38390 && STNW[11318] > 0.000243 && STNW[11318] < 0.000244;
+    );
+  );
+  !stn_ok ? memset(STNW, 0, 11319);
+);
+
+// ---------------------------------------------------------------------- delay lines
+
+function dl3_read(buf, msk, w, dly) local(di, fr, d1, d2, d3, v1, v2, v3, v4) (
+  di = floor(dly); fr = dly - di;
+  di >= 1 ? ( fr += 1; di -= 1; );
+  v1 = buf[(w - di) & msk]; v2 = buf[(w - di - 1) & msk]; v3 = buf[(w - di - 2) & msk]; v4 = buf[(w - di - 3) & msk];
+  d1 = fr - 1; d2 = fr - 2; d3 = fr - 3;
+  v1 * (-d1 * d2 * d3 / 6) + fr * (v2 * (d2 * d3 * 0.5) + v3 * (-d1 * d3 * 0.5) + v4 * (d1 * d2 / 6));
+);
+function dl5_read(buf, msk, w, dly) local(di, fr, d1, d2, d3, d4, d5, v1, v2, v3, v4, v5, v6) (
+  di = floor(dly); fr = dly - di;
+  di >= 2 ? ( fr += 2; di -= 2; );
+  v1 = buf[(w - di) & msk]; v2 = buf[(w - di - 1) & msk]; v3 = buf[(w - di - 2) & msk];
+  v4 = buf[(w - di - 3) & msk]; v5 = buf[(w - di - 4) & msk]; v6 = buf[(w - di - 5) & msk];
+  d1 = fr - 1; d2 = fr - 2; d3 = fr - 3; d4 = fr - 4; d5 = fr - 5;
+  v1 * (-d1 * d2 * d3 * d4 * d5 / 120) + fr * (v2 * (d2 * d3 * d4 * d5 / 24) + v3 * (-d1 * d3 * d4 * d5 / 12)
+    + v4 * (d1 * d2 * d4 * d5 / 12) + v5 * (-d1 * d2 * d3 * d5 / 24) + v6 * (d1 * d2 * d3 * d4 / 120));
+);
+
+// ---------------------------------------------------------------------- loss filter
+
+function loss_calc(which) local(k, n, fq, wn, tk, kg, idx, s, hc, bf, gn, pka, om, alp, c2, a0i) (
+  lf_bw = srate / lf_ord;
+  k = 0;
+  loop(floor(lf_ord / 2),
+    fq = k * lf_bw;
+    wn = TWOPI * max(fq, 20) / (p_speed * 0.0254);
+    tk = wn * (p_thick * 0.000001);
+    kg = wn * (p_gap * 0.000001) / 2;
+    LFH[k] = exp(-wn * (p_spacing * 0.000001));
+    LFH[k] *= (1 - exp(-tk)) / tk;
+    LFH[k] *= sin(kg) / kg;
+    LFH[lf_ord - k - 1] = LFH[k];
+    k += 1;
+  );
+  n = 0;
+  loop(floor(lf_ord / 2),
+    idx = floor(lf_ord / 2) + n;
+    k = 0; s = LFC[idx];
+    loop(lf_ord, s += LFH[k] * cos(TWOPI * k * n / lf_ord); k += 1;);
+    LFC[idx] = s / lf_ord;
+    LFC[floor(lf_ord / 2) - n] = LFC[idx];
+    n += 1;
+  );
+  hc = LFZ + which * 1664 + 1280;
+  memcpy(hc, LFC, lf_ord);
+  hc[lf_ord] = 0;
+  bf = p_speed * 0.0254 / ((p_gap * 0.000001) * 500);
+  gn = max(1.5 * (1000 - abs(bf - 100)) / 1000, 1);
+  pka = max(0, sqrt(gn));
+  om = (2 * $pi * max(bf, 2)) / srate;
+  alp = sin(om) / (2 * 2);
+  c2 = -2 * cos(om);
+  a0i = 1 / (1 + alp / pka);
+  which ? (
+    lb1_b0 = (1 + alp * pka) * a0i; lb1_b1 = c2 * a0i; lb1_b2 = (1 - alp * pka) * a0i; lb1_a1 = c2 * a0i; lb1_a2 = (1 - alp / pka) * a0i;
+  ) : (
+    lb0_b0 = (1 + alp * pka) * a0i; lb0_b1 = c2 * a0i; lb0_b2 = (1 - alp * pka) * a0i; lb0_a1 = c2 * a0i; lb0_a2 = (1 - alp / pka) * a0i;
+  );
+);
+
+function fir_push(z, ch, x) local(p) (
+  p = z[1600 + ch];
+  z[ch * 640 + p] = x;
+  z[ch * 640 + p + lf_ord] = x;
+  z[1600 + ch] = p === 0 ? lf_ord - 1 : p - 1;
+);
+function fir_run2(z, xl, xr) local(p, zl, zr, hc, c, yl, yr, a, b, h) (
+  p = z[1600];
+  zl = z + p; zr = z + 640 + p;
+  zl[0] = xl; zl[lf_ord] = xl;
+  zr[0] = xr; zr[lf_ord] = xr;
+  hc = z + 1280;
+  c = floor(lf_ord / 2);
+  yl = hc[c] * zl[c]; yr = hc[c] * zr[c];
+  a = c + 1; b = c - 1;
+  loop(c - 1, h = hc[a]; yl += h * (zl[a] + zl[b]); yr += h * (zr[a] + zr[b]); a += 1; b -= 1;);
+  z[1600] = z[1601] = p === 0 ? lf_ord - 1 : p - 1;
+  FIRY = yr;
+  yl;
+);
+
+function chf_coefs(fc) local(wc, c, a0) (
+  wc = TWOPI * fc / srate;
+  c = 1 / ftan(wc / 2);
+  a0 = c + 1;
+  chf_b0 = 1 / a0; chf_a1 = (1 - c) / a0;
+);
+function dgf_coefs(fc, ch) local(wc, c, a0) (
+  wc = TWOPI * fc / srate;
+  c = 1 / ftan(wc / 2);
+  a0 = c + 1;
+  ch ? ( dgfr_b0 = 1 / a0; dgfr_a1 = (1 - c) / a0; ) : ( dgfl_b0 = 1 / a0; dgfl_a1 = (1 - c) / a0; );
+);
+
+function chew_dry_time() local(ts, vs) (
+  ts = p_chew_freq ^ 0.1;
+  vs = (chr.jr_float() * 2) ^ p_chew_var;
+  chr.jr_range(floor((1 - ts) * srate * vs), floor((2 - 1.99 * ts) * srate * vs));
+);
+function chew_wet_time() local(ts, st, en, vs) (
+  ts = p_chew_freq ^ 0.1;
+  st = 0.2 + 0.8 * p_chew_depth;
+  en = st - (0.001 + 0.01 * p_chew_depth);
+  vs = (chr.jr_float() * 2) ^ p_chew_var;
+  chr.jr_range(floor((1 - ts) * srate * vs), floor(((1 - ts) + st - en * ts) * srate * vs));
+);
+
+function degrade_cook(prep) local(dv, fhz, gdb, es, rl, g) (
+  dv = p_deg_p1 ? p_deg_depth * 0.1 : p_deg_depth;
+  fhz = 200 * (20000 / 200) ^ (1 - p_deg_amt);
+  gdb = -24 * dv;
+  !prep ? (
+    dgn_set = 0.5 * dv * p_deg_amt;
+    dgfl.sm_set(min(fhz + (p_deg_var * (fhz / 0.6) * (dgr.jr_float() - 0.5)), 0.49 * srate));
+    dgfr.sm_set(min(fhz + (p_deg_var * (fhz / 0.6) * (dgr.jr_float() - 0.5)), 0.49 * srate));
+  );
+  es = 1 - p_deg_env ^ 0.8;
+  rl = f32(20 * (5000 / 20) ^ es);
+  dg_ta = f32(1 - f32(exp(f32(dg_exp / 10))));
+  dg_tr = rl < 0.001 ? 0 : f32(1 - f32(exp(f32(dg_exp / rl))));
+  g = db2g(min(gdb + (p_deg_var * 36 * (dgr.jr_float() - 0.5)), 3));
+  g !== dg_gcur ? ( dg_gold = dg_gcur; dg_gcur = g; );
+);
+
+// ---------------------------------------------------------------------- reset / prepare
+
+function engine_prepare() local(i, n) (
+  memset(OSST, 0, 22 * 1024);
+  os_clear_all();
+  bpos = 0;
+  pr_first = !pr_done;
+  pr_done = 1;
+
+  ig_cur = 1; ig_old = ig_cur;
+  og_cur = 1; og_old = og_cur;
+
+  ifb.prev = p_if_on; ifm.prev = p_if_on;
+  ifl.lr_set(2000); ifr.lr_set(2000);
+  ifhl.lr_set(2000); ifhr.lr_set(2000);
+  ifl.s0 = ifl.s1 = ifl.s2 = ifl.s3 = 0; ifr.s0 = ifr.s1 = ifr.s2 = ifr.s3 = 0;
+  ifhl.s0 = ifhl.s1 = ifhl.s2 = ifhl.s3 = 0; ifhr.s0 = ifhr.s1 = ifhr.s2 = ifhr.s3 = 0;
+  memset(MKDL, 0, 4096); memset(MKDR, 0, 4096); mk_w = 0;
+
+  msf.sv_init(0, floor(0.04 * srate));
+  ms_cur = p_ms === 1; ms_prev = ms_cur;
+  pr_first ? ( msi0.sv_init(0, floor(0.05 * srate)); msi1.sv_init(0, floor(0.05 * srate)); mso0.sv_init(0, floor(0.05 * srate)); mso1.sv_init(0, floor(0.05 * srate)); )
+           : ( msi0.sv_reset(floor(0.05 * srate)); msi1.sv_reset(floor(0.05 * srate)); mso0.sv_reset(floor(0.05 * srate)); mso1.sv_reset(floor(0.05 * srate)); );
+
+  tin_l.sm_init(1, floor(0.05 * srate)); tin_h.sm_init(1, floor(0.05 * srate)); tin_f.sm_init(500, floor(0.05 * srate));
+  tout_l.sm_init(1, floor(0.05 * srate)); tout_h.sm_init(1, floor(0.05 * srate)); tout_f.sm_init(500, floor(0.05 * srate));
+  tin.shelf_coefs(1, 1, 500); tout.shelf_coefs(1, 1, 500);
+  tin_zl = tin_zr = tout_zl = tout_zr = 0;
+
+  cpb.prev = p_comp_on;
+  pr_first ? ( cpd0.sv_init(0, floor(srate * 0.05)); ) : cpd0.sv_reset(floor(srate * 0.05));
+  cp_yl = cp_yr = 0; cp_incl = cp_incr = 1;
+  cp_ta = cp_tr = 1;
+  memset(CTHL, 0, 8); memset(CTHR, 0, 8); cth_w = 0; cth_vl = cth_vr = 0;
+  cp_lat = 3.137320896310392;
+  cp_frac = 1 - (cp_lat - floor(cp_lat));
+  cp_frac === 1 ? cp_frac = 0 : cp_frac < 0.618 ? cp_frac += 1;
+  cth_di = floor(cp_frac); cth_fr = cp_frac - cth_di;
+  (cth_fr < 0.618 && cth_di >= 1) ? ( cth_fr += 1; cth_di -= 1; );
+  cth_al = (1 - cth_fr) / (1 + cth_fr);
+
+  hyb.prev = p_hyst_on;
+  hy_wasv1 = hy_usev1 = p_mode === 5;
+  hy_cfg = p_os + 5 * p_osmode; hy_fac = p_os;
+  pr_first ? ( hyd.sv_init(0, 500); hyw.sv_init(0, 500); hys.sv_init(0, 500); hym.sm_init(1, 500); )
+           : ( hyd.sv_reset(500); hyw.sv_reset(500); hys.sv_reset(500); hym.sm_reset(500); );
+  hy_fs = srate * 2 ^ hy_fac;
+  hy_t = 1 / hy_fs; hy_ta = hy_t / 1.9; hs_corr = 96000 / hy_fs;
+  hp_cook(hyd.cur, hyw.cur, hys.cur, hy_wasv1);
+  hyl.hreset(); hyr.hreset();
+  hy_bal = hy_bar = 0;
+  hy_bfreq = srate * 2 ^ hy_fac / 2;
+  hydl.dcb_init(35); hydr.dcb_init(35);
+
+  chb.prev = p_chew_on;
+  ch_mix = 0; ch_pow = 0;
+  pr_first ? ( chm0.sv_init(0, floor(srate * 0.01)); chp0.sv_init(0, floor(srate * 0.005)); )
+           : ( chm0.sv_reset(floor(srate * 0.01)); chp0.sv_reset(floor(srate * 0.005)); );
+  chfl.sm_init(pr_first ? 20000 : chfl.tgt, floor(srate * 0.02)); chf_z = 0; chf_zr = 0; ch_dro = 0;
+  chf_coefs(chfl.cur);
+  ch_crink = 0;
+  ch_until = chew_dry_time();
+  ch_cnt = 0;
+
+  dgb.prev = p_deg_on;
+  dg_cnt = 0;
+  dg_exp = f32(-1000 / f32(srate));
+  dg_gcur = 1; dg_gold = 0;
+  degrade_cook(1);
+  dgn_cur = dgn_prev = dgn_set = 0;
+  dgfl.sm_init(20000, 20); dgfr.sm_init(20000, 20);
+  dgfl_z = dgfr_z = 0;
+  dgf_coefs(dgfl.cur, 0); dgf_coefs(dgfr.cur, 1);
+  dg_y = 0; dg_inc = 1;
+  dg_gold = dg_gcur;
+
+  wfb.prev = p_wf_on;
+  wfdl.sm_init(0.001, floor(srate * 0.05)); wfdf.sm_init(0.001, floor(srate * 0.05));
+  wf_ph = 0;
+  wf_amp = 1000 * 1000 / srate;
+  oh_sqd = 1 / sqrt(srate); oh_t = 1 / srate;
+  oh_y = 1;
+  oh_g0 = tan($pi * 10 / srate); oh_k = 1 / (1 / sqrt(2));
+  oh_gk = oh_g0 + oh_k; oh_a1 = 1 / (1 + oh_g0 * oh_gk); oh_a2 = oh_g0 * oh_a1; oh_a3 = oh_g0 * oh_a2; oh_ak = oh_gk * oh_a1;
+  oh_s1 = oh_s2 = 0;
+  fl_p1 = fl_p2 = fl_p3 = 0;
+  fl_a1 = -230 * 1000 / srate; fl_a2 = -80 * 1000 / srate; fl_a3 = -99 * 1000 / srate; fl_dc = 350 * 1000 / srate;
+  fl_o2 = 13 * $pi / 4; fl_o3 = -$pi / 10;
+  memset(WFDL, 0, 32768); memset(WFDR, 0, 32768); wf_w = 0;
+  wfcl.dcb_init(15); wfcr.dcb_init(15);
+
+  lsb.prev = p_loss_on;
+  lf_ord = floor(64 * (srate / 44100));
+  lf_pad = 2 * ceil(lf_ord / 2);
+  lf_fadelen = max(1024, BS);
+  memset(LFZ, 0, 2 * 1664); memset(LFH, 0, 320); memset(LFC, 0, 320);
+  lf_act = 0; lf_fade = 0;
+  loss_calc(0);
+  memcpy(LFZ + 1664 + 1280, LFZ + 1280, lf_ord + 1);
+  lb0_zl1 = lb0_zl2 = lb0_zr1 = lb0_zr2 = 0; lb1_zl1 = lb1_zl2 = lb1_zr1 = lb1_zr2 = 0;
+  lf_pspeed = p_speed; lf_pspacing = p_spacing; lf_pthick = p_thick; lf_pgap = p_gap;
+  pr_first ? ( azl.sv_init(0, floor(srate * 0.05)); azr.sv_init(0, floor(srate * 0.05)); ) : ( azl.sv_reset(floor(srate * 0.05)); azr.sv_reset(floor(srate * 0.05)); );
+  memset(AZDL, 0, 4096); memset(AZDR, 0, 4096); az_w = 0;
+
+  memset(DRYL, 0, 4096); memset(DRYR, 0, 4096); dry_w = 0;
+  dw_cur = p_drywet / 100; dw_last = dw_cur;
+  sp_lat = 0;
+  rms_n = min(2048, floor(5 * srate / BS));
+  memset(RMSI, 0, 2048); memset(RMSO, 0, 2048);
+  rms_i = 0; rms_si = rms_so = 0; rms_bi = rms_bo = 0;
+  sl_on = 0; sl_q = 0; sl_b = 0;
+  sc_w = 0; memset(SCOPE, 0, 2048);
+);
+
+function rng_seed_all() (
+  ref_seeds ? (
+    chr.jr_seed(1001); dgr.jr_seed(1002); wfr.jr_seed(1003); ohr.jr_seed(1004); dnl.jr_seed(2000); dnr.jr_seed(2001);
+  ) : (
+    chr.jr_seed(floor(rand(16777216)) * 16777216 + floor(rand(16777216)));
+    dgr.jr_seed(floor(rand(16777216)) * 16777216 + floor(rand(16777216)));
+    wfr.jr_seed(floor(rand(16777216)) * 16777216 + floor(rand(16777216)));
+    ohr.jr_seed(floor(rand(16777216)) * 16777216 + floor(rand(16777216)));
+    dnl.jr_seed(floor(rand(16777216)) * 16777216 + floor(rand(16777216)));
+    dnr.jr_seed(floor(rand(16777216)) * 16777216 + floor(rand(16777216)));
+  );
+);
+
+// ---------------------------------------------------------------------- block start
+
+function lat_calc() (
+  f32((p_loss_on ? lf_ord / 2 : 0) + (p_hyst_on ? f32(hy_lat) + 1.4 : 0) + (p_comp_on ? 4 : 0));
+);
+
+function block_begin() local(g, dly, ang, fadj, n, u1, u2, rad, i, cd, ff, sh) (
+  g = db2g(p_ingain);
+  g !== ig_cur ? ( ig_old = ig_cur; ig_cur = g; );
+  ig_cur !== ig_old ? ( ig_g = ig_old; ig_inc = (ig_cur - ig_old) / BS; ig_old = ig_cur; ) : ( ig_g = ig_cur; ig_inc = 0; );
+  g = db2g(p_outgain);
+  g !== og_cur ? ( og_old = og_cur; og_cur = g; );
+  og_cur !== og_old ? ( og_g = og_old; og_inc = (og_cur - og_old) / BS; og_old = og_cur; ) : ( og_g = og_cur; og_inc = 0; );
+  dw_new = p_drywet;
+  dw_new !== dw_cur ? dw_cur = dw_new;
+
+  if_act = ifb.byp_begin(p_if_on);
+  if_act ? (
+    ifl.lr_set(p_lowcut); ifr.lr_set(p_lowcut);
+    ifhl.lr_set(min(p_highcut, srate * 0.48)); ifhr.lr_set(min(p_highcut, srate * 0.48));
+  );
+
+  msi0.sv_set(db2g(p_bal * 6)); msi1.sv_set(db2g(p_bal * -6));
+
+  tin_l.sm_set(p_tone_on ? db2g(18 * p_bass) : db2g(0));
+  tin_h.sm_set(p_tone_on ? db2g(18 * p_treble) : db2g(0));
+  tin_f.sm_set(p_tfreq);
+  tin_smooth = tin_l.cnt > 0 || tin_h.cnt > 0 || tin_f.cnt > 0;
+
+  cp_act = cpb.byp_begin(p_comp_on);
+  cp_act ? (
+    cpd0.sv_set(p_comp_amt);
+    g = f32(-1000 / f32(srate));
+    cp_ta = f32(p_comp_rel) < 0.001 ? 0 : f32(1 - f32(exp(f32(g / f32(p_comp_rel)))));
+    cp_tr = f32(p_comp_att) < 0.001 ? 0 : f32(1 - f32(exp(f32(g / f32(p_comp_att)))));
+  );
+
+  hy_act = hyb.byp_begin(p_hyst_on);
+  hy_act ? (
+    hy_usev1 = p_mode === 5;
+    hy_sol = hy_usev1 ? 1 : p_mode;
+    hy_clip = hy_sol === 0 ? 8 : hy_sol === 1 ? 10 : (hy_sol === 2 || hy_sol === 3) ? 12.5 : 20;
+    hyd.sv_set(p_drive); hys.sv_set(p_sat); hyw.sv_set(1 - p_bias);
+    hym.sm_set((1 + 0.6 * hyw.tgt) / (0.5 + 1.5 * (1 - hys.tgt)));
+    n = p_os + 5 * p_osmode;
+    n !== hy_cfg ? (
+      hy_cfg = n; hy_fac = p_os;
+      hy_fs = srate * 2 ^ hy_fac;
+      hy_t = 1 / hy_fs; hy_ta = hy_t / 1.9; hs_corr = 96000 / hy_fs;
+      hp_cook(hyd.cur, hyw.cur, hys.cur, hy_wasv1);
+      hyl.hreset(); hyr.hreset();
+      hy_bfreq = srate * 2 ^ hy_fac / 2;
+    );
+    hy_smooth = hyd.cnt > 0 || hyw.cnt > 0 || hys.cnt > 0 || hy_wasv1 != hy_usev1;
+    hy_usev1 != hy_wasv1 ? ( hyl.hreset(); hyr.hreset(); );
+    hy_wasv1 = hy_usev1;
+    hy_mksm = hym.cnt > 0;
+    hy_adelta = TWOPI * hy_bfreq / (srate * 2 ^ hy_fac);
+    hy_bmult = 10 * (1 - hyw.cur);
+  );
+  hy_lat = OSLAT[hy_cfg];
+
+  tout_l.sm_set(p_tone_on ? db2g(-1 * 18 * p_bass) : db2g(0));
+  tout_h.sm_set(p_tone_on ? db2g(-1 * 18 * p_treble) : db2g(0));
+  tout_f.sm_set(p_tfreq);
+  tout_smooth = tout_l.cnt > 0 || tout_h.cnt > 0 || tout_f.cnt > 0;
+
+  ch_act = chb.byp_begin(p_chew_on);
+
+  dg_act = dgb.byp_begin(p_deg_on);
+  dg_act ? (
+    dg_cnt += BS;
+    dg_cnt >= 2048 ? ( degrade_cook(0); dg_cnt = 0; );
+    dgn_cur !== dgn_set ? dgn_cur = dgn_set;
+    dgn_ramp = dgn_cur !== dgn_prev;
+    dgn_p0 = dgn_prev;
+    dgn_prev = dgn_cur;
+    dg_g = dg_gcur !== dg_gold ? dg_gold : dg_gcur;
+    dg_ginc = dg_gcur !== dg_gold ? (dg_gcur - dg_gold) / BS : 0;
+    dg_gold = dg_gcur;
+    dg_env = p_deg_env > 0;
+  );
+
+  cd = p_wdepth ^ 3;
+  ff = 4.5 ^ p_wrate - 1;
+  wfdl.sm_set(max(0.001, cd));
+  fadj = ff * (1 + wfr.jr_float() ^ 1.25 * p_wdrift);
+  wf_ad = TWOPI * fadj / srate;
+  oh_amt = p_wvar ^ 1.25;
+  oh_damp = oh_amt * 20 + 1;
+  oh_mean = oh_amt;
+  cd = (p_fdepth ^ 3 * 81 / 625) ^ 0.5;
+  ff = 0.1 * 1000 ^ p_frate;
+  wfdf.sm_set(max(0.001, cd));
+  fl_ad1 = TWOPI * ff / srate; fl_ad2 = 2 * fl_ad1; fl_ad3 = 3 * fl_ad1;
+  sh = !p_wf_on || (wfdl.tgt === 0.001 && wfdf.tgt === 0.001);
+  wf_act = wfb.byp_begin(!sh);
+  wf_act ? (
+    i = 0;
+    loop(BS,
+      u1 = ohr.jr_double(); u2 = ohr.jr_double();
+      rad = sqrt(-2 * log(1 - u1));
+      OHN[i] = (rad * sin(TWOPI * u2) / sqrt(2)) * (1 / 2.33);
+      i += 1;
+    );
+  ) : ohr.jr_skip1024();
+
+  lf_on = lsb.byp_begin(p_loss_on);
+  lf_on ? (
+    ((p_speed !== lf_pspeed || p_spacing !== lf_pspacing || p_thick !== lf_pthick || p_gap !== lf_pgap) && lf_fade === 0) ? (
+      loss_calc(!lf_act);
+      lf_act ? ( lb0_zl1 = lb0_zl2 = lb0_zr1 = lb0_zr2 = 0; ) : ( lb1_zl1 = lb1_zl2 = lb1_zr1 = lb1_zr2 = 0; );
+      lf_fade = lf_fadelen;
+      lf_pspeed = p_speed; lf_pspacing = p_spacing; lf_pthick = p_thick; lf_pgap = p_gap;
+    );
+    lf_fading = lf_fade > 0;
+    lf_fading ? (
+      lf_gs = lf_fade / lf_fadelen;
+      lf_n = min(lf_fade, BS);
+      lf_fade -= lf_n;
+      lf_ge = lf_fade / lf_fadelen;
+      lf_ginc = (lf_ge - lf_gs) / lf_n;
+      lf_dg = 1 - lf_gs; lf_dinc = ((1 - lf_ge) - (1 - lf_gs)) / lf_n;
+    );
+    ang = abs(p_azimuth) * $pi / 180;
+    dly = (((0.25 / 39.370078740157) * sin(ang)) * (p_speed / 39.370078740157)) * srate;
+    p_azimuth < 0 ? ( azr.sv_set(dly); azl.sv_set(0); ) : ( azl.sv_set(dly); azr.sv_set(0); );
+  );
+
+  sp_latf = lat_calc();
+  sp_lat = floor(sp_latf + 0.5);
+  mk_dly = sp_latf;
+  dry_dly = dw_cur < 0.15 ? sp_lat : sp_latf;
+
+  (ms_prev != (p_ms === 1)) && msf.cnt <= 0 ? ( msf.sv_now(1); msf.sv_set(0); );
+  p_balmk ? ( mso0.sv_set(db2g(p_bal * -6)); mso1.sv_set(db2g(p_bal * 6)); );
+  ms_fading = msf.cnt > 0;
+  ms_fading ? ( ms_fg = msf.cur; ms_fe = msf.sv_skip(BS); ms_finc = (ms_fe - ms_fg) / BS; );
+
+  mk_act = ifm.byp_begin(p_if_on);
+  mk_on = mk_act && p_ifmk;
+
+  dw_ramp = dw_last !== dw_cur;
+  dw_ramp ? ( dw_g = dw_last; dw_ginc = (dw_cur - dw_last) / BS; dw_d = 1 - dw_last; dw_dinc = ((1 - dw_cur) - (1 - dw_last)) / BS; dw_last = dw_cur; );
+);
+
+function rms_push() local(n) (
+  rms_si += rms_bi - RMSI[rms_i]; rms_so += rms_bo - RMSO[rms_i];
+  RMSI[rms_i] = rms_bi; RMSO[rms_i] = rms_bo;
+  rms_i += 1; rms_i >= rms_n ? ( rms_i = 0; rms_si = rms_so = 0; n = 0; loop(rms_n, rms_si += RMSI[n]; rms_so += RMSO[n]; n += 1;); );
+  rms_bi = rms_bo = 0;
+);
+
+function sl_changed() local(n, d) (
+  n = 0; d = 0;
+  loop(49, slider(n + 1) !== SLP[n] ? d = 1; n += 1;);
+  d;
+);
+
+function sl_store() local(n) (
+  n = 0;
+  loop(49, SLP[n] = slider(n + 1); n += 1;);
+);
+
+function block_end() (
+  rms_push();
+  hy_act && hy_cfg < 5 ? (
+    hy_cfg === 1 ? os_snap1() : hy_cfg === 2 ? os_snap2() : hy_cfg === 3 ? os_snap3() : hy_cfg === 4 ? os_snap4();
+  );
+  cp_act ? ( cpl0u.iu0_snap(); cpl0d.id0_snap(); cpr0u.iu0_snap(); cpr0d.id0_snap(); );
+  lf_on ? (
+    lb0_zl1 = snapz(lb0_zl1); lb0_zl2 = snapz(lb0_zl2); lb0_zr1 = snapz(lb0_zr1); lb0_zr2 = snapz(lb0_zr2);
+    lf_fading ? ( lb1_zl1 = snapz(lb1_zl1); lb1_zl2 = snapz(lb1_zl2); lb1_zr1 = snapz(lb1_zr1); lb1_zr2 = snapz(lb1_zr2); );
+    lf_fading && lf_fade === 0 ? lf_act = !lf_act;
+  );
+  while (wf_ph >= TWOPI) ( wf_ph -= TWOPI; );
+  while (fl_p1 >= TWOPI) ( fl_p1 -= TWOPI; );
+  while (fl_p2 >= TWOPI) ( fl_p2 -= TWOPI; );
+  while (fl_p3 >= TWOPI) ( fl_p3 -= TWOPI; );
+  ms_fading && ms_fe === 0 ? ( msf.sv_set(1); ms_cur = p_ms === 1; ms_prev = ms_cur; );
+);
+
+OHN = alloc(BS);
+OSLAT = alloc(10);
+OSLAT[0] = 0; OSLAT[1] = 3.137320896310392; OSLAT[2] = 4.4326723954664624; OSLAT[3] = 4.951390480676138; OSLAT[4] = 5.2107495232809757;
+OSLAT[5] = 0; OSLAT[6] = 49; OSLAT[7] = 59.5; OSLAT[8] = 64.25; OSLAT[9] = 66.125;
+
+function pr_row(i) ( PRT = PRV + i * 48; );
+
+function pr_name(i) (
+  i === 0 ? "Default" :
+  i === 1 ? "TC-260" :
+  i === 2 ? "LoFi" :
+  i === 3 ? "Woozy Chorus" :
+  i === 4 ? "Old Tape" :
+  i === 5 ? "Underbiased" :
+  i === 6 ? "Bass Pusher I" :
+  i === 7 ? "Chorus II" :
+  i === 8 ? "Chorus III" :
+  i === 9 ? "Chorus IV" :
+  i === 10 ? "Clean Fat" :
+  i === 11 ? "Fat II" :
+  i === 12 ? "Gritty" :
+  i === 13 ? "Gritty II" :
+  i === 14 ? "LoFi" :
+  i === 15 ? "Slightly Wobbly" :
+  i === 16 ? "Disintegrated Memories" :
+  i === 17 ? "Funk That 1987" :
+  i === 18 ? "Hello Hangover" :
+  i === 19 ? "I Have A Radio" :
+  i === 20 ? "Warehouse 1997" :
+  i === 21 ? "Noise After Hit" :
+  i === 22 ? "Sub Beef" :
+  i === 23 ? "Warm Tape" :
+  i === 24 ? "808 Comp and Tone" :
+  i === 25 ? "808 Maker" :
+  i === 26 ? "Phaser Like" :
+  i === 27 ? "Short Plucked" :
+  i === 28 ? "Slower Chorus" :
+  i === 29 ? "Vintage Chorus" :
+  i === 30 ? "Breaking Up" :
+  i === 31 ? "Hats Shorter" :
+  i === 32 ? "Lofi Vibe" :
+  i === 33 ? "Old MPC" :
+  i === 34 ? "A Little Punch" :
+  i === 35 ? "Broken Kick" :
+  i === 36 ? "In The Cut" :
+  i === 37 ? "LoFi Kick" :
+  i === 38 ? "LoFi Kick Short" :
+  i === 39 ? "Punch Hi Cut" :
+  i === 40 ? "Cassette Like" :
+  i === 41 ? "Super LoFi" :
+  i === 42 ? "30ips Glue" :
+  i === 43 ? "Just Tape Noise" :
+  i === 44 ? "Subtle Tape Noise" :
+  i === 45 ? "Tape Noise Hard Rain" :
+  i === 46 ? "Tape Noise Rain" :
+  i === 47 ? "Almost LoFi Piano" :
+  i === 48 ? "Clean Cassette" :
+  i === 49 ? "Dirtier Cassette" :
+  i === 50 ? "Almost Bitcrushed" :
+  i === 51 ? "Cut The Lows" :
+  i === 52 ? "LoFi Vibe" :
+  i === 53 ? "Shorter LoFi" :
+  i === 54 ? "Shorter Snare" :
+  i === 55 ? "Bad Tape Good Player" :
+  i === 56 ? "Cozy Unstable" :
+  i === 57 ? "Fast Wobble" :
+  i === 58 ? "Found Tape Player" :
+  i === 59 ? "Good Tape Bad Player" :
+  i === 60 ? "INIT" :
+  i === 61 ? "Just Warmth" :
+  i === 62 ? "Low Cut High Cut" :
+  i === 63 ? "Old Telephone" :
+  i === 64 ? "Punchy Lofi Drums" :
+  i === 65 ? "That Dirty LoFi" :
+  i === 66 ? "Underwater" :
+  i === 67 ? "Chew Loss" :
+  i === 68 ? "Drift with Me" :
+  i === 69 ? "Goodbye Highs" :
+  i === 70 ? "Heavy Drumloop" :
+  i === 71 ? "Studio Time" :
+  i === 72 ? "Tape Wide" :
+  i === 73 ? "Thats Cool" :
+  i === 74 ? "Vibe Drive" :
+  i === 75 ? "Wack" :
+  i === 76 ? "Wow Dude" :
+  i === 77 ? "Crane I" :
+  i === 78 ? "Crane II" :
+  i === 79 ? "Flavor I" :
+  i === 80 ? "High Sauce I" :
+  i === 81 ? "High Sauce II" :
+  i === 82 ? "Spice I" :
+  i === 83 ? "Spice II" :
+  i === 84 ? "Flavor II" :
+  i === 85 ? "Flow I" :
+  i === 86 ? "Flow II" :
+  i === 87 ? "Low Grinder" :
+  i === 88 ? "Low Rider" :
+  i === 89 ? "Low Smasher" :
+  i === 90 ? "String Mojo" :
+  i === 91 ? "Bleak" :
+  i === 92 ? "Solid Tape I" :
+  i === 93 ? "Solid Tape II" :
+  "";
+);
+
+function pr_vendor(i) (
+  i === 0 ? "CHOW" :
+  i === 1 ? "CHOW" :
+  i === 2 ? "CHOW" :
+  i === 3 ? "CHOW" :
+  i === 4 ? "CHOW" :
+  i === 5 ? "CHOW" :
+  i === 6 ? "Sink" :
+  i === 7 ? "Sink" :
+  i === 8 ? "Sink" :
+  i === 9 ? "Sink" :
+  i === 10 ? "Sink" :
+  i === 11 ? "Sink" :
+  i === 12 ? "Sink" :
+  i === 13 ? "Sink" :
+  i === 14 ? "Sink" :
+  i === 15 ? "Sink" :
+  i === 16 ? "AEIOU" :
+  i === 17 ? "AEIOU" :
+  i === 18 ? "AEIOU" :
+  i === 19 ? "AEIOU" :
+  i === 20 ? "AEIOU" :
+  i === 21 ? "Carter / Perc" :
+  i === 22 ? "Carter / Bass" :
+  i === 23 ? "Carter / Bass" :
+  i === 24 ? "Carter / Bass" :
+  i === 25 ? "Carter / Bass" :
+  i === 26 ? "Carter / Guitar" :
+  i === 27 ? "Carter / Guitar" :
+  i === 28 ? "Carter / Guitar" :
+  i === 29 ? "Carter / Guitar" :
+  i === 30 ? "Carter / Guitar" :
+  i === 31 ? "Carter / High Hats" :
+  i === 32 ? "Carter / High Hats" :
+  i === 33 ? "Carter / High Hats" :
+  i === 34 ? "Carter / Kick" :
+  i === 35 ? "Carter / Kick" :
+  i === 36 ? "Carter / Kick" :
+  i === 37 ? "Carter / Kick" :
+  i === 38 ? "Carter / Kick" :
+  i === 39 ? "Carter / Kick" :
+  i === 40 ? "Carter / Mix" :
+  i === 41 ? "Carter / Mix" :
+  i === 42 ? "Carter / Mix" :
+  i === 43 ? "Carter / Noise" :
+  i === 44 ? "Carter / Noise" :
+  i === 45 ? "Carter / Noise" :
+  i === 46 ? "Carter / Noise" :
+  i === 47 ? "Carter / Piano" :
+  i === 48 ? "Carter / Piano" :
+  i === 49 ? "Carter / Piano" :
+  i === 50 ? "Carter / Snare" :
+  i === 51 ? "Carter / Snare" :
+  i === 52 ? "Carter / Snare" :
+  i === 53 ? "Carter / Snare" :
+  i === 54 ? "Carter / Snare" :
+  i === 55 ? "Carter" :
+  i === 56 ? "Carter" :
+  i === 57 ? "Carter" :
+  i === 58 ? "Carter" :
+  i === 59 ? "Carter" :
+  i === 60 ? "Carter" :
+  i === 61 ? "Carter" :
+  i === 62 ? "Carter" :
+  i === 63 ? "Carter" :
+  i === 64 ? "Carter" :
+  i === 65 ? "Carter" :
+  i === 66 ? "Carter" :
+  i === 67 ? "Cool WAV" :
+  i === 68 ? "Cool WAV" :
+  i === 69 ? "Cool WAV" :
+  i === 70 ? "Cool WAV" :
+  i === 71 ? "Cool WAV" :
+  i === 72 ? "Cool WAV" :
+  i === 73 ? "Cool WAV" :
+  i === 74 ? "Cool WAV" :
+  i === 75 ? "Cool WAV" :
+  i === 76 ? "Cool WAV" :
+  i === 77 ? "RK / High" :
+  i === 78 ? "RK / High" :
+  i === 79 ? "RK / High" :
+  i === 80 ? "RK / High" :
+  i === 81 ? "RK / High" :
+  i === 82 ? "RK / High" :
+  i === 83 ? "RK / High" :
+  i === 84 ? "RK / Low" :
+  i === 85 ? "RK / Low" :
+  i === 86 ? "RK / Low" :
+  i === 87 ? "RK / Low" :
+  i === 88 ? "RK / Low" :
+  i === 89 ? "RK / Low" :
+  i === 90 ? "RK / Low" :
+  i === 91 ? "RK" :
+  i === 92 ? "RK" :
+  i === 93 ? "RK" :
+  "";
+);
+
+function pr_menu() ( "Default|>CHOW|TC-260|LoFi|Woozy Chorus|Old Tape|<Underbiased|>Sink|Bass Pusher I|Chorus II|Chorus III|Chorus IV|Clean Fat|Fat II|Gritty|Gritty II|LoFi|<Slightly Wobbly|>AEIOU|Disintegrated Memories|Funk That 1987|Hello Hangover|I Have A Radio|<Warehouse 1997|>Carter|>Perc|<Noise After Hit|>Bass|Sub Beef|Warm Tape|808 Comp and Tone|<808 Maker|>Guitar|Phaser Like|Short Plucked|Slower Chorus|Vintage Chorus|<Breaking Up|>High Hats|Hats Shorter|Lofi Vibe|<Old MPC|>Kick|A Little Punch|Broken Kick|In The Cut|LoFi Kick|LoFi Kick Short|<Punch Hi Cut|>Mix|Cassette Like|Super LoFi|<30ips Glue|>Noise|Just Tape Noise|Subtle Tape Noise|Tape Noise Hard Rain|<Tape Noise Rain|>Piano|Almost LoFi Piano|Clean Cassette|<Dirtier Cassette|>Snare|Almost Bitcrushed|Cut The Lows|LoFi Vibe|Shorter LoFi|<Shorter Snare|Bad Tape Good Player|Cozy Unstable|Fast Wobble|Found Tape Player|Good Tape Bad Player|INIT|Just Warmth|Low Cut High Cut|Old Telephone|Punchy Lofi Drums|That Dirty LoFi|<Underwater|>Cool WAV|Chew Loss|Drift with Me|Goodbye Highs|Heavy Drumloop|Studio Time|Tape Wide|Thats Cool|Vibe Drive|Wack|<Wow Dude|>RK|>High|Crane I|Crane II|Flavor I|High Sauce I|High Sauce II|Spice I|<Spice II|>Low|Flavor II|Flow I|Flow II|Low Grinder|Low Rider|Low Smasher|<String Mojo|Bleak|Solid Tape I|<Solid Tape II"; );
+
+PR_COUNT = 94;
+pr_row(0); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(1); PRT[0] = 0; PRT[1] = -2; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.6599999666213989; PRT[17] = 0.75; PRT[18] = 0.3599999845027924; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.2769171842373908; PRT[25] = 4.748197738081217; PRT[26] = 1.6; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.199999988079071; PRT[30] = 0.199999988079071; PRT[31] = 0.2; PRT[32] = 0.2; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(2); PRT[0] = 0; PRT[1] = -3.5; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 1; PRT[17] = 1; PRT[18] = 0.5999999642372131; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.500000476837158; PRT[24] = 2.999998396262527; PRT[25] = 4.999995231628418; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(3); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.4399999976158142; PRT[30] = 0.7999999523162842; PRT[31] = 0.5; PRT[32] = 0.8; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.25; PRT[43] = 0.5999999642372131; PRT[44] = 0.3; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(4); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.199999988079071; PRT[38] = 0.1499999910593033; PRT[39] = 0.25; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(5); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.25; PRT[17] = 0.699999988079071; PRT[18] = 0.04999999701976776; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(6); PRT[0] = 2; PRT[1] = -2; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.5; PRT[9] = -0.1500000357627869; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.75; PRT[17] = 0.75; PRT[18] = 0.5999999642372131; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.750000476837158; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.1499999910593033; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(7); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.2100000381469727; PRT[9] = -0.14000004529953; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.500000476837158; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.3199999928474426; PRT[30] = 0.7999999523162842; PRT[31] = 0.2599999904632568; PRT[32] = 0.7999999523162842; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.25; PRT[43] = 0.5999999642372131; PRT[44] = 0.2999999821186066; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(8); PRT[0] = 0; PRT[1] = 2; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.06999999284744263; PRT[9] = 0.2200000286102295; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.500000476837158; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0; PRT[30] = 0.2800000011920929; PRT[31] = 0.1799999922513962; PRT[32] = 0.7999999523162842; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.25; PRT[43] = 0.5999999642372131; PRT[44] = 0.2999999821186066; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(9); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.06999999284744263; PRT[9] = 0.2200000286102295; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 1; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.750000476837158; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.07000000029802322; PRT[30] = 0.7999999523162842; PRT[31] = 0.05999999865889549; PRT[32] = 1; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.25; PRT[43] = 0.5999999642372131; PRT[44] = 0.2999999821186066; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(10); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.5; PRT[9] = -0.5; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.6499999761581421; PRT[17] = 0.6499999761581421; PRT[18] = 0.75; PRT[19] = 3; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 29.99999618530273; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(11); PRT[0] = 0; PRT[1] = -3; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.300000011920929; PRT[9] = -0.300000011920929; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.75; PRT[17] = 0.6499999761581421; PRT[18] = 0.75; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.500000476837158; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(12); PRT[0] = 2; PRT[1] = -2; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.1499999761581421; PRT[9] = 0.2999999523162842; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 1; PRT[17] = 0.5; PRT[18] = 0.6499999761581421; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.499999761581421; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.1499999910593033; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(13); PRT[0] = 2; PRT[1] = -2; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.25; PRT[9] = 0.25; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 1; PRT[17] = 0.5999999642372131; PRT[18] = 0.3499999940395355; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.499999761581421; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.1499999910593033; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(14); PRT[0] = 1; PRT[1] = -1.5; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.25; PRT[9] = -0.1000000238418579; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 1; PRT[17] = 0.6499999761581421; PRT[18] = 0.449999988079071; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 1.75; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.1499999910593033; PRT[31] = 0.1499999910593033; PRT[32] = 0.25; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0.1499999910593033; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0.3999999761581421; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(15); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.14000004529953; PRT[9] = 0.2200000286102295; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5399999618530273; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2599999904632568; PRT[30] = 0.6599999666213989; PRT[31] = 0.2099999934434891; PRT[32] = 0.6100000143051147; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0.2099999934434891; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.04999999701976776; PRT[43] = 0.07000000029802322; PRT[44] = 0.199999988079071; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(16); PRT[0] = 2; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 40; PRT[5] = 7999.99853515625; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.2000000476837158; PRT[9] = 0.7999999523162842; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.3999999761581421; PRT[17] = 0.7999999523162842; PRT[18] = 0.199999988079071; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 10; PRT[25] = 19.99999809265137; PRT[26] = 29.99999809265137; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.5; PRT[30] = 0.7999999523162842; PRT[31] = 0.3999999761581421; PRT[32] = 0.5999999642372131; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.3999999761581421; PRT[38] = 0.7999999523162842; PRT[39] = 0.7999999523162842; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.7999999523162842; PRT[43] = 0.09999999403953552; PRT[44] = 0.5999999642372131; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(17); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 12000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.6000000238418579; PRT[9] = -0.4000000357627869; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5999999642372131; PRT[17] = 0.5999999642372131; PRT[18] = 0.2999999821186066; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 10; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.199999988079071; PRT[30] = 0.199999988079071; PRT[31] = 0.199999988079071; PRT[32] = 0.199999988079071; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.09999999403953552; PRT[38] = 0.09999999403953552; PRT[39] = 0.04999999701976776; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.009999999776482582; PRT[43] = 0.009999999776482582; PRT[44] = 1; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(18); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 30; PRT[5] = 16000.0009765625; PRT[6] = 0; PRT[7] = 0; PRT[8] = -0.6000000238418579; PRT[9] = -0.4000000357627869; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 4; PRT[13] = 10.00000095367432; PRT[14] = 200.0000152587891; PRT[15] = 0; PRT[16] = 0.5999999642372131; PRT[17] = 0.5999999642372131; PRT[18] = 0.2999999821186066; PRT[19] = 4; PRT[20] = 1; PRT[21] = 0; PRT[22] = 0; PRT[23] = 3.750000476837158; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 4.000000476837158; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0; PRT[30] = 0; PRT[31] = 0.5099999904632568; PRT[32] = 1; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0.199999988079071; PRT[38] = 0.199999988079071; PRT[39] = 0.01999999955296516; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.01999999955296516; PRT[43] = 0.01999999955296516; PRT[44] = 1; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(19); PRT[0] = 0; PRT[1] = 4; PRT[2] = 1; PRT[3] = 1; PRT[4] = 400.0000305175781; PRT[5] = 6000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.800000011920929; PRT[9] = -0.800000011920929; PRT[10] = 200.1186676025391; PRT[11] = 0; PRT[12] = 2.516403675079346; PRT[13] = 0.9999998211860657; PRT[14] = 99.99999237060547; PRT[15] = 0; PRT[16] = 0.5999999642372131; PRT[17] = 0.5999999642372131; PRT[18] = 0.2999999821186066; PRT[19] = 4; PRT[20] = 1; PRT[21] = 0; PRT[22] = 0; PRT[23] = 15.00000095367432; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 10; PRT[27] = 10; PRT[28] = 0; PRT[29] = 0.2999999821186066; PRT[30] = 0.199999988079071; PRT[31] = 0.4199999868869781; PRT[32] = 0.199999988079071; PRT[33] = 1; PRT[34] = 1; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.09999999403953552; PRT[38] = 0; PRT[39] = 0.04999999701976776; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.04999999701976776; PRT[43] = 0.7999999523162842; PRT[44] = 0.7999999523162842; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(20); PRT[0] = -2; PRT[1] = -2; PRT[2] = 1; PRT[3] = 1; PRT[4] = 30; PRT[5] = 16000.0009765625; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.6000000238418579; PRT[9] = -0.4000000357627869; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 4; PRT[13] = 10.00000095367432; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.5999999642372131; PRT[17] = 0.5999999642372131; PRT[18] = 0.2999999821186066; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.750000476837158; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 4.000000476837158; PRT[27] = 10; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.199999988079071; PRT[31] = 0.4199999868869781; PRT[32] = 0.199999988079071; PRT[33] = 1; PRT[34] = 1; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.199999988079071; PRT[38] = 0.199999988079071; PRT[39] = 0.01999999955296516; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.01999999955296516; PRT[43] = 0.01999999955296516; PRT[44] = 1; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(21); PRT[0] = 2.299999237060547; PRT[1] = 5.130001068115234; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.199999988079071; PRT[38] = 0.6499999761581421; PRT[39] = 0.04999999701976776; PRT[40] = 0.3499999940395355; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(22); PRT[0] = 0; PRT[1] = -3.980001449584961; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.9399999976158142; PRT[17] = 0.7299999594688416; PRT[18] = 0.3999999761581421; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.04999999701976776; PRT[30] = 0.1400000005960464; PRT[31] = 0.04999999701976776; PRT[32] = 0.2199999988079071; PRT[33] = 0.07000000029802322; PRT[34] = 0.05999999865889549; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.07000000029802322; PRT[38] = 0.25; PRT[39] = 0; PRT[40] = 0.6899999976158142; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(23); PRT[0] = 0; PRT[1] = -2.120000839233398; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.1999999284744263; PRT[9] = 0.3600000143051147; PRT[10] = 100; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.6299999952316284; PRT[17] = 0.8499999642372131; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 0.6013616323471069; PRT[25] = 0.2785637676715851; PRT[26] = 1.009063720703125; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.009999999776482582; PRT[30] = 0.01999999955296516; PRT[31] = 0.009999999776482582; PRT[32] = 0.04999999701976776; PRT[33] = 0.05999999865889549; PRT[34] = 0.04999999701976776; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.2099999934434891; PRT[38] = 0.03999999910593033; PRT[39] = 0.009999999776482582; PRT[40] = 0.08999999612569809; PRT[41] = 1; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(24); PRT[0] = 1.329999923706055; PRT[1] = -3.220001220703125; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 1; PRT[9] = 0; PRT[10] = 246.0555572509766; PRT[11] = 1; PRT[12] = 0.3373706936836243; PRT[13] = 1.199797511100769; PRT[14] = 122.3164978027344; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.9199999570846558; PRT[18] = 1; PRT[19] = 3; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 2.059294462203979; PRT[25] = 1.128408312797546; PRT[26] = 3.485648393630981; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.5; PRT[30] = 0.2199999988079071; PRT[31] = 0.09999999403953552; PRT[32] = 0.119999997317791; PRT[33] = 0.2099999934434891; PRT[34] = 0.04999999701976776; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.04999999701976776; PRT[39] = 0.04999999701976776; PRT[40] = 0.3599999845027924; PRT[41] = 1; PRT[42] = 0.01999999955296516; PRT[43] = 0.02999999932944775; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(25); PRT[0] = 1.329999923706055; PRT[1] = -3.220001220703125; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 1; PRT[9] = 0; PRT[10] = 246.0555572509766; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.9199999570846558; PRT[18] = 1; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 2.059294462203979; PRT[25] = 1.128408312797546; PRT[26] = 6.921559810638428; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.5; PRT[30] = 0.2699999809265137; PRT[31] = 0.09999999403953552; PRT[32] = 0.119999997317791; PRT[33] = 0.2099999934434891; PRT[34] = 0.04999999701976776; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.04999999701976776; PRT[39] = 0.04999999701976776; PRT[40] = 0.3599999845027924; PRT[41] = 1; PRT[42] = 0.04999999701976776; PRT[43] = 0.04999999701976776; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(26); PRT[0] = 0; PRT[1] = 1.979999542236328; PRT[2] = 1; PRT[3] = 1; PRT[4] = 27.30974006652832; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.2099999189376831; PRT[9] = -0.02000004053115845; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5999999642372131; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.199999928474426; PRT[25] = 1.199999809265137; PRT[26] = 1.200000047683716; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.09999999403953552; PRT[30] = 1; PRT[31] = 0.1799999922513962; PRT[32] = 0.1499999910593033; PRT[33] = 0.09999999403953552; PRT[34] = 0.5; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.199999988079071; PRT[38] = 0.09999999403953552; PRT[39] = 0.04999999701976776; PRT[40] = 0.04999999701976776; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(27); PRT[0] = 0; PRT[1] = 1.94999885559082; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 1; PRT[10] = 585.7569580078125; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5600000023841858; PRT[18] = 0.85; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.614563465118408; PRT[25] = 0.6129428744316101; PRT[26] = 1.035101056098938; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.199999988079071; PRT[31] = 0.5; PRT[32] = 0.1599999964237213; PRT[33] = 0.1099999994039536; PRT[34] = 0.09999999403953552; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.07999999821186066; PRT[38] = 0.1099999994039536; PRT[39] = 0.05999999865889549; PRT[40] = 0.119999997317791; PRT[41] = 1; PRT[42] = 0.02999999932944775; PRT[43] = 0.01999999955296516; PRT[44] = 0.04999999701976776; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(28); PRT[0] = 0; PRT[1] = 1.979999542236328; PRT[2] = 1; PRT[3] = 1; PRT[4] = 27.30974006652832; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5999999642372131; PRT[18] = 0.75; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.199999928474426; PRT[25] = 1.199999809265137; PRT[26] = 1.200000047683716; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.5; PRT[31] = 0.09999999403953552; PRT[32] = 0.1099999994039536; PRT[33] = 0.09999999403953552; PRT[34] = 0.5; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.04999999701976776; PRT[39] = 0.04999999701976776; PRT[40] = 0.04999999701976776; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(29); PRT[0] = 0; PRT[1] = 1.979999542236328; PRT[2] = 1; PRT[3] = 1; PRT[4] = 27.30974006652832; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5999999642372131; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.199999928474426; PRT[25] = 1.199999809265137; PRT[26] = 1.200000047683716; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.5; PRT[30] = 0.5; PRT[31] = 0.09999999403953552; PRT[32] = 0.1099999994039536; PRT[33] = 0.09999999403953552; PRT[34] = 0.5; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.04999999701976776; PRT[39] = 0.04999999701976776; PRT[40] = 0.04999999701976776; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(30); PRT[0] = -1.180000305175781; PRT[1] = 1.979999542236328; PRT[2] = 1; PRT[3] = 1; PRT[4] = 32.20282745361328; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 2.130356788635254; PRT[13] = 17.86239624023438; PRT[14] = 23.25132751464844; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5999999642372131; PRT[18] = 0.75; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.199999928474426; PRT[25] = 1.199999809265137; PRT[26] = 1.200000047683716; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.239999994635582; PRT[30] = 0.449999988079071; PRT[31] = 0.699999988079071; PRT[32] = 0.09999999403953552; PRT[33] = 0.3700000047683716; PRT[34] = 0.5; PRT[35] = 1; PRT[36] = 1; PRT[37] = 1; PRT[38] = 0.7099999785423279; PRT[39] = 0.2199999988079071; PRT[40] = 0.08999999612569809; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(31); PRT[0] = 0; PRT[1] = -15; PRT[2] = 1; PRT[3] = 1; PRT[4] = 38.51891326904297; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.3999999761581421; PRT[10] = 1215.144287109375; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.8999999761581421; PRT[17] = 0.699999988079071; PRT[18] = 0.1499999910593033; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 1.226983547210693; PRT[25] = 0.4140152931213379; PRT[26] = 1.138202428817749; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.04999999701976776; PRT[30] = 0.199999988079071; PRT[31] = 0.02999999932944775; PRT[32] = 0.25; PRT[33] = 0.2699999809265137; PRT[34] = 0; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.09999999403953552; PRT[38] = 0.09999999403953552; PRT[39] = 0.07999999821186066; PRT[40] = 0.04999999701976776; PRT[41] = 0; PRT[42] = 0.04999999701976776; PRT[43] = 0.04999999701976776; PRT[44] = 0.02999999932944775; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(32); PRT[0] = 0; PRT[1] = 5.069999694824219; PRT[2] = 1; PRT[3] = 1; PRT[4] = 63.28388214111328; PRT[5] = 2947.314208984375; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.2200000286102295; PRT[10] = 1140.524658203125; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.550000011920929; PRT[17] = 0.5999999642372131; PRT[18] = 1; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 50; PRT[24] = 2.269278526306152; PRT[25] = 0.4984611570835114; PRT[26] = 1.024084687232971; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0; PRT[30] = 0.199999988079071; PRT[31] = 0.04999999701976776; PRT[32] = 0.2199999988079071; PRT[33] = 0.2699999809265137; PRT[34] = 0.09999999403953552; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.09999999403953552; PRT[38] = 0.09999999403953552; PRT[39] = 0.07999999821186066; PRT[40] = 0.04999999701976776; PRT[41] = 0; PRT[42] = 0.02999999932944775; PRT[43] = 0.02999999932944775; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(33); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 12048.763671875; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.550000011920929; PRT[17] = 0.5999999642372131; PRT[18] = 1; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 2.269278526306152; PRT[25] = 0.4984611570835114; PRT[26] = 1.024084687232971; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0; PRT[30] = 0.199999988079071; PRT[31] = 0.02999999932944775; PRT[32] = 0.25; PRT[33] = 0.2699999809265137; PRT[34] = 0; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.09999999403953552; PRT[38] = 0.09999999403953552; PRT[39] = 0.07999999821186066; PRT[40] = 0.04999999701976776; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(34); PRT[0] = 0; PRT[1] = -1.030000686645508; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.699999988079071; PRT[17] = 0.6499999761581421; PRT[18] = 0.3999999761581421; PRT[19] = 3; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.59982430934906; PRT[25] = 0.2335111200809479; PRT[26] = 1.042783617973328; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.1499999910593033; PRT[30] = 0.07999999821186066; PRT[31] = 0.08999999612569809; PRT[32] = 0.04999999701976776; PRT[33] = 0.04999999701976776; PRT[34] = 0.07000000029802322; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.04999999701976776; PRT[39] = 0.02999999932944775; PRT[40] = 0.03999999910593033; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(35); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 45; PRT[5] = 2000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 1; PRT[9] = 0.6999999284744263; PRT[10] = 207.9375305175781; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5899999737739563; PRT[17] = 1; PRT[18] = 1; PRT[19] = 3; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 1.951726317405701; PRT[25] = 5.805874824523926; PRT[26] = 2.211634397506714; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.04999999701976776; PRT[31] = 0.25; PRT[32] = 0.119999997317791; PRT[33] = 0.03999999910593033; PRT[34] = 0.04999999701976776; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.09999999403953552; PRT[38] = 0.01999999955296516; PRT[39] = 0.07000000029802322; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.04999999701976776; PRT[43] = 0.07999999821186066; PRT[44] = 0.07999999821186066; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(36); PRT[0] = 0; PRT[1] = -5.920000076293945; PRT[2] = 1; PRT[3] = 1; PRT[4] = 130; PRT[5] = 3600; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.5799999237060547; PRT[10] = 131.7271728515625; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0; PRT[18] = 0.5; PRT[19] = 5; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 3.040738582611084; PRT[25] = 0.7957120537757874; PRT[26] = 1.219319224357605; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.1599999964237213; PRT[31] = 0.25; PRT[32] = 0.1099999994039536; PRT[33] = 0.5; PRT[34] = 0.1400000005960464; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.05999999865889549; PRT[39] = 0.03999999910593033; PRT[40] = 0.03999999910593033; PRT[41] = 1; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(37); PRT[0] = 0; PRT[1] = -4; PRT[2] = 1; PRT[3] = 1; PRT[4] = 35.99082946777344; PRT[5] = 2000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.1299999952316284; PRT[9] = 0; PRT[10] = 260.0921020507812; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.6599999666213989; PRT[17] = 1; PRT[18] = 1; PRT[19] = 3; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.59982430934906; PRT[25] = 0.2335111200809479; PRT[26] = 1.042783617973328; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.09999999403953552; PRT[30] = 0.199999988079071; PRT[31] = 0.05999999865889549; PRT[32] = 0.1299999952316284; PRT[33] = 0.04999999701976776; PRT[34] = 0.07000000029802322; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.5; PRT[39] = 0.1499999910593033; PRT[40] = 0.07999999821186066; PRT[41] = 0; PRT[42] = 0.04999999701976776; PRT[43] = 0.04999999701976776; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(38); PRT[0] = 0; PRT[1] = -4; PRT[2] = 1; PRT[3] = 1; PRT[4] = 35.99082946777344; PRT[5] = 2000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.1299999952316284; PRT[9] = 0; PRT[10] = 260.0921020507812; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.6599999666213989; PRT[17] = 1; PRT[18] = 0.1499999910593033; PRT[19] = 3; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.59982430934906; PRT[25] = 0.2335111200809479; PRT[26] = 1.042783617973328; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.09999999403953552; PRT[30] = 0.199999988079071; PRT[31] = 0.05999999865889549; PRT[32] = 0.1299999952316284; PRT[33] = 0.04999999701976776; PRT[34] = 0.07000000029802322; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.5; PRT[39] = 0.1499999910593033; PRT[40] = 0.07999999821186066; PRT[41] = 1; PRT[42] = 0.04999999701976776; PRT[43] = 0.04999999701976776; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(39); PRT[0] = 0; PRT[1] = -1.030000686645508; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 5032.67578125; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.699999988079071; PRT[17] = 0.6499999761581421; PRT[18] = 0.3999999761581421; PRT[19] = 3; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.59982430934906; PRT[25] = 0.2335111200809479; PRT[26] = 1.042783617973328; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.1499999910593033; PRT[30] = 0.07999999821186066; PRT[31] = 0.08999999612569809; PRT[32] = 0.04999999701976776; PRT[33] = 0.04999999701976776; PRT[34] = 0.07000000029802322; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.04999999701976776; PRT[39] = 0.02999999932944775; PRT[40] = 0.03999999910593033; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(40); PRT[0] = 0; PRT[1] = 1; PRT[2] = 1; PRT[3] = 1; PRT[4] = 25; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.1000000238418579; PRT[9] = 0; PRT[10] = 319.9999694824219; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5999999642372131; PRT[18] = 0.3999999761581421; PRT[19] = 1; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 1.779999971389771; PRT[24] = 0.199999988079071; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.09999999403953552; PRT[30] = 0.5; PRT[31] = 0.25; PRT[32] = 0.2999999821186066; PRT[33] = 0.09999999403953552; PRT[34] = 0.2999999821186066; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.199999988079071; PRT[38] = 0.01999999955296516; PRT[39] = 0.01999999955296516; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.01999999955296516; PRT[43] = 0.01999999955296516; PRT[44] = 0.04999999701976776; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(41); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 30.82625961303711; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 4.224046230316162; PRT[13] = 25.03439140319824; PRT[14] = 33.29192352294922; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 3; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 5.901302337646484; PRT[25] = 4.027074813842773; PRT[26] = 1.116150140762329; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.1499999910593033; PRT[30] = 0.3999999761581421; PRT[31] = 0.5999999642372131; PRT[32] = 0.25; PRT[33] = 0.04999999701976776; PRT[34] = 0.03999999910593033; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.09999999403953552; PRT[38] = 0.04999999701976776; PRT[39] = 0.1499999910593033; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.01999999955296516; PRT[43] = 0.04999999701976776; PRT[44] = 1; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(42); PRT[0] = -2; PRT[1] = 3; PRT[2] = 1; PRT[3] = 0; PRT[4] = 23; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 0.5000001192092896; PRT[13] = 29.99999618530273; PRT[14] = 42; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.449999988079071; PRT[18] = 0.5; PRT[19] = 1; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.199999988079071; PRT[30] = 0.04999999701976776; PRT[31] = 0.199999988079071; PRT[32] = 0.04999999701976776; PRT[33] = 0; PRT[34] = 0.009999999776482582; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(43); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 50; PRT[24] = 10.66342353820801; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.04999999701976776; PRT[38] = 0.04999999701976776; PRT[39] = 0.01999999955296516; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.02999999932944775; PRT[43] = 0.03999999910593033; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(44); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 10.66342353820801; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.199999988079071; PRT[38] = 0.04999999701976776; PRT[39] = 0; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.02999999932944775; PRT[43] = 0.03999999910593033; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(45); PRT[0] = 0; PRT[1] = -2.400001525878906; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 2000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.3600000143051147; PRT[9] = -0.3600000143051147; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 1; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.5899999737739563; PRT[38] = 0.8499999642372131; PRT[39] = 0.2199999988079071; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(46); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.750000476837158; PRT[24] = 10.66342353820801; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.1400000005960464; PRT[38] = 0.25; PRT[39] = 0.08999999612569809; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.04999999701976776; PRT[43] = 0.07000000029802322; PRT[44] = 0.08999999612569809; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(47); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.25; PRT[9] = -0.1100000143051147; PRT[10] = 588.5361328125; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5799999833106995; PRT[17] = 0.6200000047683716; PRT[18] = 0.8799999952316284; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 1.031176567077637; PRT[25] = 0.3239526748657227; PRT[26] = 1.105759501457214; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.1799999922513962; PRT[30] = 0.199999988079071; PRT[31] = 0.25; PRT[32] = 0.2699999809265137; PRT[33] = 0.07999999821186066; PRT[34] = 0.1899999976158142; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.3400000035762787; PRT[38] = 0.01999999955296516; PRT[39] = 0.02999999932944775; PRT[40] = 0.02999999932944775; PRT[41] = 1; PRT[42] = 0.009999999776482582; PRT[43] = 0.009999999776482582; PRT[44] = 0.009999999776482582; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(48); PRT[0] = 0; PRT[1] = 3.110000610351562; PRT[2] = 1; PRT[3] = 1; PRT[4] = 99.9558334350586; PRT[5] = 12070.431640625; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.1200000047683716; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 1.271115064620972; PRT[25] = 0.2145853340625763; PRT[26] = 1.00896430015564; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.1299999952316284; PRT[31] = 0.4399999976158142; PRT[32] = 0.119999997317791; PRT[33] = 0.09999999403953552; PRT[34] = 0.04999999701976776; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.03999999910593033; PRT[38] = 0.07000000029802322; PRT[39] = 0.04999999701976776; PRT[40] = 0.05999999865889549; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(49); PRT[0] = 0; PRT[1] = 3.110000610351562; PRT[2] = 1; PRT[3] = 1; PRT[4] = 99.9558334350586; PRT[5] = 12070.431640625; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.1200000047683716; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 5.277358055114746; PRT[25] = 1.860669374465942; PRT[26] = 2.975265026092529; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.1299999952316284; PRT[31] = 0.4399999976158142; PRT[32] = 0.119999997317791; PRT[33] = 0.09999999403953552; PRT[34] = 0.04999999701976776; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.3499999940395355; PRT[39] = 0.04999999701976776; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(50); PRT[0] = 0; PRT[1] = 2.149997711181641; PRT[2] = 1; PRT[3] = 1; PRT[4] = 140.2254943847656; PRT[5] = 11837.951171875; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.4000000357627869; PRT[9] = 0.3999999761581421; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5999999642372131; PRT[17] = 0.2999999821186066; PRT[18] = 0; PRT[19] = 1; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 1.776762366294861; PRT[25] = 0.7504541277885437; PRT[26] = 1.116096138954163; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.04999999701976776; PRT[30] = 0.199999988079071; PRT[31] = 0.199999988079071; PRT[32] = 0.199999988079071; PRT[33] = 0.1499999910593033; PRT[34] = 0.3499999940395355; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.1099999994039536; PRT[39] = 0.07999999821186066; PRT[40] = 0.1799999922513962; PRT[41] = 1; PRT[42] = 0.07999999821186066; PRT[43] = 0.04999999701976776; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(51); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 620.4189453125; PRT[5] = 15807.4091796875; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.6499999761581421; PRT[9] = 0.2999999523162842; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5999999642372131; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.750000476837158; PRT[24] = 1.900067329406738; PRT[25] = 1.269658207893372; PRT[26] = 1.144164085388184; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2199999988079071; PRT[30] = 0.199999988079071; PRT[31] = 0.25; PRT[32] = 0.199999988079071; PRT[33] = 0.09999999403953552; PRT[34] = 0.09999999403953552; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.09999999403953552; PRT[38] = 0.1099999994039536; PRT[39] = 0.1099999994039536; PRT[40] = 0.04999999701976776; PRT[41] = 1; PRT[42] = 0.01999999955296516; PRT[43] = 0.04999999701976776; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(52); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 140.2254943847656; PRT[5] = 11837.951171875; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.6499999761581421; PRT[9] = 0.2999999523162842; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5999999642372131; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.750000476837158; PRT[24] = 1.900067329406738; PRT[25] = 1.269658207893372; PRT[26] = 1.144164085388184; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2199999988079071; PRT[30] = 0.199999988079071; PRT[31] = 0.25; PRT[32] = 0.199999988079071; PRT[33] = 0.09999999403953552; PRT[34] = 0.09999999403953552; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.1099999994039536; PRT[39] = 0.1099999994039536; PRT[40] = 0.04999999701976776; PRT[41] = 1; PRT[42] = 0.01999999955296516; PRT[43] = 0.04999999701976776; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(53); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 140.2254943847656; PRT[5] = 2999.3505859375; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.4000000357627869; PRT[9] = 0.3999999761581421; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5999999642372131; PRT[17] = 0.5999999642372131; PRT[18] = 0.119999997317791; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 1.900067329406738; PRT[25] = 1.269658207893372; PRT[26] = 1.144164085388184; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.04999999701976776; PRT[30] = 0.199999988079071; PRT[31] = 0.07000000029802322; PRT[32] = 0.199999988079071; PRT[33] = 0.1499999910593033; PRT[34] = 0.3499999940395355; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.1099999994039536; PRT[39] = 0.07999999821186066; PRT[40] = 0.1799999922513962; PRT[41] = 0; PRT[42] = 0.07999999821186066; PRT[43] = 0.04999999701976776; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(54); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 140.2254943847656; PRT[5] = 11837.951171875; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.4000000357627869; PRT[9] = 0.3999999761581421; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5999999642372131; PRT[17] = 0.5999999642372131; PRT[18] = 0.04999999701976776; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 1.900067329406738; PRT[25] = 1.269658207893372; PRT[26] = 1.144164085388184; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.04999999701976776; PRT[30] = 0.199999988079071; PRT[31] = 0.07000000029802322; PRT[32] = 0.199999988079071; PRT[33] = 0.1499999910593033; PRT[34] = 0.3499999940395355; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.1099999994039536; PRT[39] = 0.07999999821186066; PRT[40] = 0.1799999922513962; PRT[41] = 0; PRT[42] = 0.07999999821186066; PRT[43] = 0.04999999701976776; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(55); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 25.79570007324219; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.6599999666213989; PRT[10] = 1094.92041015625; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.699999988079071; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 50; PRT[24] = 12.04993343353271; PRT[25] = 3.139517545700073; PRT[26] = 2.953712224960327; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.04999999701976776; PRT[31] = 0.2999999821186066; PRT[32] = 0.04999999701976776; PRT[33] = 0.04999999701976776; PRT[34] = 0.04999999701976776; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.5799999833106995; PRT[38] = 0.1899999976158142; PRT[39] = 0.1499999910593033; PRT[40] = 0.04999999701976776; PRT[41] = 1; PRT[42] = 0.02999999932944775; PRT[43] = 0.1099999994039536; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(56); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.3899999856948853; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 4.924258232116699; PRT[25] = 0.7714378833770752; PRT[26] = 1.048859715461731; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.3599999845027924; PRT[30] = 0.2999999821186066; PRT[31] = 0.3999999761581421; PRT[32] = 0.2999999821186066; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.08999999612569809; PRT[38] = 0.1499999910593033; PRT[39] = 0; PRT[40] = 0.04999999701976776; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(57); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 27.30974006652832; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5199999809265137; PRT[17] = 0.5; PRT[18] = 0.5999999642372131; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.199999928474426; PRT[25] = 1.199999809265137; PRT[26] = 1.200000047683716; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.199999988079071; PRT[30] = 0.4899999797344208; PRT[31] = 1; PRT[32] = 0.199999988079071; PRT[33] = 0.09999999403953552; PRT[34] = 0.5; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.04999999701976776; PRT[38] = 0.04999999701976776; PRT[39] = 0.04999999701976776; PRT[40] = 0.04999999701976776; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(58); PRT[0] = 0; PRT[1] = -2; PRT[2] = 1; PRT[3] = 1; PRT[4] = 50.0000114440918; PRT[5] = 5027.45751953125; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 0.9999999403953552; PRT[13] = 21.00345993041992; PRT[14] = 49.99999618530273; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.75; PRT[19] = 5; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 3.999999761581421; PRT[25] = 1.499999761581421; PRT[26] = 1.100000023841858; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.5; PRT[30] = 0.199999988079071; PRT[31] = 0.1099999994039536; PRT[32] = 0.5; PRT[33] = 0.09999999403953552; PRT[34] = 0.199999988079071; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.09999999403953552; PRT[38] = 0.199999988079071; PRT[39] = 0.04999999701976776; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.09999999403953552; PRT[43] = 0.5; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(59); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 25.79570007324219; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.6599999666213989; PRT[10] = 1094.92041015625; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5999999642372131; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 50; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.6599999666213989; PRT[30] = 0.1499999910593033; PRT[31] = 0.2999999821186066; PRT[32] = 0.1499999910593033; PRT[33] = 0.03999999910593033; PRT[34] = 0; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.2099999934434891; PRT[38] = 0.01999999955296516; PRT[39] = 0.03999999910593033; PRT[40] = 0.04999999701976776; PRT[41] = 1; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(60); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(61); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.3999999761581421; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.750000476837158; PRT[24] = 1.955416440963745; PRT[25] = 0.6927272081375122; PRT[26] = 1.035636186599731; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(62); PRT[0] = 0; PRT[1] = 3.450000762939453; PRT[2] = 1; PRT[3] = 1; PRT[4] = 213.8536987304688; PRT[5] = 2000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(63); PRT[0] = 0; PRT[1] = 7.069999694824219; PRT[2] = 1; PRT[3] = 1; PRT[4] = 349.1326599121094; PRT[5] = 2000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.25; PRT[9] = -0.1100000143051147; PRT[10] = 588.5361328125; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5799999833106995; PRT[17] = 0.6200000047683716; PRT[18] = 0.8799999952316284; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 1.031176090240479; PRT[25] = 0.3239526748657227; PRT[26] = 1.105759501457214; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.1799999922513962; PRT[30] = 0.199999988079071; PRT[31] = 0.25; PRT[32] = 0.2699999809265137; PRT[33] = 0.07999999821186066; PRT[34] = 0.1899999976158142; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.3400000035762787; PRT[38] = 0.1700000017881393; PRT[39] = 0.02999999932944775; PRT[40] = 0.1499999910593033; PRT[41] = 1; PRT[42] = 0.009999999776482582; PRT[43] = 0.009999999776482582; PRT[44] = 0.009999999776482582; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(64); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 24.49902153015137; PRT[5] = 2000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.3899999856948853; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.7999999523162842; PRT[17] = 0.5999999642372131; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 4.924258232116699; PRT[25] = 0.7714378833770752; PRT[26] = 1.048859715461731; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.3599999845027924; PRT[30] = 0.2999999821186066; PRT[31] = 0.3999999761581421; PRT[32] = 0.2999999821186066; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.08999999612569809; PRT[38] = 0.09999999403953552; PRT[39] = 0; PRT[40] = 0.02999999932944775; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(65); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 2532.06103515625; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = -0.03000003099441528; PRT[10] = 310.1037292480469; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.6599999666213989; PRT[18] = 0.6499999761581421; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 3.750000476837158; PRT[24] = 1.797835111618042; PRT[25] = 1.965399146080017; PRT[26] = 1.226065754890442; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.09999999403953552; PRT[30] = 0.2899999916553497; PRT[31] = 0.199999988079071; PRT[32] = 0.4199999868869781; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.02999999932944775; PRT[38] = 0.1099999994039536; PRT[39] = 0.1299999952316284; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.01999999955296516; PRT[43] = 0.08999999612569809; PRT[44] = 0.119999997317791; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(66); PRT[0] = 0; PRT[1] = 2; PRT[2] = 1; PRT[3] = 1; PRT[4] = 32; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.4000000357627869; PRT[9] = 0; PRT[10] = 207.5911407470703; PRT[11] = 1; PRT[12] = 0.9999999403953552; PRT[13] = 40; PRT[14] = 12; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 1; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 1.99999988079071; PRT[24] = 16.5; PRT[25] = 1.00000011920929; PRT[26] = 5.000000476837158; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.3199999928474426; PRT[30] = 0.3499999940395355; PRT[31] = 0.09999999403953552; PRT[32] = 0.199999988079071; PRT[33] = 0.1599999964237213; PRT[34] = 0.2999999821186066; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(67); PRT[0] = 0; PRT[1] = -0.720001220703125; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -1; PRT[9] = 1; PRT[10] = 500; PRT[11] = 1; PRT[12] = 0.6799780130386353; PRT[13] = 31.67343330383301; PRT[14] = 22.1912727355957; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 3.214591264724731; PRT[25] = 6.840003967285156; PRT[26] = 3.102849960327148; PRT[27] = -1.550003051757812; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.3899999856948853; PRT[38] = 0.3400000035762787; PRT[39] = 0; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.1099999994039536; PRT[43] = 0.85999995470047; PRT[44] = 0.119999997317791; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(68); PRT[0] = 0.8599987030029297; PRT[1] = -0.9600009918212891; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.6799999475479126; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.699999988079071; PRT[17] = 0.6699999570846558; PRT[18] = 0.85; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 50; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.5999999642372131; PRT[30] = 0.1400000005960464; PRT[31] = 0.3799999952316284; PRT[32] = 0.1599999964237213; PRT[33] = 0.25; PRT[34] = 1; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(69); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 111.8036193847656; PRT[5] = 3003.734375; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 500; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 5.949470996856689; PRT[25] = 11.44243907928467; PRT[26] = 3.369254112243652; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.01999999955296516; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(70); PRT[0] = 6; PRT[1] = -5.520000457763672; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.1200000047683716; PRT[10] = 4000; PRT[11] = 1; PRT[12] = 9; PRT[13] = 22.23759460449219; PRT[14] = 57.85082626342773; PRT[15] = 1; PRT[16] = 1; PRT[17] = 1; PRT[18] = 1; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.119999997317791; PRT[38] = 0.4399999976158142; PRT[39] = 0; PRT[40] = 0; PRT[41] = 1; PRT[42] = 1; PRT[43] = 0; PRT[44] = 1; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(71); PRT[0] = 2.159999847412109; PRT[1] = -3.600000381469727; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 3.11491584777832; PRT[13] = 20.80151748657227; PRT[14] = 29.33310699462891; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 1; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.175053000450134; PRT[25] = 0.2932625412940979; PRT[26] = 5.184079170227051; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.07999999821186066; PRT[32] = 0.5399999618530273; PRT[33] = 0; PRT[34] = 0.5399999618530273; PRT[35] = 1; PRT[36] = 1; PRT[37] = 1; PRT[38] = 0.07999999821186066; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(72); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 1; PRT[18] = 0.5; PRT[19] = 2; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 1.581622362136841; PRT[25] = 1.288041114807129; PRT[26] = 1; PRT[27] = 75; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0.03999999910593033; PRT[39] = 0; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.1099999994039536; PRT[43] = 0.5999999642372131; PRT[44] = 0.08999999612569809; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(73); PRT[0] = 6; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.06999993324279785; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.5199999809265137; PRT[17] = 0.8799999952316284; PRT[18] = 0.5; PRT[19] = 3; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.5; PRT[24] = 0.5002813935279846; PRT[25] = 1.16886031627655; PRT[26] = 1.041112780570984; PRT[27] = 75; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.4199999868869781; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 1; PRT[36] = 0; PRT[37] = 0.2800000011920929; PRT[38] = 0.1099999994039536; PRT[39] = 0; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.07000000029802322; PRT[43] = 0.02999999932944775; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(74); PRT[0] = 1; PRT[1] = -1.239999771118164; PRT[2] = 1; PRT[3] = 1; PRT[4] = 36.01041412353516; PRT[5] = 17783.1015625; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.1399999856948853; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 0.4356507956981659; PRT[13] = 23.12575340270996; PRT[14] = 13.55984497070312; PRT[15] = 1; PRT[16] = 0.5799999833106995; PRT[17] = 0.5799999833106995; PRT[18] = 1; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 2.533167362213135; PRT[25] = 0.570967972278595; PRT[26] = 1.259596824645996; PRT[27] = 17.06999969482422; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.1799999922513962; PRT[31] = 0.4199999868869781; PRT[32] = 0.239999994635582; PRT[33] = 0.09999999403953552; PRT[34] = 0.3400000035762787; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(75); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 2000; PRT[5] = 11912.048828125; PRT[6] = 1; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.5299999713897705; PRT[17] = 0.5600000023841858; PRT[18] = 1; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 9.551547050476074; PRT[27] = -53.27999877929688; PRT[28] = 1; PRT[29] = 0.3100000023841858; PRT[30] = 1; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(76); PRT[0] = 0; PRT[1] = -5.760000228881836; PRT[2] = 1; PRT[3] = 1; PRT[4] = 21.9709587097168; PRT[5] = 13732.67578125; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.01999998092651367; PRT[9] = 0.2799999713897705; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 0.6799780130386353; PRT[13] = 10.08780479431152; PRT[14] = 69.92815399169922; PRT[15] = 1; PRT[16] = 1; PRT[17] = 0.699999988079071; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.6499999761581421; PRT[30] = 0; PRT[31] = 0.5399999618530273; PRT[32] = 0.25; PRT[33] = 0.25; PRT[34] = 0.6599999666213989; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(77); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 400.0000305175781; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.09600001573562622; PRT[9] = 0.2000000476837158; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 0.9999999403953552; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.6039999723434448; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 50; PRT[24] = 2; PRT[25] = 4.000000476837158; PRT[26] = 2; PRT[27] = 1; PRT[28] = 0; PRT[29] = 0.300000011920929; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0.1006711423397064; PRT[38] = 0.2013422846794128; PRT[39] = 0.1006711423397064; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.01600001193583012; PRT[43] = 0.2000000029802322; PRT[44] = 0.3041233718395233; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(78); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 300; PRT[5] = 11000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.09600001573562622; PRT[9] = 0.1519999504089355; PRT[10] = 499.9999084472656; PRT[11] = 0; PRT[12] = 0; PRT[13] = 5; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.6039999723434448; PRT[17] = 0.5; PRT[18] = 0.4519999921321869; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 25; PRT[24] = 1.00000011920929; PRT[25] = 4.000000476837158; PRT[26] = 2; PRT[27] = 1; PRT[28] = 0; PRT[29] = 0.300000011920929; PRT[30] = 0.04800000041723251; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0.1006711423397064; PRT[38] = 0.2013422846794128; PRT[39] = 0.1006711423397064; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.01600001193583012; PRT[43] = 0.2000000029802322; PRT[44] = 0.3041233718395233; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(79); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 160.0000610351562; PRT[5] = 12000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.1000000238418579; PRT[9] = 0; PRT[10] = 400; PRT[11] = 1; PRT[12] = 0.1951621472835541; PRT[13] = 7.999999046325684; PRT[14] = 149.9999847412109; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5960000157356262; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 30; PRT[24] = 0.1000000014901161; PRT[25] = 2.000000238418579; PRT[26] = 1; PRT[27] = 0.0500030517578125; PRT[28] = 1; PRT[29] = 0.2505553066730499; PRT[30] = 0.1047622263431549; PRT[31] = 0.2000000029802322; PRT[32] = 0.09882207959890366; PRT[33] = 0.09789931029081345; PRT[34] = 0.05432197451591492; PRT[35] = 0; PRT[36] = 1; PRT[37] = 0.2013422846794128; PRT[38] = 0.02013422735035419; PRT[39] = 0.05369127541780472; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.06000001728534698; PRT[43] = 0.024000009521842; PRT[44] = 0.01600000075995922; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(80); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 1000.000122070312; PRT[5] = 22000; PRT[6] = 1; PRT[7] = 1; PRT[8] = 0.1200000047683716; PRT[9] = 0.2400000095367432; PRT[10] = 1600.000122070312; PRT[11] = 1; PRT[12] = 4.199999809265137; PRT[13] = 0.4000000357627869; PRT[14] = 120.0000228881836; PRT[15] = 1; PRT[16] = 0.8039999604225159; PRT[17] = 0.9639999866485596; PRT[18] = 0.8040000200271606; PRT[19] = 2; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 26; PRT[24] = 0.1000000014901161; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0.01999664306640625; PRT[28] = 0; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(81); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 1000.000122070312; PRT[5] = 22000; PRT[6] = 1; PRT[7] = 1; PRT[8] = 0.1200000047683716; PRT[9] = 0.2400000095367432; PRT[10] = 1600.000122070312; PRT[11] = 1; PRT[12] = 4.199999809265137; PRT[13] = 0.4000000357627869; PRT[14] = 120.0000228881836; PRT[15] = 1; PRT[16] = 0.6039999723434448; PRT[17] = 0.800000011920929; PRT[18] = 0.8040000200271606; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 26; PRT[24] = 0.1000000014901161; PRT[25] = 0.1; PRT[26] = 1; PRT[27] = 0.01999664306640625; PRT[28] = 1; PRT[29] = 0.6160000562667847; PRT[30] = 0.01600000262260437; PRT[31] = 0.2777777910232544; PRT[32] = 0.1222222223877907; PRT[33] = 0.1000000014901161; PRT[34] = 0.4000000059604645; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(82); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.2480000257492065; PRT[9] = 0.2000000476837158; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 3.00407338142395; PRT[13] = 10.00000095367432; PRT[14] = 399.9999389648438; PRT[15] = 1; PRT[16] = 0.4000000059604645; PRT[17] = 0.5784000754356384; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 7.999999523162842; PRT[24] = 1.00000011920929; PRT[25] = 0.2000000178813934; PRT[26] = 2; PRT[27] = -0.4599990844726562; PRT[28] = 1; PRT[29] = 0.402020663022995; PRT[30] = 0.2000000029802322; PRT[31] = 0.2000000029802322; PRT[32] = 0.2000000029802322; PRT[33] = 0.300000011920929; PRT[34] = 0.5; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(83); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.08000004291534424; PRT[9] = 0.06400001049041748; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 0; PRT[13] = 10.00000095367432; PRT[14] = 399.9999389648438; PRT[15] = 1; PRT[16] = 0.4639999866485596; PRT[17] = 0.7559999823570251; PRT[18] = 0.6840000152587891; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 27.99999809265137; PRT[24] = 0.1000000014901161; PRT[25] = 4.000000476837158; PRT[26] = 1; PRT[27] = 0.4000015258789062; PRT[28] = 1; PRT[29] = 0.402020663022995; PRT[30] = 0.2000000029802322; PRT[31] = 0.2000000029802322; PRT[32] = 0.2000000029802322; PRT[33] = 0.300000011920929; PRT[34] = 0.5; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(84); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 40; PRT[5] = 13999.998046875; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.1000000238418579; PRT[9] = 0; PRT[10] = 400; PRT[11] = 1; PRT[12] = 0.1951621472835541; PRT[13] = 7.999999046325684; PRT[14] = 149.9999847412109; PRT[15] = 1; PRT[16] = 0.6000000238418579; PRT[17] = 0.5; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 12.00000095367432; PRT[24] = 6.000000953674316; PRT[25] = 11.99999904632568; PRT[26] = 12.00000095367432; PRT[27] = 0.0500030517578125; PRT[28] = 1; PRT[29] = 0.298555314540863; PRT[30] = 0.1047622263431549; PRT[31] = 0.2000000029802322; PRT[32] = 0.1518398523330688; PRT[33] = 0.09789931029081345; PRT[34] = 0.05432197451591492; PRT[35] = 0; PRT[36] = 1; PRT[37] = 0.2013422846794128; PRT[38] = 0.02013422735035419; PRT[39] = 0.05369127541780472; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0.06000001728534698; PRT[43] = 0.024000009521842; PRT[44] = 0.01600000075995922; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(85); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = -0.09600001573562622; PRT[10] = 499.9999084472656; PRT[11] = 1; PRT[12] = 0.9999999403953552; PRT[13] = 10.00000095367432; PRT[14] = 399.9999389648438; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.2000000029802322; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1000000014901161; PRT[25] = 29.99999809265137; PRT[26] = 10; PRT[27] = 3; PRT[28] = 1; PRT[29] = 0.4960000216960907; PRT[30] = 0.300000011920929; PRT[31] = 0.25; PRT[32] = 0; PRT[33] = 0; PRT[34] = 0; PRT[35] = 0; PRT[36] = 1; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(86); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 0; PRT[4] = 20; PRT[5] = 22000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = -0.09600001573562622; PRT[10] = 500; PRT[11] = 1; PRT[12] = 0.9999999403953552; PRT[13] = 10.00000095367432; PRT[14] = 399.9999389648438; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.2000000029802322; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 15.00000095367432; PRT[24] = 0.1000000014901161; PRT[25] = 29.99999809265137; PRT[26] = 10; PRT[27] = -1.239997863769531; PRT[28] = 1; PRT[29] = 0.4546023309230804; PRT[30] = 0.400827944278717; PRT[31] = 0.5; PRT[32] = 0.2000380158424377; PRT[33] = 0.3991108238697052; PRT[34] = 0.09857896715402603; PRT[35] = 0; PRT[36] = 1; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(87); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 4000; PRT[6] = 1; PRT[7] = 1; PRT[8] = 0.1200000047683716; PRT[9] = 0.2400000095367432; PRT[10] = 200; PRT[11] = 1; PRT[12] = 4; PRT[13] = 0.4000000357627869; PRT[14] = 60.00003051757812; PRT[15] = 1; PRT[16] = 0.7039999961853027; PRT[17] = 0.6959999799728394; PRT[18] = 0.4559999704360962; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 5.999999523162842; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 2; PRT[27] = 0; PRT[28] = 0; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.2800000011920929; PRT[32] = 0.03677139058709145; PRT[33] = 0.05999999865889549; PRT[34] = 0.05999999865889549; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(88); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 4000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.1200000047683716; PRT[9] = 0.2400000095367432; PRT[10] = 200; PRT[11] = 1; PRT[12] = 4; PRT[13] = 0.4000000357627869; PRT[14] = 60.00003051757812; PRT[15] = 1; PRT[16] = 0.7039999961853027; PRT[17] = 0.6959999799728394; PRT[18] = 0.4559999704360962; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 5.999999523162842; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 2; PRT[27] = 0; PRT[28] = 0; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.2800000011920929; PRT[32] = 0.03677139058709145; PRT[33] = 0.05999999865889549; PRT[34] = 0.05999999865889549; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(89); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 2400; PRT[6] = 1; PRT[7] = 1; PRT[8] = 0.1200000047683716; PRT[9] = 0.2400000095367432; PRT[10] = 200; PRT[11] = 1; PRT[12] = 4.199999809265137; PRT[13] = 0.4000000357627869; PRT[14] = 60.00003051757812; PRT[15] = 1; PRT[16] = 0.8840000629425049; PRT[17] = 0.9359999895095825; PRT[18] = 0.5359999537467957; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 5.999999523162842; PRT[24] = 1.00000011920929; PRT[25] = 1.00000011920929; PRT[26] = 2; PRT[27] = 0; PRT[28] = 0; PRT[29] = 0.2999999821186066; PRT[30] = 0; PRT[31] = 0.2800000011920929; PRT[32] = 0.03677139058709145; PRT[33] = 0.05999999865889549; PRT[34] = 0.05999999865889549; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(90); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 20; PRT[5] = 18000; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0; PRT[9] = 0.04999995231628418; PRT[10] = 700; PRT[11] = 1; PRT[12] = 0.1951621472835541; PRT[13] = 7.999999046325684; PRT[14] = 149.9999847412109; PRT[15] = 1; PRT[16] = 0.5; PRT[17] = 0.5960000157356262; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 5.999999523162842; PRT[24] = 0.1000000014901161; PRT[25] = 0.1000000014901161; PRT[26] = 50; PRT[27] = 0.0500030517578125; PRT[28] = 1; PRT[29] = 0.3039999902248383; PRT[30] = 0.05350816249847412; PRT[31] = 0.2000000029802322; PRT[32] = 0.04659327119588852; PRT[33] = 0.09789931029081345; PRT[34] = 0.05432197451591492; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(91); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 60.00002670288086; PRT[5] = 18799.998046875; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.1999999284744263; PRT[9] = -0.2484329342842102; PRT[10] = 500; PRT[11] = 1; PRT[12] = 2.000000476837158; PRT[13] = 10.00000095367432; PRT[14] = 399.9999389648438; PRT[15] = 1; PRT[16] = 0.3960000276565552; PRT[17] = 0.5024001002311707; PRT[18] = 0.5; PRT[19] = 0; PRT[20] = 1; PRT[21] = 0; PRT[22] = 1; PRT[23] = 9.999999046325684; PRT[24] = 1.00000011920929; PRT[25] = 1.499999761581421; PRT[26] = 2.999999761581421; PRT[27] = -2; PRT[28] = 1; PRT[29] = 0.4529457092285156; PRT[30] = 0.2499520480632782; PRT[31] = 0.2000000029802322; PRT[32] = 0.1527689695358276; PRT[33] = 0.300000011920929; PRT[34] = 0.5; PRT[35] = 1; PRT[36] = 1; PRT[37] = 0.0469798669219017; PRT[38] = 0.5033556818962097; PRT[39] = 0.2013422846794128; PRT[40] = 0; PRT[41] = 1; PRT[42] = 0.04799999669194221; PRT[43] = 0.09599998593330383; PRT[44] = 0.6959999799728394; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(92); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 22; PRT[5] = 20200; PRT[6] = 0; PRT[7] = 1; PRT[8] = -0.04000002145767212; PRT[9] = 0.1440000534057617; PRT[10] = 260; PRT[11] = 1; PRT[12] = 0.1041497215628624; PRT[13] = 10.00000095367432; PRT[14] = 200.0000152587891; PRT[15] = 1; PRT[16] = 0.6199999451637268; PRT[17] = 0.4159999787807465; PRT[18] = 0.4040000140666962; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 19.99999809265137; PRT[24] = 0.1000000014901161; PRT[25] = 0.1500000059604645; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.0428895577788353; PRT[31] = 0.283092588186264; PRT[32] = 0.1178564876317978; PRT[33] = 0.1777777820825577; PRT[34] = 0.1222222223877907; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+pr_row(93); PRT[0] = 0; PRT[1] = 0; PRT[2] = 1; PRT[3] = 1; PRT[4] = 22; PRT[5] = 20400; PRT[6] = 0; PRT[7] = 1; PRT[8] = 0.1360000371932983; PRT[9] = 0.04000008106231689; PRT[10] = 260; PRT[11] = 1; PRT[12] = 0.143216460943222; PRT[13] = 14; PRT[14] = 219.9999847412109; PRT[15] = 1; PRT[16] = 0.5799999237060547; PRT[17] = 0.4559999704360962; PRT[18] = 0.5839999914169312; PRT[19] = 0; PRT[20] = 2; PRT[21] = 0; PRT[22] = 1; PRT[23] = 19.99999809265137; PRT[24] = 0.1000000014901161; PRT[25] = 0.1500000059604645; PRT[26] = 1; PRT[27] = 0; PRT[28] = 1; PRT[29] = 0.2999999821186066; PRT[30] = 0.05571829155087471; PRT[31] = 0.283092588186264; PRT[32] = 0.1377885639667511; PRT[33] = 0.1777777820825577; PRT[34] = 0.1222222223877907; PRT[35] = 0; PRT[36] = 0; PRT[37] = 0; PRT[38] = 0; PRT[39] = 0; PRT[40] = 0; PRT[41] = 0; PRT[42] = 0; PRT[43] = 0; PRT[44] = 0; PRT[45] = 0; PRT[46] = 0; PRT[47] = 1;
+
+stn_load();
+
+@slider
+
+last_srate != srate || !pr_done ? (
+  last_srate = srate;
+  rng_seed_all();
+  engine_prepare();
+);
+
+@block
+
+sl_on && sl_changed() ? ( sl_on = 0; sl_q = 0; );
+pdc_delay = sp_lat;
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+
+@sample
+
+sl_in = abs(spl0) + abs(spl1) > 0.000000001;
+sl_in ? sl_on = 0;
+
+sl_on ? (
+  spl0 = spl1 = 0;
+  sc_w = (sc_w + 1) & 2047;
+  SCOPE[sc_w] = 0;
+  sl_b += 1;
+  sl_b >= BS ? ( sl_b = 0; rms_push(); );
+) : (
+
+bpos === 0 ? block_begin();
+
+xl = spl0; xr = spl1;
+dl = xl; dr = xr;
+
+xl *= ig_g; xr *= ig_g; ig_g += ig_inc;
+
+if_act ? (
+  il = xl; ir = xr;
+  ifl.lr_tick(xl); xl = ifl.hi; cl_l = ifl.lo;
+  ifr.lr_tick(xr); xr = ifr.hi; cl_r = ifr.lo;
+  ifhl.lr_tick(xl); xl = ifhl.lo; ch_l = ifhl.hi;
+  ifhr.lr_tick(xr); xr = ifhr.lo; ch_r = ifhr.hi;
+  ifb.fade ? ( xl = xl * ifb.gw + il * ifb.gd; xr = xr * ifb.gw + ir * ifb.gd; ifb.gw += ifb.iw; ifb.gd += ifb.id; );
+);
+
+rms_bi += xl * xl;
+
+ms_cur ? (
+  t = xl + xr;
+  xr = -(2 * xr + t * -1);
+  xl = t;
+  xl *= 10 ^ (-3 * 0.05); xr *= 10 ^ (-3 * 0.05);
+);
+xl *= msi0.sv_next(); xr *= msi1.sv_next();
+
+tin_smooth ? tin.shelf_coefs(tin_l.sm_next(), tin_h.sm_next(), tin_f.sm_next());
+(tin_smooth || tin.b0 !== 1 || tin.b1 !== 0 || tin.a1 !== 0 || tin_zl !== 0 || tin_zr !== 0) ? (
+  t = tin_zl + xl * tin.b0; tin_zl = xl * tin.b1 - t * tin.a1; xl = t;
+  t = tin_zr + xr * tin.b0; tin_zr = xr * tin.b1 - t * tin.a1; xr = t;
+);
+
+cp_act ? (
+  il = xl; ir = xr;
+  (bpos & 1) === 0 ? cp_dbp = cpd0.sv_skip(4);
+  cpl0u.iu0(xl); OSA[0] = OSY0; OSA[1] = OSY1;
+  cpr0u.iu0(xr); OSA[2] = OSY0; OSA[3] = OSY1;
+  i = 0;
+  loop(4,
+    t = OSA[i];
+    xdb = g2db(abs(t));
+    cdb = cp_dbp <= 0 ? cp_dbp : (xdb < -(2 * cp_dbp) ? cp_dbp : log(xdb + 2 * cp_dbp + 1) - cp_dbp - xdb);
+    cg = db2g(cdb);
+    i < 2 ? (
+      tau = cp_incl ? cp_ta : cp_tr; v = cp_yl + tau * (cg - cp_yl); cp_incl = v > cp_yl; cp_yl = v;
+    ) : (
+      tau = cp_incr ? cp_ta : cp_tr; v = cp_yr + tau * (cg - cp_yr); cp_incr = v > cp_yr; cp_yr = v;
+    );
+    cg = min(cg, v);
+    OSA[i] = t * cg;
+    i += 1;
+  );
+  t = cpl0d.id0(OSA[0], OSA[1]);
+  u = cpr0d.id0(OSA[2], OSA[3]);
+  cth_w = (cth_w + 1) & 7;
+  CTHL[cth_w] = t; CTHR[cth_w] = u;
+  cth_fr === 0 ? ( t = CTHL[(cth_w - cth_di) & 7]; ) : ( t = CTHL[(cth_w - cth_di - 1) & 7] + cth_al * (CTHL[(cth_w - cth_di) & 7] - cth_vl); cth_vl = t; );
+  cth_fr === 0 ? ( u = CTHR[(cth_w - cth_di) & 7]; ) : ( u = CTHR[(cth_w - cth_di - 1) & 7] + cth_al * (CTHR[(cth_w - cth_di) & 7] - cth_vr); cth_vr = u; );
+  xl = t; xr = u;
+  cpb.fade ? ( xl = xl * cpb.gw + il * cpb.gd; xr = xr * cpb.gw + ir * cpb.gd; cpb.gw += cpb.iw; cpb.gd += cpb.id; );
+);
+
+hy_act ? (
+  il = xl; ir = xr;
+  xl = min(max(xl, -hy_clip), hy_clip); xr = min(max(xr, -hy_clip), hy_clip);
+  hy_cfg < 5 ? (
+    hy_fac === 0 ? ( OSA[0] = xl; OSA2[0] = xr; bl = OSA; br = OSA2; )
+    : hy_fac === 1 ? ( bl = hu1l(xl); br = hu1r(xr); )
+    : hy_fac === 2 ? ( bl = hu2l(xl); br = hu2r(xr); )
+    : hy_fac === 3 ? ( bl = hu3l(xl); br = hu3r(xr); )
+    : ( bl = hu4l(xl); br = hu4r(xr); );
+  ) : (
+    bl = fos_up(xl, hy_cfg, 0, hy_fac); br = fos_up(xr, hy_cfg, 1, hy_fac);
+  );
+  i = 0;
+  loop(2 ^ hy_fac,
+    hy_usev1 ? (
+      hy_smooth ? (
+        hp_cook(hyd.sv_next(), hyw.sv_next(), hys.sv_next(), 1);
+        bias = 10 * (1 - hyw.cur) * sin(hy_bal);
+      ) : bias = hy_bmult * sin(hy_bal);
+      hy_bal += hy_adelta; hy_bal -= TWOPI * (hy_bal >= TWOPI);
+      bl[i] = hyl.hproc((bl[i] + bias) * 10000, 1) * (1.414 / 10000);
+      bias = hy_smooth ? 10 * (1 - hyw.cur) * sin(hy_bar) : hy_bmult * sin(hy_bar);
+      hy_bar += hy_adelta; hy_bar -= TWOPI * (hy_bar >= TWOPI);
+      br[i] = hyr.hproc((br[i] + bias) * 10000, 1) * (1.414 / 10000);
+    ) : (
+      hy_smooth ? hp_cook(hyd.sv_next(), hyw.sv_next(), hys.sv_next(), 0);
+      t = hyl.hproc(bl[i], hy_sol);
+      u = hyr.hproc(br[i], hy_sol);
+      hy_mksm ? ( v = hym.sm_next(); bl[i] = t * v; br[i] = u * v; ) : ( bl[i] = t * hym.tgt; br[i] = u * hym.tgt; );
+    );
+    i += 1;
+  );
+  hy_cfg < 5 ? (
+    hy_fac === 0 ? ( xl = bl[0]; xr = br[0]; )
+    : hy_fac === 1 ? ( xl = hd1l(bl); xr = hd1r(br); )
+    : hy_fac === 2 ? ( xl = hd2l(bl); xr = hd2r(br); )
+    : hy_fac === 3 ? ( xl = hd3l(bl); xr = hd3r(br); )
+    : ( xl = hd4l(bl); xr = hd4r(br); );
+  ) : (
+    xl = fos_down(bl, hy_cfg, 0, hy_fac); xr = fos_down(br, hy_cfg, 1, hy_fac);
+  );
+  xl = hydl.dcb_tick(xl); xr = hydr.dcb_tick(xr);
+  hyb.fade ? ( xl = xl * hyb.gw + il * hyb.gd; xr = xr * hyb.gw + ir * hyb.gd; hyb.gw += hyb.iw; hyb.gd += hyb.id; );
+);
+
+tout_smooth ? tout.shelf_coefs(tout_l.sm_next(), tout_h.sm_next(), tout_f.sm_next());
+(tout_smooth || tout.b0 !== 1 || tout.b1 !== 0 || tout.a1 !== 0 || tout_zl !== 0 || tout_zr !== 0) ? (
+  t = tout_zl + xl * tout.b0; tout_zl = xl * tout.b1 - t * tout.a1; xl = t;
+  t = tout_zr + xr * tout.b0; tout_zr = xr * tout.b1 - t * tout.a1; xr = t;
+);
+
+ch_act ? (
+  il = xl; ir = xr;
+  (bpos & 63) === 0 ? (
+    ch_hf = min(22000, 0.49 * srate);
+    ch_fc = ch_hf - 5000;
+    p_chew_freq === 0 ? (
+      ch_mix = 0; chfl.sm_set(ch_hf);
+    ) : p_chew_freq === 1 ? (
+      ch_mix = 1; ch_pow = 3 * p_chew_depth; chfl.sm_set(ch_hf - ch_fc * p_chew_depth);
+    ) : ch_cnt >= ch_until ? (
+      ch_cnt = 0;
+      ch_crink = !ch_crink;
+      ch_crink ? (
+        ch_mix = 1;
+        ch_pow = (1 + 2 * chr.jr_float()) * p_chew_depth;
+        chfl.sm_set(ch_hf - ch_fc * p_chew_depth);
+        ch_until = chew_wet_time();
+      ) : (
+        ch_mix = 0;
+        chfl.sm_set(ch_hf);
+        ch_until = chew_dry_time();
+      );
+    ) : (
+      ch_pow = (1 + 2 * chr.jr_float()) * p_chew_depth;
+      ch_crink ? chfl.sm_set(ch_hf - ch_fc * p_chew_depth);
+    );
+    chm0.sv_set(ch_mix);
+    chp0.sv_set(1 + ch_pow);
+    ch_dro = !(chm0.tgt === 0 && chm0.cnt <= 0);
+    ch_cnt += 64;
+  );
+  ch_dro ? (
+    m = chm0.sv_next(); pw = chp0.sv_next();
+    xl = m * (abs(xl) ^ pw * ((xl > 0) - (xl < 0))) + (1 - m) * xl;
+    xr = m * (abs(xr) ^ pw * ((xr > 0) - (xr < 0))) + (1 - m) * xr;
+  );
+  chfl.cnt > 0 ? chf_coefs(chfl.sm_next());
+  t = chf_z + xl * chf_b0; chf_z = xl * chf_b0 - t * chf_a1; xl = t;
+  t = chf_zr + xr * chf_b0; chf_zr = xr * chf_b0 - t * chf_a1; xr = t;
+  chb.fade ? ( xl = xl * chb.gw + il * chb.gd; xr = xr * chb.gw + ir * chb.gd; chb.gw += chb.iw; chb.gd += chb.id; );
+);
+
+dg_act ? (
+  il = xl; ir = xr;
+  lv = abs(xl) * (1 / 2);
+  lv += abs(xr) * (1 / 2);
+  tau = dg_inc ? dg_ta : dg_tr; lv = dg_y + tau * (lv - dg_y); dg_inc = lv > dg_y; dg_y = lv;
+  dgn_ramp ? (
+    nl = 0 + (dnl.jr_float() - 0.5) * ((dgn_cur * bpos / BS) + (dgn_p0 * (1 - bpos / BS)));
+    nr = 0 + (dnr.jr_float() - 0.5) * ((dgn_cur * bpos / BS) + (dgn_p0 * (1 - bpos / BS)));
+  ) : (
+    nl = 0 + (dnl.jr_float() - 0.5) * dgn_cur;
+    nr = 0 + (dnr.jr_float() - 0.5) * dgn_cur;
+  );
+  dg_env ? ( nl *= lv; nr *= lv; );
+  xl += nl; xr += nr;
+  dgfl.cnt > 0 ? dgf_coefs(dgfl.sm_next(), 0);
+  t = dgfl_z + xl * dgfl_b0; dgfl_z = xl * dgfl_b0 - t * dgfl_a1; xl = t;
+  dgfr.cnt > 0 ? dgf_coefs(dgfr.sm_next(), 1);
+  t = dgfr_z + xr * dgfr_b0; dgfr_z = xr * dgfr_b0 - t * dgfr_a1; xr = t;
+  xl *= dg_g; xr *= dg_g; dg_g += dg_ginc;
+  dgb.fade ? ( xl = xl * dgb.gw + il * dgb.gd; xr = xr * dgb.gw + ir * dgb.gd; dgb.gw += dgb.iw; dgb.gd += dgb.id; );
+);
+
+wf_w = (wf_w + 1) & 32767;
+wf_act ? (
+  il = xl; ir = xr;
+  wf_ph += wf_ad;
+  cd = wfdl.sm_next() * wf_amp;
+  oh_y += oh_sqd * OHN[bpos] * oh_amt;
+  oh_y += oh_damp * (oh_mean - oh_y) * oh_t;
+  v3 = oh_y - oh_s2; v1 = oh_a2 * v3 + oh_a1 * oh_s1; v2 = oh_a3 * v3 + oh_a2 * oh_s1 + oh_s2;
+  oh_s1 = 2 * v1 - oh_s1; oh_s2 = 2 * v2 - oh_s2;
+  wv = cd * (cos(wf_ph) + v2);
+  fl_p1 += fl_ad1; fl_p2 += fl_ad2; fl_p3 += fl_ad3;
+  fv = wfdf.sm_next() * (fl_a1 * cos(fl_p1 + 0) + fl_a2 * cos(fl_p2 + fl_o2) + fl_a3 * cos(fl_p3 + fl_o3));
+  t = (wv + fv + fl_dc + cd) * srate / 1000;
+  t = min(max(t, 0), 32760);
+  wf_dly = t;
+  WFDL[wf_w] = xl; WFDR[wf_w] = xr;
+  xl = dl3_read(WFDL, 32767, wf_w, t);
+  xr = dl3_read(WFDR, 32767, wf_w, t);
+  wf_mw = wv / wf_amp; wf_mf = fv / (230 * 1000 / srate);
+  xl = wfcl.dcb_tick(xl); xr = wfcr.dcb_tick(xr);
+  wfb.fade ? ( xl = xl * wfb.gw + il * wfb.gd; xr = xr * wfb.gw + ir * wfb.gd; wfb.gw += wfb.iw; wfb.gd += wfb.id; );
+) : (
+  wf_ph += wf_ad;
+  fl_p1 += fl_ad1; fl_p2 += fl_ad2; fl_p3 += fl_ad3;
+  WFDL[wf_w] = 0; WFDR[wf_w] = 0;
+  wf_mw = wf_mf = 0;
+);
+
+lf_on ? (
+  il = xl; ir = xr;
+  lz0 = LFZ + lf_act * 1664; lz1 = LFZ + (!lf_act) * 1664;
+  lf_fading ? (
+    fxl = xl; fxr = xr;
+  ) : (
+    fir_push(lz1, 0, xl); fir_push(lz1, 1, xr);
+  );
+  xl = fir_run2(lz0, xl, xr); xr = FIRY;
+  lf_act ? (
+    t = xl * lb1_b0 + lb1_zl1; lb1_zl1 = xl * lb1_b1 - t * lb1_a1 + lb1_zl2; lb1_zl2 = xl * lb1_b2 - t * lb1_a2; xl = t;
+    t = xr * lb1_b0 + lb1_zr1; lb1_zr1 = xr * lb1_b1 - t * lb1_a1 + lb1_zr2; lb1_zr2 = xr * lb1_b2 - t * lb1_a2; xr = t;
+  ) : (
+    t = xl * lb0_b0 + lb0_zl1; lb0_zl1 = xl * lb0_b1 - t * lb0_a1 + lb0_zl2; lb0_zl2 = xl * lb0_b2 - t * lb0_a2; xl = t;
+    t = xr * lb0_b0 + lb0_zr1; lb0_zr1 = xr * lb0_b1 - t * lb0_a1 + lb0_zr2; lb0_zr2 = xr * lb0_b2 - t * lb0_a2; xr = t;
+  );
+  lf_fading ? (
+    fxl = fir_run2(lz1, fxl, fxr); fxr = FIRY;
+    !lf_act ? (
+      t = fxl * lb1_b0 + lb1_zl1; lb1_zl1 = fxl * lb1_b1 - t * lb1_a1 + lb1_zl2; lb1_zl2 = fxl * lb1_b2 - t * lb1_a2; fxl = t;
+      t = fxr * lb1_b0 + lb1_zr1; lb1_zr1 = fxr * lb1_b1 - t * lb1_a1 + lb1_zr2; lb1_zr2 = fxr * lb1_b2 - t * lb1_a2; fxr = t;
+    ) : (
+      t = fxl * lb0_b0 + lb0_zl1; lb0_zl1 = fxl * lb0_b1 - t * lb0_a1 + lb0_zl2; lb0_zl2 = fxl * lb0_b2 - t * lb0_a2; fxl = t;
+      t = fxr * lb0_b0 + lb0_zr1; lb0_zr1 = fxr * lb0_b1 - t * lb0_a1 + lb0_zr2; lb0_zr2 = fxr * lb0_b2 - t * lb0_a2; fxr = t;
+    );
+    bpos < lf_n ? (
+      xl = xl * lf_gs + fxl * lf_dg; xr = xr * lf_gs + fxr * lf_dg;
+      lf_gs += lf_ginc; lf_dg += lf_dinc;
+    ) : (
+      xl *= lf_ge; xr *= lf_ge;
+    );
+  );
+  az_w = (az_w + 1) & 4095;
+  azl.cnt > 0 ? azl_d = azl.sv_next();
+  AZDL[az_w] = xl; xl = dl3_read(AZDL, 4095, az_w, azl_d);
+  azr.cnt > 0 ? azr_d = azr.sv_next();
+  AZDR[az_w] = xr; xr = dl3_read(AZDR, 4095, az_w, azr_d);
+  lsb.fade ? ( xl = xl * lsb.gw + il * lsb.gd; xr = xr * lsb.gw + ir * lsb.gd; lsb.gw += lsb.iw; lsb.gd += lsb.id; );
+);
+
+dry_w = (dry_w + 1) & 4095;
+DRYL[dry_w] = dl; DRYR[dry_w] = dr;
+dw_ramp || dw_cur !== 1 ? (
+  dl = dl5_read(DRYL, 4095, dry_w, dry_dly);
+  dr = dl5_read(DRYR, 4095, dry_w, dry_dly);
+);
+
+p_balmk ? ( xl *= mso0.sv_next(); xr *= mso1.sv_next(); );
+ms_cur ? (
+  xl *= 10 ^ (3 * 0.05); xr *= 10 ^ (3 * 0.05);
+  xr *= -1;
+  xl += xr * -1;
+  xl *= 0.5;
+  xr += xl;
+);
+ms_fading ? ( xl *= ms_fg; xr *= ms_fg; ms_fg += ms_finc; );
+
+mk_act ? (
+  il = xl; ir = xr;
+  mk_on ? (
+    mk_w = (mk_w + 1) & 4095;
+    MKDL[mk_w] = 0 + cl_l + ch_l; MKDR[mk_w] = 0 + cl_r + ch_r;
+    xl += dl3_read(MKDL, 4095, mk_w, mk_dly);
+    xr += dl3_read(MKDR, 4095, mk_w, mk_dly);
+  );
+  ifm.fade ? ( xl = xl * ifm.gw + il * ifm.gd; xr = xr * ifm.gw + ir * ifm.gd; ifm.gw += ifm.iw; ifm.gd += ifm.id; );
+);
+
+xl *= og_g; xr *= og_g; og_g += og_inc;
+
+dw_ramp ? (
+  xl = xl * dw_g + dl * dw_d; xr = xr * dw_g + dr * dw_d;
+  dw_g += dw_ginc; dw_d += dw_dinc;
+) : dw_cur !== 1 ? (
+  xl *= dw_cur; xr *= dw_cur;
+  xl += dl * (1 - dw_cur); xr += dr * (1 - dw_cur);
+);
+
+!(abs(xl) < 100) ? xl = 0;
+!(abs(xr) < 100) ? xr = 0;
+spl0 = xl; spl1 = xr;
+rms_bo += xl * xl;
+sc_w = (sc_w + 1) & 2047;
+SCOPE[sc_w] = xl;
+
+bpos += 1;
+bpos >= BS ? ( block_end(); bpos = 0; );
+
+(!sl_in && abs(xl) + abs(xr) < 0.00000003) ? (
+  sl_q += 1;
+  sl_q >= max(srate, 40000) ? ( sl_on = 1; sl_q = 0; sl_b = 0; sl_store(); );
+) : sl_q = 0;
+
+);
+
+@gfx 720 612
+
+DW = 720;
+DH = 612;
+scale = max(0.5, min(gfx_w / DW, gfx_h / DH));
+ox = floor((gfx_w - DW * scale) * 0.5);
+oy = 0;
+
+function px(x) ( ox + x * scale; );
+function py(y) ( oy + y * scale; );
+function font(sz, fl) ( gfx_setfont(1, "Arial", (sz + 2) * scale, fl); );
+
+function automate(s, end_touch)
+(
+<?
+  max_sliders > 49 ? printf("slider_automate(2^(s-1), end_touch);") :
+    loop(i = 1; 49,
+      printf("  s == %d ? slider_automate(slider%d, end_touch) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function set_slider(s, v) ( slider(s) = v; automate(s, 0); automate(s, 1); );
+
+function hit_circle(mx, my, cx, cy, rad) ( sqr(mx - cx) + sqr(my - cy) <= sqr(rad); );
+function hit_rect(mx, my, x, y, w, h) ( mx >= x && mx <= x + w && my >= y && my <= y + h; );
+
+function s_min(s) (
+  s == 1 ? -30 : s == 2 ? -30 : s == 5 ? 20 : s == 6 ? 2000 : (s == 9 || s == 10 || s == 47) ? -1 : s == 11 ? 100 :
+  s == 14 ? 0.1 : s == 15 ? 10 : s == 24 ? 1 : (s == 25 || s == 26) ? 0.1 : s == 27 ? 1 : s == 28 ? -75 : 0;
+);
+function s_max(s) (
+  s == 1 ? 6 : s == 2 ? 30 : s == 5 ? 2000 : s == 6 ? 22000 : s == 11 ? 4000 : s == 13 ? 9 : s == 14 ? 50 :
+  s == 15 ? 1000 : s == 24 ? 50 : s == 25 ? 20 : s == 26 ? 50 : s == 27 ? 50 : s == 28 ? 75 : 1;
+);
+function s_ctr(s) (
+  s == 5 ? 250 : s == 6 ? 10000 : s == 11 ? 500 : s == 13 ? 3 : s == 14 ? 10 : s == 15 ? 100 :
+  s == 24 ? 15 : s == 25 ? 10 : s == 26 ? 15 : s == 27 ? 10 : -1000;
+);
+function s_skew(s) local(c) (
+  c = s_ctr(s);
+  c > -1000 ? log(0.5) / log((c - s_min(s)) / (s_max(s) - s_min(s))) : 1;
+);
+function s_def(s) (
+  s == 3 ? 1 : s == 5 ? 20 : s == 6 ? 22000 : s == 11 ? 500 : s == 14 ? 5 : s == 15 ? 200 : (s == 17 || s == 18 || s == 19) ? 0.5 :
+  s == 24 ? 30 : (s == 25 || s == 26) ? 0.1 : s == 27 ? 1 : s == 30 ? 0.3 : s == 32 ? 0.25 : 0;
+);
+function to_pos(s, v) local(a, b) (
+  a = s_min(s); b = s_max(s);
+  max(0, min(1, (v - a) / (b - a))) ^ s_skew(s);
+);
+function from_pos(s, p) local(a, b) (
+  a = s_min(s); b = s_max(s);
+  p <= 0 ? a : a + (b - a) * exp(log(min(1, p)) / s_skew(s));
+);
+function set_pos(s, p) local(v, old) (
+  old = slider(s);
+  v = from_pos(s, max(0, min(1, p)));
+  slider(s) = v;
+  v !== old ? automate(s, 0);
+);
+
+function s_name(s) (
+  s == 1 ? "Input Gain" : s == 2 ? "Output Gain" : s == 3 ? "Dry/Wet" : s == 5 ? "Low Cut" : s == 6 ? "High Cut" :
+  s == 9 ? "Bass" : s == 10 ? "Treble" : s == 11 ? "Transition Freq" : s == 13 ? "Amount" : s == 14 ? "Attack" :
+  s == 15 ? "Release" : s == 17 ? "Drive" : s == 18 ? "Saturation" : s == 19 ? "Bias" : s == 24 ? "Speed [ips]" :
+  s == 25 ? "Spacing [microns]" : s == 26 ? "Thickness [microns]" : s == 27 ? "Gap [microns]" : s == 28 ? "Azimuth [degrees]" :
+  s == 30 ? "Rate" : s == 31 ? "Depth" : s == 32 ? "Rate" : s == 33 ? "Depth" : s == 34 ? "Variance" : s == 35 ? "Drift" :
+  s == 38 ? "Depth" : s == 39 ? "Amount" : s == 40 ? "Variance" : s == 41 ? "Envelope" : s == 43 ? "Depth" :
+  s == 44 ? "Frequency" : s == 45 ? "Variance" : s == 47 ? "Balance" : "";
+);
+
+function s_text(s) local(v) (
+  v = slider(s);
+  (s == 1 || s == 2 || s == 13) ? sprintf(#vt, "%.2f dB", v) :
+  (s == 3 || s == 47) ? sprintf(#vt, "%d%%", floor(v * 100 + (v < 0 ? -0.5 : 0.5))) :
+  (s == 5 || s == 6 || s == 11) ? ( v > 1000 ? sprintf(#vt, "%.2f kHz", v / 1000) : sprintf(#vt, "%.2f Hz", v); ) :
+  (s == 14 || s == 15) ? sprintf(#vt, "%.2f ms", v) :
+  (s == 25 || s == 26 || s == 27) ? sprintf(#vt, "%.4f", v) :
+  sprintf(#vt, "%.2f", v);
+  #vt;
+);
+
+function hint_text(h) (
+  h == 1 ? "Input Gain: level going into the tape machine (in dB)" :
+  h == 2 ? "Output Gain: level coming out of the tape machine (in dB)" :
+  h == 3 ? "Dry/Wet: blend between the untouched input and the tape sound" :
+  h == 4 ? "Turns the input filters on or off" :
+  h == 5 ? "Low Cut: removes lows before the tape processing" :
+  h == 6 ? "High Cut: removes highs before the tape processing" :
+  h == 7 ? "Makeup: adds the filtered-out signal back after the tape processing" :
+  h == 8 ? "Turns the tone controls on or off" :
+  h == 9 ? "Bass: boosts or cuts lows before the tape and undoes it after, so the tape saturates the lows more or less" :
+  h == 10 ? "Treble: boosts or cuts highs before the tape and undoes it after" :
+  h == 11 ? "Transition Freq: where bass turns into treble for the tone controls" :
+  h == 12 ? "Turns the tape compression on or off" :
+  h == 13 ? "Amount: how much tape-style compression is applied (in dB)" :
+  h == 14 ? "Attack: how quickly the compression reacts" :
+  h == 15 ? "Release: how quickly the compression recovers" :
+  h == 16 ? "Turns the magnetic tape model (hysteresis) on or off" :
+  h == 17 ? "Drive: how hard the tape is driven; more drive means more saturation and grit" :
+  h == 18 ? "Saturation: how easily the tape saturates (the magnetic saturation level)" :
+  h == 19 ? "Bias: the tape bias; lower settings give the gritty, underbiased sound of a misaligned machine" :
+  h == 23 ? "Turns the playback head loss effects on or off" :
+  h == 24 ? "Speed: tape speed in inches per second; slower tape loses more highs and moves the head bump down" :
+  h == 25 ? "Spacing: distance between the tape and the playback head; more spacing dulls the highs" :
+  h == 26 ? "Thickness: tape thickness; thicker tape loses more high end" :
+  h == 27 ? "Gap: width of the playback head gap; a wider gap rolls off highs and shapes the head bump" :
+  h == 28 ? "Azimuth: angle of the playback head; non-zero angles delay one channel for stereo smearing" :
+  h == 29 ? "Turns wow and flutter on or off" :
+  h == 30 ? "Flutter Rate: speed of the fast pitch wobble" :
+  h == 31 ? "Flutter Depth: amount of the fast pitch wobble" :
+  h == 32 ? "Wow Rate: speed of the slow pitch drift" :
+  h == 33 ? "Wow Depth: amount of the slow pitch drift" :
+  h == 34 ? "Wow Variance: adds random variation to the wow" :
+  h == 35 ? "Wow Drift: lets the wow speed wander" :
+  h == 36 ? "Turns the tape degradation (noise and dulling) on or off" :
+  h == 37 ? "0.1x: scales the degrade depth down by 10 for subtle settings" :
+  h == 38 ? "Depth: how much noise and level loss the worn tape adds" :
+  h == 39 ? "Amount: how dull the worn tape sounds" :
+  h == 40 ? "Variance: random variation in the degradation" :
+  h == 41 ? "Envelope: makes the noise follow the input level" :
+  h == 42 ? "Turns chew (crinkled, damaged tape) on or off" :
+  h == 43 ? "Depth: how strongly the damaged spots distort and dull the sound" :
+  h == 44 ? "Frequency: how often damaged spots come along; fully up means constant damage" :
+  h == 45 ? "Variance: how irregular the damaged spots are" :
+  h == 46 ? "Mid/Side: process the mid and side signals instead of left and right" :
+  h == 47 ? "Balance: drive one channel (or mid/side) harder than the other" :
+  h == 48 ? "Balance Makeup: undo the balance gain after the tape" :
+  h == 101 ? "Oversampling: higher settings reduce aliasing from the tape model but cost more CPU" :
+  h == 102 ? "Tape Mode: how the tape model is solved; RK2 is cheapest, NR8 most accurate, STN uses a neural network, V1 is the original v1 sound" :
+  h == 103 ? "Presets: click for the factory presets, or use the arrows to step through them" :
+  h == 104 ? "Sync the flutter rate to the tape speed or the project tempo" :
+  h == 105 ? "Sync the wow rate to the tape speed or the project tempo" :
+  h == 106 ? "Set the tape speed" :
+  "";
+);
+
+function arc_band(cx, cy, r0, r1, a0, a1) local(r) (
+  r = r0;
+  while (r <= r1) ( gfx_arc(cx, cy, r, a0, a1, 1); r += 0.6; );
+);
+
+function draw_knob(s, cx, cy, rad) local(p, a0, a1, a, bip, ac, tr, hov, v, tw, th) (
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, rad + 8 * scale);
+  hov ? hov_s = s;
+  (mouse_just_down && hov) ? (
+    (click_target == s && time_precise() - click_time < 0.3) ? (
+      set_slider(s, s_def(s)); drag_target = 0;
+    ) : (
+      drag_target = s; drag_kind = 0; drag_y0 = mouse_y; drag_p0 = to_pos(s, slider(s)); drag_fine = mouse_cap & 4;
+    );
+    click_target = s; click_time = time_precise(); mouse_just_down = 0;
+  );
+  (hov && wheel != 0 && drag_target == 0) ? (
+    set_pos(s, to_pos(s, slider(s)) + wheel / 120 * ((mouse_cap & 4) ? 0.002 : 0.02));
+    automate(s, 1); wheel = 0;
+  );
+  p = to_pos(s, slider(s));
+  a0 = -2.35619; a1 = 2.35619;
+  a = a0 + (a1 - a0) * p;
+  bip = s == 9 || s == 10 || s == 47;
+  tr = rad + 5 * scale;
+  gfx_set(0.349, 0.361, 0.42, 1);
+  arc_band(cx, cy, tr, tr + 3.5 * scale, a0, a1);
+  s == 3 ? gfx_set(0.043, 0.741, 0.761, 1) : gfx_set(0.612, 0.737, 0.741, 1);
+  bip ? ( a < 0 ? arc_band(cx, cy, tr, tr + 3.5 * scale, a, 0) : arc_band(cx, cy, tr, tr + 3.5 * scale, 0, a); )
+      : ( p > 0.002 ? arc_band(cx, cy, tr, tr + 3.5 * scale, a0, a); );
+  gfx_set(0.08, 0.08, 0.09, 0.6);
+  gfx_circle(cx + 1.5 * scale, cy + 2.5 * scale, rad, 1, 1);
+  gfx_set(0.42, 0.43, 0.46, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  gfx_set(0.62, 0.63, 0.66, 1);
+  gfx_circle(cx, cy, rad - 2 * scale, 1, 1);
+  gfx_set(0.72, 0.73, 0.76, 1);
+  gfx_circle(cx - 0.12 * rad, cy - 0.12 * rad, rad * 0.78, 1, 1);
+  gfx_set(0.80, 0.81, 0.83, 0.55);
+  gfx_circle(cx - 0.25 * rad, cy - 0.28 * rad, rad * 0.45, 1, 1);
+  gfx_set(0.13, 0.13, 0.15, 1);
+  v = -1.2;
+  loop(5,
+    gfx_line(cx + sin(a) * rad * 0.22 + cos(a) * v * scale * 0.6, cy - cos(a) * rad * 0.22 + sin(a) * v * scale * 0.6,
+             cx + sin(a) * rad * 0.92 + cos(a) * v * scale * 0.6, cy - cos(a) * rad * 0.92 + sin(a) * v * scale * 0.6, 1);
+    v += 0.6;
+  );
+  font(14, 'b');
+  gfx_set(1, 1, 1, 1);
+  gfx_measurestr(s_name(s), tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = cy - rad - 9 * scale - th - 2 * scale;
+  gfx_drawstr(s_name(s));
+  font(12, 0);
+  gfx_set(0.92, 0.92, 0.94, 1);
+  gfx_measurestr(s_text(s), tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = cy + rad + 9 * scale;
+  gfx_drawstr(#vt);
+);
+
+function draw_hslider(s, x, y, w) local(p, tx, ty, hov, bip, c, tw, th) (
+  font(14, 'b');
+  gfx_set(1, 1, 1, 1);
+  gfx_x = x; gfx_y = y;
+  gfx_drawstr(s_name(s));
+  ty = y + 26 * scale;
+  hov = hit_rect(mouse_x, mouse_y, x - 4 * scale, ty - 10 * scale, w + 8 * scale, 20 * scale);
+  hov ? hov_s = s;
+  (mouse_just_down && hov) ? (
+    (click_target == s && time_precise() - click_time < 0.3) ? (
+      set_slider(s, s_def(s)); drag_target = 0;
+    ) : (
+      drag_target = s; drag_kind = 1; drag_x0 = mouse_x; drag_w = w; drag_p0 = to_pos(s, slider(s)); drag_fine = mouse_cap & 4;
+    );
+    click_target = s; click_time = time_precise(); mouse_just_down = 0;
+  );
+  (hov && wheel != 0 && drag_target == 0) ? (
+    set_pos(s, to_pos(s, slider(s)) + wheel / 120 * ((mouse_cap & 4) ? 0.002 : 0.02));
+    automate(s, 1); wheel = 0;
+  );
+  p = to_pos(s, slider(s));
+  tx = x + w * p;
+  bip = s == 28;
+  gfx_set(0.349, 0.361, 0.42, 1);
+  gfx_rect(x, ty - 2 * scale, w, 4 * scale, 1);
+  gfx_set(0.612, 0.737, 0.741, 1);
+  bip ? ( c = x + w * 0.5; gfx_rect(min(c, tx), ty - 2 * scale, abs(tx - c), 4 * scale, 1); )
+      : gfx_rect(x, ty - 2 * scale, tx - x, 4 * scale, 1);
+  gfx_set(0.10, 0.10, 0.12, 0.6);
+  gfx_circle(tx + scale, ty + 1.5 * scale, 7 * scale, 1, 1);
+  gfx_set(0.55, 0.56, 0.60, 1);
+  gfx_circle(tx, ty, 7 * scale, 1, 1);
+  gfx_set(0.75, 0.76, 0.79, 1);
+  gfx_circle(tx - scale, ty - scale, 4.5 * scale, 1, 1);
+  font(12, 0);
+  gfx_set(0.92, 0.92, 0.94, 1);
+  gfx_x = x; gfx_y = ty + 10 * scale;
+  gfx_drawstr(s_text(s));
+);
+
+function draw_power(s, cx, cy) local(on, hov, r) (
+  r = 9 * scale;
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, r + 5 * scale);
+  hov ? hov_s = s;
+  (mouse_just_down && hov) ? ( set_slider(s, slider(s) >= 0.5 ? 0 : 1); mouse_just_down = 0; );
+  on = slider(s) >= 0.5;
+  on ? gfx_set(0.918, 0.663, 0.173, 1) : gfx_set(0.349, 0.361, 0.42, 1);
+  arc_band(cx, cy, r - scale, r + scale, 0.6, 2 * $pi - 0.6);
+  gfx_rect(cx - scale, cy - r - 2 * scale, 2 * scale, r, 1);
+);
+
+function draw_toggle(s, x, y, w, h, label) local(on, hov, tw, th) (
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? hov_s = s;
+  (mouse_just_down && hov) ? ( set_slider(s, slider(s) >= 0.5 ? 0 : 1); mouse_just_down = 0; );
+  on = slider(s) >= 0.5;
+  on ? gfx_set(0.706, 0.09, 0.09, 1) : gfx_set(0.2, 0.204, 0.239, 1);
+  gfx_roundrect(x, y, w, h, 5 * scale, 1);
+  gfx_rect(x + scale, y + scale, w - 2 * scale, h - 2 * scale, 1);
+  gfx_set(0.349, 0.361, 0.42, 1);
+  gfx_roundrect(x, y, w, h, 5 * scale, 1);
+  font(14, 'b');
+  gfx_set(1, 1, 1, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = x + (w - tw) * 0.5; gfx_y = y + (h - th) * 0.5;
+  gfx_drawstr(label);
+);
+
+function draw_button(id, x, y, w, h, label, fs) local(hov, tw, th) (
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? hov_s = id;
+  gfx_set(0.349, 0.361, 0.42, 1);
+  gfx_roundrect(x, y, w, h, 5 * scale, 1);
+  hov ? ( gfx_set(1, 1, 1, 0.06); gfx_rect(x + scale, y + scale, w - 2 * scale, h - 2 * scale, 1); );
+  font(fs, 'b');
+  gfx_set(1, 1, 1, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = x + (w - tw) * 0.5; gfx_y = y + (h - th) * 0.5;
+  gfx_drawstr(label);
+  ret = mouse_just_down && hov;
+  ret ? mouse_just_down = 0;
+  ret;
+);
+
+function draw_panel(x, y, w, h, tab, n, t0, t1, t2) local(i, tx, tw, th, nm, cw) (
+  gfx_set(0.192, 0.196, 0.227, 1);
+  gfx_rect(px(x) + 4 * scale, py(y), (w - 8) * scale, h * scale, 1);
+  gfx_rect(px(x), py(y) + 4 * scale, w * scale, (h - 8) * scale, 1);
+  gfx_circle(px(x) + 4 * scale, py(y) + 4 * scale, 4 * scale, 1, 1);
+  gfx_circle(px(x + w) - 4 * scale - 1, py(y) + 4 * scale, 4 * scale, 1, 1);
+  gfx_circle(px(x) + 4 * scale, py(y + h) - 4 * scale - 1, 4 * scale, 1, 1);
+  gfx_circle(px(x + w) - 4 * scale - 1, py(y + h) - 4 * scale - 1, 4 * scale, 1, 1);
+  gfx_set(0.13, 0.13, 0.15, 1);
+  gfx_rect(px(x), py(y + 40), w * scale, max(1, scale), 1);
+  cw = w / n;
+  i = 0;
+  loop(n,
+    nm = i == 0 ? t0 : i == 1 ? t1 : t2;
+    font(14, 'b');
+    gfx_measurestr(nm, tw, th);
+    tx = px(x + cw * i) + (cw * scale - tw) * 0.5;
+    (mouse_just_down && hit_rect(mouse_x, mouse_y, px(x + cw * i), py(y), cw * scale, 40 * scale)) ? ( tab = i; mouse_just_down = 0; );
+    i == tab ? gfx_set(1, 1, 1, 1) : gfx_set(0.6, 0.61, 0.66, 1);
+    gfx_x = tx; gfx_y = py(y) + (40 * scale - th) * 0.5;
+    gfx_drawstr(nm);
+    i += 1;
+  );
+  tab;
+);
+
+function knob3(x, w, s1, s2, s3) (
+  draw_knob(s1, px(x + w * 0.5), py(214), 26 * scale);
+  s2 > 0 ? draw_knob(s2, px(x + w * 0.5), py(326), 26 * scale);
+  s3 > 0 ? draw_knob(s3, px(x + w * 0.5), py(438), 26 * scale);
+);
+
+function sync_menu(flutter) local(r, q, f, t) (
+  gfx_x = mouse_x; gfx_y = mouse_y;
+  r = flutter ? gfx_showmenu("Sync to tape speed|Sync to eighth note|Sync to quarter note|Sync to half note|Sync to whole note")
+              : gfx_showmenu("Sync to tape speed|Sync to one bar|Sync to two bars|Sync to four bars|Sync to eight bars");
+  r > 0 ? (
+    q = 60 / (tempo > 0 ? tempo : 120);
+    r == 1 ? (
+      t = p_speed / (6 * $pi);
+      f = flutter ? t : sqrt(t);
+    ) : (
+      f = flutter ? 1 / (q * (r == 2 ? 0.125 : r == 3 ? 0.25 : r == 4 ? 0.5 : 1))
+                  : 1 / (q * (r == 2 ? 1 : r == 3 ? 2 : r == 4 ? 4 : 8));
+    );
+    flutter ? set_slider(30, max(0, min(1, 0.144765 * log(10 * f))))
+            : set_slider(32, max(0, min(1, 0.664859 * log(f + 1))));
+  );
+);
+
+function apply_preset(i) local(k) (
+  i = max(0, min(PR_COUNT - 1, i));
+  pr_row(i);
+  k = 0;
+  loop(48, slider(k + 1) = PRT[k]; automate(k + 1, 0); automate(k + 1, 1); k += 1;);
+  set_slider(49, i);
+);
+
+function draw_meter(x, y, w, h, v) local(cx) (
+  gfx_set(0.13, 0.13, 0.15, 1);
+  gfx_rect(px(x), py(y), w * scale, h * scale, 1);
+  cx = px(x + w * 0.5) + max(-1, min(1, v)) * (w * 0.5 - 8) * scale;
+  gfx_set(0.918, 0.663, 0.173, 0.25);
+  gfx_circle(cx, py(y + h * 0.5), 7 * scale, 1, 1);
+  gfx_set(0.918, 0.663, 0.173, 0.9);
+  gfx_circle(cx, py(y + h * 0.5), 3.5 * scale, 1, 1);
+);
+
+wheel = mouse_wheel; mouse_wheel = 0;
+mouse_down = mouse_cap & 1;
+mouse_just_down = mouse_down && !mouse_state;
+hov_s = 0;
+
+gfx_set(0.545, 0.196, 0.196, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+gfx_gradrect(0, 0, gfx_w, gfx_h, 0.545, 0.196, 0.196, 1, 0, 0, 0, 0, -0.06 / max(1, gfx_h), -0.05 / max(1, gfx_h), -0.05 / max(1, gfx_h), 0);
+
+font(34, 'b');
+gfx_set(1, 1, 1, 1);
+gfx_x = px(16); gfx_y = py(14);
+gfx_drawstr("Reel Talk");
+font(12, 0);
+gfx_set(0.918, 0.663, 0.173, 1);
+gfx_x = px(18); gfx_y = py(62);
+gfx_drawstr("by chmaha  ·  based on CHOW Tape Model");
+gfx_x = px(18); gfx_y = py(80);
+gfx_drawstr("by Jatin Chowdhury");
+
+gfx_set(0, 0, 0, 0.2);
+gfx_rect(px(300), py(8), 412 * scale, 92 * scale, 1);
+sc_n = min(1000, floor(srate * 0.02));
+gt = sc_w - 2 * sc_n; gk = -1; gi = 1;
+loop(sc_n - 1, (gk < 0 && SCOPE[(gt + gi - 1) & 2047] < 0 && SCOPE[(gt + gi) & 2047] >= 0) ? gk = gi; gi += 1;);
+gk < 0 ? gk = sc_n;
+gfx_set(0.918, 0.663, 0.173, 1);
+gi = 0;
+loop(400,
+  gv = SCOPE[(gt + gk + floor(gi * sc_n / 400)) & 2047];
+  gxx = px(300 + gi * 412 / 400); gyy = py(54) - max(-1, min(1, gv)) * 40 * scale;
+  gi > 0 ? gfx_line(glxx, glyy, gxx, gyy, 1);
+  glxx = gxx; glyy = gyy; gi += 1;
+);
+font(13, 0);
+gfx_set(1, 1, 1, 0.9);
+gv = rms_n > 0 ? sqrt(max(0, rms_si) / (rms_n * BS)) : 0;
+sprintf(#mt, "IN: %.1f dB", gv > 0.0001 ? max(-80, 20 * log10(gv)) : -80);
+gfx_x = px(306); gfx_y = py(10); gfx_drawstr(#mt);
+gv = rms_n > 0 ? sqrt(max(0, rms_so) / (rms_n * BS)) : 0;
+sprintf(#mt, "OUT: %.1f dB", gv > 0.0001 ? max(-80, 20 * log10(gv)) : -80);
+gfx_measurestr(#mt, gtw, gth);
+gfx_x = px(706) - gtw; gfx_y = py(10); gfx_drawstr(#mt);
+(p_mode == 4 && !stn_ok) ? (
+  font(13, 'b'); gfx_set(1, 0.4, 0.35, 1);
+  gfx_x = px(306); gfx_y = py(80); gfx_drawstr("Missing Dependencies/ReelTalk/stn_weights.txt (STN mode)");
+);
+
+tab0 = draw_panel(8, 112, 182, 422, tab0, 3, "Gain", "Filters", "Stereo");
+tab0 == 0 ? knob3(8, 182, 1, 3, 2)
+: tab0 == 1 ? (
+  knob3(8, 182, 5, 6, 0);
+  draw_toggle(7, px(49), py(408), 100 * scale, 30 * scale, "Makeup");
+  draw_power(4, px(99), py(508));
+) : (
+  draw_toggle(46, px(41), py(166), 116 * scale, 30 * scale, "Mid/Side");
+  draw_knob(47, px(99), py(286), 26 * scale);
+  draw_toggle(48, px(41), py(384), 116 * scale, 30 * scale, "Makeup");
+);
+
+tab1 = draw_panel(198, 112, 182, 422, tab1, 3, "Tape", "Comp", "Tone");
+tab1 == 0 ? ( knob3(198, 182, 19, 18, 17); draw_power(16, px(289), py(508)); )
+: tab1 == 1 ? ( knob3(198, 182, 13, 14, 15); draw_power(12, px(289), py(508)); )
+: ( knob3(198, 182, 9, 10, 11); draw_power(8, px(289), py(508)); );
+
+tab2 = draw_panel(388, 112, 190, 422, tab2, 3, "Loss", "Degrade", "Chew");
+tab2 == 0 ? (
+  draw_hslider(27, px(402), py(158), 160 * scale);
+  draw_hslider(26, px(402), py(216), 160 * scale);
+  draw_hslider(25, px(402), py(274), 160 * scale);
+  draw_hslider(28, px(402), py(332), 160 * scale);
+  draw_hslider(24, px(402), py(390), 160 * scale);
+  gi = 0;
+  loop(4,
+    gv = gi == 0 ? 3.75 : gi == 1 ? 7.5 : gi == 2 ? 15 : 30;
+    sprintf(#bt, gi == 0 ? "3.75" : gi == 1 ? "7.5" : gi == 2 ? "15" : "30");
+    draw_button(106, px(398 + gi * 43.5), py(450), 38 * scale, 24 * scale, #bt, 12) ? set_slider(24, gv);
+    gi += 1;
+  );
+  draw_power(23, px(483), py(508));
+) : tab2 == 1 ? (
+  draw_hslider(38, px(402), py(158), 160 * scale);
+  draw_hslider(39, px(402), py(216), 160 * scale);
+  draw_hslider(40, px(402), py(274), 160 * scale);
+  draw_hslider(41, px(402), py(332), 160 * scale);
+  draw_toggle(37, px(433), py(408), 100 * scale, 30 * scale, "0.1x");
+  draw_power(36, px(483), py(508));
+) : (
+  draw_hslider(43, px(402), py(158), 160 * scale);
+  draw_hslider(44, px(402), py(216), 160 * scale);
+  draw_hslider(45, px(402), py(274), 160 * scale);
+  draw_power(42, px(483), py(508));
+);
+
+tab3 = draw_panel(586, 112, 126, 422, tab3, 2, "Flutter", "Wow", "");
+tab3 == 0 ? (
+  draw_button(104, px(596), py(160), 106 * scale, 34 * scale, "Flutter Sync", 14) ? sync_menu(1);
+  draw_knob(31, px(649), py(264), 24 * scale);
+  draw_knob(30, px(649), py(370), 24 * scale);
+  draw_meter(602, 438, 94, 40, wf_mf);
+) : (
+  draw_button(105, px(596), py(160), 106 * scale, 34 * scale, "Wow Sync", 14) ? sync_menu(0);
+  draw_knob(33, px(619), py(258), 18 * scale);
+  draw_knob(32, px(679), py(258), 18 * scale);
+  draw_knob(34, px(619), py(358), 18 * scale);
+  draw_knob(35, px(679), py(358), 18 * scale);
+  draw_meter(602, 438, 94, 40, wf_mw);
+);
+draw_power(29, px(649), py(508));
+
+gfx_set(0.12, 0.12, 0.14, 1);
+gfx_rect(0, py(544), gfx_w, gfx_h - py(544), 1);
+font(14, 'b');
+gfx_set(1, 1, 1, 1);
+gfx_measurestr("Oversampling: ", gtw, gth);
+gfx_x = px(18); gfx_y = py(564) - gth * 0.5; gfx_drawstr("Oversampling: ");
+gfx_set(0.918, 0.663, 0.173, 1);
+sprintf(#ot, "%dx%s", 2 ^ p_os, p_osmode >= 0.5 ? " (Lin)" : "");
+gfx_measurestr(#ot, gtv, gth);
+gfx_x = px(18) + gtw; gfx_drawstr(#ot);
+hit_rect(mouse_x, mouse_y, px(18), py(548), gtw + gtv, 32 * scale) ? (
+  hov_s = 101;
+  mouse_just_down ? (
+    gfx_x = mouse_x; gfx_y = mouse_y;
+    sprintf(#om, "%s1x|%s2x|%s4x|%s8x|%s16x||%sMin Phase|%sLinear Phase",
+      p_os == 0 ? "!" : "", p_os == 1 ? "!" : "", p_os == 2 ? "!" : "", p_os == 3 ? "!" : "", p_os == 4 ? "!" : "",
+      p_osmode < 0.5 ? "!" : "", p_osmode >= 0.5 ? "!" : "");
+    gr = gfx_showmenu(#om);
+    gr >= 1 && gr <= 5 ? set_slider(21, gr - 1);
+    gr >= 6 ? set_slider(22, gr - 6);
+    mouse_just_down = 0;
+  );
+);
+gfx_set(1, 1, 1, 1);
+gfx_measurestr("Tape Mode: ", gtw, gth);
+gfx_x = px(206); gfx_y = py(564) - gth * 0.5; gfx_drawstr("Tape Mode: ");
+gfx_set(0.918, 0.663, 0.173, 1);
+strcpy(#mo, p_mode == 0 ? "RK2" : p_mode == 1 ? "RK4" : p_mode == 2 ? "NR4" : p_mode == 3 ? "NR8" : p_mode == 4 ? "STN" : "V1");
+gfx_measurestr(#mo, gtv, gth);
+gfx_x = px(206) + gtw; gfx_drawstr(#mo);
+hit_rect(mouse_x, mouse_y, px(206), py(548), gtw + gtv, 32 * scale) ? (
+  hov_s = 102;
+  mouse_just_down ? (
+    gfx_x = mouse_x; gfx_y = mouse_y;
+    sprintf(#mm, "%sRK2|%sRK4|%sNR4|%sNR8|%sSTN|%sV1", p_mode == 0 ? "!" : "", p_mode == 1 ? "!" : "", p_mode == 2 ? "!" : "",
+      p_mode == 3 ? "!" : "", p_mode == 4 ? "!" : "", p_mode == 5 ? "!" : "");
+    gr = gfx_showmenu(#mm);
+    gr > 0 ? set_slider(20, gr - 1);
+    mouse_just_down = 0;
+  );
+);
+
+pbx = 420; pbw = 284;
+gfx_set(0.349, 0.361, 0.42, 1);
+gfx_roundrect(px(pbx + 22), py(550), (pbw - 44) * scale, 28 * scale, 5 * scale, 1);
+gfx_set(0.42, 0.43, 0.48, 1);
+gfx_rect(px(pbx + 23), py(551), (pbw - 46) * scale, 26 * scale, 1);
+font(13, 'b');
+gfx_set(1, 1, 1, 1);
+strcpy(#pn, pr_name(floor(p_preset + 0.5)));
+gfx_measurestr(#pn, gtw, gth);
+gfx_x = px(pbx + pbw * 0.5) - gtw * 0.5; gfx_y = py(564) - gth * 0.5;
+gfx_drawstr(#pn);
+gfx_set(1, 1, 1, 1);
+gfx_triangle(px(pbx + 6), py(564), px(pbx + 15), py(558), px(pbx + 15), py(570));
+gfx_triangle(px(pbx + pbw - 6), py(564), px(pbx + pbw - 15), py(558), px(pbx + pbw - 15), py(570));
+hit_rect(mouse_x, mouse_y, px(pbx), py(548), pbw * scale, 32 * scale) ? (
+  hov_s = 103;
+  mouse_just_down ? (
+    mouse_x < px(pbx + 22) ? apply_preset(p_preset - 1 < 0 ? PR_COUNT - 1 : p_preset - 1)
+    : mouse_x > px(pbx + pbw - 22) ? apply_preset(p_preset + 1 >= PR_COUNT ? 0 : p_preset + 1)
+    : (
+      gfx_x = mouse_x; gfx_y = mouse_y;
+      gr = gfx_showmenu(pr_menu());
+      gr > 0 ? apply_preset(gr - 1);
+    );
+    mouse_just_down = 0;
+  );
+);
+
+gfx_set(0.06, 0.06, 0.07, 1);
+gfx_rect(0, py(582), gfx_w, max(1, scale), 1);
+hs = drag_target > 0 ? drag_target : hov_s;
+font(12, 0);
+gfx_set(0.62, 0.63, 0.66, 1);
+strcpy(#hint, hs > 0 ? hint_text(hs) : "Drag or scroll to adjust  ·  Ctrl for fine control  ·  double-click to reset  ·  click a tab to switch pages");
+hs == 103 ? sprintf(#hint, "Preset: %s  (%s)  ·  click for the list, arrows to step", pr_name(floor(p_preset + 0.5)), pr_vendor(floor(p_preset + 0.5)));
+gfx_measurestr(#hint, gtw, gth);
+gtw > (DW - 24) * scale ? ( gfx_setfont(1, "Arial", 14 * scale * (DW - 24) * scale / gtw); gfx_measurestr(#hint, gtw, gth); );
+gfx_x = px(DW * 0.5) - gtw * 0.5; gfx_y = py(597) - gth * 0.5;
+gfx_drawstr(#hint);
+
+drag_target > 0 ? (
+  mouse_down ? (
+    mouse_cap |= 65536;
+    fine_now = mouse_cap & 4;
+    drag_kind == 0 ? (
+      fine_now != drag_fine ? ( drag_y0 = mouse_y; drag_p0 = to_pos(drag_target, slider(drag_target)); drag_fine = fine_now; );
+      set_pos(drag_target, drag_p0 + (drag_y0 - mouse_y) / (200 * scale) * (fine_now ? 0.1 : 1));
+    ) : (
+      fine_now != drag_fine ? ( drag_x0 = mouse_x; drag_p0 = to_pos(drag_target, slider(drag_target)); drag_fine = fine_now; );
+      set_pos(drag_target, drag_p0 + (mouse_x - drag_x0) / drag_w * (fine_now ? 0.1 : 1));
+    );
+  ) : ( automate(drag_target, 1); drag_target = 0; );
+);
+
+mouse_state = mouse_down;
