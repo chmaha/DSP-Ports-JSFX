@@ -2705,8 +2705,13 @@ function reg9(str, i) (
   sprintf(str, "%d%d %d%d%d%d %d%d%d", slider(i), slider(i + 1), slider(i + 2), slider(i + 3), slider(i + 4),
     slider(i + 5), slider(i + 6), slider(i + 7), slider(i + 8));
 );
+function init_patch() local(k) (
+  k = 1; loop(41, slider(k) = slDef[k]; automate(k, 0); automate(k, 1); k += 1; );
+  curProg = 0;
+);
+
 function lcd_menu() local(p, k, g, cnt) (
-  strcpy(#m, ""); cnt = 0;
+  sprintf(#m, "%sINIT|", slider(41) == 0 ? "!" : ""); cnt = 0;
   p = 1;
   loop(110,
     pg_flags[p] & 1 ? (
@@ -2727,11 +2732,14 @@ function lcd_menu() local(p, k, g, cnt) (
   );
   strcat(#m, "|<");
   k = gfx_showmenu(#m);
-  k > cnt ? g = 110 + k - cnt : (
-    cnt = 0; p = 1; g = 0;
-    loop(110, pg_flags[p] & 1 ? ( cnt += 1; cnt == k ? g = p; ); p += 1; );
+  k == 1 ? init_patch() : (
+    k -= 1;
+    k > cnt ? g = 110 + k - cnt : (
+      cnt = 0; p = 1; g = 0;
+      loop(110, pg_flags[p] & 1 ? ( cnt += 1; cnt == k ? g = p; ); p += 1; );
+    );
+    g > 0 && (pg_flags[g] & 1) ? ( slider(41) = g; automate(41, 0); automate(41, 1); );
   );
-  g > 0 && (pg_flags[g] & 1) ? ( slider(41) = g; automate(41, 0); automate(41, 1); );
 );
 
 function step_prog(d) local(p, n) (
