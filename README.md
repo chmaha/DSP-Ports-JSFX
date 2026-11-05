@@ -29,6 +29,7 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 - **Other ports**: Reverb ([Zita-Rev1](https://kokkinizita.linuxaudio.org/linuxaudio/downloads/index.html)), Inflator ([RCInflator2](https://github.com/ReaTeam/JSFX/tree/master/Distortion)), Intelligent Spectral Compressor ([Spectral Compressor](https://github.com/robbert-vdh/nih-plug)), JuKnow Chorus ([junologue-chorus](https://github.com/peterall/junologue-chorus)), ChronoDupe automatic double tracking ([ADT](https://github.com/SpotlightKid/adt)) and Analog Jam tape stop/start ([cStop](https://github.com/calgoheen/cStop)).
 - **Potato Quality**: lo-fi degrader (bit depth down to 4 bits, sample-rate reduction, harmonic thickening, clipping and a steep post filter), ported from mda Degrade via [mda-lv2](https://gitlab.com/drobilla/mda-lv2). Starts clean so you can dial the damage in, in Mono (like the original) or Stereo.
 - **Reel Talk**: reel-to-reel tape machine, ported from [CHOW Tape Model](https://github.com/jatinchowdhury18/AnalogTapeModel). Includes the magnetic hysteresis tape model (with RK, NR, neural-network and v1 solvers, oversampled up to 16x), tone and input filters, tape compression, playback head loss, wow and flutter, degradation and chew, and the 94 factory presets.
+- **Wax Lyrical**: vinyl record simulator, ported from [Calf Vinyl](https://github.com/calf-studio-gear/calf) (Markus Schmidt). Includes the once-per-revolution drone wobble at 33, 45 or 78 rpm, aging that narrows the frequency range like a worn record, and seven noise layers (Hum, Motor, Static, Noise, Rumble, Crackle and Crinkle), each with its own level and pitch, played through the same FluidSynth port as Scoring Synth.
 - **Lumina Channel Strip**: HPF/LPF, gate, analog EQ, compressor, saturation, limiter and true peak metering in one plugin, built from the ports above.
 - **Original design**: Dynamic Tilt, a tilt EQ whose slope follows the signal.
 
@@ -70,7 +71,7 @@ Copy the plugin's `.jsfx` file into your REAPER `Effects` folder (**Options → 
 
 Each plugin keeps its original's license, and the JSFX code is released under the same or a compatible license (GPLv3 or later unless stated). The header of each `.jsfx` file gives the details, and each license file sits next to the assets it covers in `Dependencies`.
 
-- **GPLv3 or later** (JSFX code): ports of GPL originals, including the x42 plugins (GPLv2 or later), zam-plugins (GPLv2 or later), Zita-Rev1, Aeolus, setBfree, amsynth, Dexed, mda-lv2, Spectral Compressor and CHOW Tape Model, plus Acid Reign (from the MIT-licensed Open303).
+- **GPLv3 or later** (JSFX code): ports of GPL originals, including the x42 plugins (GPLv2 or later), zam-plugins (GPLv2 or later), Zita-Rev1, Aeolus, setBfree, amsynth, Dexed, mda-lv2, Spectral Compressor and CHOW Tape Model, plus Acid Reign (from the MIT-licensed Open303) and Wax Lyrical (from Calf Vinyl and FluidSynth, both LGPL 2.1).
 - **MIT**: JuKnow Chorus (Peter Allwin), ChronoDupe (Christopher Arndt), Analog EQ and Final Touch (lkjb), and the Airwindows ports (Chris Johnson).
 - **AGPLv3 or later**: the unplugred ports (Oscilloscope, VU Meter, Super Color). unplugred's image assets and samples are CC BY-NC (non-commercial).
 - **Samples**: the AVL Drumkits samples and photos by Glen MacArthur are CC-BY-SA 3.0, and music made with the kits can be licensed freely.
