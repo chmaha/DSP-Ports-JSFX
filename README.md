@@ -8,6 +8,7 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 - **Jexed**: DX7-style FM synthesizer, ported from [Dexed](https://github.com/asb2m10/dexed). Includes 1056 voices (Dexed_01 and SynprezFM_01–32 cartridges) and a full voice editor.
 - **JamSynth**: subtractive synthesizer with 28 factory banks and a 128-slot user bank, ported from [amsynth](https://github.com/amsynth/amsynth).
 - **Tolerable Tines**: electric piano, ported from Ardour's [ACE Reasonable Synth](https://github.com/Ardour/ardour/tree/master/libs/plugins/reasonablesynth.lv2).
+- **Partiality**: additive and modulation synthesizer, ported from the ADsynth engine of [ZynAddSubFX](https://github.com/zynaddsubfx/zynaddsubfx). Includes eight voices per note, each with its own harmonic oscillator and modulator, unison, noise sources, envelopes and LFOs, five filter types, poly, mono and legato modes, 19 factory patches and 122 instruments converted from the ZynAddSubFX banks.
 - **Dr. Nine**: drum synthesizer, ported from [9W9](https://github.com/athousanddetails/schwung-9W9).
 - **Acid Reign**: TB-303-style acid bass synth, ported from [Open303](https://github.com/RobinSchmidt/Open303). Includes the accent and slide behaviour, the Devil Fish envelope and slide mods, 16 filter modes and a 16-pattern step sequencer that follows a held key (Key Sync) or REAPER's transport (Host Sync).
 - **Chamber Organ**: pipe organ, ported from [Aeolus](https://kokkinizita.linuxaudio.org/linuxaudio/aeolus/).
@@ -71,7 +72,7 @@ Copy the plugin's `.jsfx` file into your REAPER `Effects` folder (**Options → 
 
 Each plugin keeps its original's license, and the JSFX code is released under the same or a compatible license (GPLv3 or later unless stated). The header of each `.jsfx` file gives the details, and each license file sits next to the assets it covers in `Dependencies`.
 
-- **GPLv3 or later** (JSFX code): ports of GPL originals, including the x42 plugins (GPLv2 or later), zam-plugins (GPLv2 or later), Zita-Rev1, Aeolus, setBfree, amsynth, Dexed, mda-lv2, Spectral Compressor and CHOW Tape Model, plus Acid Reign (from the MIT-licensed Open303) and Wax Lyrical (from Calf Vinyl and FluidSynth, both LGPL 2.1).
+- **GPLv3 or later** (JSFX code): ports of GPL originals, including the x42 plugins (GPLv2 or later), zam-plugins (GPLv2 or later), Zita-Rev1, Aeolus, setBfree, amsynth, Dexed, mda-lv2, Spectral Compressor, CHOW Tape Model and ZynAddSubFX, plus Acid Reign (from the MIT-licensed Open303) and Wax Lyrical (from Calf Vinyl and FluidSynth, both LGPL 2.1).
 - **MIT**: JuKnow Chorus (Peter Allwin), ChronoDupe (Christopher Arndt), Analog EQ and Final Touch (lkjb), and the Airwindows ports (Chris Johnson).
 - **AGPLv3 or later**: the unplugred ports (Oscilloscope, VU Meter, Super Color). unplugred's image assets and samples are CC BY-NC (non-commercial).
 - **Samples**: the AVL Drumkits samples and photos by Glen MacArthur are CC-BY-SA 3.0, and music made with the kits can be licensed freely.
