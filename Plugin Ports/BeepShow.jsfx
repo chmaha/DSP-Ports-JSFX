@@ -11,9 +11,10 @@ about:
   turns the material down instead of adding anything.
   Period sets the time between insertions, Duration how long each one lasts, and Freq the beep pitch or
   the noise filter's corner frequency.
-  Gain sets the beep or noise level relative to the highest peak of the material since playback started.
-  The material is turned down by the same proportion during the insertion, so the output never goes above
-  that peak. With Mute, Gain is the level the material drops to (-60 dB mutes it completely).
+  Gain sets the beep or noise level in dBFS. During the insertion the material is turned down in proportion,
+  so the output never goes above the material's highest peak since playback started (when the beep is louder
+  than that peak, the material is muted for its length). With Mute, Gain is the level the material drops to
+  (-60 dB mutes it completely).
   Variation randomly changes the timing, duration, frequency and gain of every insertion, which makes
   automatic removal much harder. The pattern follows the project position, so every render is identical.
   Between insertions the audio passes through untouched, with zero latency, on any number of channels.
@@ -127,8 +128,8 @@ s_x >= 0 && s_x < e_dur ? (
       s_s = max(-1, min(1, s_s * e_norm));
     );
     s_a = e_lin * s_env;
-    s_m = 1 - s_a;
-    s_b = s_a * a_pk * s_s;
+    s_m = a_pk > s_a ? 1 - s_a / a_pk : 0;
+    s_b = s_a * s_s;
     s_c = 0;
     loop(a_nch, spl(s_c) = spl(s_c) * s_m + s_b; s_c += 1; );
   );
@@ -422,7 +423,7 @@ g_hover == 2 ? gfx_drawstr("Period: time between insertions.") :
 g_hover == 3 ? gfx_drawstr("Duration: length of each insertion (at most 90 % of the period).") :
 g_hover == 4 ? gfx_drawstr("Freq: beep pitch, or the noise filter's corner frequency.") :
 g_hover == 5 ? gfx_drawstr(p_signal >= 1.5 ? "Mute To: level the material drops to; -60 dB mutes it completely." :
-  "Gain: level relative to the material's peak. The material dips to match, so the peak is never exceeded.") :
+  "Gain: beep or noise level in dBFS. The material dips to match, so its peak is not exceeded.") :
 g_hover == 6 ? gfx_drawstr("Variation: randomises timing, duration, frequency and gain of every insertion.") :
 gfx_drawstr("Drag or scroll knobs (Ctrl = fine), double-click to reset.");
 

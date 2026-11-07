@@ -47,6 +47,10 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 
 - **Sight for Sore Ears** (original design): audio-reactive visualizer with 25 scenes, from Plasma, Nebula and Starfield to Live Score (smoke rising from an 88-key piano), Cymatics, Galaxy and Harmonograph. It reacts to drums on the hit and to note onsets in music without drums, so classical and ambient pieces stay alive too. Includes 12 colour palettes and adjustable sensitivity, speed and quality. Audio passes through untouched.
 
+## Utility
+
+- **Beep Show** (original design, after the feature set of Voxengo Beeper): preview watermarker that puts beeps, low-passed noise bursts or dips in level into audio at a set interval, to protect demos, previews and stems. The material dips during each insertion so the output stays below its peak, and Variation randomises timing, duration, frequency and gain so the marks are hard to remove. The pattern follows the project position, so every render is identical. Zero latency, any number of channels.
+
 ## User guide
 
 See [CONTROLS.html](https://htmlpreview.github.io/?https://github.com/chmaha/DSP-Ports-JSFX/blob/main/CONTROLS.html) for the chmaha DSP to JSFX user guide, a quick start for each plugin's controls.
