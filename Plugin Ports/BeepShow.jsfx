@@ -1,0 +1,429 @@
+Version: 1.0
+desc: Beep Show Preview Watermarker by chmaha
+tags: utility watermark beep noise mute preview protection
+author: chmaha
+changelog:
+  Initial release.
+about:
+  Puts short beeps, filtered noise bursts or dips in level into any audio at a set interval, to protect
+  demos, previews and stems from unauthorised use.
+  Signal: Beep inserts a sine tone, Noise a low-passed noise burst (harder to remove cleanly), and Mute
+  turns the material down instead of adding anything.
+  Period sets the time between insertions, Duration how long each one lasts, and Freq the beep pitch or
+  the noise filter's corner frequency.
+  Gain sets the beep or noise level relative to the highest peak of the material since playback started.
+  The material is turned down by the same proportion during the insertion, so the output never goes above
+  that peak. With Mute, Gain is the level the material drops to (-60 dB mutes it completely).
+  Variation randomly changes the timing, duration, frequency and gain of every insertion, which makes
+  automatic removal much harder. The pattern follows the project position, so every render is identical.
+  Between insertions the audio passes through untouched, with zero latency, on any number of channels.
+  Original design by chmaha, after the feature set of Voxengo Beeper
+  JSFX code released under GPLv3 license
+  Claude generated some of this code
+
+slider1:p_signal=0<0,2,1{Beep,Noise,Mute}>-Signal
+slider2:p_period=10<0.5,120,0.1:log=7.75>-Period (s)
+slider3:p_dur=0.5<0.02,10,0.01:log=0.45>-Duration (s)
+slider4:p_freq=1000<20,20000,1:log=632>-Freq (Hz)
+slider5:p_gain=-12<-60,0,0.1>-Gain (dB)
+slider6:p_var=0<0,100,1>-Variation (%)
+
+options:no_meter
+
+@init
+
+ext_noinit = gfx_ext_retina = 1;
+
+LCG_M = 2147483647;
+
+function hsh(k, j) local(x) (
+  x = sin(k * 12.9898 + j * 78.233 + 0.5) * 43758.5453;
+  x - floor(x);
+);
+
+function lp_coefs(f, q) local(w, cs, al, a0) instance(b0, b1, a1, a2) (
+  w = 2 * $pi * f / srate;
+  cs = cos(w);
+  al = sin(w) / (2 * q);
+  a0 = 1 + al;
+  b0 = (1 - cs) * 0.5 / a0;
+  b1 = (1 - cs) / a0;
+  a1 = -2 * cs / a0;
+  a2 = (1 - al) / a0;
+);
+
+function lp_reset() instance(z1, z2) ( z1 = z2 = 0; );
+
+function lp_run(x) local(y) instance(b0, b1, a1, a2, z1, z2) (
+  y = b0 * x + z1;
+  z1 = b1 * x - a1 * y + z2;
+  z2 = b0 * x - a2 * y;
+  y;
+);
+
+function ev_setup(k) local(v, d, g, f) (
+  v = p_var * 0.01;
+  d = p_dur * 2 ^ (v * (2 * hsh(k, 2) - 1));
+  d = max(0.02, min(a_per * 0.9, d));
+  e_dur = d;
+  e_start = k * a_per + (a_per - d) * (0.5 + v * 0.5 * (hsh(k, 1) - 0.5));
+  f = p_freq * 2 ^ (v * (2 * hsh(k, 3) - 1));
+  e_freq = max(20, min(srate * 0.45, f));
+  g = min(0, p_gain + v * 12 * (hsh(k, 4) - 0.5));
+  e_lin = g <= -60 ? 0 : 10 ^ (g / 20);
+  e_fade = min(0.005, d * 0.25);
+  e_w = 2 * $pi * e_freq;
+  e_seed = 1 + floor(hsh(k, 5) * (LCG_M - 2));
+  lpa.lp_coefs(e_freq, 0.5411961);
+  lpb.lp_coefs(e_freq, 1.3065630);
+  e_norm = 0.35 / (0.57735 * sqrt(min(1, 2 * e_freq / srate)));
+);
+
+a_tfree = 0;
+a_pk = 0;
+
+@block
+
+a_per = max(0.5, p_period);
+a_play = play_state & 1;
+a_play && !a_lastplay ? a_pk = 0;
+a_lastplay = a_play;
+a_t = a_play ? play_position : a_tfree;
+!a_play ? a_tfree += samplesblock / srate;
+a_dt = 1 / srate;
+a_nch = max(1, num_ch);
+a_k = -1;
+
+@sample
+
+s_k = floor(a_t / a_per);
+s_k !== a_k ? ( a_k = s_k; ev_setup(s_k); );
+
+s_c = 0;
+loop(a_nch, a_pk = max(a_pk, abs(spl(s_c))); s_c += 1; );
+
+s_x = a_t - e_start;
+s_x >= 0 && s_x < e_dur ? (
+  !a_in ? (
+    a_in = 1;
+    a_seed = e_seed;
+    lpa.lp_reset();
+    lpb.lp_reset();
+  );
+  s_env = s_x < e_fade ? sqr(sin(0.5 * $pi * s_x / e_fade)) :
+          s_x > e_dur - e_fade ? sqr(sin(0.5 * $pi * (e_dur - s_x) / e_fade)) : 1;
+  a_env = s_env;
+  p_signal >= 2 ? (
+    s_m = 1 - s_env * (1 - e_lin);
+    s_c = 0;
+    loop(a_nch, spl(s_c) *= s_m; s_c += 1; );
+  ) : (
+    p_signal < 1 ? (
+      s_s = sin(e_w * s_x);
+    ) : (
+      a_seed = a_seed * 16807;
+      a_seed -= floor(a_seed / LCG_M) * LCG_M;
+      s_s = lpb.lp_run(lpa.lp_run(2 * a_seed / LCG_M - 1));
+      s_s = max(-1, min(1, s_s * e_norm));
+    );
+    s_a = e_lin * s_env;
+    s_m = 1 - s_a;
+    s_b = s_a * a_pk * s_s;
+    s_c = 0;
+    loop(a_nch, spl(s_c) = spl(s_c) * s_m + s_b; s_c += 1; );
+  );
+) : (
+  a_in = 0;
+  a_env = 0;
+);
+
+a_t += a_dt;
+
+@gfx 760 336
+
+DW = 760;
+DH = 336;
+scale = max(0.5, min(gfx_w / DW, gfx_h / DH));
+ox = floor((gfx_w - DW * scale) * 0.5);
+oy = 0;
+
+function automate(s, e)
+(
+<?
+  max_sliders > 16 ? printf("slider_automate(2^(s-1), e);") :
+    loop(i = 1; 6,
+      printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function set_slider(s, v) ( slider(s) = v; automate(s, 0); automate(s, 1); );
+
+function px(x) ( ox + x * scale; );
+function py(y) ( oy + y * scale; );
+
+function hit_circle(mx_, my_, cx, cy, rad) ( sqr(mx_ - cx) + sqr(my_ - cy) <= sqr(rad); );
+function hit_rect(mx_, my_, x, y, w, h) ( mx_ >= x && mx_ <= x + w && my_ >= y && my_ <= y + h; );
+
+function k_min(s) ( s == 2 ? 0.5 : s == 3 ? 0.02 : s == 4 ? 20 : s == 5 ? -60 : 0; );
+function k_max(s) ( s == 2 ? 120 : s == 3 ? 10 : s == 4 ? 20000 : s == 5 ? 0 : 100; );
+function k_def(s) ( s == 2 ? 10 : s == 3 ? 0.5 : s == 4 ? 1000 : s == 5 ? -12 : 0; );
+function k_log(s) ( s >= 2 && s <= 4; );
+function k_pos(s) local(lo, hi) (
+  lo = k_min(s); hi = k_max(s);
+  k_log(s) ? max(0, min(1, log(max(lo, slider(s)) / lo) / log(hi / lo))) :
+    max(0, min(1, (slider(s) - lo) / (hi - lo)));
+);
+function k_set(s, pos) local(lo, hi, v) (
+  lo = k_min(s); hi = k_max(s);
+  pos = max(0, min(1, pos));
+  v = k_log(s) ? lo * (hi / lo) ^ pos : lo + (hi - lo) * pos;
+  s == 2 ? v = floor(v * 10 + 0.5) / 10 :
+  s == 3 ? v = floor(v * 100 + 0.5) / 100 :
+  s == 4 ? v = floor(v + 0.5) :
+  s == 5 ? v = floor(v * 10 + 0.5) / 10 :
+  v = floor(v + 0.5);
+  slider(s) = max(lo, min(hi, v));
+  automate(s, 0);
+);
+
+function ctext(str, cx, y) local(tw, th) (
+  gfx_measurestr(str, tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function draw_knob(cx, cy, rad, pos, cr, cg, cb, valtext, minlabel, maxlabel, name)
+local(ang0, ang1, ang, i, tx, ty)
+(
+  ang0 = -2.35619;
+  ang1 = 2.35619;
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(cx, cy, rad + 2 * scale, 1, 1);
+  gfx_set(cr * 0.55, cg * 0.55, cb * 0.55, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rad * 0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(cx - rad * 0.28, cy - rad * 0.28, rad * 0.42, 1, 1);
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.85, 0.85, 0.85, 0.7);
+    gfx_line(cx + sin(ang) * rad * 0.82, cy - cos(ang) * rad * 0.82, cx + sin(ang) * rad * 0.98, cy - cos(ang) * rad * 0.98);
+    i += 1;
+  );
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(cx, cy, cx + sin(ang) * rad * 0.85, cy - cos(ang) * rad * 0.85, 1);
+  gfx_setfont(1, "Arial", 15 * scale);
+  gfx_set(0.88, 0.88, 0.9, 1);
+  gfx_measurestr(valtext, tx, ty);
+  gfx_x = cx - tx * 0.5; gfx_y = cy - rad - 19 * scale;
+  gfx_drawstr(valtext);
+  gfx_setfont(1, "Arial", 12 * scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_x = cx - rad - 6 * scale; gfx_y = cy + rad + 3 * scale;
+  gfx_drawstr(minlabel);
+  gfx_measurestr(maxlabel, tx, ty);
+  gfx_x = cx + rad - tx + 6 * scale; gfx_y = cy + rad + 3 * scale;
+  gfx_drawstr(maxlabel);
+  gfx_setfont(1, "Arial", 14 * scale, 'b');
+  gfx_set(0.82, 0.82, 0.85, 1);
+  gfx_measurestr(name, tx, ty);
+  gfx_x = cx - tx * 0.5; gfx_y = cy + rad + 17 * scale;
+  gfx_drawstr(name);
+);
+
+function knob_ui(s, cx, cy, rad)
+local(hov)
+(
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, rad + 6 * scale);
+  hov ? g_hover = s;
+  mouse_just_down && hov ? (
+    (click_target == s && time_precise() - click_time < 0.3) ? (
+      set_slider(s, k_def(s));
+      drag_target = 0;
+    ) : (
+      drag_target = s; drag_start_y = mouse_y; drag_start_pos = k_pos(s);
+    );
+    click_target = s; click_time = time_precise();
+    mouse_just_down = 0;
+  );
+  wheel != 0 && hov && drag_target == 0 ? (
+    k_set(s, k_pos(s) + wheel / 120 * ((mouse_cap & 4) ? 0.002 : 0.02));
+    automate(s, 1);
+    wheel = 0;
+  );
+);
+
+function draw_btn(bx, by, bw, bh, txt, active, cr, cg, cb)
+local(tw, th, gap)
+(
+  active ? 0 : ( cr = 0.22; cg = 0.22; cb = 0.25; );
+  gap = max(1, scale);
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(bx - gap, by - gap, bw + 2 * gap, bh + 2 * gap, 1);
+  gfx_set(cr * 0.6, cg * 0.6, cb * 0.6, 1);
+  gfx_rect(bx, by, bw, bh, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_rect(bx + gap, by + gap, bw - 2 * gap, bh * 0.5, 1);
+  gfx_set(1, 1, 1, active ? 0.22 : 0.10);
+  gfx_rect(bx + gap, by + gap, bw - 2 * gap, bh * 0.32, 1);
+  gfx_set(1, 1, 1, active ? 0.4 : 0.22);
+  gfx_rect(bx, by, bw, gap, 1);
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(bx, by + bh - gap, bw, gap, 1);
+  gfx_setfont(1, "Arial", 15 * scale);
+  gfx_set(1, 1, 1, active ? 0.95 : 0.8);
+  gfx_measurestr(txt, tw, th);
+  gfx_x = bx + bw * 0.5 - tw * 0.5; gfx_y = by + bh * 0.5 - th * 0.5;
+  gfx_drawstr(txt);
+  hit_rect(mouse_x, mouse_y, bx, by, bw, bh) ? (
+    mouse_just_down ? ( mouse_just_down = 0; 1; ) : 0;
+  ) : 0;
+);
+
+function panel(x, y, w, h, title)
+(
+  gfx_set(0.12, 0.12, 0.135, 1);
+  gfx_rect(px(x), py(y), w * scale, h * scale, 1);
+  gfx_set(0.22, 0.22, 0.25, 1);
+  gfx_rect(px(x), py(y), w * scale, h * scale, 0);
+  gfx_setfont(1, "Arial", 13 * scale, 'b');
+  gfx_set(0.6, 0.62, 0.66, 1);
+  gfx_x = px(x + 10); gfx_y = py(y + 7);
+  gfx_drawstr(title);
+);
+
+function time_text(v)
+(
+  v < 1 ? sprintf(#g_tt, "%d ms", floor(v * 1000 + 0.5)) :
+  v < 10 ? sprintf(#g_tt, "%.2f s", v) : sprintf(#g_tt, "%.1f s", v);
+  #g_tt;
+);
+
+function gv_hsh(k, j) local(x) (
+  x = sin(k * 12.9898 + j * 78.233 + 0.5) * 43758.5453;
+  x - floor(x);
+);
+
+function gv_dur(k, per) local(v, d) (
+  v = p_var * 0.01;
+  d = p_dur * 2 ^ (v * (2 * gv_hsh(k, 2) - 1));
+  max(0.02, min(per * 0.9, d));
+);
+
+function gv_start(k, per, d) local(v) (
+  v = p_var * 0.01;
+  k * per + (per - d) * (0.5 + v * 0.5 * (gv_hsh(k, 1) - 0.5));
+);
+
+mouse_down = mouse_cap & 1;
+mouse_just_down = mouse_down && !g_mouse_last;
+wheel = mouse_wheel; mouse_wheel = 0;
+g_hover = 0;
+
+gfx_set(0.09, 0.09, 0.10, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_setfont(1, "Arial", 24 * scale, 'b');
+gfx_set(0.95, 0.72, 0.30, 1);
+gfx_x = px(16); gfx_y = py(8);
+gfx_drawstr("BEEP SHOW");
+gfx_setfont(1, "Arial", 14 * scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = px(18); gfx_y = py(36);
+gfx_drawstr("by chmaha  ·  preview watermarker");
+
+gfx_setfont(1, "Arial", 13 * scale, 'b');
+gfx_set(0.6, 0.62, 0.66, 1);
+gfx_x = px(468); gfx_y = py(10); gfx_drawstr("SIGNAL");
+draw_btn(px(468), py(28), 90 * scale, 26 * scale, "Beep", p_signal < 0.5, 0.95, 0.62, 0.25) ? set_slider(1, 0);
+draw_btn(px(562), py(28), 90 * scale, 26 * scale, "Noise", p_signal >= 0.5 && p_signal < 1.5, 0.95, 0.62, 0.25) ? set_slider(1, 1);
+draw_btn(px(656), py(28), 90 * scale, 26 * scale, "Mute", p_signal >= 1.5, 0.95, 0.62, 0.25) ? set_slider(1, 2);
+hit_rect(mouse_x, mouse_y, px(468), py(28), 278 * scale, 26 * scale) ? g_hover = 1;
+
+panel(14, 66, 732, 84, "TIMELINE");
+g_tx = px(28); g_ty = py(94); g_tw = 704 * scale; g_th = 24 * scale;
+gfx_set(0.06, 0.06, 0.07, 1);
+gfx_rect(g_tx, g_ty, g_tw, g_th, 1);
+g_per = a_per > 0 ? a_per : max(0.5, p_period);
+g_now = a_t;
+g_k0 = floor(g_now / g_per);
+g_span = g_per * 2;
+g_t0 = g_now - g_per * 0.5;
+g_next = -1;
+gi = -1;
+loop(4,
+  g_kk = g_k0 + gi;
+  g_ed = gv_dur(g_kk, g_per);
+  g_bs = gv_start(g_kk, g_per, g_ed);
+  g_bs > g_now && (g_next < 0 || g_bs - g_now < g_next) ? g_next = g_bs - g_now;
+  g_x0 = max(g_tx, g_tx + ((g_bs - g_t0) / g_span) * g_tw);
+  g_x1 = min(g_tx + g_tw, g_tx + ((g_bs + g_ed - g_t0) / g_span) * g_tw);
+  g_x1 > g_x0 ? (
+    gfx_set(0.95, 0.62, 0.25, g_bs + g_ed < g_now ? 0.4 : 0.9);
+    gfx_rect(g_x0, g_ty + 3 * scale, max(1, g_x1 - g_x0), g_th - 6 * scale, 1);
+  );
+  gi += 1;
+);
+gfx_set(0.9, 0.9, 0.92, 1);
+gfx_line(g_tx + g_tw * 0.25, g_ty - 3 * scale, g_tx + g_tw * 0.25, g_ty + g_th + 3 * scale);
+g_lamp = a_env;
+gfx_set(0.95, 0.62, 0.25, 0.15 + 0.85 * g_lamp);
+gfx_circle(px(726), py(78), 6 * scale, 1, 1);
+gfx_setfont(1, "Arial", 14 * scale);
+gfx_set(0.66, 0.66, 0.7, 1);
+gfx_x = px(28); gfx_y = py(124);
+g_lamp > 0 ? gfx_drawstr(p_signal >= 1.5 ? "Muting now" : p_signal >= 0.5 ? "Noise now" : "Beeping now") :
+  gfx_drawstr(sprintf(#g_tmp, "Next in %s", time_text(max(0, g_next))));
+gfx_x = px(560); gfx_y = py(124);
+gfx_drawstr(a_pk > 0 ? sprintf(#g_tmp, "Peak %.1f dBFS", 20 * log10(max(0.000001, a_pk))) : "Peak: no signal yet");
+
+KR = 26 * scale;
+panel(14, 162, 732, 136, "PARAMETERS");
+g_ky = py(234);
+knob_ui(2, px(90), g_ky, KR);
+knob_ui(3, px(235), g_ky, KR);
+knob_ui(4, px(380), g_ky, KR);
+knob_ui(5, px(525), g_ky, KR);
+knob_ui(6, px(670), g_ky, KR);
+
+draw_knob(px(90), g_ky, KR, k_pos(2), 0.40, 0.62, 0.85, time_text(p_period), "0.5 s", "120 s", "Period");
+draw_knob(px(235), g_ky, KR, k_pos(3), 0.40, 0.75, 0.60, time_text(p_dur), "20 ms", "10 s", "Duration");
+draw_knob(px(380), g_ky, KR, k_pos(4), 0.95, 0.62, 0.25,
+  p_freq < 1000 ? sprintf(#g_tmp, "%d Hz", p_freq) : sprintf(#g_tmp, "%.2f kHz", p_freq / 1000), "20", "20k", "Freq");
+draw_knob(px(525), g_ky, KR, k_pos(5), 0.85, 0.40, 0.40,
+  p_gain <= -60 ? "-inf dB" : sprintf(#g_tmp, "%.1f dB", p_gain), "-60", "0", p_signal >= 1.5 ? "Mute To" : "Gain");
+draw_knob(px(670), g_ky, KR, k_pos(6), 0.75, 0.55, 0.85, sprintf(#g_tmp, "%d %%", p_var), "0", "100", "Variation");
+
+drag_target > 0 ? (
+  mouse_down ? (
+    mouse_cap |= 65536;
+    k_set(drag_target, drag_start_pos + (drag_start_y - mouse_y) / (((mouse_cap & 4) ? 1500 : 150) * scale));
+    g_hover = drag_target;
+  ) : (
+    automate(drag_target, 1);
+    drag_target = 0;
+  );
+);
+
+gfx_set(0.12, 0.12, 0.135, 1);
+gfx_rect(px(14), py(308), 732 * scale, 22 * scale, 1);
+gfx_set(0.22, 0.22, 0.25, 1);
+gfx_rect(px(14), py(308), 732 * scale, 22 * scale, 0);
+gfx_setfont(1, "Arial", 14 * scale);
+gfx_set(0.66, 0.66, 0.7, 1);
+gfx_x = px(22); gfx_y = py(311);
+g_hover == 1 ? gfx_drawstr("Signal: a sine beep, a low-passed noise burst (hardest to remove) or a dip in level.") :
+g_hover == 2 ? gfx_drawstr("Period: time between insertions.") :
+g_hover == 3 ? gfx_drawstr("Duration: length of each insertion (at most 90 % of the period).") :
+g_hover == 4 ? gfx_drawstr("Freq: beep pitch, or the noise filter's corner frequency.") :
+g_hover == 5 ? gfx_drawstr(p_signal >= 1.5 ? "Mute To: level the material drops to; -60 dB mutes it completely." :
+  "Gain: level relative to the material's peak. The material dips to match, so the peak is never exceeded.") :
+g_hover == 6 ? gfx_drawstr("Variation: randomises timing, duration, frequency and gain of every insertion.") :
+gfx_drawstr("Drag or scroll knobs (Ctrl = fine), double-click to reset.");
+
+g_mouse_last = mouse_down;
