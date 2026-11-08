@@ -1,0 +1,990 @@
+@init
+function pc(r, g, b) ( gfx_set(min(1, r * g_lr), min(1, g * g_lg), min(1, b * g_lb), 1); );
+function pr(x, y, w, h) ( gfx_rect(floor(x), floor(y), w, h); );
+
+function iso_tile(x, y) local(k, hw)
+(
+  k = 0;
+  loop(ISO_H,
+    hw = (k < ISO_H / 2 ? k + 1 : ISO_H - k) * 2;
+    gfx_rect(x - hw, y + k, 2 * hw, 1);
+    k += 1;
+  );
+);
+
+function iso_small(x, y, w) local(k, hw, h)
+(
+  h = w / 2;
+  k = 0;
+  loop(h,
+    hw = (k < h / 2 ? k + 1 : h - k) * 2;
+    gfx_rect(x - hw, y + k, 2 * hw, 1);
+    k += 1;
+  );
+);
+
+function iso_outline(x, y) local(k, hw)
+(
+  k = 0;
+  loop(ISO_H,
+    hw = (k < ISO_H / 2 ? k + 1 : ISO_H - k) * 2;
+    gfx_rect(x - hw, y + k, 2, 1);
+    gfx_rect(x + hw - 2, y + k, 2, 1);
+    k += 1;
+  );
+);
+
+function sky_band(t, md) local(a)
+(
+  md == 0 ? (
+    g_br = 0.42 + 0.4 * t; g_bg = 0.66 + 0.26 * t; g_bb = 0.92 + 0.06 * t;
+  ) : md == 1 ? (
+    a = t * t;
+    g_br = 0.26 + 0.74 * t; g_bg = 0.2 + 0.5 * a; g_bb = 0.45 - 0.1 * t;
+  ) : (
+    g_br = 0.03 + 0.07 * t; g_bg = 0.04 + 0.08 * t; g_bb = 0.13 + 0.15 * t;
+  );
+);
+
+function pix_cloud(x, y, w, md)
+(
+  md == 0 ? gfx_set(1, 1, 1, 1) : md == 1 ? gfx_set(1, 0.78, 0.72, 1) : gfx_set(0.2, 0.22, 0.34, 1);
+  pr(x + 2, y + 2, w - 4, 3);
+  pr(x, y + 3, w, 2);
+  pr(x + 3, y + 1, floor(w * 0.35), 2);
+  pr(x + floor(w * 0.4), y, floor(w * 0.32), 3);
+  pr(x + floor(w * 0.55), y - 1, floor(w * 0.2), 2);
+  md == 0 ? gfx_set(0.82, 0.88, 0.96, 1) : md == 1 ? gfx_set(0.85, 0.55, 0.58, 1) : gfx_set(0.14, 0.15, 0.26, 1);
+  pr(x + 1, y + 5, w - 2, 1);
+);
+
+function pg_sky(md) local(k, y0, x, y, w, a)
+(
+  k = 0;
+  loop(26,
+    sky_band(k / 25, md);
+    gfx_set(g_br, g_bg, g_bb, 1);
+    y0 = floor(k * PG_H / 26);
+    gfx_rect(0, y0, PG_W, floor((k + 1) * PG_H / 26) - y0);
+    k += 1;
+  );
+  md == 2 || md == 1 ? (
+    k = 0;
+    loop(md == 2 ? 50 : 14,
+      x = floor(hash(k * 3.1 + 1) * PG_W); y = floor(hash(k * 1.7 + 2) * PG_H * (md == 2 ? 0.75 : 0.25));
+      a = max(0, sin(g_t * (0.7 + hash(k)) + k * 2));
+      a > 0.3 ? ( gfx_set(1, 1, 0.9, a * (md == 2 ? 1 : 0.5)); gfx_rect(x, y, 1, 1); );
+      k += 1;
+    );
+  );
+  md == 0 ? (
+    gfx_set(1, 0.97, 0.75, 1);
+    k = -6;
+    loop(13, w = floor(sqrt(max(0, 36 - k * k))); gfx_rect(186 - w, 18 + k, 2 * w + 1, 1); k += 1; );
+    gfx_set(1, 1, 0.92, 1);
+    k = -3;
+    loop(7, w = floor(sqrt(max(0, 9 - k * k))); gfx_rect(185 - w, 17 + k, 2 * w + 1, 1); k += 1; );
+  ) : md == 1 ? (
+    k = -11;
+    loop(23,
+      w = floor(sqrt(max(0, 121 - k * k)));
+      gfx_set(1, 0.62 + 0.012 * k, 0.32, 1);
+      (k & 3) != 2 || k < 0 ? gfx_rect(36 - w, 104 + k, 2 * w + 1, 1);
+      k += 1;
+    );
+  ) : (
+    gfx_set(0.92, 0.94, 1, 1);
+    k = -6;
+    loop(13,
+      w = floor(sqrt(max(0, 36 - k * k)) + 0.5);
+      x = abs(k + 1) < 5 ? floor(sqrt(25 - (k + 1) * (k + 1)) + 0.5) : -100;
+      a = x > -100 ? min(182 + w + 1, 185 - x) : 182 + w + 1;
+      a > 182 - w ? gfx_rect(182 - w, 16 + k, a - (182 - w), 1);
+      k += 1;
+    );
+  );
+  k = 0;
+  loop(5,
+    x = (hash(k * 5.3) * (PG_W + 60) + g_t * (1.2 + k * 0.3)) % (PG_W + 60) - 40;
+    y = k < 3 ? 8 + k * 9 : 112 + (k - 3) * 14;
+    pix_cloud(floor(x), y, 18 + floor(hash(k + 2) * 16), md);
+    k += 1;
+  );
+);
+
+function pg_island() local(x, y, lx, rx, yt, d, k, i, j, tx, ty, c, n, h)
+(
+  lx = GOX - PG_N * ISO_W / 2; rx = GOX + PG_N * ISO_W / 2;
+  x = lx;
+  loop(rx - lx,
+    x < GOX ? ( yt = floor(GOY + PG_N * ISO_H / 2 + (x - lx) * 0.5); c = 1; ) : ( yt = floor(GOY + PG_N * ISO_H - (x - GOX) * 0.5); c = 0.75; );
+    h = 13 + floor(hash(x * 0.37) * 3);
+    pc(0.36 * c, 0.62 * c, 0.28 * c); pr(x, yt, 1, 2);
+    pc(0.52 * c, 0.35 * c, 0.23 * c); pr(x, yt + 2, 1, h - 2);
+    pc(0.44 * c, 0.29 * c, 0.19 * c); pr(x, yt + 6, 1, 2);
+    pc(0.36 * c, 0.23 * c, 0.16 * c); pr(x, yt + h - 3, 1, 3);
+    hash(x * 7.13) > 0.86 ? ( pc(0.6 * c, 0.58 * c, 0.55 * c); pr(x, yt + 3 + floor(hash(x * 2.1) * 8), 1, 1); );
+    hash(x * 3.7) > 0.93 ? ( pc(0.3 * c, 0.2 * c, 0.14 * c); pr(x, yt + h, 1, 2 + floor(hash(x) * 5)); );
+    x += 1;
+  );
+  n = 0;
+  loop(NT,
+    i = n % PG_N; j = floor(n / PG_N);
+    tx = GOX + (i - j) * ISO_W / 2; ty = GOY + (i + j) * ISO_H / 2;
+    c = ((i + j) & 1) ? 1 : 0.95;
+    pc(0.42 * c, 0.68 * c, 0.3 * c);
+    iso_tile(tx, ty);
+    pc(0.5 * c, 0.76 * c, 0.34 * c);
+    k = 0;
+    loop(3,
+      pr(tx - 6 + floor(hash(n * 3 + k) * 12), ty + 3 + floor(hash(n * 5 + k) * 6), 1, 1);
+      k += 1;
+    );
+    (gty[n] > 0 && gty[n] < 4) ? (
+      gwa[n] > g_now_s ? pc(0.27, 0.18, 0.13) : pc(0.42, 0.28, 0.19);
+      iso_small(tx, ty + 3, 12);
+      gwa[n] > g_now_s ? ( gfx_set(0.6, 0.85, 1, 0.8 * max(0, sin(g_t * 3 + n))); pr(tx - 2 + (n % 4), ty + 5, 1, 1); );
+    );
+    n += 1;
+  );
+);
+
+function blob(cx, cy, r, cr, cg, cb, sd) local(dy, dx, w, l, q)
+(
+  dy = -r;
+  loop(2 * r + 1,
+    w = floor(sqrt(max(0, r * r - dy * dy)) + 0.4);
+    dx = -w;
+    loop(2 * w + 1,
+      l = (-dx * 0.6 - dy * 0.8) / r + (hash(sd + dx * 3.1 + dy * 7.7) - 0.5) * 0.5;
+      q = l > 0.45 ? 1.25 : l > -0.2 ? 1 : l > -0.7 ? 0.8 : 0.64;
+      pc(cr * q, cg * q, cb * q);
+      gfx_rect(cx + dx, cy + dy, 1, 1);
+      dx += 1;
+    );
+    dy += 1;
+  );
+);
+
+function pg_flower(v, s, bx, by, w, n) local(hs, x, y, cr, cg, cb)
+(
+  hs = s == 1 ? 2 : s == 2 ? 4 : s == 3 ? (v == 7 ? 3 : 6) : (v == 4 ? 11 : v == 5 ? 8 : v == 7 ? 3 : 7);
+  pc(0.24, 0.56, 0.2);
+  pr(bx, by - hs, 1, hs);
+  s >= 1 ? ( pr(bx - 1, by - 1, 1, 1); pr(bx + 1, by - 2, 1, 1); );
+  s >= 2 ? ( pc(0.3, 0.64, 0.24); pr(bx - 2, by - 3, 2, 1); pr(bx + 1, by - 4, 2, 1); );
+  v == 4 && s >= 3 ? ( pr(bx - 3, by - 6, 3, 1); pr(bx + 1, by - 7, 3, 1); );
+  x = bx + w; y = by - hs;
+  v <= 2 ? ( cr = v == 0 ? 0.92 : v == 1 ? 1 : 1; cg = v == 0 ? 0.22 : v == 1 ? 0.55 : 0.82; cb = v == 0 ? 0.2 : v == 1 ? 0.72 : 0.25; ) :
+  v == 3 ? ( cr = 1; cg = 1; cb = 1; ) : v == 4 ? ( cr = 1; cg = 0.8; cb = 0.15; ) : v == 5 ? ( cr = 0.62; cg = 0.45; cb = 0.9; ) : v == 7 ? ( cr = 0.86; cg = 0.12; cb = 0.22; ) : v == 8 ? ( cr = 1; cg = 0.36; cb = 0.14; ) : ( cr = 0.4; cg = 0.55; cb = 1; );
+  v == 7 && s >= 3 ? (
+    blob(x, y - 2, s >= 4 ? 4 : 3, 0.24, 0.52, 0.22, n * 7);
+    s >= 4 ? (
+      pc(cr, cg, cb);
+      pr(x - 2, y - 4, 2, 2); pr(x + 1, y - 3, 2, 2); pr(x - 1, y - 1, 2, 2); pr(x + 2, y, 1, 1);
+      pc(1, 0.45, 0.5);
+      pr(x - 2, y - 4, 1, 1); pr(x + 1, y - 3, 1, 1); pr(x - 1, y - 1, 1, 1);
+    );
+  ) : s == 3 ? (
+    pc(cr * 0.75, cg * 0.75, cb * 0.75);
+    pr(x - 1, y - 2, 3, 2);
+  ) : s >= 4 ? (
+    v == 8 ? (
+      pc(cr, cg, cb);
+      pr(x - 2, y - 3, 5, 2); pr(x - 1, y - 4, 3, 1); pr(x - 3, y - 4, 1, 1); pr(x + 3, y - 4, 1, 1);
+      pc(1, 0.55, 0.3);
+      pr(x - 2, y - 4, 1, 1);
+      pc(0.1, 0.06, 0.06);
+      pr(x, y - 3, 1, 1);
+    ) : v <= 2 ? (
+      pc(cr, cg, cb);
+      pr(x - 2, y - 3, 5, 3);
+      pr(x - 2, y - 4, 1, 1); pr(x, y - 4, 1, 1); pr(x + 2, y - 4, 1, 1);
+      pc(min(1, cr + 0.25), min(1, cg + 0.25), min(1, cb + 0.25));
+      pr(x - 1, y - 3, 1, 1);
+    ) : v == 3 ? (
+      pc(1, 1, 1);
+      pr(x - 1, y - 5, 3, 1); pr(x - 2, y - 4, 5, 3); pr(x - 1, y - 1, 3, 1);
+      pc(1, 0.82, 0.2);
+      pr(x, y - 4, 1, 1); pr(x - 1, y - 3, 3, 1); pr(x, y - 2, 1, 1);
+    ) : v == 4 ? (
+      pc(1, 0.8, 0.15);
+      pr(x - 1, y - 6, 3, 1); pr(x - 2, y - 5, 5, 3); pr(x - 1, y - 2, 3, 1);
+      pr(x - 3, y - 4, 1, 1); pr(x + 3, y - 4, 1, 1);
+      pc(0.45, 0.26, 0.1);
+      pr(x - 1, y - 5, 3, 3);
+    ) : v == 5 ? (
+      pc(0.62, 0.45, 0.9);
+      pr(x, y - 5, 1, 5); pr(x - 1, y - 4, 1, 1); pr(x + 1, y - 3, 1, 1); pr(x - 1, y - 2, 1, 1); pr(x + 1, y - 1, 1, 1);
+      pc(0.78, 0.65, 1);
+      pr(x, y - 5, 1, 1); pr(x + 1, y - 3, 1, 1);
+    ) : (
+      pc(0.24, 0.56, 0.2);
+      pr(x, y - 1, 2, 1); pr(x + 2, y, 1, 1); pr(x - 2, y - 1, 2, 1); pr(x - 3, y, 1, 1);
+      pc(0.4, 0.55, 1);
+      pr(x + 2, y + 1, 2, 2); pr(x - 4, y + 1, 2, 2); pr(x - 1, y - 2, 2, 2);
+      pc(0.6, 0.72, 1);
+      pr(x + 2, y + 1, 1, 1); pr(x - 4, y + 1, 1, 1);
+    );
+  );
+);
+
+function pg_tree(v, s, bx, by, w, n) local(th, r, cr, cg, cb, k, hw, ty)
+(
+  v == 0 ? ( cr = 0.32; cg = 0.62; cb = 0.26; ) : v == 1 ? ( cr = 1; cg = 0.7; cb = 0.8; ) : v == 2 ? ( cr = 0.18; cg = 0.46; cb = 0.3; ) :
+  v == 4 ? ( cr = 0.56; cg = 0.8; cb = 0.34; ) : v == 5 ? ( cr = 0.42; cg = 0.68; cb = 0.32; ) : ( cr = 0.92; cg = 0.46; cb = 0.18; );
+  s == 1 ? (
+    pc(0.4, 0.32, 0.2); pr(bx, by - 3, 1, 3);
+    pc(cr * 0.8, cg * 0.8, cb * 0.8); pr(bx - 1, by - 4, 1, 1); pr(bx + 1, by - 4, 1, 1); pr(bx, by - 5, 1, 1);
+  ) : (
+    th = s == 2 ? 5 : s == 3 ? 7 : 9;
+    r = s == 2 ? 3 : s == 3 ? 5 : 7;
+    v == 4 ? (
+      th += s >= 4 ? 3 : 1;
+      pc(0.93, 0.92, 0.88); pr(bx, by - th, s >= 3 ? 2 : 1, th);
+      pc(0.2, 0.18, 0.17); k = 1; loop(floor(th / 3), pr(bx + (k & 1), by - k * 3, 1, 1); k += 1; );
+    ) : (
+      pc(0.45, 0.32, 0.2); pr(bx, by - th, s >= 3 ? 2 : 1, th);
+      pc(0.36, 0.25, 0.16); s >= 3 ? pr(bx + 1, by - th, 1, th);
+    );
+    s >= 4 ? ( pc(0.45, 0.32, 0.2); pr(bx - 1, by - 1, 1, 1); pr(bx + 2, by - 1, 1, 1); );
+    v == 2 ? (
+      k = 0;
+      loop(3,
+        ty = by - th - k * (r - 1) + 2;
+        hw = 0;
+        loop(r + 2,
+          pc(cr * (1.15 - hw * 0.05), cg * (1.15 - hw * 0.05), cb * (1.15 - hw * 0.05));
+          pr(bx + w - floor(hw * (1 - k * 0.2) * 0.8), ty - (r + 2) + hw, floor(hw * (1 - k * 0.2) * 0.8) + 1, 1);
+          pc(cr * 0.8, cg * 0.8, cb * 0.8);
+          pr(bx + w + 1, ty - (r + 2) + hw, floor(hw * (1 - k * 0.2) * 0.8) + 1, 1);
+          hw += 1;
+        );
+        k += 1;
+      );
+    ) : (
+      blob(bx + w + 1, by - th - r + 2, v == 4 ? r - 1 : r, cr, cg, cb, n * 13);
+      v == 5 && s >= 4 ? (
+        k = -r;
+        loop(r + 1,
+          ty = by - th - r + 2 + floor(sqrt(max(0, r * r - k * k)) * 0.6);
+          hw = max(2, by - 2 - ty - floor(hash(n + k * 1.7) * 4));
+          pc(cr * (k < 0 ? 1.08 : 0.8), cg * (k < 0 ? 1.08 : 0.8), cb * (k < 0 ? 1.08 : 0.8));
+          pr(bx + w + 1 + k + floor(sin(g_t * 0.9 + k * 0.6 + n) * 0.8 + 0.5), ty, 1, hw);
+          k += 2;
+        );
+      );
+      v == 1 && s >= 4 ? (
+        k = 0;
+        loop(9,
+          pc(1, 0.95, 0.97);
+          pr(bx + w + 1 + floor((hash(n + k * 1.3) - 0.5) * r * 1.6), by - th - r + 2 + floor((hash(n + k * 2.9) - 0.5) * r * 1.6), 1, 1);
+          k += 1;
+        );
+        rand(1) < g_dt * 0.6 ? (
+          k = g_gp_i; g_gp_i = (g_gp_i + 1) % NGP;
+          gpx[k] = bx + (rand(1) - 0.5) * r * 2; gpy[k] = by - th - r + rand(1) * r; gpl[k] = 5;
+        );
+      );
+      v == 0 && s >= 4 ? (
+        k = 0;
+        loop(4,
+          pc(0.9, 0.25, 0.2);
+          pr(bx + w + 1 + floor((hash(n + k * 1.7) - 0.5) * r * 1.4), by - th - r + 3 + floor((hash(n + k * 3.3) - 0.5) * r * 1.2), 1, 1);
+          k += 1;
+        );
+      );
+    );
+  );
+);
+
+function shroom(x, y, cw, sh, v)
+(
+  pc(0.95, 0.92, 0.85); pr(x - floor(sh / 3), y - sh, max(1, floor(cw / 3)), sh);
+  v == 0 ? pc(0.9, 0.18, 0.15) : v == 1 ? pc(0.62, 0.42, 0.26) : pc(0.35, 0.85, 1);
+  pr(x - floor(cw / 2) + 1, y - sh - 2, cw - 2, 1);
+  pr(x - floor(cw / 2), y - sh - 1, cw, 1);
+  v == 0 ? pc(0.7, 0.12, 0.1) : v == 1 ? pc(0.48, 0.32, 0.2) : pc(0.2, 0.6, 0.85);
+  pr(x - floor(cw / 2), y - sh, cw, 1);
+  v == 0 && cw >= 5 ? ( pc(1, 1, 1); pr(x - 1, y - sh - 2, 1, 1); pr(x + 1, y - sh - 1, 1, 1); pr(x - 2, y - sh - 1, 1, 1); );
+  v == 1 && cw >= 5 ? ( pc(0.78, 0.58, 0.4); pr(x - 1, y - sh - 2, 2, 1); );
+  v == 2 && g_gd_sky == 2 ? ( glx[g_ngl] = x; gly[g_ngl] = y - sh - 1; g_ngl += 1; );
+);
+
+function pg_shroom(v, s, bx, by)
+(
+  s == 1 ? shroom(bx, by, 2, 1, v) :
+  s == 2 ? shroom(bx, by, 3, 2, v) :
+  s == 3 ? shroom(bx, by, 5, 3, v) :
+  ( shroom(bx + 3, by + 1, 3, 2, v); shroom(bx - 3, by, 4, 2, v); shroom(bx, by, 7, 4, v); );
+);
+
+function pg_decor(v, bx, by, n) local(k, f, x, y)
+(
+  v == 0 ? (
+    gfx_set(0, 0, 0, 0.18); pr(bx - 6, by - 1, 12, 2);
+    pc(0.42, 0.28, 0.17); pr(bx - 5, by - 8, 1, 7); pr(bx + 4, by - 8, 1, 7);
+    pc(0.66, 0.45, 0.27); pr(bx - 5, by - 8, 10, 1); pr(bx - 5, by - 6, 10, 1);
+    pc(0.72, 0.5, 0.3); pr(bx - 5, by - 4, 10, 2);
+    pc(0.5, 0.34, 0.2); pr(bx - 5, by - 3, 10, 1);
+  ) : v == 1 ? (
+    gfx_set(0, 0, 0, 0.18); iso_small(bx + 1, by - 2, 20);
+    pc(0.42, 0.42, 0.47); iso_small(bx, by - 3, 18);
+    pc(0.62, 0.62, 0.66); iso_small(bx, by - 6, 18);
+    pc(0.28, 0.52, 0.82); iso_small(bx, by - 5, 14);
+    pc(0.4, 0.66, 0.92); pr(bx - 3, by - 3, 2, 1);
+    pc(0.65, 0.65, 0.7); pr(bx - 1, by - 11, 2, 7); pr(bx - 3, by - 12, 6, 1);
+    pc(0.75, 0.9, 1);
+    k = 0;
+    loop(8,
+      f = frac(g_t * 0.9 + k / 8);
+      x = bx + (k & 1 ? 1 : -1) * (1 + f * 5);
+      y = by - 13 + f * f * 9 - sin(f * $pi) * 2;
+      gfx_rect(floor(x), floor(y), 1, 1);
+      k += 1;
+    );
+    gfx_set(1, 1, 1, 0.8 * max(0, sin(g_t * 3 + n))); pr(bx + 2, by - 2, 1, 1);
+  ) : v == 2 ? (
+    pc(0.5, 0.5, 0.52); pr(bx - 3, by - 2, 6, 2); pr(bx - 1, by - 6, 2, 4);
+    pc(0.58, 0.58, 0.6); pr(bx - 3, by - 10, 6, 4);
+    g_gd_sky == 2 ? gfx_set(1, 0.8, 0.45, 1) : pc(0.85, 0.75, 0.55);
+    pr(bx - 1, by - 9, 2, 2);
+    pc(0.42, 0.42, 0.45); pr(bx - 4, by - 11, 8, 1); pr(bx - 2, by - 12, 4, 1); pr(bx, by - 13, 1, 1);
+    g_gd_sky == 2 ? ( wlx[g_nwl] = bx; wly[g_nwl] = by - 8; g_nwl += 1; );
+  ) : v == 3 ? (
+    pc(0.36, 0.33, 0.3); iso_small(bx, by - 6, 22);
+    pc(0.2, 0.42, 0.62); iso_small(bx, by - 5, 18);
+    pc(0.42, 0.65, 0.85);
+    k = 0;
+    loop(3,
+      f = frac(g_t * 0.25 + k / 3);
+      pr(bx - 4 + k * 4, by - 3 + (k & 1), f < 0.5 ? 2 : 1, 1);
+      k += 1;
+    );
+    pc(0.3, 0.6, 0.25); pr(bx + 2, by - 3, 3, 2);
+    pc(1, 0.6, 0.75); pr(bx + 3, by - 4, 1, 1);
+  ) : v == 4 ? (
+    pc(0.6, 0.6, 0.62); pr(bx - 1, by - 6, 2, 6); pr(bx - 2, by - 1, 4, 1);
+    pc(0.7, 0.7, 0.72); pr(bx - 5, by - 8, 10, 2); pr(bx - 4, by - 6, 8, 1);
+    pc(0.4, 0.62, 0.85); pr(bx - 4, by - 8, 8, 1);
+  ) : v == 5 ? (
+    blob(bx - 3, by - 2, 3, 0.55, 0.55, 0.56, n * 3);
+    blob(bx + 3, by - 2, 2, 0.6, 0.6, 0.6, n * 5);
+    blob(bx, by - 4, 2, 0.5, 0.5, 0.52, n * 9);
+    pc(0.35, 0.58, 0.26); pr(bx - 4, by - 5, 2, 1); pr(bx - 1, by - 6, 2, 1); pr(bx + 2, by - 4, 1, 1);
+  ) : v == 7 ? (
+    gfx_set(0, 0, 0, 0.18); pr(bx - 3, by - 1, 6, 2);
+    pc(0.42, 0.28, 0.17); pr(bx, by - 13, 1, 13);
+    pc(0.34, 0.22, 0.13); pr(bx + 1, by - 13, 1, 13);
+    pc(0.55, 0.38, 0.22); pr(bx - 6, by - 14, 13, 1);
+    pc(0.45, 0.3, 0.18); pr(bx - 6, by - 13, 13, 1);
+    pc(0.82, 0.68, 0.4); pr(bx - 5, by - 15, 2, 1); pr(bx + 4, by - 15, 2, 1); pr(bx - 2, by - 15, 1, 1); pr(bx + 2, by - 15, 1, 1);
+    pc(0.92, 0.86, 0.72); pr(bx - 3, by - 19, 7, 4);
+    pc(0.25, 0.17, 0.1); pr(bx, by - 18, 1, 2);
+    pc(0.7, 0.22, 0.16); pr(bx - 4, by - 20, 9, 1); pr(bx - 3, by - 21, 7, 1); pr(bx - 1, by - 22, 3, 1);
+    pc(0.5, 0.15, 0.1); pr(bx - 4, by - 19, 1, 1); pr(bx + 4, by - 19, 1, 1);
+  ) : (
+    gfx_set(0, 0, 0, 0.18); pr(bx - 3, by - 1, 6, 2);
+    pc(0.15, 0.15, 0.18); pr(bx - 2, by - 1, 2, 1); pr(bx + 1, by - 1, 2, 1);
+    pc(0.25, 0.4, 0.75); pr(bx - 2, by - 5, 5, 4);
+    pc(1, 1, 1); pr(bx - 2, by - 6, 5, 2); pr(bx - 1, by - 4, 3, 1);
+    pc(0.95, 0.75, 0.62); pr(bx - 1, by - 7, 3, 1);
+    pc(1, 0.6, 0.55); pr(bx, by - 7, 1, 1);
+    pc(0.88, 0.2, 0.2); pr(bx - 2, by - 8, 5, 1); pr(bx - 1, by - 10, 3, 2); pr(bx, by - 12, 1, 2);
+  );
+);
+
+function pbird(x, y, sp, f, fly, peck) local(br, bg, bb, hr, hg, hb, ar, ag, ab, wr, wg, wb, up)
+(
+  x = floor(x); y = floor(y);
+  sp == 0 ? ( br = 0.5; bg = 0.37; bb = 0.26; hr = 0.48; hg = 0.35; hb = 0.25; ar = 0.95; ag = 0.45; ab = 0.2; wr = 0.4; wg = 0.29; wb = 0.2; ) :
+  sp == 1 ? ( br = 1; bg = 0.86; bb = 0.32; hr = 0.3; hg = 0.52; hb = 0.95; ar = 1; ag = 1; ab = 1; wr = 0.3; wg = 0.5; wb = 0.92; ) :
+  sp == 2 ? ( br = 1; bg = 0.85; bb = 0.2; hr = 0.88; hg = 0.16; hb = 0.1; ar = 0.1; ag = 0.1; ab = 0.1; wr = 0.12; wg = 0.12; wb = 0.12; ) :
+  sp == 3 ? ( br = 0.86; bg = 0.13; bb = 0.12; hr = 0.86; hg = 0.13; hb = 0.12; ar = 0.08; ag = 0.06; ab = 0.06; wr = 0.66; wg = 0.1; wb = 0.1; ) :
+  ( br = 0.62; bg = 0.47; bb = 0.32; hr = 0.6; hg = 0.6; hb = 0.62; ar = 0.85; ag = 0.8; ab = 0.72; wr = 0.45; wg = 0.32; wb = 0.22; );
+  pc(br, bg, bb); pr(x - 1, y - 2, 3, 2);
+  pc(wr, wg, wb); pr(x - 2 * f, y - 2, 1, 1); pr(x - 2 * f - f, y - 2 - (fly ? 0 : -1), 1, 1);
+  pc(ar, ag, ab); pr(x + f, y - 1, 1, 1);
+  y += peck;
+  pc(hr, hg, hb); pr(x + (f > 0 ? 1 : -2), y - 4, 2, 2);
+  sp == 1 ? ( pc(1, 1, 1); pr(x + (f > 0 ? 2 : -2), y - 3, 1, 1); );
+  sp == 3 ? ( pc(0.08, 0.06, 0.06); pr(x + (f > 0 ? 2 : -2), y - 3, 1, 1); pc(0.86, 0.13, 0.12); pr(x + (f > 0 ? 1 : 0), y - 5, 1, 1); );
+  pc(0.05, 0.05, 0.05); pr(x + (f > 0 ? 2 : -2), y - 4, 1, 1);
+  sp == 3 || sp == 2 ? pc(1, 0.6, 0.45) : pc(0.95, 0.7, 0.25);
+  pr(x + (f > 0 ? 3 : -3), y - 3, 1, 1);
+  y -= peck;
+  fly ? (
+    up = frac(g_t * 7 + x * 0.1) < 0.5;
+    pc(wr, wg, wb);
+    up ? ( pr(x - 1, y - 4, 2, 2); pr(x - 2, y - 5, 1, 1); ) : ( pr(x - 1, y, 2, 2); pr(x - 2, y + 1, 1, 1); );
+  ) : (
+    pc(0.3, 0.25, 0.2); pr(x, y, 1, 1);
+  );
+);
+
+function powl(x, y) local(bl)
+(
+  x = floor(x); y = floor(y);
+  bl = frac(g_t * 0.3) < 0.04;
+  pc(0.45, 0.33, 0.22); pr(x - 2, y - 6, 5, 6);
+  pc(0.62, 0.5, 0.36); pr(x - 1, y - 3, 3, 3);
+  pc(0.38, 0.27, 0.18); pr(x - 2, y - 7, 1, 1); pr(x + 2, y - 7, 1, 1);
+  bl ? pc(0.38, 0.27, 0.18) : gfx_set(1, 0.85, 0.2, 1);
+  pr(x - 1, y - 5, 1, 1); pr(x + 1, y - 5, 1, 1);
+  pc(0.95, 0.65, 0.25); pr(x, y - 4, 1, 1);
+);
+
+function pg_birds() local(k, n, f, sd, tx, ty, px0, py0, t, e, free0, free1, pk)
+(
+  n = 0;
+  loop(NT,
+    (gty[n] == 4 && (gva[n] == 7 || gva[n] == 4)) ? (
+      free0 = 1; free1 = 1;
+      k = 0;
+      loop(NBD,
+        (bds[k] > 0 && bdf[k] == n) ? ( bdsd[k] == 0 ? free0 = 0 : bdsd[k] == 1 ? free1 = 0 : ( free0 = 0; free1 = 0; ); );
+        k += 1;
+      );
+      g_gd_rain < 0.3 && (free0 || free1) && (g_gd_sky != 2 || gva[n] == 7) && rand(1) < g_dt * (g_gd_sky == 2 ? 0.012 : gva[n] == 4 ? 0.055 : 0.08) ? (
+        k = 0;
+        f = -1;
+        loop(NBD, bds[k] == 0 && f < 0 ? f = k; k += 1; );
+        f >= 0 ? (
+          bds[f] = 1; bdf[f] = n; bdt[f] = 0;
+          g_gd_sky == 2 ? ( bdk[f] = 5; bdsd[f] = 2; free0 && free1 ? 0 : bds[f] = 0; ) : ( bdk[f] = min(4, floor(rand(1) * 5)); bdsd[f] = free0 ? 0 : 1; );
+          rand(1) < 0.5 ? ( bdx0[f] = -10; ) : ( bdx0[f] = PG_W + 10; );
+          bdy0[f] = 10 + rand(1) * 50;
+          bdst[f] = 5 + rand(1) * 10;
+        );
+      );
+    );
+    n += 1;
+  );
+  k = 0;
+  loop(NBD,
+    bds[k] > 0 ? (
+      n = bdf[k];
+      (gty[n] != 4 || (gva[n] != 7 && gva[n] != 4)) ? bds[k] = 0;
+    );
+    bds[k] > 0 ? (
+      tx = GOX + ((n % PG_N) - floor(n / PG_N)) * ISO_W / 2;
+      ty = GOY + ((n % PG_N) + floor(n / PG_N)) * ISO_H / 2 + ISO_H / 2 + 1;
+      gva[n] == 4 ? ( tx += bdsd[k] == 0 ? -4 : 4; ty -= 8; ) :
+      bdsd[k] == 2 ? ( ty -= 22; ) : ( tx += bdsd[k] == 0 ? -4 : 4; ty -= 15; );
+      bdt[k] += g_dt;
+      bds[k] == 1 ? (
+        t = min(1, bdt[k] / 2.6);
+        e = 1 - (1 - t) * (1 - t);
+        bdx[k] = bdx0[k] + (tx - bdx0[k]) * e;
+        bdy[k] = bdy0[k] + (ty - bdy0[k]) * e - sin(t * $pi) * 12;
+        bdk[k] == 5 ? powl(bdx[k], bdy[k]) : pbird(bdx[k], bdy[k], bdk[k], tx > bdx0[k] ? 1 : -1, 1, 0);
+        t >= 1 ? ( bds[k] = 2; bdt[k] = 0; );
+      ) : bds[k] == 2 ? (
+        bdx[k] = tx; bdy[k] = ty;
+        pk = (frac(bdt[k] * 0.9 + k * 0.3) < 0.18) ? 1 : 0;
+        f = bdsd[k] == 0 ? 1 : -1;
+        frac(bdt[k] * 0.13 + k * 0.5) < 0.2 ? f = -f;
+        gva[n] == 4 ? (
+          pk = frac(bdt[k] * 0.35 + k * 0.4) < 0.12 ? 2 : 0;
+          pbird(tx, ty + (pk ? 1 : 0), bdk[k], -f, 0, pk);
+          pk ? (
+            gfx_set(0.75, 0.9, 1, 0.9);
+            e = frac(bdt[k] * 3);
+            pr(tx - f * 2 - 2 - floor(e * 2), ty - 2 - floor(e * 3), 1, 1);
+            pr(tx - f * 2 + 2 + floor(e * 2), ty - 3 - floor(e * 2), 1, 1);
+            pr(tx - f * 2, ty - 4 - floor(e * 3), 1, 1);
+          );
+        ) : bdk[k] == 5 ? powl(tx, ty) : pbird(tx, ty, bdk[k], f, 0, pk);
+        (bdt[k] > bdst[k] || (g_gd_rain > 0.3 && bdk[k] != 5) || (g_gd_sky != 2 && bdk[k] == 5)) ? (
+          bds[k] = 3; bdt[k] = 0;
+          bdx0[k] = rand(1) < 0.5 ? -10 : PG_W + 10; bdy0[k] = 5 + rand(1) * 40;
+        );
+      ) : (
+        t = min(1, bdt[k] / 2.2);
+        e = t * t;
+        bdx[k] = tx + (bdx0[k] - tx) * e;
+        bdy[k] = ty + (bdy0[k] - ty) * e - sin(t * $pi) * 10;
+        bdk[k] == 5 ? powl(bdx[k], bdy[k]) : pbird(bdx[k], bdy[k], bdk[k], bdx0[k] > tx ? 1 : -1, 1, 0);
+        t >= 1 ? bds[k] = 0;
+      );
+    );
+    k += 1;
+  );
+);
+
+function bird_name(sp) ( sp == 0 ? "a robin" : sp == 1 ? "a blue tit" : sp == 2 ? "a goldfinch" : sp == 3 ? "a cardinal" : sp == 4 ? "a sparrow" : "an owl"; );
+function bird_two(sp) ( sp == 0 ? "2 robins" : sp == 1 ? "2 blue tits" : sp == 2 ? "2 goldfinches" : sp == 3 ? "2 cardinals" : sp == 4 ? "2 sparrows" : "2 owls"; );
+
+function pg_name(t, v)
+(
+  t == 1 ? (
+    v == 0 ? "Red tulip" : v == 1 ? "Pink tulip" : v == 2 ? "Yellow tulip" : v == 3 ? "Daisy" : v == 4 ? "Sunflower" : v == 5 ? "Lavender" : v == 6 ? "Bluebells" : v == 7 ? "Rose bush" : "Poppy";
+  ) : t == 2 ? (
+    v == 0 ? "Apple tree" : v == 1 ? "Cherry blossom" : v == 2 ? "Pine" : v == 3 ? "Maple" : v == 4 ? "Birch" : "Weeping willow";
+  ) : t == 4 ? (
+    v == 0 ? "Bench" : v == 1 ? "Fountain" : v == 2 ? "Stone lantern" : v == 3 ? "Little pond" : v == 4 ? "Birdbath" : v == 5 ? "Rocks" : v == 6 ? "Garden gnome" : "Bird feeder";
+  ) : (
+    v == 0 ? "Fly agaric" : v == 1 ? "Brown caps" : "Glowcaps";
+  );
+);
+
+function pbtn(lbl, x, y, w, h, on, fsz) local(u, hov, fr, fg, fb, pd)
+(
+  hov = hit(x, y, w, h);
+  u = 3;
+  pd = hov && g_mdown ? 1 : 0;
+  gfx_set(0.22, 0.15, 0.1, 1);
+  gfx_rect(sx(x + u), sy(y), (w - 2 * u) * g_s, h * g_s);
+  gfx_rect(sx(x), sy(y + u), w * g_s, (h - 2 * u) * g_s);
+  on ? ( fr = 0.56; fg = 0.76; fb = 0.4; ) : hov ? ( fr = 1; fg = 0.95; fb = 0.82; ) : ( fr = 0.93; fg = 0.87; fb = 0.72; );
+  gfx_set(fr * 0.78, fg * 0.78, fb * 0.78, 1);
+  gfx_rect(sx(x + u), sy(y + u), (w - 2 * u) * g_s, (h - 2 * u) * g_s);
+  gfx_set(fr, fg, fb, 1);
+  gfx_rect(sx(x + u), sy(y + u + pd * u), (w - 2 * u) * g_s, (h - 2 * u - u) * g_s);
+  gfx_set(min(1, fr + 0.12), min(1, fg + 0.12), min(1, fb + 0.12), 1);
+  gfx_rect(sx(x + u), sy(y + u + pd * u), (w - 2 * u) * g_s, u * g_s);
+  font(fsz, 'b');
+  on ? gfx_set(0.12, 0.25, 0.08, 1) : gfx_set(0.33, 0.22, 0.13, 1);
+  txt_c(lbl, x, y + pd * u - 1, w, h);
+  hov && g_click ? ( g_click = 0; 1; ) : 0;
+);
+
+function pg_init() local(n, k)
+(
+    g_gd_init = 1;
+    sv[34] < 2 ? (
+      memcpy(GMIG, GD, 196);
+      memset(GD, 0, NT * 4);
+      n = 0;
+      loop(49,
+        k = (floor(n / 7)) * PG_N + (n % 7);
+        gty[k] = GMIG[n]; gva[k] = GMIG[49 + n]; gpr[k] = GMIG[98 + n]; gwa[k] = GMIG[147 + n];
+        n += 1;
+      );
+      sv[34] = 2;
+    );
+    g_gd_sky = sv[31];
+    g_gd_tool = sv[32];
+    g_gd_dec = sv[33];
+    k = 0;
+    loop(NBF, bfx[k] = 60 + rand(1) * 100; bfy[k] = 40 + rand(1) * 50; bfc[k] = k; k += 1; );
+);
+
+function pg_bloom_pick() local(j, a, i, n)
+(
+  j = 0; a = 0;
+  loop(NT, (gty[a] == 1 && gpr[a] >= 0.85) ? j += 1; a += 1; );
+  n = -1;
+  j > 0 ? (
+    i = floor(rand(1) * j); a = 0;
+    loop(NT, (gty[a] == 1 && gpr[a] >= 0.85) ? ( i == 0 ? n = a; i -= 1; ); a += 1; );
+  );
+  n;
+);
+
+function pg_bees() local(j, a, nb, b, t, tx, ty, dx, dy, d, sp, px, py, fl, dir)
+(
+  j = 0; a = 0;
+  loop(NT, (gty[a] == 1 && gpr[a] >= 0.85) ? j += 1; a += 1; );
+  nb = (g_gd_rtgt > 0 || g_gd_rain > 0.05) ? 0 : min(NBE, floor(j / 2));
+  b = 0;
+  loop(NBE,
+    (b < nb && pgbs[b] == 0) ? (
+      a = rand(1) * 90; pgbx[b] = rand(1) < 0.5 ? -4 - a : PG_W + 4 + a; pgby[b] = 30 + rand(1) * 50;
+      pgbt[b] = pg_bloom_pick(); pgbs[b] = 1; pgbv[b] = rand(1) * 10;
+    );
+    (b >= nb && pgbs[b] > 0 && pgbs[b] < 3) ? ( pgbs[b] = 3; );
+    pgbs[b] > 0 ? (
+      t = pgbt[b];
+      (pgbs[b] < 3 && (t < 0 || gty[t] != 1 || gpr[t] < 0.85)) ? ( pgbt[b] = t = pg_bloom_pick(); pgbs[b] = 1; );
+      pgbs[b] == 3 || t < 0 ? (
+        tx = pgbx[b] < PG_W * 0.5 ? -8 : PG_W + 8; ty = pgby[b] - 10;
+      ) : (
+        tx = GOX + ((t % PG_N) - floor(t / PG_N)) * ISO_W / 2 + (b % 3) - 1;
+        ty = GOY + ((t % PG_N) + floor(t / PG_N)) * ISO_H / 2 - 8 - (b & 1);
+      );
+      dx = tx - pgbx[b]; dy = ty - pgby[b]; d = sqrt(dx * dx + dy * dy);
+      pgbs[b] == 2 ? (
+        pgbw[b] -= g_dt;
+        pgbx[b] = tx + 0.6 * sin(g_t * 9 + b); pgby[b] = ty + 0.5 * sin(g_t * 13 + b * 2);
+        pgbw[b] <= 0 ? ( pgbt[b] = pg_bloom_pick(); pgbs[b] = 1; );
+      ) : (
+        sp = min(d, g_dt * 42);
+        d > 0.01 ? ( pgbx[b] += dx / d * sp; pgby[b] += dy / d * sp + sin(g_t * 11 + b * 1.7) * g_dt * 26; );
+        pgbs[b] == 1 && d < 1.5 ? ( pgbs[b] = 2; pgbw[b] = 1.5 + rand(1) * 2.5; );
+        pgbs[b] == 3 && (pgbx[b] < -6 || pgbx[b] > PG_W + 6) ? pgbs[b] = 0;
+      );
+      dir = dx >= 0 ? 1 : -1;
+      px = floor(pgbx[b]); py = floor(pgby[b]);
+      fl = (floor(g_t * 24 + pgbv[b]) & 1);
+      pc(0.95, 0.95, 1); fl ? ( pr(px, py - 1, 1, 1); pr(px + 1, py - 2, 1, 1); ) : ( pr(px, py - 1, 2, 1); );
+      pc(1, 0.78, 0.12); pr(px - 1, py, 3, 2);
+      pc(0.1, 0.08, 0.06); pr(px, py, 1, 2); pr(px + (dir > 0 ? 2 : -2), py, 1, 1);
+    );
+    b += 1;
+  );
+);
+
+function pg_canvas(md, hov, hi, hj) local(i, j, n, k, tx, ty, s, w, a, lr, px, py, dst)
+(
+  dst = gfx_dest;
+  gfx_setimgdim(IMG_PG, PG_W, PG_H);
+  gfx_dest = IMG_PG;
+  gfx_mode = 0; gfx_a = 1;
+  pg_sky(md);
+  g_gd_rain > 0 ? (
+    md == 2 ? gfx_set(0.05, 0.06, 0.09, 0.45 * g_gd_rain) : gfx_set(0.42, 0.46, 0.52, 0.55 * g_gd_rain);
+    gfx_rect(0, 0, PG_W, PG_H);
+    k = 0;
+    loop(6,
+      md == 2 ? gfx_set(0.12, 0.13, 0.18, g_gd_rain) : gfx_set(0.5, 0.53, 0.58, g_gd_rain);
+      i = floor((hash(k * 2.3 + 7) * (PG_W + 80) + g_t * 2.5) % (PG_W + 80)) - 50;
+      j = 2 + floor(hash(k * 3.1) * 16);
+      pr(i, j + 3, 34, 5); pr(i + 4, j, 16, 4); pr(i + 16, j - 2, 12, 4);
+      md == 2 ? gfx_set(0.09, 0.1, 0.14, g_gd_rain) : gfx_set(0.42, 0.45, 0.5, g_gd_rain);
+      pr(i + 1, j + 8, 32, 1);
+      k += 1;
+    );
+  );
+  pg_island();
+  hov >= 0 ? (
+    gfx_set(1, 1, 1, 0.55);
+    iso_outline(GOX + (hi - hj) * ISO_W / 2, GOY + (hi + hj) * ISO_H / 2);
+  );
+  g_ngl = 0;
+  g_nwl = 0;
+  n = 0;
+  loop(2 * PG_N - 1,
+    i = 0;
+    loop(PG_N,
+      j = n - i;
+      j >= 0 && j < PG_N ? (
+        k = j * PG_N + i;
+        gty[k] > 0 ? (
+          tx = GOX + (i - j) * ISO_W / 2; ty = GOY + (i + j) * ISO_H / 2 + ISO_H / 2 + 1;
+          s = gpr[k] < 0.08 ? 0 : gpr[k] < 0.3 ? 1 : gpr[k] < 0.55 ? 2 : gpr[k] < 0.85 ? 3 : 4;
+          w = floor(sin(g_t * 0.7 + k * 1.3) * 1.2 + 0.5);
+          gty[k] == 4 ? pg_decor(gva[k], tx, ty, k) :
+          s == 0 ? (
+            pc(0.33, 0.22, 0.15); pr(tx - 2, ty - 1, 4, 1);
+            pc(0.55, 0.4, 0.25); pr(tx - 1, ty - 2, 2, 1);
+          ) : (
+            gfx_set(0, 0, 0, 0.18); pr(tx - 3, ty - 1, 7, 2);
+            gty[k] == 1 ? pg_flower(gva[k], s, tx, ty, s >= 3 ? w : 0, k) :
+            gty[k] == 2 ? pg_tree(gva[k], s, tx, ty, s >= 3 ? floor(w * 0.6) : 0, k) :
+            pg_shroom(gva[k], s, tx, ty);
+          );
+          (gty[k] < 4 && gwa[k] > g_now_s) ? (
+            a = 0;
+            loop(2,
+              lr = max(0, sin(g_t * 2.3 + k * 1.9 + a * 2.6));
+              lr > 0.6 ? (
+                gfx_set(0.75, 0.92, 1, lr);
+                gfx_rect(tx - 3 + floor(hash(k + a * 3.3) * 7), ty - 2 - floor(hash(k * 1.7 + a) * (gty[k] == 2 ? 16 : 7)), 1, 1);
+              );
+              a += 1;
+            );
+          );
+        );
+      );
+      i += 1;
+    );
+    n += 1;
+  );
+  k = 0;
+  loop(NGP,
+    gpl[k] > 0 ? (
+      gpl[k] -= g_dt;
+      gpy[k] += g_dt * 6;
+      gpx[k] += g_dt * (4 + 3 * sin(g_t * 2 + k));
+      gfx_set(1, 0.78, 0.86, min(1, gpl[k]));
+      gfx_rect(floor(gpx[k]), floor(gpy[k]), 1, 1);
+    );
+    k += 1;
+  );
+  pg_birds();
+  g_gd_rain > 0.01 ? (
+    k = 0;
+    loop(floor(NRD * g_gd_rain),
+      rds[k] <= 0 ? (
+        rand(1) < 0.7 ? (
+          a = rand(1); lr = rand(1);
+          rdg[k] = GOY + (a + lr) * ISO_H / 2 * PG_N;
+          rdy[k] = -rand(1) * 40;
+          rdx[k] = GOX + (a - lr) * ISO_W / 2 * PG_N + (rdg[k] - rdy[k]) * 28 / 110;
+        ) : (
+          rdy[k] = -rand(1) * 40; rdx[k] = rand(1) * (PG_W + 40); rdg[k] = PG_H + 10;
+        );
+        rds[k] = 1;
+      );
+      rds[k] == 1 ? (
+        rdy[k] += g_dt * 110; rdx[k] -= g_dt * 28;
+        md == 2 ? gfx_set(0.55, 0.62, 0.8, 0.6) : gfx_set(0.82, 0.88, 0.98, 0.7);
+        gfx_rect(floor(rdx[k]), floor(rdy[k]), 1, 3);
+        rdy[k] >= rdg[k] ? ( rds[k] = 2; g_rdt = 0; rdg[k] = 0.18; );
+      ) : (
+        rdg[k] -= g_dt;
+        md == 2 ? gfx_set(0.55, 0.62, 0.8, 0.6) : gfx_set(0.85, 0.9, 1, 0.7);
+        gfx_rect(floor(rdx[k]) - 1, floor(rdy[k]) + 2, 1, 1); gfx_rect(floor(rdx[k]) + 1, floor(rdy[k]) + 2, 1, 1);
+        rdg[k] <= 0 ? rds[k] = 0;
+      );
+      k += 1;
+    );
+  );
+  g_t - g_gd_wct < 1.4 ? (
+    a = g_t - g_gd_wct;
+    i = floor(g_gd_wcx + 4); j = floor(g_gd_wcy - 22);
+    pc(0.4, 0.62, 0.58); pr(i, j, 7, 5); pr(i + 1, j - 1, 5, 1);
+    pc(0.3, 0.48, 0.45); pr(i, j + 4, 7, 1); pr(i + 7, j + 1, 2, 1); pr(i + 7, j + 2, 1, 1);
+    pc(0.5, 0.72, 0.68); pr(i + 1, j + 1, 2, 2);
+    pc(0.32, 0.5, 0.47); pr(i - 1, j - 1, 1, 1); pr(i - 2, j, 1, 1); pr(i - 3, j + 1, 1, 2); pr(i - 2, j + 3, 1, 1);
+    a < 1.1 ? (
+      k = 0;
+      loop(6,
+        lr = frac(g_t * 2.2 + k / 6);
+        gfx_set(0.6, 0.85, 1, 0.9);
+        gfx_rect(i - 4 - floor(lr * 3) + (k & 1), j + 2 + floor(lr * 16), 1, 2);
+        k += 1;
+      );
+    );
+  );
+  md < 2 && g_gd_rain < 0.3 ? (
+    k = 0;
+    loop(NBF,
+      n = -1;
+      j = 0;
+      a = 0;
+      loop(NT, (gty[a] == 1 && gpr[a] >= 0.85) ? j += 1; a += 1; );
+      j > 0 ? (
+        i = (k * 3 + floor(g_t / 12 + k * 0.37)) % j;
+        a = 0;
+        loop(NT, (gty[a] == 1 && gpr[a] >= 0.85) ? ( i == 0 ? n = a; i -= 1; ); a += 1; );
+      );
+      n >= 0 ? (
+        tx = GOX + ((n % PG_N) - floor(n / PG_N)) * ISO_W / 2;
+        ty = GOY + ((n % PG_N) + floor(n / PG_N)) * ISO_H / 2 - 4;
+      ) : (
+        tx = 108 + 70 * sin(g_t * 0.13 + k * 1.7); ty = 50 + 25 * sin(g_t * 0.17 + k * 2.3);
+      );
+      bfx[k] += ((tx + 6 * sin(g_t * 1.3 + k)) - bfx[k]) * min(1, g_dt * 0.8);
+      bfy[k] += ((ty + 4 * sin(g_t * 1.7 + k * 3)) - bfy[k]) * min(1, g_dt * 0.8);
+      a = ((g_t * 7 + k * 0.37) & 1);
+      bfc[k] == 0 ? pc(1, 1, 1) : bfc[k] == 1 ? pc(1, 0.85, 0.3) : bfc[k] == 2 ? pc(0.45, 0.65, 1) : pc(1, 0.55, 0.25);
+      px = floor(bfx[k]); py = floor(bfy[k] + 1.5 * sin(g_t * 3 + k));
+      a ? ( pr(px - 2, py - 1, 2, 2); pr(px + 1, py - 1, 2, 2); ) : ( pr(px - 1, py - 2, 1, 2); pr(px + 1, py - 2, 1, 2); );
+      gfx_set(0.15, 0.12, 0.1, 1); pr(px, py - 1, 1, 2);
+      k += 1;
+    );
+  );
+  (md < 2 && g_screen == 4) ? pg_bees() : memset(pgbs, 0, NBE);
+  gfx_dest = dst;
+);
+
+function pg_light(md) local(a, lr)
+(
+  md == 0 ? ( g_lr = 1; g_lg = 1; g_lb = 1; ) : md == 1 ? ( g_lr = 1.06; g_lg = 0.86; g_lb = 0.76; ) : ( g_lr = 0.42; g_lg = 0.5; g_lb = 0.78; );
+  a = 1 - 0.28 * g_gd_rain;
+  lr = (g_lr + g_lg + g_lb) / 3;
+  g_lr = (g_lr + (lr - g_lr) * 0.4 * g_gd_rain) * a;
+  g_lg = (g_lg + (lr - g_lg) * 0.4 * g_gd_rain) * a;
+  g_lb = (g_lb + (lr - g_lb) * 0.4 * g_gd_rain + 0.04 * g_gd_rain) * a;
+);
+
+function draw_garden() local(i, j, n, tx, ty, s, w, now, dt, bst, k, px, py, PZ, cx0, cy0, hov, a, md, lr)
+(
+  g_pgrav = 220;
+  g_gd_init < 1 ? pg_init();
+  md = g_gd_sky;
+  g_gd_rnext < 1 ? g_gd_rnext = g_t + 90 + rand(1) * 120;
+  g_t > g_gd_rnext && g_gd_rend < g_t ? ( g_gd_rend = g_t + 40 + rand(1) * 35; g_gd_rnext = g_gd_rend + 200 + rand(1) * 300; );
+  g_gd_rtgt = g_t < g_gd_rend ? 1 : 0;
+  g_gd_rain += (g_gd_rtgt - g_gd_rain) * min(1, g_dt * 0.25);
+  g_gd_rain < 0.001 ? g_gd_rain = 0;
+  md == 0 ? ( g_lr = 1; g_lg = 1; g_lb = 1; ) : md == 1 ? ( g_lr = 1.06; g_lg = 0.86; g_lb = 0.76; ) : ( g_lr = 0.42; g_lg = 0.5; g_lb = 0.78; );
+  a = 1 - 0.28 * g_gd_rain;
+  lr = (g_lr + g_lg + g_lb) / 3;
+  g_lr = (g_lr + (lr - g_lr) * 0.4 * g_gd_rain) * a;
+  g_lg = (g_lg + (lr - g_lg) * 0.4 * g_gd_rain) * a;
+  g_lb = (g_lb + (lr - g_lb) * 0.4 * g_gd_rain + 0.04 * g_gd_rain) * a;
+
+  now = time();
+  g_now_s = now;
+  g_gd_rain > 0.5 ? (
+    n = 0;
+    loop(NT, (gty[n] > 0 && gty[n] < 4) ? gwa[n] = max(gwa[n], now + 30); n += 1; );
+  );
+  sv[30] < 1 ? sv[30] = now;
+  dt = max(0, now - sv[30]);
+  dt > 0 ? (
+    n = 0;
+    loop(NT,
+      (gty[n] > 0 && gty[n] < 4) ? (
+        bst = max(0, min(now, gwa[n]) - sv[30]);
+        gpr[n] = min(1, gpr[n] + (dt + bst) / (gty[n] == 1 ? 240 : gty[n] == 2 ? 1200 : 480));
+      );
+      n += 1;
+    );
+    sv[30] = now;
+  );
+
+  g_gd_magic ? (
+    a = 0;
+    n = 0;
+    loop(NT,
+      (gty[n] > 0 && gty[n] < 4 && gpr[n] < 1) ? (
+        a = 1;
+        g_t >= gmt[n] ? (
+          gpr[n] = min(1, gpr[n] + g_dt * 0.9);
+          rand(1) < 0.5 ? (
+            i = n % PG_N; j = floor(n / PG_N);
+            g_gd_spx = GOX + (i - j) * ISO_W / 2 + (rand(1) - 0.5) * 14;
+            g_gd_spy = GOY + (i + j) * ISO_H / 2 + ISO_H / 2 - rand(1) * 16;
+            k = rand(1);
+            spawn(BRD_X + (g_gd_cx0 - sx(BRD_X) + g_gd_spx * g_gd_pz) / g_s, BRD_Y + (g_gd_cy0 - sy(BRD_Y) + g_gd_spy * g_gd_pz) / g_s, (rand(1) - 0.5) * 40, -30 - rand(1) * 60, 1, 0.85 + 0.15 * k, 0.4 + 0.6 * k, 0.6 + rand(1) * 0.5);
+          );
+        );
+      );
+      n += 1;
+    );
+    !a ? g_gd_magic = 0;
+  );
+
+  PZ = max(1, floor(min(BRD_W * g_s / PG_W, BRD_H * g_s / PG_H)));
+  cx0 = floor(sx(BRD_X) + (BRD_W * g_s - PG_W * PZ) * 0.5);
+  cy0 = floor(sy(BRD_Y) + (BRD_H * g_s - PG_H * PZ) * 0.5);
+  g_gd_cx0 = cx0; g_gd_cy0 = cy0; g_gd_pz = PZ;
+  g_gd_tool == 3 ? (
+    k = 0;
+    loop(8,
+      hit(101 + k * 88, BRD_Y + 12, 82, 28) && g_click ? ( g_click = 0; g_gd_dec = k; sv[33] = k; );
+      k += 1;
+    );
+  );
+  g_t - g_gd_rst > 3 ? g_gd_rst = -1000;
+  hit(BRD_X + 14, BRD_Y + BRD_H - 48, 140, 34) && g_click ? (
+    g_click = 0;
+    g_gd_rst > 0 ? (
+      g_gd_rst = -1000;
+      n = 0; loop(NT, gty[n] = 0; gva[n] = 0; gpr[n] = 0; gwa[n] = 0; gmt[n] = 0; n += 1; );
+      memset(bds, 0, NBD); memset(pgbs, 0, NBE);
+      g_gd_magic = 0;
+      sv[30] = time();
+      loop(60, a = rand(1) * 2 * $pi; spawn(450 + (rand(1) - 0.5) * 300, BRD_Y + 300 + (rand(1) - 0.5) * 160, cos(a) * (40 + rand(1) * 120), sin(a) * (40 + rand(1) * 120) - 60, 0.55, 0.42, 0.28, 0.6 + rand(1) * 0.6); );
+    ) : g_gd_rst = g_t;
+  );
+  hit(BRD_X + BRD_W - 132, BRD_Y + BRD_H - 48, 118, 34) && g_click ? (
+    g_click = 0;
+    g_gd_magic = 1;
+    n = 0;
+    loop(NT,
+      i = n % PG_N; j = floor(n / PG_N);
+      gmt[n] = g_t + sqrt((i - 3.5) * (i - 3.5) + (j - 3.5) * (j - 3.5)) * 0.22;
+      n += 1;
+    );
+  );
+  px = (mouse_x - cx0) / PZ; py = (mouse_y - cy0) / PZ;
+  a = (px - GOX) / (ISO_W / 2); lr = (py - GOY) / (ISO_H / 2);
+  i = floor((a + lr) * 0.5); j = floor((lr - a) * 0.5);
+  hov = (i >= 0 && i < PG_N && j >= 0 && j < PG_N) ? j * PG_N + i : -1;
+
+  hov >= 0 && g_click ? (
+    g_click = 0;
+    tx = GOX + (i - j) * ISO_W / 2; ty = GOY + (i + j) * ISO_H / 2 + ISO_H / 2;
+    g_gd_tool <= 3 ? (
+      gty[hov] == 0 ? (
+        gty[hov] = g_gd_tool + 1;
+        gva[hov] = g_gd_tool == 0 ? floor(rand(1) * 9) % 9 : g_gd_tool == 1 ? floor(rand(1) * 6) % 6 : g_gd_tool == 2 ? floor(rand(1) * 3) % 3 : g_gd_dec;
+        gpr[hov] = g_gd_tool == 3 ? 1 : 0;
+        gwa[hov] = 0;
+        loop(10, spawn(BRD_X + (cx0 - sx(BRD_X) + tx * PZ) / g_s, BRD_Y + (cy0 - sy(BRD_Y) + ty * PZ) / g_s, (rand(1) - 0.5) * 90, -40 - rand(1) * 80, 0.5, 0.35, 0.22, 0.5 + rand(1) * 0.3); );
+      );
+    ) : g_gd_tool == 4 ? (
+      (gty[hov] > 0 && gty[hov] < 4) ? gwa[hov] = now + 180;
+      g_gd_wct = g_t; g_gd_wcx = tx; g_gd_wcy = ty;
+      loop(14, spawn(BRD_X + (cx0 - sx(BRD_X) + tx * PZ) / g_s + (rand(1) - 0.5) * 30, BRD_Y + (cy0 - sy(BRD_Y) + (ty - 20) * PZ) / g_s, (rand(1) - 0.5) * 30, 40 + rand(1) * 60, 0.45, 0.75, 1, 0.5 + rand(1) * 0.3); );
+    ) : (
+      gty[hov] > 0 ? (
+        gty[hov] = 0; gpr[hov] = 0; gwa[hov] = 0;
+        loop(10, spawn(BRD_X + (cx0 - sx(BRD_X) + tx * PZ) / g_s, BRD_Y + (cy0 - sy(BRD_Y) + ty * PZ) / g_s, (rand(1) - 0.5) * 90, -40 - rand(1) * 80, 0.5, 0.35, 0.22, 0.5 + rand(1) * 0.3); );
+      );
+    );
+  );
+
+  gfx_set(0.06, 0.062, 0.072, 1);
+  fill_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+  pg_canvas(md, hov, i, j);
+  gfx_mode = 4; gfx_a = 1;
+  gfx_blit(IMG_PG, PZ, 0, 0, 0, PG_W, PG_H, cx0, cy0, PG_W * PZ, PG_H * PZ);
+  gfx_mode = 0;
+
+  md == 2 ? (
+    k = 0;
+    loop(g_nwl,
+      glow(cx0 + (wlx[k] + 0.5) * PZ, cy0 + (wly[k] + 0.5) * PZ, 2.2 * PZ, 1, 0.72, 0.38, 0.6 + 0.1 * sin(g_t * 3 + k));
+      k += 1;
+    );
+    k = 0;
+    loop(g_ngl,
+      glow(cx0 + (glx[k] + 0.5) * PZ, cy0 + (gly[k] + 0.5) * PZ, 1.6 * PZ, 0.4, 0.9, 1, 0.55 + 0.15 * sin(g_t * 2 + k));
+      k += 1;
+    );
+    k = 0;
+    loop(10,
+      px = 108 + 80 * sin(g_t * (0.07 + 0.02 * hash(k)) + k * 2.1);
+      py = 60 + 40 * sin(g_t * (0.05 + 0.02 * hash(k + 3)) + k * 1.3);
+      a = max(0, sin(g_t * (0.9 + 0.5 * hash(k + 4)) + k * 1.7));
+      a > 0.05 ? glow(cx0 + px * PZ, cy0 + py * PZ, 0.5 * PZ, 0.85, 1, 0.45, a);
+      k += 1;
+    );
+  );
+
+  particles();
+  gfx_set(0.2, 0.21, 0.24, 1);
+  outline_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+
+  pbtn("< Games", 18, 14, 96, 36, 0, 13) ? g_screen = 0;
+  font(18, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  txt_l("Pixel Garden", 126, 22);
+  k = 0;
+  loop(6,
+    pbtn(k == 0 ? "Flower" : k == 1 ? "Tree" : k == 2 ? "Mushroom" : k == 3 ? "Decor" : k == 4 ? "Water" : "Shovel", 262 + k * 76, 14, 72, 36, g_gd_tool == k, 10) ? ( g_gd_tool = k; sv[32] = k; );
+    k += 1;
+  );
+  pbtn(md == 0 ? "Day" : md == 1 ? "Sunset" : "Night", 726, 14, 154, 36, 0, 13) ? ( g_gd_sky = (g_gd_sky + 1) % 3; sv[31] = g_gd_sky; );
+  g_gd_tool == 3 ? (
+    k = 0;
+    loop(8,
+      pbtn(k == 0 ? "Bench" : k == 1 ? "Fountain" : k == 2 ? "Lantern" : k == 3 ? "Pond" : k == 4 ? "Birdbath" : k == 5 ? "Rocks" : k == 6 ? "Gnome" : "Feeder", 101 + k * 88, BRD_Y + 12, 82, 28, g_gd_dec == k, 11);
+      k += 1;
+    );
+  );
+  pbtn("Grow all", BRD_X + BRD_W - 132, BRD_Y + BRD_H - 48, 118, 34, 0, 12);
+  pbtn(g_gd_rst > 0 ? "Sure? Wipe it" : "New garden", BRD_X + 14, BRD_Y + BRD_H - 48, 140, 34, g_gd_rst > 0, 12);
+  glow(sx(BRD_X + BRD_W - 132 + 16), sy(BRD_Y + BRD_H - 32), (2 + 0.6 * sin(g_t * 4)) * g_s, 1, 0.85, 0.45, 0.9);
+
+  hov >= 0 && gty[hov] == 4 ? (
+    sprintf(#g_tt, "%s", pg_name(4, gva[hov]));
+    (gva[hov] == 7 || gva[hov] == 4) ? (
+      n = 0; i = -1; j = -1;
+      k = 0;
+      loop(NBD, (bds[k] == 2 && bdf[k] == hov) ? ( n == 0 ? i = bdk[k] : j = bdk[k]; n += 1; ); k += 1; );
+      n == 0 ? strcat(#g_tt, ": waiting for visitors") :
+      n == 1 ? sprintf(#g_tt, "%s: %s is visiting", #g_tt, bird_name(i)) :
+      i == j ? sprintf(#g_tt, "%s: %s are visiting", #g_tt, bird_two(i)) : sprintf(#g_tt, "%s: %s and %s are visiting", #g_tt, bird_name(i), bird_name(j));
+    );
+    hint(#g_tt, HINT_Y);
+  ) : hov >= 0 && gty[hov] > 0 ? (
+    sprintf(#g_tt, "%s: %s", pg_name(gty[hov], gva[hov]), gpr[hov] >= 1 ? "fully grown" : gpr[hov] >= 0.85 ? "in bloom, still growing" : gpr[hov] < 0.08 ? "just planted" : "growing");
+    gpr[hov] < 1 ? (
+      sprintf(#g_tt, "%s (%d%%)", #g_tt, floor(gpr[hov] * 100));
+      gwa[hov] > now ? (
+        g_gd_rain > 0.5 ? sprintf(#g_tt, "%s. Watered by the rain: growing twice as fast", #g_tt) :
+        sprintf(#g_tt, "%s. Watered: growing twice as fast for %d:%02d", #g_tt, floor((gwa[hov] - now) / 60), (gwa[hov] - now) % 60);
+      );
+    );
+    hint(#g_tt, HINT_Y);
+  ) : (
+    hint(g_gd_tool == 4 ? "Water a plant to make it grow twice as fast for 3 minutes. Rain showers water everything." : "Pick a seed and click a tile to plant. Your garden grows in real time, even while closed.", HINT_Y);
+  );
+);

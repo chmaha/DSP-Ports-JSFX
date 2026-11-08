@@ -1,0 +1,634 @@
+@init
+function mu_flip(c) local(x, y)
+(
+  x = c % g_mu_c; y = floor(c / g_mu_c);
+  mu_st[c] = 1 - mu_st[c];
+  x > 0 ? mu_st[c - 1] = 1 - mu_st[c - 1];
+  x < g_mu_c - 1 ? mu_st[c + 1] = 1 - mu_st[c + 1];
+  y > 0 ? mu_st[c - g_mu_c] = 1 - mu_st[c - g_mu_c];
+  y < g_mu_r - 1 ? mu_st[c + g_mu_c] = 1 - mu_st[c + g_mu_c];
+);
+
+function mu_null() local(n, i, j, r, c, p, t)
+(
+  n = g_mu_n;
+  i = 0;
+  loop(n,
+    memset(mu_st, 0, n);
+    mu_flip(i);
+    j = 0;
+    loop(n, mu_a[i * n + j] = mu_st[j]; j += 1; );
+    i += 1;
+  );
+  memset(mu_st, 0, n);
+  r = 0; c = 0;
+  while (c < n && r < n) (
+    p = r;
+    while (p < n && !mu_a[p * n + c]) ( p += 1; );
+    p < n ? (
+      p != r ? (
+        j = 0;
+        loop(n, t = mu_a[p * n + j]; mu_a[p * n + j] = mu_a[r * n + j]; mu_a[r * n + j] = t; j += 1; );
+      );
+      i = 0;
+      loop(n,
+        (i != r && mu_a[i * n + c]) ? (
+          j = c;
+          loop(n - c, mu_a[i * n + j] = mu_a[i * n + j] != mu_a[r * n + j]; j += 1; );
+        );
+        i += 1;
+      );
+      mu_piv[r] = c;
+      r += 1;
+    );
+    c += 1;
+  );
+  memset(mu_cur, 0, n);
+  i = 0;
+  loop(r, mu_cur[mu_piv[i]] = 1; i += 1; );
+  g_mu_d = 0;
+  c = 0;
+  loop(n,
+    !mu_cur[c] ? (
+      memset(mu_nb + g_mu_d * n, 0, n);
+      mu_nb[g_mu_d * n + c] = 1;
+      i = 0;
+      loop(r, mu_nb[g_mu_d * n + mu_piv[i]] = mu_a[i * n + c]; i += 1; );
+      g_mu_d += 1;
+    );
+    c += 1;
+  );
+);
+
+function mu_min(src) local(n, w, bw, m, b, k, j, lim)
+(
+  n = g_mu_n;
+  memcpy(mu_cur, src, n);
+  w = 0; j = 0;
+  loop(n, w += mu_cur[j]; j += 1; );
+  bw = w;
+  memcpy(mu_best, mu_cur, n);
+  lim = 2 ^ min(g_mu_d, 12);
+  m = 1;
+  while (m < lim) (
+    b = 0; k = m;
+    while (!(k & 1)) ( k = k >> 1; b += 1; );
+    j = 0;
+    loop(n,
+      mu_nb[b * n + j] ? ( mu_cur[j] = 1 - mu_cur[j]; w += mu_cur[j] ? 1 : -1; );
+      j += 1;
+    );
+    w < bw ? ( bw = w; memcpy(mu_best, mu_cur, n); );
+    m += 1;
+  );
+  bw;
+);
+
+function mu_start(lv) local(n, k, p, c, best, tries, x, y)
+(
+  g_mu_lv = lv;
+  g_mu_c = min(8, 3 + floor(lv / 3));
+  g_mu_r = min(6, 3 + floor((lv - 1) / 4));
+  g_mu_n = g_mu_c * g_mu_r;
+  n = g_mu_n;
+  mu_null();
+  k = max(1, min(floor(n * 0.5), 1 + floor(lv * 0.75)));
+  best = -1; tries = 0;
+  while (
+    memset(mu_xs, 0, n);
+    p = k;
+    loop(n * 8,
+      c = min(n - 1, floor(rand(1) * n));
+      (p > 0 && !mu_xs[c]) ? ( mu_xs[c] = 1; p -= 1; );
+    );
+    p = mu_min(mu_xs);
+    p > best ? ( best = p; memcpy(mu_pp, mu_best, n); );
+    tries += 1;
+    best < k && tries < 24;
+  );
+  memcpy(mu_xs, mu_pp, n);
+  memset(mu_st, 0, n);
+  c = 0;
+  loop(n, mu_xs[c] ? mu_flip(c); c += 1; );
+  memset(mu_pp, 0, n);
+  g_mu_par = best;
+  c = 0;
+  loop(n,
+    x = c % g_mu_c; y = floor(c / g_mu_c);
+    mu_vs[c] = 0; mu_va[c] = 0; mu_pt[c] = -10;
+    mu_vt[c] = g_t + 0.35 + 0.06 * (x + y);
+    c += 1;
+  );
+  c = 0;
+  loop(10, mu_fad[c] = 0.08; mu_met[c] = 0; mu_pk[c] = 0; c += 1; );
+  g_mu_cw = min(112, floor(676 / g_mu_c));
+  g_mu_iw = g_mu_c * g_mu_cw + 100;
+  g_mu_px = 450 - (g_mu_iw + 48) * 0.5;
+  g_mu_x0 = g_mu_px + 24;
+  g_mu_mx = g_mu_x0 + g_mu_c * g_mu_cw;
+  g_mu_bw = min(72, g_mu_cw - 20);
+  g_mu_bh = min(54, floor(340 / g_mu_r) - 9);
+  g_mu_bp = g_mu_bh + 9;
+  g_mu_knob = 354 - g_mu_r * g_mu_bp >= 84;
+  k = g_mu_knob ? 66 : 0;
+  g_mu_y0 = 116 + k + (354 - k - g_mu_r * g_mu_bp) * 0.5;
+  g_mu_moves = 0;
+  g_mu_time = 0;
+  g_mu_won = 0;
+  g_mu_t0 = g_t;
+  g_mu_hints = 0;
+  g_mu_hc = -1;
+  g_mu_rst_t = -1000;
+);
+
+function mu_press(c) local(x, y)
+(
+  mu_pp[c] = 1 - mu_pp[c];
+  mu_flip(c);
+  x = c % g_mu_c; y = floor(c / g_mu_c);
+  mu_vt[c] = g_t;
+  x > 0 ? mu_vt[c - 1] = g_t + 0.07;
+  x < g_mu_c - 1 ? mu_vt[c + 1] = g_t + 0.07;
+  y > 0 ? mu_vt[c - g_mu_c] = g_t + 0.07;
+  y < g_mu_r - 1 ? mu_vt[c + g_mu_c] = g_t + 0.07;
+  mu_pt[c] = g_t;
+  g_mu_moves += 1;
+  g_mu_hc = -1;
+);
+
+function mu_hint() local(c, k, j)
+(
+  c = 0;
+  loop(g_mu_n, mu_best[c] = mu_xs[c] != mu_pp[c]; c += 1; );
+  k = mu_min(mu_best);
+  k > 0 ? (
+    j = min(k - 1, floor(rand(1) * k));
+    c = 0;
+    loop(g_mu_n,
+      mu_best[c] ? ( j == 0 ? g_mu_hc = c; j -= 1; );
+      c += 1;
+    );
+    g_mu_hints += 1;
+  );
+);
+
+function mu_name(i)
+(
+  i = i % 12;
+  i == 0 ? "KICK" : i == 1 ? "SNARE" : i == 2 ? "HATS" : i == 3 ? "TOMS" : i == 4 ? "BASS" : i == 5 ? "GTR" :
+  i == 6 ? "KEYS" : i == 7 ? "VOX" : i == 8 ? "BV" : i == 9 ? "PAD" : i == 10 ? "STRINGS" : "FX";
+);
+
+function mu_sig(x) local(b, e)
+(
+  b = frac(g_t * 2 + x * 0.25 * (x & 1));
+  e = exp(-b * (x == 0 ? 7 : 3 + x * 0.4));
+  min(1, 0.36 + 0.3 * e + 0.2 * (0.5 + 0.5 * sin(g_t * (1.9 + 0.23 * x) + x * 1.7)) + 0.08 * hash(floor(g_t * 15) + x * 13));
+);
+
+function mu_tick() local(c, x, y, n, lv, s, v, w)
+(
+  c = 0;
+  loop(g_mu_n,
+    g_t >= mu_vt[c] ? mu_vs[c] = mu_st[c];
+    v = mu_vs[c] - mu_va[c];
+    mu_va[c] += abs(v) < g_dt * 9 ? v : sign(v) * g_dt * 9;
+    c += 1;
+  );
+  w = 0;
+  x = 0;
+  loop(g_mu_c,
+    n = 0; y = 0;
+    loop(g_mu_r, n += 1 - mu_va[y * g_mu_c + x]; y += 1; );
+    n /= g_mu_r;
+    lv = (g_mu_won && g_t - g_mu_won_t > 0.07 * x) ? 0.8 + 0.04 * sin(g_t * 1.3 + x) : 0.1 + 0.6 * n;
+    mu_fad[x] += (lv - mu_fad[x]) * min(1, g_dt * 5);
+    s = mu_sig(x) * n * n * (0.45 + 0.6 * mu_fad[x]);
+    mu_met[x] = s > mu_met[x] ? s : max(s, mu_met[x] - g_dt * 1.4);
+    (mu_met[x] >= mu_pk[x] || g_t - mu_pkt[x] > 1.2) ? ( mu_pk[x] = mu_met[x]; mu_pkt[x] = g_t; );
+    w += mu_met[x];
+    x += 1;
+  );
+  w = min(1, w / g_mu_c * 1.15);
+  mu_fad[8] += ((g_mu_won ? 0.8 : 0.72) - mu_fad[8]) * min(1, g_dt * 3);
+  x = 8;
+  loop(2,
+    s = min(1, w * (0.97 + 0.05 * sin(g_t * (5.1 + x) + x)));
+    mu_met[x] = s > mu_met[x] ? s : max(s, mu_met[x] - g_dt * 1.2);
+    (mu_met[x] >= mu_pk[x] || g_t - mu_pkt[x] > 1.4) ? ( mu_pk[x] = mu_met[x]; mu_pkt[x] = g_t; );
+    x += 1;
+  );
+);
+
+function mu_meter(x, y0, y1, w, nseg, lv, pk) local(i, sh, yy, r, g, b, on)
+(
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(sx(x - 2), sy(y0 - 2), (w + 4) * g_s, (y1 - y0 + 4) * g_s);
+  sh = (y1 - y0) / nseg;
+  i = 0;
+  loop(nseg,
+    yy = y1 - (i + 1) * sh;
+    i >= nseg * 0.875 ? ( r = 1; g = 0.25; b = 0.2; ) : i >= nseg * 0.7 ? ( r = 1; g = 0.78; b = 0.25; ) : ( r = 0.35; g = 1; b = 0.5; );
+    on = lv > (i + 0.5) / nseg || (pk > 0.05 && floor(pk * nseg - 0.5) == i);
+    on ? gfx_set(r, g, b, 1) : gfx_set(r * 0.13 + 0.03, g * 0.13 + 0.03, b * 0.13 + 0.035, 1);
+    gfx_rect(sx(x), sy(yy + 0.7), w * g_s, max(1, (sh - 1.4) * g_s));
+    i += 1;
+  );
+);
+
+function mu_fader(x, y0, y1, f) local(yy, i, n)
+(
+  gfx_set(0.42, 0.43, 0.47, 1);
+  n = 10; i = 0;
+  loop(n + 1,
+    yy = y0 + (y1 - y0) * i / n;
+    gfx_rect(sx(x - 19), sy(yy), (i % 5 == 0 ? 9 : 6) * g_s, max(1, g_s));
+    i += 1;
+  );
+  gfx_set(0.03, 0.03, 0.035, 1);
+  fill_rr(x - 3, y0 - 4, 6, y1 - y0 + 8, 3);
+  yy = y1 - f * (y1 - y0);
+  gfx_set(0, 0, 0, 0.45);
+  fill_rr(x - 14, yy - 6, 30, 18, 3);
+  gfx_set(0.3, 0.31, 0.34, 1);
+  fill_rr(x - 15, yy - 8, 30, 17, 3);
+  gfx_set(0.62, 0.63, 0.67, 1);
+  fill_rr(x - 15, yy - 8, 30, 14, 3);
+  gfx_set(0.78, 0.79, 0.82, 1);
+  gfx_rect(sx(x - 13), sy(yy - 7), 26 * g_s, max(1, 2 * g_s));
+  gfx_set(0.08, 0.08, 0.09, 1);
+  gfx_rect(sx(x - 14), sy(yy - 1.5), 28 * g_s, max(1, 2 * g_s));
+);
+
+function mu_knob(cx, cy, a) local(k, t)
+(
+  gfx_set(0.36, 0.37, 0.4, 1);
+  k = 0;
+  loop(11,
+    t = -2.36 + 4.72 * k / 10;
+    gfx_circle(sx(cx + sin(t) * 21), sy(cy - cos(t) * 21), max(1, 1.1 * g_s), 1, 1);
+    k += 1;
+  );
+  gfx_set(0, 0, 0, 0.5);
+  gfx_circle(sx(cx + 1), sy(cy + 2), 16 * g_s, 1, 1);
+  gfx_set(0.07, 0.07, 0.08, 1);
+  gfx_circle(sx(cx), sy(cy), 16 * g_s, 1, 1);
+  gfx_set(0.22, 0.225, 0.245, 1);
+  gfx_circle(sx(cx), sy(cy), 13 * g_s, 1, 1);
+  gfx_set(0.28, 0.285, 0.31, 1);
+  gfx_circle(sx(cx - 1), sy(cy - 1.5), 10 * g_s, 1, 1);
+  gfx_set(0.95, 0.96, 0.98, 1);
+  aa_tline(sx(cx + sin(a) * 4), sy(cy - cos(a) * 4), sx(cx + sin(a) * 12), sy(cy - cos(a) * 12), 2.2 * g_s);
+);
+
+function mu_scene(hc) local(c, x, y, cx, bx, by, bw, bh, v, d, r, g, b, k, j, wx, wv, a)
+(
+  bw = g_mu_bw; bh = g_mu_bh;
+  gfx_set(0.07, 0.072, 0.08, 1);
+  fill_rr(g_mu_px, 74, g_mu_iw + 48, 568, 10);
+  gfx_gradrect(sx(g_mu_x0), sy(76), g_mu_iw * g_s, 564 * g_s, 0.19, 0.195, 0.215, 1, 0, 0, 0, 0, -0.08 / (564 * g_s), -0.08 / (564 * g_s), -0.085 / (564 * g_s), 0);
+  k = 0;
+  loop(2,
+    wx = k ? g_mu_x0 + g_mu_iw : g_mu_px;
+    gfx_set(0.3, 0.17, 0.09, 1);
+    fill_rr(wx, 74, 24, 568, 10);
+    j = 0;
+    loop(5,
+      gfx_set(0.2, 0.1, 0.05, 0.55);
+      y = 78;
+      loop(35,
+        gfx_line(sx(wx + 4 + j * 4 + 1.6 * sin(y * 0.03 + j * 1.9 + k)), sy(y), sx(wx + 4 + j * 4 + 1.6 * sin((y + 16) * 0.03 + j * 1.9 + k)), sy(y + 16), 1);
+        y += 16;
+      );
+      j += 1;
+    );
+    gfx_set(0.5, 0.32, 0.18, 0.6);
+    gfx_line(sx(k ? wx + 0.5 : wx + 23.5), sy(80), sx(k ? wx + 0.5 : wx + 23.5), sy(636), 1);
+    k += 1;
+  );
+  x = 0;
+  loop(g_mu_c + 1,
+    wx = g_mu_x0 + x * g_mu_cw;
+    gfx_set(0.06, 0.06, 0.07, 1);
+    gfx_rect(sx(wx - 1), sy(80), max(1, 2 * g_s), 556 * g_s);
+    gfx_set(0.27, 0.275, 0.3, 1);
+    gfx_rect(sx(wx + 1), sy(80), max(1, g_s), 556 * g_s);
+    x += 1;
+  );
+  gfx_set(0.06, 0.06, 0.07, 1);
+  gfx_rect(sx(g_mu_mx - 1), sy(80), max(1, 3 * g_s), 556 * g_s);
+  gfx_set(0.3, 0.305, 0.33, 1);
+  gfx_rect(sx(g_mu_mx + 2), sy(80), max(1, g_s), 556 * g_s);
+  gfx_set(0.06, 0.06, 0.07, 1);
+  gfx_rect(sx(g_mu_x0), sy(474), (g_mu_mx - g_mu_x0) * g_s, max(1, 2 * g_s));
+  gfx_set(0.26, 0.265, 0.29, 1);
+  gfx_rect(sx(g_mu_x0), sy(476), (g_mu_mx - g_mu_x0) * g_s, max(1, g_s));
+  k = 0;
+  loop(4,
+    cx = k & 1 ? g_mu_x0 + g_mu_iw - 8 : g_mu_x0 + 8; y = k & 2 ? 632 : 84;
+    gfx_set(0.1, 0.1, 0.11, 1);
+    gfx_circle(sx(cx), sy(y), 4.5 * g_s, 1, 1);
+    gfx_set(0.48, 0.49, 0.52, 1);
+    gfx_circle(sx(cx), sy(y), 3.5 * g_s, 1, 1);
+    gfx_set(0.15, 0.15, 0.17, 1);
+    aa_tline(sx(cx - 2.5), sy(y - 1), sx(cx + 2.5), sy(y + 1), 1.2 * g_s);
+    k += 1;
+  );
+
+  x = 0;
+  loop(g_mu_c + 1,
+    x < g_mu_c ? ( cx = g_mu_x0 + (x + 0.5) * g_mu_cw; wx = g_mu_cw - 16; ) : ( cx = g_mu_mx + 50; wx = 78; );
+    gfx_set(0.55, 0.53, 0.46, 1);
+    gfx_rect(sx(cx - wx * 0.5), sy(89), wx * g_s, 22 * g_s);
+    gfx_set(0.93, 0.9, 0.8, 1);
+    gfx_rect(sx(cx - wx * 0.5), sy(88), wx * g_s, 21 * g_s);
+    font(g_mu_cw < 90 ? 11 : 12, 'b');
+    gfx_set(0.12, 0.13, 0.2, 1);
+    txt_c(x < g_mu_c ? mu_name(x + g_mu_lv * 5) : "MAIN", cx - wx * 0.5, 88, wx, 21);
+    x += 1;
+  );
+
+  g_mu_knob ? (
+    x = 0;
+    loop(g_mu_c,
+      cx = g_mu_x0 + (x + 0.5) * g_mu_cw;
+      mu_knob(cx, 146, -1.6 + 3.2 * hash(x * 3.1 + g_mu_lv * 0.7));
+      font(9, 'b');
+      gfx_set(0.55, 0.56, 0.6, 1);
+      txt_c("PAN", cx - 20, 167, 40, 12);
+      x += 1;
+    );
+  );
+
+  gfx_mode = 1;
+  c = 0;
+  loop(g_mu_n,
+    v = mu_va[c];
+    v > 0.02 ? (
+      x = c % g_mu_c; y = floor(c / g_mu_c);
+      cx = g_mu_x0 + (x + 0.5) * g_mu_cw; by = g_mu_y0 + y * g_mu_bp + 4 + bh * 0.5;
+      gfx_set(1, 0.16, 0.1, 0.045 * v); gfx_circle(sx(cx), sy(by), bw * 0.9 * g_s, 1, 1);
+      gfx_set(1, 0.18, 0.12, 0.07 * v); gfx_circle(sx(cx), sy(by), bw * 0.68 * g_s, 1, 1);
+    );
+    c += 1;
+  );
+  gfx_mode = 0;
+
+  wv = g_mu_won ? (g_t - g_mu_won_t) * 7 : -100;
+  c = 0;
+  loop(g_mu_n,
+    x = c % g_mu_c; y = floor(c / g_mu_c);
+    cx = g_mu_x0 + (x + 0.5) * g_mu_cw;
+    bx = cx - bw * 0.5; by = g_mu_y0 + y * g_mu_bp + 4;
+    v = mu_va[c];
+    d = g_t - mu_pt[c] < 0.13 ? 2 : 0;
+    gfx_set(0.035, 0.035, 0.04, 1);
+    fill_rr(bx - 3, by - 3, bw + 6, bh + 7, 7);
+    r = 0.2 + (0.62 - 0.2) * v; g = 0.205 + (0.12 - 0.205) * v; b = 0.225 + (0.1 - 0.225) * v;
+    gfx_set(r * 0.55, g * 0.55, b * 0.55, 1);
+    fill_rr(bx, by + d, bw, bh - d, 5);
+    r = 0.24 + (0.92 - 0.24) * v; g = 0.245 + (0.22 - 0.245) * v; b = 0.265 + (0.17 - 0.265) * v;
+    gfx_set(r, g, b, 1);
+    fill_rr(bx, by + d, bw, bh - 4, 5);
+    v > 0.02 ? (
+      gfx_set(r + (1 - r) * 0.3 * v, g + (0.5 - g) * 0.35 * v, b + (0.4 - b) * 0.35 * v, 1);
+      fill_rr(bx + 5, by + d + 4, bw - 10, bh - 12, 4);
+    );
+    gfx_set(1, 1, 1, 0.1 + 0.15 * v);
+    gfx_rect(sx(bx + 5), sy(by + d + 1), (bw - 10) * g_s, max(1, g_s));
+    a = exp(-(wv - x - y) * (wv - x - y) * 0.5);
+    k = (1 - v) * (1 + 1.8 * a);
+    k > 0.05 ? glow(sx(cx), sy(by + d + bh * 0.3), 3 * g_s, 0.35, 1, 0.55, min(1, k)) : (
+      gfx_set(0.08, 0.15, 0.1, 1);
+      gfx_circle(sx(cx), sy(by + d + bh * 0.3), 3 * g_s, 1, 1);
+    );
+    font(bh < 46 ? 10 : 11, 'b');
+    gfx_set(0.45 + 0.55 * v, 0.47 + 0.47 * v, 0.51 + 0.4 * v, 1);
+    txt_c("MUTE", bx, by + d + bh * 0.46, bw, bh * 0.4);
+    c == hc ? (
+      gfx_set(0.85, 0.87, 0.92, 0.85);
+      outline_rr(bx - 2, by - 2 + d, bw + 4, bh + 2 - d, 6);
+    );
+    c == g_mu_hc ? (
+      a = 0.55 + 0.45 * sin(g_t * 6);
+      gfx_set(1, 0.84, 0.3, a);
+      outline_rr(bx - 5, by - 5, bw + 10, bh + 10, 8);
+      outline_rr(bx - 6, by - 6, bw + 12, bh + 12, 9);
+    );
+    c += 1;
+  );
+
+  x = 0;
+  loop(g_mu_c,
+    cx = g_mu_x0 + (x + 0.5) * g_mu_cw;
+    mu_fader(cx - 9, 496, 616, mu_fad[x]);
+    mu_meter(cx + 16, 494, 618, 8, 16, mu_met[x], mu_pk[x]);
+    x += 1;
+  );
+  mu_meter(g_mu_mx + 29, 128, 460, 12, 30, mu_met[8], mu_pk[8]);
+  mu_meter(g_mu_mx + 59, 128, 460, 12, 30, mu_met[9], mu_pk[9]);
+  font(9, 'b');
+  gfx_set(0.55, 0.56, 0.6, 1);
+  txt_c("L", g_mu_mx + 23, 462, 24, 12);
+  txt_c("R", g_mu_mx + 53, 462, 24, 12);
+  mu_fader(g_mu_mx + 50, 496, 616, mu_fad[8]);
+);
+
+function mu_mini(x0, y0, nc, nr, red, ring, cs) local(c, x, y, bx, by, on)
+(
+  c = 0;
+  loop(nc * nr,
+    x = c % nc; y = floor(c / nc);
+    bx = x0 + x * cs; by = y0 + y * cs;
+    on = (red >> c) & 1;
+    gfx_set(0.035, 0.035, 0.04, 1);
+    fill_rr(bx, by, cs - 6, cs - 6, 5);
+    on ? gfx_set(0.92, 0.22, 0.17, 1) : gfx_set(0.24, 0.245, 0.265, 1);
+    fill_rr(bx + 2, by + 2, cs - 10, cs - 11, 4);
+    on ? (
+      gfx_set(1, 0.42, 0.33, 1);
+      fill_rr(bx + 6, by + 6, cs - 18, cs - 19, 3);
+    ) : (
+      glow(sx(bx + cs * 0.5 - 3), sy(by + (cs - 6) * 0.38), 2.2 * g_s, 0.35, 1, 0.55, 0.9);
+    );
+    (ring >> c) & 1 ? (
+      gfx_set(1, 0.84, 0.3, 1);
+      outline_rr(bx - 3, by - 3, cs, cs, 7);
+      outline_rr(bx - 4, by - 4, cs + 2, cs + 2, 8);
+    );
+    c += 1;
+  );
+);
+
+function mu_arrow(x, y1, y2)
+(
+  gfx_set(1, 0.84, 0.3, 1);
+  aa_tline(sx(x), sy(y1), sx(x), sy(y2 - 6), 2.4 * g_s);
+  gfx_triangle(sx(x - 5), sy(y2 - 7), sx(x + 5), sy(y2 - 7), sx(x), sy(y2));
+);
+
+function mu_help() local(x0, y0, px, py, i, r)
+(
+  r = 0;
+  gfx_set(0, 0, 0, 0.55);
+  gfx_rect(sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  x0 = 60; y0 = 120;
+  gfx_set(0.11, 0.115, 0.13, 1);
+  fill_rr(x0, y0, 780, 476, 10);
+  gfx_set(0.4, 1, 0.6, 0.8);
+  outline_rr(x0, y0, 780, 476, 10);
+  font(24, 'b');
+  gfx_set(0.4, 1, 0.6, 1);
+  txt_c("How to play Mute Point", x0, y0 + 16, 780, 36);
+  font(13, 0);
+  gfx_set(0.82, 0.84, 0.88, 1);
+  txt_c("Get every channel live: no red MUTE buttons left anywhere on the desk.", x0, y0 + 54, 780, 22);
+  i = 0;
+  loop(3,
+    px = x0 + 22 + i * 250; py = y0 + 92;
+    gfx_set(0.145, 0.15, 0.17, 1);
+    fill_rr(px, py, 236, 270, 8);
+    gfx_set(0.26, 0.27, 0.3, 1);
+    outline_rr(px, py, 236, 270, 8);
+    gfx_set(1, 0.84, 0.3, 1);
+    gfx_circle(sx(px + 24), sy(py + 24), 12 * g_s, 1, 1);
+    font(13, 'b');
+    gfx_set(0.12, 0.1, 0.05, 1);
+    txt_c(i == 0 ? "1" : i == 1 ? "2" : "3", px + 12, py + 12, 24, 24);
+    font(14, 'b');
+    gfx_set(0.95, 0.96, 0.98, 1);
+    txt_l(i == 0 ? "A press flips a plus" : i == 1 ? "Chase the reds down" : "Fix the bottom row", px + 44, py + 14);
+    i == 0 ? (
+      mu_mini(px + 67, py + 54, 3, 3, 186, 16, 34);
+    ) : i == 1 ? (
+      mu_mini(px + 50, py + 54, 4, 3, 266, 160, 34);
+      mu_arrow(px + 50 + 34 + 14, py + 54 + 22, py + 54 + 34 + 2);
+      mu_arrow(px + 50 + 102 + 14, py + 54 + 22, py + 54 + 34 + 2);
+    ) : (
+      mu_mini(px + 50, py + 54, 4, 3, 2304, 9, 34);
+    );
+    font(12, 0);
+    gfx_set(0.78, 0.8, 0.84, 1);
+    i == 0 ? (
+      txt_c("Each press flips the button and the", px, py + 176, 236, 18);
+      txt_c("ones above, below and beside it.", px, py + 194, 236, 18);
+      txt_c("This plus clears with one press", px, py + 212, 236, 18);
+      txt_c("in the middle.", px, py + 230, 236, 18);
+    ) : i == 1 ? (
+      txt_c("For every red button in the top row,", px, py + 176, 236, 18);
+      txt_c("press the one directly below it.", px, py + 194, 236, 18);
+      txt_c("Then do the same for the next row,", px, py + 212, 236, 18);
+      txt_c("and so on down the desk.", px, py + 230, 236, 18);
+    ) : (
+      txt_c("Red left only in the bottom row?", px, py + 176, 236, 18);
+      txt_c("Press the matching top-row buttons", px, py + 194, 236, 18);
+      txt_c("(here, the two marked ones), then", px, py + 212, 236, 18);
+      txt_c("chase down again. All live!", px, py + 230, 236, 18);
+    );
+    i += 1;
+  );
+  font(12, 0);
+  gfx_set(0.62, 0.64, 0.68, 1);
+  txt_c("Order never matters, and pressing a button twice undoes it. Not sure which top buttons? Try one and", x0, y0 + 372, 780, 18);
+  txt_c("chase down to see what it does to the bottom row, or press Hint. Open this card again with the ? button.", x0, y0 + 390, 780, 18);
+  button("Got it", 450 - 80, y0 + 422, 160, 40, 0.4, 1, 0.6) ? r = 1;
+  r;
+);
+
+function draw_mute() local(c, hc, x, y, cx, ready, k, i, a, n)
+(
+  g_pgrav = 200;
+  g_mu_lv < 1 ? mu_start(max(1, sv2[20]));
+  !sv2[23] ? g_mu_help = 1;
+  ready = g_t - g_mu_t0 > 0.9 && !g_mu_help;
+  hc = -1;
+  !g_mu_won && !g_mu_help ? (
+    c = 0;
+    loop(g_mu_n,
+      x = c % g_mu_c; y = floor(c / g_mu_c);
+      cx = g_mu_x0 + (x + 0.5) * g_mu_cw;
+      hit(cx - g_mu_bw * 0.5 - 3, g_mu_y0 + y * g_mu_bp + 1, g_mu_bw + 6, g_mu_bh + 7) ? hc = c;
+      c += 1;
+    );
+  );
+  hc >= 0 && ready && g_click ? ( g_click = 0; mu_press(hc); );
+  k = 0; c = 0;
+  loop(g_mu_n, k += mu_st[c]; c += 1; );
+  !g_mu_won && ready ? (
+    g_mu_time += g_dt;
+    k == 0 ? (
+      g_mu_won = 1; g_mu_won_t = g_t;
+      g_mu_hc = -1;
+      sv[0] = 1;
+      sv2[20] = g_mu_lv + 1;
+      sv2[21] += 1;
+      (g_mu_moves <= g_mu_par && g_mu_hints == 0) ? sv2[22] += 1;
+      c = 0;
+      loop(g_mu_n,
+        x = c % g_mu_c; y = floor(c / g_mu_c);
+        cx = g_mu_x0 + (x + 0.5) * g_mu_cw;
+        loop(5,
+          a = rand(1) * 2 * $pi; i = 40 + rand(1) * 150;
+          spawn(cx, g_mu_y0 + y * g_mu_bp + 4 + g_mu_bh * 0.3, cos(a) * i, sin(a) * i - 80, 0.4, 1, 0.6, 0.7 + rand(1) * 0.9);
+        );
+        c += 1;
+      );
+    );
+  );
+  mu_tick();
+  mu_scene(ready ? hc : -1);
+  particles();
+
+  button("< Games", 18, 14, 96, 36, 0.4, 0.95, 0.78) ? g_screen = 0;
+  button("New", 122, 14, 64, 36, 0.4, 0.95, 0.78) ? mu_start(g_mu_lv);
+  g_t - g_mu_rst_t > 3 ? g_mu_rst_t = -1000;
+  g_mu_rst_t > 0 ? (
+    button("Sure?", 194, 14, 100, 36, 1, 0.4, 0.35) ? ( g_mu_rst_t = -1000; sv2[20] = 1; sv2[21] = 0; sv2[22] = 0; mu_start(1); );
+  ) : (
+    button("Start over", 194, 14, 100, 36, 1, 0.4, 0.35) ? g_mu_rst_t = g_t;
+  );
+  button("Hint", 302, 14, 58, 36, 1, 0.84, 0.3) ? ( (!g_mu_won && !g_mu_help && g_mu_hc < 0) ? mu_hint(); );
+  button("?", 366, 14, 36, 36, 0.4, 1, 0.6) ? ( g_mu_help = !g_mu_help; g_mu_help ? g_mu_hc = -1; sv2[23] = 1; );
+  font(16, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  sprintf(#g_tt, "Mute Point - Level %d", g_mu_lv);
+  txt_c(#g_tt, 404, 14, 186, 36);
+  n = 0; x = 0;
+  loop(g_mu_c,
+    k = 0; y = 0;
+    loop(g_mu_r, k += mu_st[y * g_mu_c + x]; y += 1; );
+    k == 0 ? n += 1;
+    x += 1;
+  );
+  font(13, 'b');
+  sprintf(#g_tt, "%d of %d channels live", n, g_mu_c);
+  n == g_mu_c ? pill(#g_tt, 592, 18, 156, 28, 0.4, 1, 0.6, 1) : pill(#g_tt, 592, 18, 156, 28, 0.62, 0.64, 0.68, 0.8);
+  font(13, 0);
+  gfx_set(0.78, 0.8, 0.84, 1);
+  g_mu_moves == 1 ? strcpy(#g_tt, "1 press") : sprintf(#g_tt, "%d presses", g_mu_moves);
+  txt_c(#g_tt, 752, 14, 80, 36);
+  gfx_set(0.95, 0.96, 0.98, 1);
+  font(14, 'b');
+  txt_r(fmt_time(g_mu_time), 880, 23);
+
+  hint("Click a mute button to flip it and its neighbours above, below and beside. Get every channel live.", HINT_Y);
+
+  g_mu_won ? (
+    sprintf(#g_l1, "Level %d live in %s with %d presses", g_mu_lv, fmt_time(g_mu_time), g_mu_moves);
+    g_mu_hints ? sprintf(#g_l2, "Par: %d presses.   Hints used: %d.   Levels cleared: %d", g_mu_par, g_mu_hints, sv2[21]) :
+                 sprintf(#g_l2, "Par for this desk: %d presses.   Levels cleared: %d", g_mu_par, sv2[21]);
+    i = win_card((g_mu_moves <= g_mu_par && g_mu_hints == 0) ? "Perfect mix!" : "All channels live!", g_mu_won_t + 0.6, 0.4, 1, 0.6);
+    i == 1 ? mu_start(g_mu_lv + 1) : i == 2 ? g_screen = 0;
+  );
+  g_mu_help ? ( mu_help() ? ( g_mu_help = 0; sv2[23] = 1; ); );
+);
+
+function pv_mute(x, y, w, h) local(k)
+(
+  g_mu_lv < 1 ? mu_start(max(1, sv2[20]));
+  mu_tick();
+  k = max(w / BRD_W, h / BRD_H);
+  pv_begin(x, y, w, h, max(1.04, min(1.5, w / k / (g_mu_iw + 64))));
+  mu_scene(-1);
+  pv_end();
+);

@@ -1,0 +1,896 @@
+@init
+function prev_koi(x, y, w, h) local(k, j, t, px, py, r, cx, cy)
+(
+  gfx_set(0.07, 0.25, 0.27, 1);
+  gfx_gradrect(sx(x), sy(y), w * g_s, h * g_s, 0.08, 0.3, 0.31, 1, 0, 0, 0, 0, -0.06 / (h * g_s), -0.18 / (h * g_s), -0.17 / (h * g_s), 0);
+  cx = x + w * 0.5; cy = y + h * 0.5;
+  gfx_mode = 1;
+  k = 0;
+  loop(3,
+    r = frac(g_t * 0.3 + k / 3);
+    gfx_set(0.7, 1, 1, 0.25 * (1 - r));
+    gfx_circle(sx(x + w * (0.3 + 0.2 * k)), sy(y + h * (0.35 + 0.15 * k)), r * 40 * g_s, 0, 1);
+    k += 1;
+  );
+  gfx_mode = 0;
+  k = 0;
+  loop(2,
+    j = 9;
+    loop(10,
+      t = g_t * (0.5 + 0.12 * k) + k * 3.1 - j * 0.08;
+      px = cx + w * 0.3 * cos(t);
+      py = cy + h * 0.28 * sin(t) * (1 + 0.2 * k);
+      r = (j < 2 ? 5 : 6 - j * 0.45) * g_s;
+      k == 0 ? gfx_set(0.96, 0.94, 0.9, 1) : gfx_set(1, 0.72, 0.25, 1);
+      gfx_circle(sx(px), sy(py), max(1.2 * g_s, r), 1, 1);
+      k == 0 && (j == 1 || j == 4) ? ( gfx_set(0.9, 0.25, 0.15, 1); gfx_circle(sx(px), sy(py), r * 0.7, 1, 1); );
+      j -= 1;
+    );
+    k += 1;
+  );
+  gfx_set(0.22, 0.48, 0.24, 1);
+  gfx_circle(sx(x + w * 0.82), sy(y + h * 0.25), 13 * g_s, 1, 1);
+  gfx_set(0.95, 0.6, 0.75, 1);
+  gfx_circle(sx(x + w * 0.82), sy(y + h * 0.25), 4 * g_s, 1, 1);
+);
+
+function prev_garden(x, y, w, h) local(cx, cy, k, gx, gy, gr, ht, c)
+(
+  gfx_set(0.12, 0.1, 0.16, 1);
+  gfx_rect(sx(x), sy(y), w * g_s, h * g_s);
+  cx = x + w * 0.5; cy = y + h * 0.62;
+  gfx_set(0.35, 0.22, 0.15, 1);
+  gfx_triangle(sx(cx - 56), sy(cy), sx(cx), sy(cy + 28), sx(cx), sy(cy + 40), sx(cx - 56), sy(cy + 12));
+  gfx_set(0.27, 0.17, 0.12, 1);
+  gfx_triangle(sx(cx + 56), sy(cy), sx(cx), sy(cy + 28), sx(cx), sy(cy + 40), sx(cx + 56), sy(cy + 12));
+  gfx_set(0.42, 0.62, 0.3, 1);
+  gfx_triangle(sx(cx - 56), sy(cy), sx(cx), sy(cy - 28), sx(cx + 56), sy(cy), sx(cx), sy(cy + 28));
+  k = 0;
+  loop(5,
+    gx = cx + (k - 2) * 19; gy = cy + ((k & 1) ? 6 : -5);
+    gr = frac(g_t * 0.08 + hash(k) );
+    ht = floor(gr * 8) * 3;
+    gfx_set(0.3, 0.75, 0.3, 1);
+    gfx_rect(sx(gx), sy(gy - ht), 2 * g_s, ht * g_s);
+    gr > 0.6 ? (
+      c = k % 3;
+      c == 0 ? gfx_set(1, 0.55, 0.7, 1) : c == 1 ? gfx_set(1, 0.85, 0.35, 1) : gfx_set(0.7, 0.6, 1, 1);
+      gfx_rect(sx(gx - 3), sy(gy - ht - 4), 8 * g_s, 6 * g_s);
+      gfx_set(1, 1, 0.8, 1);
+      gfx_rect(sx(gx), sy(gy - ht - 2), 2 * g_s, 2 * g_s);
+    );
+    k += 1;
+  );
+);
+
+function prev_rain(x, y, w, h) local(k, px, py, r, f)
+(
+  gfx_set(0.05, 0.06, 0.12, 1);
+  gfx_rect(sx(x), sy(y), w * g_s, h * g_s);
+  gfx_mode = 1;
+  k = 0;
+  loop(9,
+    hue(0.05 + hash(k + 3) * 0.6);
+    gfx_set(g_hr, g_hg * 0.8, g_hb * 0.6, 0.12);
+    r = (10 + 12 * hash(k + 9)) * g_s;
+    gfx_circle(sx(x + 10 + (w - 20) * hash(k + 1)), sy(y + h * (0.45 + 0.4 * hash(k + 2))), r, 1, 1);
+    k += 1;
+  );
+  gfx_mode = 0;
+  k = 0;
+  loop(16,
+    f = frac(g_t * (0.05 + 0.1 * hash(k + 20)) + hash(k + 30));
+    px = x + 6 + (w - 12) * hash(k + 40);
+    py = y + 4 + (h - 8) * f;
+    r = (1.5 + 2.5 * hash(k + 50)) * g_s;
+    gfx_set(0.55, 0.62, 0.75, 0.35);
+    gfx_rect(sx(px) - r * 0.25, sy(py) - r * 5, r * 0.5, r * 5);
+    gfx_set(0.7, 0.78, 0.9, 0.7);
+    gfx_circle(sx(px), sy(py), r, 1, 1);
+    gfx_set(1, 1, 1, 0.8);
+    gfx_circle(sx(px) - r * 0.35, sy(py) - r * 0.35, r * 0.3, 1, 1);
+    k += 1;
+  );
+);
+
+function prev_kintsugi(x, y, w, h) local(cx, cy, k, a0, a1, r, g)
+(
+  gfx_set(0.1, 0.09, 0.08, 1);
+  gfx_rect(sx(x), sy(y), w * g_s, h * g_s);
+  cx = sx(x + w * 0.5); cy = sy(y + h * 0.36); r = 52 * g_s;
+  gfx_set(0.16, 0.24, 0.32, 1);
+  k = 0;
+  loop(24,
+    a0 = k / 24 * $pi; a1 = (k + 1) / 24 * $pi;
+    gfx_triangle(cx, cy, cx + cos(a0) * r, cy + sin(a0) * r * 0.95, cx + cos(a1) * r, cy + sin(a1) * r * 0.95);
+    k += 1;
+  );
+  gfx_set(0.85, 0.82, 0.75, 1);
+  gfx_rect(cx - r, cy - 3 * g_s, 2 * r, 4 * g_s);
+  g = 0.6 + 0.4 * sin(g_t * 2);
+  gfx_mode = 1;
+  gfx_set(1, 0.75, 0.25, 0.25 * g);
+  aa_tline(cx - r * 0.5, cy, cx - r * 0.2, cy + r * 0.4, 5 * g_s);
+  aa_tline(cx - r * 0.2, cy + r * 0.4, cx + r * 0.1, cy + r * 0.85, 5 * g_s);
+  aa_tline(cx + r * 0.3, cy, cx + r * 0.45, cy + r * 0.5, 5 * g_s);
+  gfx_mode = 0;
+  gfx_set(1, 0.82, 0.35, 1);
+  aa_tline(cx - r * 0.5, cy, cx - r * 0.2, cy + r * 0.4, 1.6 * g_s);
+  aa_tline(cx - r * 0.2, cy + r * 0.4, cx + r * 0.1, cy + r * 0.85, 1.6 * g_s);
+  aa_tline(cx + r * 0.3, cy, cx + r * 0.45, cy + r * 0.5, 1.6 * g_s);
+  aa_tline(cx - r * 0.2, cy + r * 0.4, cx + r * 0.2, cy + r * 0.3, 1.2 * g_s);
+);
+
+function prev_soon(x, y, w, h) local(k, cx, cy, f, r)
+(
+  cx = sx(x + w * 0.5); cy = sy(y + h * 0.5);
+  gfx_mode = 1;
+  k = 0;
+  loop(4,
+    f = frac(g_t * 0.5 + k / 4);
+    r = (12 + (1 - f) * 52) * g_s;
+    hue(0.6 + k * 0.1);
+    gfx_set(g_hr, g_hg, g_hb, 0.8 * f);
+    gfx_circle(cx, cy, r, 0, 1);
+    gfx_circle(cx, cy, r + 1, 0, 1);
+    k += 1;
+  );
+  gfx_mode = 0;
+  f = frac(g_t * 0.5 + 0.25 * floor(frac(g_t * 0.5) * 4 + 1));
+  glow(cx, cy, 9 * g_s * (1 + 0.3 * exp(-frac(g_t * 2) * 6)), 0.9, 0.7, 1, 0.9);
+);
+
+function rip_add(x, y, r, amt) local(gx, gy, ix, iy, d, cx0, cy0)
+(
+  gx = (x - BRD_X) / KCELL; gy = (y - BRD_Y) / KCELL;
+  cy0 = max(1, floor(gy - r));
+  loop(min(KGH - 2, ceil(gy + r)) - cy0 + 1,
+    cx0 = max(1, floor(gx - r));
+    loop(min(KGW - 2, ceil(gx + r)) - cx0 + 1,
+      d = sqrt((cx0 - gx) * (cx0 - gx) + (cy0 - gy) * (cy0 - gy));
+      d < r ? rb1[cy0 * KGW + cx0] += amt * (0.5 + 0.5 * cos($pi * d / r));
+      cx0 += 1;
+    );
+    cy0 += 1;
+  );
+);
+
+function rip_h(x, y) local(gx, gy)
+(
+  gx = max(1, min(KGW - 2, floor((x - BRD_X) / KCELL)));
+  gy = max(1, min(KGH - 2, floor((y - BRD_Y) / KCELL)));
+  g_rgx = rb1[gy * KGW + gx - 1] - rb1[gy * KGW + gx + 1];
+  g_rgy = rb1[(gy - 1) * KGW + gx] - rb1[(gy + 1) * KGW + gx];
+  rb1[gy * KGW + gx];
+);
+
+function rip_sim() local(i, t)
+(
+  i = KGW + 1;
+  loop((KGH - 2) * KGW - 2,
+    rb2[i] = ((rb1[i - 1] + rb1[i + 1] + rb1[i - KGW] + rb1[i + KGW]) * 0.5 - rb2[i]) * 0.984;
+    i += 1;
+  );
+  i = 0;
+  loop(KGH, rb2[i * KGW] = 0; rb2[i * KGW + KGW - 1] = 0; i += 1; );
+  t = rb1; rb1 = rb2; rb2 = t;
+);
+
+function rip_render(night) local(x, y, i, v, q, c, tt, hr, hg, hb, s1, s2, dst)
+(
+  dst = gfx_dest;
+  gfx_dest = IMG_KP;
+  tt = g_t * 0.6;
+  hr = night ? 0.6 : 1; hg = night ? 0.72 : 1; hb = night ? 1 : 0.92;
+  y = 1;
+  loop(KGH - 2,
+    i = y * KGW + 1;
+    x = 1;
+    loop(KGW - 2,
+      v = ((rb1[i - 1] - rb1[i + 1]) * 0.6 + (rb1[i - KGW] - rb1[i + KGW]) * 0.8) * 0.018;
+      s1 = sin(x * 0.23 + tt + 1.7 * sin(y * 0.17 + tt * 0.6));
+      s2 = sin(y * 0.21 - tt * 0.8 + 1.7 * sin(x * 0.13 - tt * 0.5));
+      q = s1 * s2;
+      c = q > 0 ? q * q * (night ? 0.02 : 0.12) : 0;
+      v = max(0, v);
+      v = min(1, v * v * 1.5 + v * 0.4 + c);
+      gfx_x = x; gfx_y = y;
+      gfx_setpixel(v * hr, v * hg, v * hb);
+      i += 1; x += 1;
+    );
+    y += 1;
+  );
+  gfx_dest = dst;
+);
+
+function koi_setup(k) local(t, n, j)
+(
+  t = k % 8;
+  ktyp[k] = t;
+  ksz[k] = 1.15 + rand(1) * 0.5;
+  kx[k] = BRD_X + 200 + rand(1) * (BRD_W - 400);
+  ky[k] = BRD_Y + 180 + rand(1) * (BRD_H - 360);
+  ka[k] = rand(1) * 2 * $pi;
+  ksp[k] = 30;
+  kph[k] = rand(1) * 10;
+  kwan[k] = 0;
+  j = 0;
+  loop(NSEG,
+    kpx[k * NSEG + j] = kx[k] - cos(ka[k]) * j * 6.5 * ksz[k];
+    kpy[k * NSEG + j] = ky[k] - sin(ka[k]) * j * 6.5 * ksz[k];
+    j += 1;
+  );
+  n = 0;
+  t == 0 || t == 1 || t == 6 ? (
+    loop(t == 1 ? 5 : 3 + floor(rand(1) * 2),
+      kss[k * NSP + n] = 1 + floor(rand(1) * 6);
+      ksl[k * NSP + n] = (rand(1) - 0.5) * 0.6;
+      ksr[k * NSP + n] = 0.45 + rand(1) * 0.2;
+      ksc[k * NSP + n] = t == 0 ? 0 : t == 6 ? 2 : (n & 1 ? 1 : 0);
+      n += 1;
+    );
+  );
+  t == 3 ? (
+    loop(2,
+      kss[k * NSP + n] = 6 + n; ksl[k * NSP + n] = n ? 0.35 : -0.35; ksr[k * NSP + n] = 0.45; ksc[k * NSP + n] = 3;
+      n += 1;
+    );
+  );
+  t == 4 ? ( kss[k * NSP] = 1; ksl[k * NSP] = 0; ksr[k * NSP] = 0.55; ksc[k * NSP] = 0; n = 1; );
+  ksn[k] = n;
+);
+
+function kp_init() local(i, a)
+(
+  memset(rb1, 0, KGW * KGH);
+  memset(rb2, 0, KGW * KGH);
+  gfx_setimgdim(IMG_KP, KGW, KGH);
+  g_kp_n = sv[20] >= 1 ? sv[20] : 7;
+  g_kp_night = sv[21];
+  i = 0;
+  loop(NK, koi_setup(i); i += 1; );
+  memset(fdl, 0, NFD);
+  memset(ptl, 0, NPT);
+  i = 0;
+  loop(NPD,
+    pdr[i] = 20 + rand(1) * 14;
+    a = i / NPD * 2 * $pi + rand(1) * 0.5;
+    pdx_[i] = 450 + cos(a) * (300 + rand(1) * 60);
+    pdy_[i] = BRD_CY + sin(a) * (200 + rand(1) * 40);
+    pdrot[i] = rand(1) * 2 * $pi;
+    pdvx[i] = 0; pdvy[i] = 0;
+    pdfl[i] = rand(1) < 0.5;
+    i += 1;
+  );
+  g_kp_init = 1;
+);
+
+function koi_update(k, dt) local(dx, dy, best, bi, i, d, tgt, da, j, l, px, py, ex, ey, sp)
+(
+  dx = cos(ka[k]); dy = sin(ka[k]);
+  kwan[k] = max(-1, min(1, kwan[k] + (rand(1) - 0.5) * dt * 3));
+  ex = kx[k] + dx * 70 - (BRD_X + 16); ey = ky[k] + dy * 70 - (BRD_Y + 16);
+  l = BRD_W - 32; j = BRD_H - 32;
+  ex < 150 ? dx += sqr((150 - ex) / 150) * 5;
+  ex > l - 150 ? dx -= sqr((ex - l + 150) / 150) * 5;
+  ey < 150 ? dy += sqr((150 - ey) / 150) * 5;
+  ey > j - 150 ? dy -= sqr((ey - j + 150) / 150) * 5;
+  best = 330 * 330; bi = -1;
+  i = 0;
+  loop(NFD,
+    (fdl[i] > 0 && !(kig[k] == i && g_t < kigt[k])) ? (
+      d = (fdx[i] - kx[k]) * (fdx[i] - kx[k]) + (fdy[i] - ky[k]) * (fdy[i] - ky[k]);
+      d < best ? ( best = d; bi = i; );
+    );
+    i += 1;
+  );
+  bi >= 0 ? (
+    bi !== ktg[k] ? ( ktg[k] = bi; kch[k] = g_t; );
+    g_t - kch[k] > 5 ? ( kig[k] = bi; kigt[k] = g_t + 8; ktg[k] = -1; );
+    d = sqrt(best);
+    dx += (fdx[bi] - kx[k]) / max(1, d) * 2.5;
+    dy += (fdy[bi] - ky[k]) / max(1, d) * 2.5;
+    d < 9 * ksz[k] ? (
+      fdl[bi] = 0;
+      rip_add(fdx[bi], fdy[bi], 2, 30);
+      loop(5, spawn(fdx[bi], fdy[bi], (rand(1) - 0.5) * 50, (rand(1) - 0.5) * 50, 0.8, 0.95, 1, 0.4); );
+    );
+  );
+  i = 0;
+  loop(g_kp_n,
+    i !== k ? (
+      d = (kx[i] - kx[k]) * (kx[i] - kx[k]) + (ky[i] - ky[k]) * (ky[i] - ky[k]);
+      d < 2500 && d > 0 ? ( dx -= (kx[i] - kx[k]) / d * 18; dy -= (ky[i] - ky[k]) / d * 18; );
+    );
+    i += 1;
+  );
+  tgt = atan2(dy, dx);
+  da = tgt - ka[k];
+  da > $pi ? da -= 2 * $pi;
+  da < -$pi ? da += 2 * $pi;
+  ka[k] += max(-2.6 * dt, min(2.6 * dt, da)) + kwan[k] * 0.45 * dt;
+  sp = bi >= 0 ? 85 * (sqrt(best) < 160 ? max(0.2, 0.5 + 0.5 * cos(da)) : 1) : 26 + 14 * sin(g_t * 0.2 + k * 1.3);
+  bi < 0 ? ktg[k] = -1;
+  ksp[k] += (sp - ksp[k]) * min(1, dt * 1.5);
+  kx[k] = max(BRD_X + 66, min(BRD_X + BRD_W - 66, kx[k] + cos(ka[k]) * ksp[k] * dt));
+  ky[k] = max(BRD_Y + 66, min(BRD_Y + BRD_H - 66, ky[k] + sin(ka[k]) * ksp[k] * dt));
+  kph[k] += dt * (2.5 + ksp[k] * 0.07);
+  kpx[k * NSEG] = kx[k]; kpy[k * NSEG] = ky[k];
+  l = 6.5 * ksz[k];
+  j = 1;
+  loop(NSEG - 1,
+    px = kpx[k * NSEG + j] - kpx[k * NSEG + j - 1];
+    py = kpy[k * NSEG + j] - kpy[k * NSEG + j - 1];
+    d = sqrt(px * px + py * py);
+    d > 0.001 ? (
+      kpx[k * NSEG + j] = kpx[k * NSEG + j - 1] + px / d * l;
+      kpy[k * NSEG + j] = kpy[k * NSEG + j - 1] + py / d * l;
+    );
+    j += 1;
+  );
+  rip_add(kpx[k * NSEG + 2], kpy[k * NSEG + 2], 1.6, ksp[k] * 0.012);
+);
+
+function fan(px, py, r, a0, a1, n) local(k, b0, b1)
+(
+  k = 0;
+  loop(n,
+    b0 = a0 + (a1 - a0) * k / n;
+    b1 = a0 + (a1 - a0) * (k + 1) / n;
+    gfx_triangle(px, py, px + cos(b0) * r, py + sin(b0) * r, px + cos(b1) * r, py + sin(b1) * r);
+    k += 1;
+  );
+);
+
+function fanp(px, py, r, a0, a1) local(d)
+(
+  d = (a1 - a0) / 8;
+  gfx_triangle(px, py,
+    px + cos(a0) * r, py + sin(a0) * r,
+    px + cos(a0 + d) * r, py + sin(a0 + d) * r,
+    px + cos(a0 + 2 * d) * r, py + sin(a0 + 2 * d) * r,
+    px + cos(a0 + 3 * d) * r, py + sin(a0 + 3 * d) * r,
+    px + cos(a0 + 4 * d) * r, py + sin(a0 + 4 * d) * r,
+    px + cos(a0 + 5 * d) * r, py + sin(a0 + 5 * d) * r,
+    px + cos(a0 + 6 * d) * r, py + sin(a0 + 6 * d) * r,
+    px + cos(a0 + 7 * d) * r, py + sin(a0 + 7 * d) * r,
+    px + cos(a1) * r, py + sin(a1) * r);
+);
+
+function body_poly(scale, offx, offy) local(j, w)
+(
+  j = 0;
+  loop(NSEG,
+    w = kwp[j] * g_kw * scale;
+    tlx2[j] = sx(tdx[j] - tfy[j] * w + offx); tly2[j] = sy(tdy[j] + tfx[j] * w + offy);
+    trx2[j] = sx(tdx[j] + tfy[j] * w + offx); try2[j] = sy(tdy[j] - tfx[j] * w + offy);
+    j += 1;
+  );
+  j = 0;
+  loop(NSEG - 1,
+    gfx_triangle(tlx2[j], tly2[j], tlx2[j + 1], tly2[j + 1], trx2[j + 1], try2[j + 1], trx2[j], try2[j]);
+    j += 1;
+  );
+  w = kwp[0] * g_kw * scale;
+  fanp(sx(tdx[0] + offx), sy(tdy[0] + offy), w * g_s, atan2(tfy[0], tfx[0]) - $pi * 0.5, atan2(tfy[0], tfx[0]) + $pi * 0.5);
+  gfx_circle(sx(tdx[NSEG - 1] + offx), sy(tdy[NSEG - 1] + offy), kwp[NSEG - 1] * g_kw * scale * g_s, 1, 1);
+);
+
+function body_edge() local(j)
+(
+  j = 0;
+  loop(NSEG - 1,
+    gfx_line(tlx2[j], tly2[j], tlx2[j + 1], tly2[j + 1], 1);
+    gfx_line(trx2[j], try2[j], trx2[j + 1], try2[j + 1], 1);
+    j += 1;
+  );
+  gfx_arc(sx(tdx[0]), sy(tdy[0]), kwp[0] * g_kw * g_s, atan2(tfx[0], -tfy[0]) - $pi * 0.5, atan2(tfx[0], -tfy[0]) + $pi * 0.5, 1);
+);
+
+function kset(r, g, b, a)
+(
+  gfx_set(r * (1 - g_ta) + g_tr * g_ta, g * (1 - g_ta) + g_tg * g_ta, b * (1 - g_ta) + g_tb * g_ta, a);
+);
+
+function koi_draw(k, shadow, dim) local(j, d, lat, amp, br, bg, bb, n, sg, px, py, l, cr, cg, cb, b, wg, fa, ha)
+(
+  amp = ksz[k] * min(1.6, max(0.6, ksp[k] / 45));
+  j = 0;
+  loop(NSEG,
+    j == 0 ? (
+      px = kpx[k * NSEG] - kpx[k * NSEG + 1]; py = kpy[k * NSEG] - kpy[k * NSEG + 1];
+    ) : (
+      px = kpx[k * NSEG + j - 1] - kpx[k * NSEG + j]; py = kpy[k * NSEG + j - 1] - kpy[k * NSEG + j];
+    );
+    d = max(0.001, sqrt(px * px + py * py));
+    tfx[j] = px / d; tfy[j] = py / d;
+    lat = sin(kph[k] - j * 0.55) * (0.2 + j * 0.38) * amp;
+    tdx[j] = kpx[k * NSEG + j] - tfy[j] * lat;
+    tdy[j] = kpy[k * NSEG + j] + tfx[j] * lat;
+    j += 1;
+  );
+  g_kw = 7.6 * ksz[k];
+  l = 6.5 * ksz[k];
+  shadow ? (
+    dim < 1 ? gfx_set(0.024, 0.051, 0.096, 1) : gfx_set(0.115, 0.292, 0.283, 1);
+    body_poly(1.05, 10, 15);
+  ) : (
+    br = kbr[ktyp[k]] * dim; bg = kbg[ktyp[k]] * dim; bb = kbb[ktyp[k]] * dim;
+    ha = atan2(tfy[2], tfx[2]);
+    kset(min(1, br * 0.85 + 0.12), min(1, bg * 0.85 + 0.12), min(1, bb * 0.85 + 0.12), 0.42);
+    wg = sin(kph[k] * 1.3) * 0.35;
+    sg = -1;
+    loop(2,
+      px = sx(tdx[2] - tfy[2] * sg * g_kw * 0.7); py = sy(tdy[2] + tfx[2] * sg * g_kw * 0.7);
+      fa = ha + $pi + sg * (1.0 + wg * sg);
+      fanp(px, py, g_kw * 1.5 * g_s, fa - 0.55, fa + 0.55);
+      sg += 2;
+    );
+    wg = sin(kph[k] - 5.5) * 0.45;
+    ha = atan2(-tfy[9], -tfx[9]);
+    px = sx(tdx[9]); py = sy(tdy[9]);
+    fanp(px, py, l * 2.5 * g_s, ha - 0.75 + wg, ha + 0.75 + wg);
+    kset(min(1, br * 0.85 + 0.12), min(1, bg * 0.85 + 0.12), min(1, bb * 0.85 + 0.12), 0.25);
+    fanp(px, py, l * 2.9 * g_s, ha - 0.55 + wg * 1.2, ha + 0.55 + wg * 1.2);
+    kset(br * 0.6, bg * 0.6, bb * 0.6, 0.3);
+    sg = -2;
+    loop(5,
+      fa = ha + wg * 1.1 + sg * 0.26;
+      gfx_line(px, py, px + cos(fa) * l * 2.6 * g_s, py + sin(fa) * l * 2.6 * g_s, 1);
+      sg += 1;
+    );
+    kset(br * 0.72, bg * 0.72, bb * 0.72, 1);
+    body_poly(1, 0, 0);
+    kset(br * 0.72, bg * 0.72, bb * 0.72, 0.6);
+    body_edge();
+    kset(br, bg, bb, 1);
+    body_poly(0.78, -0.6, -0.9);
+    b = ktyp[k] == 2 || ktyp[k] == 7 ? 0.32 : 0.14;
+    kset(br + (1 - br) * b, bg + (1 - bg) * b, bb + (1 - bb) * b, 1);
+    body_poly(0.28, -0.8, -1.4);
+    n = 0;
+    loop(ksn[k],
+      j = kss[k * NSP + n];
+      cr = ksr_r[ksc[k * NSP + n]] * dim; cg = ksr_g[ksc[k * NSP + n]] * dim; cb = ksr_b[ksc[k * NSP + n]] * dim;
+      kset(cr, cg, cb, 1);
+      b = kwp[j] * g_kw;
+      px = tdx[j] - tfy[j] * ksl[k * NSP + n] * b; py = tdy[j] + tfx[j] * ksl[k * NSP + n] * b;
+      gfx_circle(sx(px), sy(py), ksr[k * NSP + n] * b * g_s, 1, 1);
+      j < NSEG - 2 ? gfx_circle(sx((px + tdx[j + 1]) * 0.5), sy((py + tdy[j + 1]) * 0.5), ksr[k * NSP + n] * b * 0.85 * g_s, 1, 1);
+      n += 1;
+    );
+    kset(0.04, 0.04, 0.05, 0.85);
+    sg = -1;
+    loop(2,
+      gfx_circle(sx(tdx[0] + tfx[0] * g_kw * 0.3 - tfy[0] * sg * g_kw * 0.5), sy(tdy[0] + tfy[0] * g_kw * 0.3 + tfx[0] * sg * g_kw * 0.5), max(1, 1.1 * ksz[k] * g_s), 1, 1);
+      sg += 2;
+    );
+  );
+);
+
+function lily(i, shadow, night) local(px, py, r, k, a0, a1, rot, notch, c, f)
+(
+  px = sx(pdx_[i]); py = sy(pdy_[i]); r = pdr[i] * g_s;
+  rot = pdrot[i];
+  notch = 0.42;
+  shadow ? (
+    gfx_set(0, 0.02, 0.03, 0.2);
+    gfx_circle(px + 10 * g_s, py + 15 * g_s, r, 1, 1);
+  ) : (
+    c = night ? 0.45 : 1;
+    gfx_set(0.16 * c, 0.36 * c, 0.17 * c, 1);
+    k = 0;
+    loop(28,
+      a0 = rot + notch * 0.5 + k / 28 * (2 * $pi - notch);
+      a1 = rot + notch * 0.5 + (k + 1) / 28 * (2 * $pi - notch);
+      gfx_triangle(px, py, px + cos(a0) * r, py + sin(a0) * r, px + cos(a1) * r, py + sin(a1) * r);
+      k += 1;
+    );
+    gfx_set(0.26 * c, 0.52 * c, 0.24 * c, 1);
+    k = 0;
+    loop(28,
+      a0 = rot + notch * 0.5 + k / 28 * (2 * $pi - notch);
+      a1 = rot + notch * 0.5 + (k + 1) / 28 * (2 * $pi - notch);
+      gfx_triangle(px - r * 0.06, py - r * 0.08, px - r * 0.06 + cos(a0) * r * 0.88, py - r * 0.08 + sin(a0) * r * 0.88, px - r * 0.06 + cos(a1) * r * 0.88, py - r * 0.08 + sin(a1) * r * 0.88);
+      k += 1;
+    );
+    gfx_set(0.14 * c, 0.32 * c, 0.15 * c, 0.8);
+    k = 0;
+    loop(7,
+      a0 = rot + notch + k / 7 * (2 * $pi - 2 * notch) + 0.2;
+      gfx_line(px, py, px + cos(a0) * r * 0.85, py + sin(a0) * r * 0.85, 1);
+      k += 1;
+    );
+    pdfl[i] ? (
+      night ? glow(px, py, r * 0.5, 1, 0.7, 0.4, 0.5 + 0.1 * sin(g_t * 2 + i));
+      k = 0;
+      loop(8,
+        a0 = k / 8 * 2 * $pi + i;
+        f = r * 0.62;
+        night ? gfx_set(0.95, 0.72, 0.65, 1) : gfx_set(0.98, 0.72, 0.84, 1);
+        gfx_triangle(px, py, px + cos(a0 - 0.32) * f * 0.55, py + sin(a0 - 0.32) * f * 0.55, px + cos(a0) * f, py + sin(a0) * f, px + cos(a0 + 0.32) * f * 0.55, py + sin(a0 + 0.32) * f * 0.55);
+        k += 1;
+      );
+      k = 0;
+      loop(6,
+        a0 = k / 6 * 2 * $pi + i + 0.4;
+        f = r * 0.42;
+        night ? gfx_set(1, 0.85, 0.75, 1) : gfx_set(1, 0.88, 0.93, 1);
+        gfx_triangle(px, py, px + cos(a0 - 0.4) * f * 0.5, py + sin(a0 - 0.4) * f * 0.5, px + cos(a0) * f, py + sin(a0) * f, px + cos(a0 + 0.4) * f * 0.5, py + sin(a0 + 0.4) * f * 0.5);
+        k += 1;
+      );
+      gfx_set(1, 0.85, 0.3, 1);
+      gfx_circle(px, py, r * 0.12, 1, 1);
+    );
+  );
+);
+
+function petal(i, night) local(px, py, r, a, z, c, ca, sa, k, qx, qy)
+(
+  z = ptz[i];
+  r = (5.5 + z * 5) * g_s;
+  px = sx(ptx[i]); py = sy(pty[i] - z * 30);
+  a = ptr[i];
+  c = min(1, ptl[i] / 3);
+  ca = cos(a); sa = sin(a);
+  z > 0 ? (
+    gfx_set(0, 0.02, 0.03, 0.15 * c);
+    gfx_circle(sx(ptx[i] + 6), sy(pty[i] + 9), r * 0.6, 1, 1);
+  );
+  night ? gfx_set(0.72, 0.64, 0.78, c) : gfx_set(1, 0.8, 0.88, c);
+  gfx_triangle(
+    px + ca * r * 0.95 - sa * r * 0.22, py + sa * r * 0.95 + ca * r * 0.22,
+    px + ca * r * 0.62 - sa * r * 0.5, py + sa * r * 0.62 + ca * r * 0.5,
+    px - sa * r * 0.52, py + ca * r * 0.52,
+    px - ca * r * 0.6 - sa * r * 0.3, py - sa * r * 0.6 + ca * r * 0.3,
+    px - ca * r, py - sa * r,
+    px - ca * r * 0.6 + sa * r * 0.3, py - sa * r * 0.6 - ca * r * 0.3,
+    px + sa * r * 0.52, py - ca * r * 0.52,
+    px + ca * r * 0.62 + sa * r * 0.5, py + sa * r * 0.62 - ca * r * 0.5,
+    px + ca * r * 0.95 + sa * r * 0.22, py + sa * r * 0.95 - ca * r * 0.22);
+  night ? gfx_set(0.6, 0.45, 0.6, 0.6 * c) : gfx_set(0.95, 0.55, 0.7, 0.6 * c);
+  gfx_circle(px - ca * r * 0.6, py - sa * r * 0.6, r * 0.25, 1, 1);
+);
+
+function stone(px, py, r, night, k) local(c)
+(
+  c = (night ? 0.4 : 1) * (0.85 + 0.25 * hash(k + 0.7));
+  gfx_set(0, 0.02, 0.03, 0.3);
+  gfx_circle(px + r * 0.25, py + r * 0.35, r * 1.05, 1, 1);
+  gfx_set(0.27 * c, 0.27 * c, 0.25 * c, 1);
+  gfx_circle(px, py, r, 1, 1);
+  gfx_set(0.38 * c, 0.37 * c, 0.34 * c, 1);
+  gfx_circle(px - r * 0.08, py - r * 0.1, r * 0.86, 1, 1);
+  gfx_set(0.47 * c, 0.46 * c, 0.42 * c, 1);
+  gfx_circle(px - r * 0.2, py - r * 0.24, r * 0.6, 1, 1);
+  gfx_set(0.56 * c, 0.55 * c, 0.5 * c, 1);
+  gfx_circle(px - r * 0.3, py - r * 0.36, r * 0.32, 1, 1);
+);
+
+function grass(x, y, n, seed, night) local(k, a, l, mx0, my0, ex, ey, bend)
+(
+  k = 0;
+  loop(n,
+    a = -1.57 + (hash(seed + k) - 0.5) * 1.4;
+    l = 16 + 18 * hash(seed + k * 1.3);
+    bend = 0.25 * sin(g_t * 1.1 + seed + k * 0.7) + (hash(seed + k * 2.1) - 0.5) * 0.6;
+    mx0 = x + cos(a) * l * 0.55; my0 = y + sin(a) * l * 0.55;
+    ex = mx0 + cos(a + bend) * l * 0.5; ey = my0 + sin(a + bend) * l * 0.5;
+    night ? gfx_set(0.1, 0.18 + 0.06 * hash(seed + k), 0.12, 1) : gfx_set(0.28, 0.5 + 0.15 * hash(seed + k), 0.24, 1);
+    aa_tline(sx(x), sy(y), sx(mx0), sy(my0), 2 * g_s);
+    aa_tline(sx(mx0), sy(my0), sx(ex), sy(ey), 1.3 * g_s);
+    k += 1;
+  );
+);
+
+function pond_frame(night) local(fb, r, k, c, x0, y0, x1, y1, cx, cy, a0, a1, sgx, sgy, px, py, i)
+(
+  fb = 16; r = 22;
+  c = night ? 0.4 : 1;
+  x0 = BRD_X; y0 = BRD_Y; x1 = BRD_X + BRD_W; y1 = BRD_Y + BRD_H;
+  k = 0;
+  loop(10,
+    gfx_set(0, 0.02, 0.03, 0.06);
+    gfx_roundrect(sx(x0 + fb + k), sy(y0 + fb + k), (BRD_W - 2 * fb - 2 * k) * g_s, (BRD_H - 2 * fb - 2 * k) * g_s, (r - k * 0.5) * g_s, 1);
+    k += 1;
+  );
+  gfx_set(0.36 * c, 0.35 * c, 0.32 * c, 1);
+  gfx_rect(sx(x0), sy(y0), BRD_W * g_s, fb * g_s + 1);
+  gfx_rect(sx(x0), sy(y1 - fb), BRD_W * g_s, fb * g_s + 1);
+  gfx_rect(sx(x0), sy(y0), fb * g_s + 1, BRD_H * g_s);
+  gfx_rect(sx(x1 - fb), sy(y0), fb * g_s + 1, BRD_H * g_s);
+  i = 0;
+  loop(4,
+    sgx = i & 1 ? -1 : 1; sgy = i & 2 ? -1 : 1;
+    px = i & 1 ? x1 - fb : x0 + fb; py = i & 2 ? y1 - fb : y0 + fb;
+    cx = px + sgx * r; cy = py + sgy * r;
+    k = 0;
+    loop(10,
+      a0 = atan2(-sgy, -sgx) + (k / 10 - 0.5) * $pi * 0.5;
+      a1 = atan2(-sgy, -sgx) + ((k + 1) / 10 - 0.5) * $pi * 0.5;
+      gfx_triangle(sx(px), sy(py), sx(cx + cos(a0) * r), sy(cy + sin(a0) * r), sx(cx + cos(a1) * r), sy(cy + sin(a1) * r));
+      k += 1;
+    );
+    i += 1;
+  );
+  k = 0;
+  loop(260,
+    px = x0 + BRD_W * hash(k * 1.7 + 0.2); py = y0 + BRD_H * hash(k * 2.3 + 0.6);
+    (px < x0 + fb || px > x1 - fb || py < y0 + fb || py > y1 - fb) ? (
+      gfx_set(0, 0, 0, 0.12 + 0.1 * hash(k));
+      gfx_rect(sx(px), sy(py), max(1, 2 * g_s * hash(k + 3)), max(1, g_s));
+    );
+    k += 1;
+  );
+  gfx_set(0.55 * c, 0.54 * c, 0.5 * c, 0.6);
+  gfx_roundrect(sx(x0 + fb - 1), sy(y0 + fb - 1), (BRD_W - 2 * fb + 2) * g_s, (BRD_H - 2 * fb + 2) * g_s, r * g_s, 1);
+  gfx_set(0.48 * c, 0.47 * c, 0.43 * c, 1);
+  gfx_roundrect(sx(x0), sy(y0), BRD_W * g_s, BRD_H * g_s, 10 * g_s, 1);
+);
+
+function rock_cluster(x, y, n, seed, night) local(k, r, px, py)
+(
+  k = 0;
+  loop(n,
+    r = 12 + 14 * hash(seed + k * 3.7);
+    px = x + (hash(seed + k * 1.9) - 0.5) * 70;
+    py = y + (hash(seed + k * 2.9) - 0.5) * 30;
+    px = max(BRD_X + r - 4, min(BRD_X + BRD_W - r + 4, px));
+    py = max(BRD_Y + r - 4, min(BRD_Y + BRD_H - r + 4, py));
+    stone(sx(px), sy(py), r * g_s, night, seed + k);
+    k += 1;
+  );
+  grass(max(BRD_X + 8, x - 10), max(BRD_Y + 30, y - 4), 14, seed + 40, night);
+  grass(min(BRD_X + BRD_W - 8, x + 22), max(BRD_Y + 30, y + 4), 10, seed + 70, night);
+);
+
+function kp_floor(ng) local(k, j, gx, gy, a)
+(
+  ng ? (
+    gfx_set(0.03, 0.06, 0.1, 1);
+    fill_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 10);
+    gfx_gradrect(sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s, 0.04, 0.08, 0.12, 1, 0, 0, 0, 0, -0.02 / (BRD_H * g_s), -0.04 / (BRD_H * g_s), -0.05 / (BRD_H * g_s), 0);
+  ) : (
+    gfx_set(0.14, 0.33, 0.31, 1);
+    fill_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 10);
+    gfx_gradrect(sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s, 0.2, 0.42, 0.38, 1, 0, 0, 0, 0, -0.1 / (BRD_H * g_s), -0.18 / (BRD_H * g_s), -0.14 / (BRD_H * g_s), 0);
+  );
+  k = 0;
+  loop(14,
+    gx = BRD_X + 60 + (BRD_W - 120) * hash(k * 1.37 + 5);
+    gy = BRD_Y + 60 + (BRD_H - 120) * hash(k * 2.11 + 9);
+    a = (70 + 90 * hash(k + 0.3)) * g_s;
+    j = 0;
+    loop(6,
+      (k & 1) ? (ng ? gfx_set(0, 0.01, 0.02, 0.05) : gfx_set(0.02, 0.1, 0.09, 0.05)) : (ng ? gfx_set(0.06, 0.1, 0.14, 0.04) : gfx_set(0.3, 0.48, 0.42, 0.045));
+      gfx_circle(sx(gx), sy(gy), a * (1 - j * 0.15), 1, 1);
+      j += 1;
+    );
+    k += 1;
+  );
+  ng ? gfx_set(0.02, 0.05, 0.12, 0.38) : gfx_set(0.08, 0.3, 0.33, 0.22);
+  gfx_rect(sx(BRD_X), sy(BRD_Y), BRD_W * g_s + 1, BRD_H * g_s + 1);
+);
+
+function draw_koi() local(i, j, k, n, d, a, ng, dim, tx0, gx, gy, steps, cx0, cy0, r)
+(
+  g_pgrav = 0;
+  !g_kp_init ? kp_init();
+  ng = g_kp_night;
+  dim = ng ? 0.5 : 1;
+
+  g_kp_acc += g_dt;
+  steps = 0;
+  while (g_kp_acc >= 1 / 30 && steps < 3 ? ( rip_sim(); g_kp_acc -= 1 / 30; steps += 1; 1; ) : 0);
+  g_kp_acc = min(g_kp_acc, 0.1);
+
+  hit(BRD_X, BRD_Y, BRD_W, BRD_H) ? (
+    g_click ? (
+      g_click = 0;
+      rip_add(g_mx, g_my, 3, 70);
+      loop(4,
+        i = g_kp_fi;
+        g_kp_fi = (g_kp_fi + 1) % NFD;
+        fdx[i] = max(BRD_X + 60, min(BRD_X + BRD_W - 60, g_mx + (rand(1) - 0.5) * 36));
+        fdy[i] = max(BRD_Y + 60, min(BRD_Y + BRD_H - 60, g_my + (rand(1) - 0.5) * 36));
+        fdl[i] = 14;
+      );
+    );
+    g_rdown = mouse_cap & 2;
+    g_rdown && !g_kp_rlast ? (
+      rip_add(g_mx, g_my, 3, 60);
+      g_kp_lmx = g_mx; g_kp_lmy = g_my;
+    ) : g_rdown ? (
+      d = (g_mx - g_kp_lmx) * (g_mx - g_kp_lmx) + (g_my - g_kp_lmy) * (g_my - g_kp_lmy);
+      d > 30 ? (
+        rip_add(g_mx, g_my, 2.2, 24);
+        g_kp_lmx = g_mx; g_kp_lmy = g_my;
+      );
+    );
+  );
+  g_kp_rlast = mouse_cap & 2;
+
+  g_t > g_kp_drip ? (
+    rip_add(BRD_X + 60 + rand(1) * (BRD_W - 120), BRD_Y + 60 + rand(1) * (BRD_H - 120), 1.6, 26);
+    g_kp_drip = g_t + 3 + rand(1) * 6;
+  );
+  g_t > g_kp_pet ? (
+    i = g_kp_pi;
+    g_kp_pi = (g_kp_pi + 1) % NPT;
+    ptx[i] = BRD_X + 40 + rand(1) * (BRD_W - 80);
+    pty[i] = BRD_Y + 40 + rand(1) * (BRD_H - 80);
+    ptz[i] = 1; ptvx[i] = 6 + rand(1) * 8; ptvy[i] = (rand(1) - 0.5) * 6;
+    ptr[i] = rand(1) * 6; ptl[i] = 30;
+    g_kp_pet = g_t + 6 + rand(1) * 8;
+  );
+
+  i = 0;
+  loop(g_kp_n, koi_update(i, g_dt); i += 1; );
+
+  i = 0;
+  loop(NFD,
+    fdl[i] > 0 ? fdl[i] -= g_dt;
+    i += 1;
+  );
+  i = 0;
+  loop(NPT,
+    ptl[i] > 0 ? (
+      ptl[i] -= g_dt;
+      ptz[i] > 0 ? (
+        ptz[i] -= g_dt * 0.35;
+        ptr[i] += g_dt * 2;
+        ptx[i] += ptvx[i] * g_dt * 2;
+        ptz[i] <= 0 ? ( ptz[i] = 0; rip_add(ptx[i], pty[i], 1.3, 10); );
+      ) : (
+        rip_h(ptx[i], pty[i]);
+        ptx[i] += (ptvx[i] * 0.3 + g_rgx * 0.6) * g_dt;
+        pty[i] += (ptvy[i] * 0.3 + g_rgy * 0.6) * g_dt;
+        ptr[i] += g_dt * 0.1;
+      );
+      (ptx[i] < BRD_X + 20 || ptx[i] > BRD_X + BRD_W - 20 || pty[i] < BRD_Y + 20 || pty[i] > BRD_Y + BRD_H - 20) ? ptl[i] = min(ptl[i], 2);
+    );
+    i += 1;
+  );
+  i = 0;
+  loop(NPD,
+    rip_h(pdx_[i], pdy_[i]);
+    pdvx[i] += (g_rgx * 1.2 + sin(g_t * 0.05 + i) * 0.6) * g_dt;
+    pdvy[i] += (g_rgy * 1.2 + cos(g_t * 0.04 + i * 2) * 0.6) * g_dt;
+    j = 0;
+    loop(NPD,
+      j !== i ? (
+        d = sqrt((pdx_[i] - pdx_[j]) * (pdx_[i] - pdx_[j]) + (pdy_[i] - pdy_[j]) * (pdy_[i] - pdy_[j]));
+        d < pdr[i] + pdr[j] + 6 ? (
+          pdvx[i] += (pdx_[i] - pdx_[j]) / max(1, d) * 20 * g_dt;
+          pdvy[i] += (pdy_[i] - pdy_[j]) / max(1, d) * 20 * g_dt;
+        );
+      );
+      j += 1;
+    );
+    pdx_[i] < BRD_X + 50 ? pdvx[i] += 10 * g_dt;
+    pdx_[i] > BRD_X + BRD_W - 50 ? pdvx[i] -= 10 * g_dt;
+    pdy_[i] < BRD_Y + 50 ? pdvy[i] += 10 * g_dt;
+    pdy_[i] > BRD_Y + BRD_H - 50 ? pdvy[i] -= 10 * g_dt;
+    pdvx[i] *= 1 - 0.5 * g_dt; pdvy[i] *= 1 - 0.5 * g_dt;
+    pdx_[i] = max(BRD_X + 22 + pdr[i], min(BRD_X + BRD_W - 22 - pdr[i], pdx_[i] + pdvx[i] * g_dt));
+    pdy_[i] = max(BRD_Y + 22 + pdr[i], min(BRD_Y + BRD_H - 22 - pdr[i], pdy_[i] + pdvy[i] * g_dt));
+    pdrot[i] += (pdvx[i] - pdvy[i]) * 0.002;
+    i += 1;
+  );
+
+  ng ? ( g_tr = 0.02; g_tg = 0.05; g_tb = 0.12; g_ta = 0.38; ) : ( g_tr = 0.08; g_tg = 0.3; g_tb = 0.33; g_ta = 0.22; );
+  (gfx_w !== g_flw || gfx_h !== g_flh || ng !== g_fln) ? (
+    g_flw = gfx_w; g_flh = gfx_h; g_fln = ng;
+    d = gfx_dest; a = g_ox; j = g_oy;
+    gfx_setimgdim(IMG_FLOOR, ceil(BRD_W * g_s), ceil(BRD_H * g_s));
+    gfx_dest = IMG_FLOOR;
+    g_ox = -BRD_X * g_s; g_oy = -BRD_Y * g_s;
+    kp_floor(ng);
+    gfx_dest = d; g_ox = a; g_oy = j;
+  );
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_FLOOR, 1, 0, 0, 0, ceil(BRD_W * g_s), ceil(BRD_H * g_s), floor(sx(BRD_X)), floor(sy(BRD_Y)), ceil(BRD_W * g_s), ceil(BRD_H * g_s));
+
+  i = 0; loop(NPD, lily(i, 1, ng); i += 1; );
+  i = 0; loop(g_kp_n, koi_draw(i, 1, dim); i += 1; );
+  i = 0; loop(g_kp_n, koi_draw(i, 0, dim); i += 1; );
+
+  rip_render(ng);
+  gfx_mode = 1; gfx_a = 1;
+  gfx_blit(IMG_KP, 1, 0, 0, 0, KGW, KGH, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  gfx_mode = 0;
+
+  ng ? (
+    gx = 330; gy = BRD_Y + 150;
+    n = 16 * g_s;
+    d = floor(sy(gy) - n);
+    k = 0;
+    loop(floor(2 * n) + 1,
+      j = (d + k + 0.5 - sy(gy)) / n;
+      a = sqrt(max(0, 1 - j * j)) * n;
+      a > 0.5 ? (
+        rip_h(gx, gy + j * 16);
+        tx0 = 7 * g_rgx / (abs(g_rgx) + 12) + 0.6 * sin(g_t * 1.3 + j * 6);
+        gfx_set(0.8, 0.86, 1, 0.82);
+        cx0 = (j + 0.12) / 0.86;
+        cy0 = abs(cx0) < 1 ? sqrt(1 - cx0 * cx0) * 0.86 * n : -1;
+        cy0 < 0 ? (
+          gfx_rect(floor(sx(gx + tx0) - a + 0.5), d + k, floor(2 * a + 0.5), 1);
+        ) : (
+          r = min(a, 0.42 * n - cy0);
+          r > -a ? gfx_rect(floor(sx(gx + tx0) - a + 0.5), d + k, floor(a + r + 0.5), 1);
+          0.42 * n + cy0 < a ? gfx_rect(floor(sx(gx + tx0) + 0.42 * n + cy0 + 0.5), d + k, floor(a - 0.42 * n - cy0 + 0.5), 1);
+        );
+      );
+      k += 1;
+    );
+    gfx_mode = 1;
+    k = 0;
+    loop(80,
+      j = hash(k * 1.91 + 3);
+      j *= j;
+      n = 24 + j * 230;
+      rip_h(gx, gy + n);
+      tx0 = 10 * g_rgx / (abs(g_rgx) + 12);
+      d = gx + (hash(k * 2.7 + 1) - 0.5) * (16 + n * 0.3) + tx0;
+      a = max(0, sin(g_t * (1.6 + 2 * hash(k + 5)) + k * 2.1));
+      a *= (1 - j * 0.85) * (0.45 + 0.55 * min(1, (abs(g_rgx) + abs(g_rgy)) / 8));
+      a > 0.03 ? (
+        gfx_set(0.78, 0.85, 1, 0.75 * a);
+        gfx_rect(sx(d - 2 - 4 * hash(k + 9)), sy(gy + n + 4 * g_rgy / (abs(g_rgy) + 12)), (3 + 7 * hash(k + 9)) * g_s, max(1, 1.2 * g_s));
+      );
+      k += 1;
+    );
+    gfx_mode = 0;
+  );
+
+  i = 0;
+  loop(NFD,
+    fdl[i] > 0 ? (
+      a = min(1, fdl[i] / 2);
+      gfx_set(0.45 * dim, 0.3 * dim, 0.18 * dim, a);
+      gfx_circle(sx(fdx[i]), sy(fdy[i]), 2.4 * g_s, 1, 1);
+      gfx_set(1, 0.9, 0.7, 0.5 * a * dim);
+      gfx_circle(sx(fdx[i] - 0.7), sy(fdy[i] - 0.7), 0.9 * g_s, 1, 1);
+    );
+    i += 1;
+  );
+  i = 0; loop(NPT, ptl[i] > 0 && ptz[i] <= 0 ? petal(i, ng); i += 1; );
+  i = 0; loop(NPD, lily(i, 0, ng); i += 1; );
+  i = 0; loop(NPT, ptl[i] > 0 && ptz[i] > 0 ? petal(i, ng); i += 1; );
+
+  particles();
+
+  pond_frame(ng);
+  rock_cluster(BRD_X + 34, BRD_Y + 28, 6, 3, ng);
+  rock_cluster(BRD_X + BRD_W - 50, BRD_Y + BRD_H - 26, 7, 11, ng);
+  rock_cluster(BRD_X + BRD_W * 0.64, BRD_Y + 14, 4, 23, ng);
+  rock_cluster(BRD_X + 14, BRD_Y + BRD_H * 0.72, 4, 31, ng);
+  ng ? (
+    k = 0;
+    loop(16,
+      gx = BRD_X + 40 + (BRD_W - 80) * (0.5 + 0.45 * sin(g_t * (0.05 + 0.03 * hash(k)) + k * 2.1));
+      gy = BRD_Y + 40 + (BRD_H - 80) * (0.5 + 0.45 * sin(g_t * (0.04 + 0.03 * hash(k + 9)) + k * 1.3));
+      a = max(0, sin(g_t * (0.8 + 0.5 * hash(k + 4)) + k * 1.7));
+      a > 0.05 ? glow(sx(gx), sy(gy), 1.8 * g_s, 0.85, 1, 0.45, a);
+      k += 1;
+    );
+  );
+
+  button("< Games", 18, 14, 96, 36, 0.5, 0.88, 0.95) ? g_screen = 0;
+  font(18, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  txt_c("Koi Pond", 330, 14, 240, 36);
+  font(13, 0);
+  gfx_set(0.78, 0.8, 0.84, 1);
+  txt_r("Koi", 640, 24);
+  button("-", 650, 14, 36, 36, 0.5, 0.88, 0.95) ? ( g_kp_n = max(1, g_kp_n - 1); sv[20] = g_kp_n; );
+  font(14, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  sprintf(#g_tt, "%d", g_kp_n);
+  txt_c(#g_tt, 686, 14, 30, 36);
+  button("+", 716, 14, 36, 36, 0.5, 0.88, 0.95) ? ( g_kp_n = min(NK, g_kp_n + 1); sv[20] = g_kp_n; );
+  button(ng ? "Day" : "Night", 770, 14, 110, 36, 0.5, 0.88, 0.95) ? ( g_kp_night = !g_kp_night; sv[21] = g_kp_night; );
+
+  hint("Left-click to feed the koi. Right-click or right-drag through the water to make ripples.", HINT_Y);
+);

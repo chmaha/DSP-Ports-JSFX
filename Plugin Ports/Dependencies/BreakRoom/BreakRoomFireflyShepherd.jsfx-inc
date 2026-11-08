@@ -1,0 +1,462 @@
+@init
+function ff_ground() ( BRD_Y + BRD_H * 0.72; );
+
+function ff_spawn(i)
+(
+  ffx[i] = BRD_X + 40 + rand(1) * (BRD_W - 80);
+  ffy[i] = ff_ground() + 20 + rand(1) * 60;
+  ffvx[i] = (rand(1) - 0.5) * 20; ffvy[i] = -10 - rand(1) * 20;
+  ffp[i] = rand(1); fff[i] = 1 / (6 + rand(1) * 6);
+  ffst[i] = 0; ffw[i] = rand(1) * 2 * $pi; ffo[i] = rand(1) * 2 * $pi; ffa[i] = 0;
+);
+
+function ff_start(lv) local(i, j, ok, tries, x, y)
+(
+  g_ff_lv = lv;
+  g_ff_nl = min(5, 1 + floor((lv - 1) * 0.75));
+  g_ff_need = min(7, 4 + floor(lv * 0.4));
+  g_ff_n = min(NFF, 10 + g_ff_nl * 5);
+  i = 0;
+  loop(g_ff_nl,
+    tries = 0;
+    while (
+      x = BRD_X + 90 + rand(1) * (BRD_W - 180);
+      y = ff_ground() - 90 - rand(1) * (lv > 2 ? 190 : 110);
+      ok = 1;
+      j = 0; loop(i, abs(lnx[j] - x) < 150 ? ok = 0; j += 1; );
+      tries += 1;
+      !ok && tries < 200;
+    );
+    lnx[i] = x; lny[i] = y; lnn[i] = 0; lnlit[i] = 0; lnfy[i] = 0; lnfv[i] = 0;
+    i += 1;
+  );
+  i = 0;
+  loop(NFF, ffst[i] = -1; i += 1; );
+  i = 0;
+  loop(g_ff_n, ff_spawn(i); ffy[i] = ff_ground() - rand(1) * 200; ffa[i] = 1; i += 1; );
+  g_ff_moon = (lv - 1) % 8;
+  g_ff_tod = lv == 1 ? 0 : lv == 2 ? 1 : lv == 3 ? 2 : floor(hash(lv * 5.17 + 0.3) * 3) % 3;
+  g_ff_aur = (lv == 3 || (lv > 3 && hash(lv * 7.31 + 0.2) < 0.25)) && g_ff_tod >= 1;
+  g_ff_mw = !g_ff_aur && g_ff_tod == 2 && hash(lv * 2.3) < 0.45;
+  g_ff_sky = floor(hash(lv * 3.1 + 0.5) * 3) % 3;
+  g_ff_ssn = g_t + 6 + rand(1) * 10;
+  g_ff_won = 0;
+  g_ff_gone = 0;
+  g_ff_bgw = -1;
+);
+
+function ff_bg(w, h) local(dst, k, x, y, gy, hh, c, j)
+(
+  dst = gfx_dest;
+  gfx_setimgdim(IMG_FF, w, h);
+  gfx_dest = IMG_FF;
+  gfx_mode = 0; gfx_a = 1;
+  gy = (ff_ground() - BRD_Y) * g_s;
+  g_ff_tod == 0 ? (
+    gfx_gradrect(0, 0, w, gy * 0.55, 0.06, 0.08, 0.22, 1, 0, 0, 0, 0, 0.12 / (gy * 0.55), 0.08 / (gy * 0.55), 0.08 / (gy * 0.55), 0);
+    gfx_gradrect(0, gy * 0.55, w, gy * 0.45 + 1, 0.18, 0.16, 0.3, 1, 0, 0, 0, 0, 0.72 / (gy * 0.45), 0.3 / (gy * 0.45), -0.02 / (gy * 0.45), 0);
+  ) : g_ff_tod == 1 ? (
+    gfx_gradrect(0, 0, w, gy, 0.025, 0.04, 0.13, 1, 0, 0, 0, 0, 0.12 / gy, 0.16 / gy, 0.22 / gy, 0);
+  ) :
+  g_ff_sky == 0 ? gfx_gradrect(0, 0, w, gy, 0.015, 0.025, 0.07, 1, 0, 0, 0, 0, 0.05 / gy, 0.08 / gy, 0.1 / gy, 0) :
+  g_ff_sky == 1 ? gfx_gradrect(0, 0, w, gy, 0.03, 0.02, 0.075, 1, 0, 0, 0, 0, 0.07 / gy, 0.05 / gy, 0.09 / gy, 0) :
+  gfx_gradrect(0, 0, w, gy, 0.01, 0.035, 0.06, 1, 0, 0, 0, 0, 0.03 / gy, 0.09 / gy, 0.09 / gy, 0);
+  g_ff_mw ? (
+    gfx_mode = 1;
+    k = 0;
+    loop(60,
+      c = k / 60;
+      x = w * (-0.05 + 1.1 * c); y = gy * (0.95 - 0.85 * c) + sin(c * 7) * 12 * g_s;
+      gfx_set(0.55, 0.6, 0.8, 0.012);
+      gfx_circle(x, y, (40 + 25 * hash(k * 1.3)) * g_s, 1, 1);
+      gfx_set(0.7, 0.72, 0.9, 0.014);
+      gfx_circle(x + (hash(k * 2.1) - 0.5) * 30 * g_s, y + (hash(k * 3.7) - 0.5) * 20 * g_s, (14 + 12 * hash(k * 4.3)) * g_s, 1, 1);
+      k += 1;
+    );
+    k = 0;
+    loop(500,
+      c = hash(k * 1.91 + 7);
+      x = w * (-0.05 + 1.1 * c) + (hash(k * 3.3) - 0.5) * 90 * g_s;
+      y = gy * (0.95 - 0.85 * c) + sin(c * 7) * 12 * g_s + (hash(k * 5.7) - 0.5) * 70 * g_s;
+      gfx_set(0.85, 0.88, 1, 0.12 + 0.3 * hash(k * 2.9));
+      gfx_rect(x, y, max(1, g_s * 0.8), max(1, g_s * 0.8));
+      k += 1;
+    );
+    gfx_mode = 0;
+  );
+  k = 0;
+  loop(g_ff_tod == 0 ? 30 : g_ff_tod == 1 ? 90 : 170,
+    c = hash(k * 2.3 + 1);
+    gfx_set(0.85, 0.9, 1, (0.15 + 0.6 * c * c) * (g_ff_tod == 0 ? 0.7 : 1));
+    gfx_rect(hash(k * 3.7) * w, hash(k * 1.9 + 4) * gy * 0.85, max(1, g_s * (c > 0.93 ? 2 : 1)), max(1, g_s * (c > 0.93 ? 2 : 1)));
+    k += 1;
+  );
+  hh = 13 * g_s;
+  c = g_ff_moon <= 4 ? g_ff_moon / 4 * $pi : (8 - g_ff_moon) / 4 * $pi;
+  x = w * 0.82; y = h * 0.12;
+  g_ff_moon > 0 ? ( gfx_set(0.07, 0.085, 0.13, g_ff_tod == 0 ? 0.25 : 1); gfx_circle(x, y, hh, 1, 1); );
+  k = -ceil(hh);
+  loop(2 * ceil(hh) + 1,
+    j = sqrt(max(0, hh * hh - k * k));
+    gfx_set(0.92, 0.94, 1, 1);
+    g_ff_moon <= 4 ? (
+      j - j * cos(c) > 0.3 ? gfx_rect(x + j * cos(c), y + k, j - j * cos(c), 1);
+    ) : (
+      j - j * cos(c) > 0.3 ? gfx_rect(x - j, y + k, j - j * cos(c), 1);
+    );
+    k += 1;
+  );
+  gfx_mode = 1;
+  k = 0;
+  g_ff_moon > 0 ? loop(40, gfx_set(0.6, 0.7, 1, 0.0075 * (0.15 + 0.85 * (1 - cos(c)) * 0.5)); gfx_circle(x, y, (12 + k * 2.2) * g_s, 1, 1); k += 1; );
+  gfx_mode = 0;
+  x = 0;
+  loop(ceil(w / 2),
+    hh = max(34, 60 + 40 * sin(x / w * 5.2 + 1) + 25 * sin(x / w * 13.1)) * g_s;
+    gfx_set(0.035, 0.055, 0.1, 1);
+    gfx_rect(x, gy - hh, 2, hh + 2);
+    x += 2;
+  );
+  k = 0;
+  loop(70,
+    x = hash(k * 1.37 + 3) * w;
+    c = hash(k * 2.9);
+    y = gy - (10 + 30 * hash(k * 4.1)) * g_s;
+    gfx_set(0.018, 0.03, 0.055, 1);
+    c > 0.45 ? (
+      gfx_circle(x, y - 18 * g_s, (14 + 16 * hash(k * 5.5)) * g_s, 1, 1);
+      gfx_circle(x + 12 * g_s, y - 8 * g_s, (10 + 10 * hash(k * 6.3)) * g_s, 1, 1);
+    ) : (
+      hh = (40 + 50 * hash(k * 7.7)) * g_s;
+      gfx_triangle(x, y - hh, x - hh * 0.3, y + 4 * g_s, x + hh * 0.3, y + 4 * g_s);
+    );
+    gfx_rect(x - 1, y - 4 * g_s, 2 * g_s, 14 * g_s);
+    k += 1;
+  );
+  gfx_gradrect(0, gy, w, h - gy, 0.03, 0.055, 0.045, 1, 0, 0, 0, 0, -0.015 / (h - gy), -0.03 / (h - gy), -0.025 / (h - gy), 0);
+  gfx_dest = dst;
+);
+
+function ff_lantern(i) local(x, y, r, lt, f, k, px, gy, c, fa, pa)
+(
+  x = lnx[i]; y = lny[i] - lnfy[i];
+  gy = ff_ground();
+  lt = lnlit[i];
+  f = min(1, lnn[i] / g_ff_need);
+  r = 22;
+  fa = max(0, min(1, (y - (BRD_Y + 40)) / 110));
+  pa = g_ff_won ? max(0, min(1, 1 - (g_t - g_ff_won_t - 0.3) / 1.2)) : 1;
+  fa > 0 ? (
+  pa > 0 ? (
+    gfx_set(0.08, 0.06, 0.05, pa * fa);
+    px = x + 26;
+    aa_tline(sx(px), sy(gy + 40), sx(px), sy(lny[i] - r - 34), 3 * g_s);
+    k = 0;
+    loop(8,
+      aa_tline(sx(px - 13 + cos(k / 8 * $pi) * 13), sy(lny[i] - r - 34 - sin(k / 8 * $pi) * 13), sx(px - 13 + cos((k + 1) / 8 * $pi) * 13), sy(lny[i] - r - 34 - sin((k + 1) / 8 * $pi) * 13), 3 * g_s);
+      k += 1;
+    );
+    gfx_set(0.15, 0.12, 0.1, pa * fa);
+    gfx_line(sx(x), sy(lny[i] - r - 34), sx(x), sy(y - r - 4), 1);
+  );
+  gfx_mode = 1;
+  c = 0.12 * f + 0.85 * lt;
+  k = 0;
+  loop(16,
+    gfx_set(1, 0.65, 0.3, (c * 0.024) * fa);
+    gfx_circle(sx(x), sy(y), (r + 6 + k * 6.5) * g_s, 1, 1);
+    k += 1;
+  );
+  gfx_mode = 0;
+  gfx_set(0.2 + 0.8 * lt + 0.25 * f * (1 - lt), 0.14 + 0.54 * lt + 0.17 * f * (1 - lt), 0.1 + 0.2 * lt + 0.06 * f * (1 - lt), (1) * fa);
+  gfx_circle(sx(x), sy(y), r * g_s, 1, 1);
+  gfx_set(0.3 + 0.7 * lt, 0.2 + 0.62 * lt, 0.13 + 0.35 * lt, (1) * fa);
+  gfx_circle(sx(x - 4), sy(y - 5), r * 0.62 * g_s, 1, 1);
+  gfx_set(0, 0, 0, (0.3) * fa);
+  k = 0;
+  loop(4,
+    gfx_arc(sx(x), sy(y - r + 9 + k * 9), r * (k == 0 || k == 3 ? 0.82 : 0.99) * g_s, $pi * 0.62, $pi * 1.38, 1);
+    k += 1;
+  );
+  gfx_set(0.12, 0.08, 0.06, (1) * fa);
+  gfx_rect(sx(x - 9), sy(y - r - 4), 18 * g_s, 6 * g_s);
+  gfx_rect(sx(x - 9), sy(y + r - 2), 18 * g_s, 6 * g_s);
+  lt > 0.5 ? (
+    gfx_mode = 1;
+    gfx_set(1, 0.8, 0.5, (0.35 * lt) * fa);
+    gfx_circle(sx(x - 3), sy(y - 3), r * 0.5 * g_s, 1, 1);
+    gfx_mode = 0;
+  );
+  pa > 0 ? (
+    k = 0;
+    loop(g_ff_need,
+      px = x - (g_ff_need - 1) * 4.5 + k * 9;
+      k < lnn[i] ? glow(sx(px), sy(y + r + 14), 1.6 * g_s, 0.8, 1, 0.4, 0.9 * pa) : ( gfx_set(0.3, 0.32, 0.28, 0.6 * pa * fa); gfx_circle(sx(px), sy(y + r + 14), 1.6 * g_s, 0, 1); );
+      k += 1;
+    );
+  );
+  );
+);
+
+function ff_update(lure, lx, ly, call) local(i, j, dx, dy, d2, ax, ay, sx0, sy0, cn, sp, tx, ty, n, d, mx, gy, k)
+(
+  gy = ff_ground();
+  i = 0;
+  loop(NFF,
+    ffst[i] >= 0 ? (
+      ffa[i] = min(1, ffa[i] + g_dt * 0.6);
+      ffp[i] += g_dt * fff[i];
+      j = 0;
+      ax = 0; ay = 0; sx0 = 0; sy0 = 0; cn = 0;
+      loop(NFF,
+        (j !== i && ffst[j] >= 0) ? (
+          dx = ffx[j] - ffx[i]; dy = ffy[j] - ffy[i];
+          d2 = dx * dx + dy * dy;
+          d2 < 6400 ? (
+            (ffst[i] == 0 && ffst[j] == 0) ? (
+              d2 < 196 ? ( ax -= dx / max(1, d2) * 160; ay -= dy / max(1, d2) * 160; );
+              sx0 += ffx[j]; sy0 += ffy[j]; cn += 1;
+            );
+          );
+        );
+        j += 1;
+      );
+      ffp[i] -= floor(ffp[i]);
+      ffst[i] == 0 ? (
+        ffw[i] += (rand(1) - 0.5) * g_dt * 4;
+        ax += cos(ffw[i]) * 26; ay += sin(ffw[i]) * 18;
+        cn > 0 ? ( ax += (sx0 / cn - ffx[i]) * 0.25; ay += (sy0 / cn - ffy[i]) * 0.25; );
+        lure ? (
+          ffo[i] += g_dt * (0.6 + 0.4 * hash(i));
+          tx = lx + cos(ffo[i]) * (call ? 18 : 46) * (0.5 + hash(i * 3.1));
+          ty = ly + sin(ffo[i]) * (call ? 14 : 34) * (0.5 + hash(i * 1.7));
+          dx = tx - ffx[i]; dy = ty - ffy[i];
+          d = sqrt(dx * dx + dy * dy);
+          k = call ? 1.2 : 0.45;
+          ax += dx / max(1, d) * min(d, 200) * k * 0.6;
+          ay += dy / max(1, d) * min(d, 200) * k * 0.6;
+        ) : (
+          ay += (gy - 60 - ffy[i]) * 0.08;
+        );
+        ffx[i] < BRD_X + 30 ? ax += 80; ffx[i] > BRD_X + BRD_W - 30 ? ax -= 80;
+        ffy[i] < BRD_Y + 30 ? ay += 80; ffy[i] > BRD_Y + BRD_H - 20 ? ay -= 80;
+        ffvx[i] += ax * g_dt; ffvy[i] += ay * g_dt;
+        sp = sqrt(ffvx[i] * ffvx[i] + ffvy[i] * ffvy[i]);
+        mx = lure && call ? 85 : 45;
+        sp > mx ? ( ffvx[i] *= mx / sp; ffvy[i] *= mx / sp; );
+        ffvx[i] *= 1 - g_dt * 0.6; ffvy[i] *= 1 - g_dt * 0.6;
+        ffx[i] += ffvx[i] * g_dt; ffy[i] += ffvy[i] * g_dt;
+        !g_ff_won ? (
+          n = 0;
+          loop(g_ff_nl,
+            (lnlit[n] <= 0 && lnn[n] < g_ff_need && lure && (lx - lnx[n]) ^ 2 + (ly - lny[n] + lnfy[n]) ^ 2 < 42 * 42) ? (
+              dx = ffx[i] - lnx[n]; dy = ffy[i] - lny[n];
+              dx * dx + dy * dy < 30 * 30 ? (
+                ffst[i] = n + 1; lnn[n] += 1;
+                ffo[i] = rand(1) * 2 * $pi;
+              );
+            );
+            n += 1;
+          );
+        );
+      ) : (
+        n = ffst[i] - 1;
+        ffo[i] += g_dt * (1.5 + hash(i));
+        ffx[i] += (lnx[n] + cos(ffo[i]) * 11 - ffx[i]) * min(1, g_dt * 4);
+        ffy[i] += (lny[n] - lnfy[n] + sin(ffo[i] * 1.3) * 13 - ffy[i]) * min(1, g_dt * 4);
+      );
+    );
+    i += 1;
+  );
+  n = 0;
+  loop(g_ff_nl,
+    lnn[n] >= g_ff_need ? lnlit[n] = min(1, lnlit[n] + g_dt * 0.8);
+    n += 1;
+  );
+  !g_ff_won ? (
+    j = 0; k = 0;
+    i = 0; loop(NFF, ffst[i] == 0 ? j += 1; i += 1; );
+    n = 0; loop(g_ff_nl, k += max(0, g_ff_need - lnn[n]); n += 1; );
+    (j < k + 3 && g_t > g_ff_spt) ? (
+      i = 0; n = -1;
+      loop(NFF, ffst[i] < 0 && n < 0 ? n = i; i += 1; );
+      n >= 0 ? ff_spawn(n);
+      g_ff_spt = g_t + 2.5;
+    );
+  );
+);
+
+function ff_scene(lure, lx, ly) local(i, k, x, y, b, h, a, gy, sw)
+(
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_FF, 1, 0, 0, 0, g_ff_bgw, g_ff_bgh, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  gy = ff_ground();
+  g_ff_aur ? (
+    gfx_mode = 1;
+    k = 0;
+    loop(2,
+      i = 0;
+      loop(120,
+        x = BRD_X + i * BRD_W / 120;
+        y = BRD_Y + 165 - k * 45 + 28 * sin(x * 0.006 + g_t * 0.11 + k * 2) + 12 * sin(x * 0.017 - g_t * 0.17 + k);
+        h = 80 + 50 * sin(x * 0.011 + g_t * 0.07 + k * 3) + 25 * k;
+        b = 0.5 + 0.5 * sin(x * 0.004 + g_t * 0.05 + k * 1.7);
+        a = (0.09 + 0.06 * sin(x * 0.021 + g_t * 0.3 + k)) * (0.55 + 0.45 * (0.5 + 0.5 * sin(x * 0.19 + g_t * 0.6 + k * 4))) * (k ? 0.7 : 1) * (g_ff_tod == 1 ? 0.7 : 1);
+        a *= min(1, min(i, 119 - i) / 12);
+        sw = floor(sx(BRD_X + (i + 1) * BRD_W / 120)) - floor(sx(x));
+        gfx_gradrect(floor(sx(x)), sy(y - h), sw, h * g_s, 0.2 + 0.5 * b * k, 1 - 0.45 * b * k, 0.5 + 0.4 * b, 0, 0, 0, 0, 0, 0, 0, 0, a / (h * g_s));
+        gfx_gradrect(floor(sx(x)), sy(y), sw, 12 * g_s, 0.3 + 0.4 * b * k, 1, 0.5 + 0.2 * b, a * 1.9, 0, 0, 0, 0, 0, 0, 0, -a * 1.9 / (12 * g_s));
+        i += 1;
+      );
+      k += 1;
+    );
+    gfx_mode = 0;
+  );
+  g_t > g_ff_ssn ? (
+    g_ff_sst = g_t; g_ff_ssn = g_t + 14 + rand(1) * 30;
+    g_ff_ssx = BRD_X + 80 + rand(1) * (BRD_W - 300); g_ff_ssy = BRD_Y + 30 + rand(1) * 120;
+    g_ff_ssa = 0.35 + rand(1) * 0.5; rand(1) < 0.3 ? g_ff_ssa = $pi - g_ff_ssa;
+  );
+  a = g_t - g_ff_sst;
+  a < 0.9 ? (
+    gfx_mode = 1;
+    b = a / 0.9;
+    x = g_ff_ssx + cos(g_ff_ssa) * 260 * b; y = g_ff_ssy + sin(g_ff_ssa) * 260 * b;
+    k = 0;
+    loop(14,
+      h = k / 14;
+      gfx_set(0.9, 0.95, 1, (1 - h) * 0.5 * sin(b * $pi));
+      gfx_line(sx(x - cos(g_ff_ssa) * 70 * h), sy(y - sin(g_ff_ssa) * 70 * h), sx(x - cos(g_ff_ssa) * 70 * (h + 0.07)), sy(y - sin(g_ff_ssa) * 70 * (h + 0.07)), 1);
+      k += 1;
+    );
+    glow(sx(x), sy(y), 1.6 * g_s, 0.9, 0.95, 1, sin(b * $pi));
+    gfx_mode = 0;
+  );
+  gfx_mode = 1;
+  k = 0;
+  loop(3,
+    y = gy - 14 + k * 22 + 6 * sin(g_t * 0.15 + k * 2);
+    h = 26 + k * 10;
+    a = 0.07 - k * 0.012;
+    gfx_gradrect(sx(BRD_X), sy(y - h), BRD_W * g_s, h * g_s, 0.5, 0.6, 0.75, 0, 0, 0, 0, 0, 0, 0, 0, a / (h * g_s));
+    gfx_gradrect(sx(BRD_X), sy(y), BRD_W * g_s, h * g_s, 0.5, 0.6, 0.75, a, 0, 0, 0, 0, 0, 0, 0, -a / (h * g_s));
+    k += 1;
+  );
+  gfx_mode = 0;
+  k = 0;
+  loop(14,
+    a = max(0, sin(g_t * (0.7 + hash(k)) + k * 3));
+    gfx_set(0.9, 0.95, 1, 0.5 * a * a);
+    gfx_rect(sx(BRD_X + hash(k * 9.1) * BRD_W), sy(BRD_Y + hash(k * 4.3) * (gy - BRD_Y) * 0.8), max(1, g_s * 1.5), max(1, g_s * 1.5));
+    k += 1;
+  );
+  gfx_mode = 0;
+  i = 0; loop(g_ff_nl, ff_lantern(i); i += 1; );
+  gfx_mode = 1;
+  i = 0;
+  loop(NFF,
+    ffst[i] >= 0 ? (
+      a = 0.35 * fff[i];
+      b = ffp[i] < a ? sin(ffp[i] / a * $pi) : 0;
+      b = (0.06 + 0.94 * b * b) * ffa[i];
+      a = 1;
+      ffst[i] > 0 ? ( k = ffst[i] - 1; a = (1 - lnlit[k]) * max(0, min(1, (lny[k] - lnfy[k] - (BRD_Y + 40)) / 110)); b *= 0.8 * a; );
+      gfx_set(0.7, 1, 0.3, 0.035 * b); gfx_circle(sx(ffx[i]), sy(ffy[i]), 28 * g_s * (0.6 + 0.6 * b), 1, 1);
+      gfx_set(0.75, 1, 0.35, 0.07 * b); gfx_circle(sx(ffx[i]), sy(ffy[i]), 14 * g_s * (0.6 + 0.5 * b), 1, 1);
+      gfx_set(0.82, 1, 0.45, 0.22 * b); gfx_circle(sx(ffx[i]), sy(ffy[i]), 5.5 * g_s, 1, 1);
+      gfx_set(0.97, 1, 0.75, (0.75 * b + 0.2) * a); a > 0 ? gfx_circle(sx(ffx[i]), sy(ffy[i]), 2.2 * g_s, 1, 1);
+    );
+    i += 1;
+  );
+  lure ? (
+    k = 0;
+    loop(14, gfx_set(0.85, 0.95, 1, 0.012 + 0.006 * g_ff_call); gfx_circle(sx(lx), sy(ly), (4 + k * 3.4 + 6 * g_ff_call) * g_s, 1, 1); k += 1; );
+    gfx_set(1, 1, 1, 0.5); gfx_circle(sx(lx), sy(ly), 2.5 * g_s, 1, 1);
+  );
+  gfx_mode = 0;
+  k = 0;
+  loop(150,
+    x = BRD_X + hash(k * 1.73 + 2) * BRD_W;
+    h = 30 + 70 * hash(k * 2.31) * hash(k * 3.7 + 1);
+    sw = sin(g_t * (0.8 + 0.4 * hash(k)) + x * 0.01) * (4 + h * 0.08);
+    y = BRD_Y + BRD_H + 2;
+    gfx_set(0.012, 0.03, 0.022, 1);
+    aa_tline(sx(x), sy(y), sx(x + sw * 0.4), sy(y - h * 0.55), 2.4 * g_s);
+    aa_tline(sx(x + sw * 0.4), sy(y - h * 0.55), sx(x + sw), sy(y - h), 1.4 * g_s);
+    hash(k * 5.9) > 0.88 ? (
+      gfx_set(0.05, 0.06, 0.04, 1);
+      gfx_circle(sx(x + sw), sy(y - h), 2.5 * g_s, 1, 1);
+    );
+    k += 1;
+  );
+);
+
+function draw_firefly() local(i, w, h, lure, k, n)
+(
+  g_pgrav = -20;
+  g_ff_lv < 1 ? ff_start(max(1, sv[60]));
+  w = ceil(BRD_W * g_s); h = ceil(BRD_H * g_s);
+  (g_ff_bgw !== w || g_ff_bgh !== h) ? ( ff_bg(w, h); g_ff_bgw = w; g_ff_bgh = h; );
+  lure = hit(BRD_X, BRD_Y, BRD_W, BRD_H);
+  g_ff_call += ((lure && g_mdown) - g_ff_call) * min(1, g_dt * 6);
+  ff_update(lure && !g_ff_won, g_mx, g_my, lure && g_mdown);
+  !g_ff_won ? (
+    k = 1;
+    i = 0; loop(g_ff_nl, lnlit[i] < 1 ? k = 0; i += 1; );
+    k ? ( g_ff_won = 1; g_ff_won_t = g_t; sv[0] = 1; sv[60] = g_ff_lv + 1; sv[61] += g_ff_nl; );
+  ) : (
+    g_t - g_ff_won_t > 1.7 ? (
+      i = 0;
+      loop(g_ff_nl,
+        lnfv[i] = min(70, lnfv[i] + g_dt * (12 + 6 * hash(i)));
+        lnfy[i] += lnfv[i] * g_dt;
+        lnx[i] += sin(g_t * 0.7 + i * 2) * g_dt * 6;
+        i += 1;
+      );
+      k = 1;
+      i = 0; loop(g_ff_nl, lny[i] - lnfy[i] > BRD_Y + 40 ? k = 0; i += 1; );
+      k && g_ff_gone <= 0 ? g_ff_gone = g_t;
+    );
+  );
+  ff_scene(lure && !g_ff_won, g_mx, g_my);
+  particles();
+  gfx_set(0.2, 0.22, 0.28, 1);
+  outline_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+
+  button("< Games", 18, 14, 96, 36, 0.5, 0.88, 0.95) ? g_screen = 0;
+  g_t - g_ff_rst_t > 3 ? g_ff_rst_t = -1000;
+  g_ff_rst_t > 0 ? (
+    button("Sure?", 122, 14, 100, 36, 1, 0.4, 0.35) ? ( g_ff_rst_t = -1000; sv[60] = 1; sv[61] = 0; ff_start(1); );
+  ) : (
+    button("Start over", 122, 14, 100, 36, 1, 0.4, 0.35) ? g_ff_rst_t = g_t;
+  );
+  font(18, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  sprintf(#g_tt, "Firefly Shepherd  -  Night %d", g_ff_lv);
+  txt_c(#g_tt, 300, 14, 300, 36);
+  font(13, 0);
+  gfx_set(0.78, 0.8, 0.84, 1);
+  k = 0; i = 0; loop(g_ff_nl, lnlit[i] >= 1 ? k += 1; i += 1; );
+  g_ff_nl == 1 ? sprintf(#g_tt, "%s", k ? "Lantern lit" : "Lantern dark") : sprintf(#g_tt, "%d of %d lanterns lit", k, g_ff_nl);
+  txt_r(#g_tt, 880, 24);
+  hint("Lead the fireflies with your light and hold the button to call them closer. Hover over a lantern to let them in.", HINT_Y);
+  g_ff_won && g_ff_gone > 0 ? (
+    g_ff_nl == 1 ? strcpy(#g_l1, "The lantern is glowing") : sprintf(#g_l1, "All %d lanterns are glowing", g_ff_nl);
+    sprintf(#g_l2, "Lanterns lit so far: %d", sv[61]);
+    g_wcl = 2;
+    i = win_card("All aglow", g_ff_gone - 0.2, 0.85, 1, 0.5);
+    g_wcl = 0;
+    i == 1 ? ff_start(g_ff_lv + 1) : i == 2 ? g_screen = 0;
+  );
+);
+
+function pv_firefly(x, y, w, h) local(bw, bh)
+(
+  g_ff_lv < 1 ? ff_start(max(1, sv[60]));
+  bw = ceil(BRD_W * g_s); bh = ceil(BRD_H * g_s);
+  (g_ff_bgw !== bw || g_ff_bgh !== bh) ? ( ff_bg(bw, bh); g_ff_bgw = bw; g_ff_bgh = bh; );
+  ff_update(0, 0, 0, 0);
+  pv_begin(x, y, w, h, 1.2);
+  ff_scene(0, 0, 0);
+  pv_end();
+);

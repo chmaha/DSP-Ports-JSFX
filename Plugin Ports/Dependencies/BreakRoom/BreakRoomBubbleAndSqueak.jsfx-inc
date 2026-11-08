@@ -1,0 +1,1803 @@
+@init
+function bz_ncol(r) ( r & 1 ? BZ_NC - 1 : BZ_NC; );
+
+function bz_cx(r, c) ( BZ_X0 + BZ_R + c * BZ_D + (r & 1) * BZ_R; );
+
+function bz_cy(r) ( BZ_TOP + BZ_R + (r + g_bz_dnv) * BZ_DY; );
+
+function bz_lgy(r) ( BZ_TOP + BZ_R + (r + g_bz_dn) * BZ_DY; );
+
+function bz_ok(r, c) ( r >= 0 && r < BZ_NR && c >= 0 && c < bz_ncol(r); );
+
+function bz_mc(r, c) ( bz_ncol(r) - 1 - c; );
+
+function bz_iscol(k) ( k >= 1 && k <= 6; );
+
+function bz_nb(r, c, k) local(o)
+(
+  o = r & 1;
+  k == 0 ? ( g_bz_nr = r; g_bz_nc = c - 1; ) :
+  k == 1 ? ( g_bz_nr = r; g_bz_nc = c + 1; ) :
+  k == 2 ? ( g_bz_nr = r - 1; g_bz_nc = c - 1 + o; ) :
+  k == 3 ? ( g_bz_nr = r - 1; g_bz_nc = c + o; ) :
+  k == 4 ? ( g_bz_nr = r + 1; g_bz_nc = c - 1 + o; ) :
+  ( g_bz_nr = r + 1; g_bz_nc = c + o; );
+  bz_ok(g_bz_nr, g_bz_nc);
+);
+
+function bz_support(mark) local(h, t, i, r, c, k, j)
+(
+  memset(mark, 0, NBZ);
+  h = 0; t = 0;
+  c = 0; loop(BZ_NC, bzg[c] ? ( mark[c] = 1; bzq[t] = c; t += 1; ); c += 1; );
+  while (h < t) (
+    i = bzq[h]; h += 1;
+    r = floor(i / BZ_NC); c = i - r * BZ_NC;
+    k = 0;
+    loop(6,
+      bz_nb(r, c, k) ? (
+        j = g_bz_nr * BZ_NC + g_bz_nc;
+        (bzg[j] && !mark[j]) ? ( mark[j] = 1; bzq[t] = j; t += 1; );
+      );
+      k += 1;
+    );
+  );
+  t;
+);
+
+function bz_flood(i0, col, mark) local(h, t, i, r, c, k, j)
+(
+  memset(mark, 0, NBZ);
+  mark[i0] = 1; bzq[0] = i0; h = 0; t = 1;
+  while (h < t) (
+    i = bzq[h]; h += 1;
+    r = floor(i / BZ_NC); c = i - r * BZ_NC;
+    k = 0;
+    loop(6,
+      bz_nb(r, c, k) ? (
+        j = g_bz_nr * BZ_NC + g_bz_nc;
+        (bzg[j] == col && !mark[j]) ? ( mark[j] = 1; bzq[t] = j; t += 1; );
+      );
+      k += 1;
+    );
+  );
+  t;
+);
+
+function bz_trapped() local(i, n)
+(
+  n = 0; i = 0;
+  loop(NBZ, (bzg[i] && bzt[i]) ? n += 1; i += 1; );
+  n;
+);
+
+function bz_count() local(i, n)
+(
+  n = 0; i = 0;
+  loop(NBZ, bzg[i] ? n += 1; i += 1; );
+  n;
+);
+
+function bz_pick() local(i, n, k, p, c)
+(
+  memset(bz_pk, 0, 8);
+  i = 0;
+  loop(NBZ, bz_iscol(bzg[i]) ? bz_pk[bzg[i]] = 1; i += 1; );
+  n = 0; k = 1; loop(6, bz_pk[k] ? n += 1; k += 1; );
+  n == 0 ? (
+    1 + floor(rand(1) * g_bz_ncl) % g_bz_ncl;
+  ) : (
+    p = floor(rand(1) * n) % n;
+    c = 0; k = 1;
+    loop(6, bz_pk[k] ? ( p == 0 ? c = k; p -= 1; ); k += 1; );
+    c;
+  );
+);
+
+function bz_hit(x, y) local(r0, rr, cc, c0, dx, dy, j, h)
+(
+  h = 0;
+  y <= BZ_TOP + g_bz_dn * BZ_DY + BZ_R ? h = 1 : (
+    r0 = floor((y - BZ_TOP - BZ_R) / BZ_DY - g_bz_dn + 0.5);
+    rr = r0 - 1;
+    loop(3,
+      rr >= 0 && rr < BZ_NR ? (
+        c0 = floor((x - BZ_X0 - BZ_R - (rr & 1) * BZ_R) / BZ_D + 0.5);
+        cc = c0 - 1;
+        loop(3,
+          bz_ok(rr, cc) ? (
+            j = rr * BZ_NC + cc;
+            bzg[j] ? (
+              dx = x - bz_cx(rr, cc); dy = y - bz_lgy(rr);
+              dx * dx + dy * dy < BZ_HR * BZ_HR ? ( h = 2; g_bz_hc = j; );
+            );
+          );
+          cc += 1;
+        );
+      );
+      rr += 1;
+    );
+  );
+  h;
+);
+
+function bz_land(x, y) local(r0, rr, cc, c0, dx, dy, d, best, bi, j)
+(
+  r0 = floor((y - BZ_TOP - BZ_R) / BZ_DY - g_bz_dn + 0.5);
+  best = 1000000; bi = -1;
+  rr = r0 - 1;
+  loop(3,
+    rr >= 0 && rr < BZ_NR ? (
+      c0 = floor((x - BZ_X0 - BZ_R - (rr & 1) * BZ_R) / BZ_D + 0.5);
+      cc = c0 - 1;
+      loop(3,
+        bz_ok(rr, cc) ? (
+          j = rr * BZ_NC + cc;
+          !bzg[j] ? (
+            dx = x - bz_cx(rr, cc); dy = y - bz_lgy(rr);
+            d = dx * dx + dy * dy;
+            d < best ? ( best = d; bi = j; );
+          );
+        );
+        cc += 1;
+      );
+    );
+    rr += 1;
+  );
+  bi < 0 ? (
+    rr = max(0, min(BZ_NR - 1, r0));
+    cc = max(0, min(bz_ncol(rr) - 1, floor((x - BZ_X0 - BZ_R - (rr & 1) * BZ_R) / BZ_D + 0.5)));
+    bi = rr * BZ_NC + cc;
+  );
+  bi;
+);
+
+function bz_popup(x, y, v, k)
+(
+  bux[g_bz_ui] = x; buy[g_bz_ui] = y; buv[g_bz_ui] = v; but_[g_bz_ui] = g_bz_t; buk[g_bz_ui] = k;
+  g_bz_ui = (g_bz_ui + 1) % NBU;
+);
+
+function bz_popat(i, dl) local(r, c, k)
+(
+  r = floor(i / BZ_NC); c = i - r * BZ_NC;
+  k = g_bz_pi;
+  bpx[k] = bz_cx(r, c); bpy[k] = bz_cy(r); bpc[k] = bzg[i]; bpm[k] = bzt[i]; bpf[k] = bzf[i];
+  bpt[k] = g_bz_t + dl; bps[k] = 1;
+  g_bz_pi = (g_bz_pi + 1) % NBP;
+  bzt[i] ? g_bz_freed += 1;
+  bzg[i] = 0; bzt[i] = 0;
+);
+
+function bz_fall(i, dl) local(r, c, k)
+(
+  r = floor(i / BZ_NC); c = i - r * BZ_NC;
+  k = g_bz_fi;
+  bqx[k] = bz_cx(r, c); bqy[k] = bz_cy(r); bqc[k] = bzg[i]; bqm[k] = bzt[i]; bqf[k] = bzf[i];
+  bqvx[k] = (rand(1) - 0.5) * 140; bqvy[k] = -60 - rand(1) * 120;
+  bqt[k] = g_bz_t + dl; bqs[k] = 1;
+  g_bz_fi = (g_bz_fi + 1) % NBQ;
+  bzt[i] ? g_bz_freed += 1;
+  bzg[i] = 0; bzt[i] = 0;
+);
+
+function bz_area(i, kind) local(r, c, rr, cc, j, x, y, dx, dy, n, b0)
+(
+  r = floor(i / BZ_NC); c = i - r * BZ_NC;
+  x = bz_cx(r, c); y = bz_lgy(r);
+  n = 0; b0 = bzd[i];
+  j = 0;
+  loop(NBZ,
+    rr = floor(j / BZ_NC); cc = j - rr * BZ_NC;
+    (bzg[j] && !bzm[j]) ? (
+      kind == 9 ? (
+        rr == r ? ( bzm[j] = 1; bzd[j] = b0 + abs(cc - c) * 0.6; bzq[g_bz_qt] = j; g_bz_qt += 1; n += 1; );
+      ) : (
+        dx = bz_cx(rr, cc) - x; dy = bz_lgy(rr) - y;
+        dx * dx + dy * dy < 2.15 * 2.15 * BZ_D * BZ_D ? ( bzm[j] = 1; bzd[j] = b0 + sqrt(dx * dx + dy * dy) / BZ_D; bzq[g_bz_qt] = j; g_bz_qt += 1; n += 1; );
+      );
+    );
+    j += 1;
+  );
+  g_bz_bang_t = g_bz_t; g_bz_bang_x = x; g_bz_bang_y = y; g_bz_bang_k = kind;
+  db_snd(kind == 9 ? 3 : 2, kind == 9 ? 0 : 90, kind == 9 ? 0.5 : 0.9, 0, (x - 450) / 450);
+  n;
+);
+
+function bz_chain(h0) local(h, i, r, c, k, j)
+(
+  h = h0;
+  while (h < g_bz_qt) (
+    i = bzq[h]; h += 1;
+    (bzg[i] == 8 || bzg[i] == 9) && !bzk[i] ? ( bzk[i] = 1; g_bz_chain += 1; bz_area(i, bzg[i]); );
+    r = floor(i / BZ_NC); c = i - r * BZ_NC;
+    k = 0;
+    loop(6,
+      bz_nb(r, c, k) ? (
+        j = g_bz_nr * BZ_NC + g_bz_nc;
+        ((bzg[j] == 8 || bzg[j] == 9) && !bzm[j]) ? (
+          bzm[j] = 1; bzd[j] = bzd[i] + 1; bzq[g_bz_qt] = j; g_bz_qt += 1;
+        );
+      );
+      k += 1;
+    );
+  );
+);
+
+function bz_burn(j) local(r, c, h)
+(
+  memset(bzm, 0, NBZ); memset(bzk, 0, NBZ);
+  bzm[j] = 1; bzd[j] = 0; bzq[0] = j; g_bz_qt = 1;
+  bz_chain(0);
+  r = floor(j / BZ_NC); c = j - r * BZ_NC;
+  h = 0;
+  loop(g_bz_qt, bz_popat(bzq[h], bzd[bzq[h]] * 0.045); h += 1; );
+  g_bz_score += g_bz_qt * 10;
+  g_bz_burnn += g_bz_qt;
+  g_bz_qt = 0;
+);
+
+function bz_adv(dist, fire) local(n, h, st)
+(
+  n = ceil(dist / 3);
+  st = dist / n;
+  h = 0;
+  while (n > 0 && !h) (
+    g_bz_tx += g_bz_tvx * st; g_bz_ty += g_bz_tvy * st;
+    g_bz_tx < BZ_X0 + BZ_R ? ( g_bz_tx = 2 * (BZ_X0 + BZ_R) - g_bz_tx; g_bz_tvx = abs(g_bz_tvx); g_bz_bnc += 1; );
+    g_bz_tx > BZ_X1 - BZ_R ? ( g_bz_tx = 2 * (BZ_X1 - BZ_R) - g_bz_tx; g_bz_tvx = -abs(g_bz_tvx); g_bz_bnc += 1; );
+    h = bz_hit(g_bz_tx, g_bz_ty);
+    fire && h == 2 ? ( bz_burn(g_bz_hc); h = 0; );
+    n -= 1;
+  );
+  h;
+);
+
+function bz_trace(ang, maxlen) local(d, h, k, sp)
+(
+  g_bz_tx = BZ_LX; g_bz_ty = BZ_LY; g_bz_tvx = cos(ang); g_bz_tvy = sin(ang); g_bz_bnc = 0;
+  d = 0; h = 0; k = 0; sp = 15;
+  while (!h && d < maxlen && k < NBT) (
+    h = bz_adv(sp, 0);
+    d += sp;
+    btx[k] = g_bz_tx; bty[k] = g_bz_ty; k += 1;
+  );
+  g_bz_tn = k;
+  h ? bz_land(g_bz_tx, g_bz_ty) : -1;
+);
+
+function bz_commit(x0, y0) local(i, n, dmax, d, nf, fx, fy, v, k)
+(
+  n = 0; dmax = 0;
+  i = 0;
+  loop(g_bz_qt,
+    k = bzq[i];
+    d = bzd[k] * 0.045;
+    dmax = max(dmax, d);
+    bz_popat(k, d);
+    n += 1;
+    i += 1;
+  );
+  g_bz_popn = n;
+  n > 0 ? (
+    v = n * 10;
+    g_bz_score += v;
+    bz_popup(x0, y0, v, 0);
+  );
+  memset(bzst, 0, NBZ);
+  bz_support(bzst);
+  nf = 0; i = 0;
+  loop(NBZ,
+    (bzg[i] && !bzst[i]) ? (
+      d = dmax + 0.12 + floor(i / BZ_NC) * 0.015;
+      bz_fall(i, d);
+      nf += 1;
+    );
+    i += 1;
+  );
+  g_bz_dropn = nf;
+  nf > 0 ? (
+    v = 10 * 2 ^ min(nf, 10);
+    g_bz_score += v;
+    g_bz_dropv = v;
+  );
+  g_bz_pw = min(1, g_bz_pw + (n + nf * 1.5) / (26 + g_bz_lv));
+  n + nf;
+);
+
+function bz_rainbow(i0) local(r, c, k, j, col, n, best, bc)
+(
+  r = floor(i0 / BZ_NC); c = i0 - r * BZ_NC;
+  best = 0; bc = 0;
+  k = 0;
+  loop(6,
+    bz_nb(r, c, k) ? (
+      j = g_bz_nr * BZ_NC + g_bz_nc;
+      col = bzg[j];
+      bz_iscol(col) ? (
+        bzg[i0] = col;
+        n = bz_flood(i0, col, bzx);
+        n > best ? ( best = n; bc = col; );
+      );
+    );
+    k += 1;
+  );
+  bc ? bc : bz_pick();
+);
+
+function bz_resolve(i0, sk) local(n, i, x0, y0, r, c, h)
+(
+  memset(bzm, 0, NBZ); memset(bzk, 0, NBZ);
+  r = floor(i0 / BZ_NC); c = i0 - r * BZ_NC;
+  x0 = bz_cx(r, c); y0 = bz_lgy(r);
+  g_bz_qt = 0; g_bz_chain = 0;
+  sk == 11 ? (
+    bzg[i0] = 8;
+    bzm[i0] = 1; bzd[i0] = 0; bzq[0] = i0; g_bz_qt = 1;
+    bz_chain(0);
+  ) : (
+    sk == 12 ? bzg[i0] = bz_rainbow(i0);
+    n = bz_flood(i0, bzg[i0], bzm);
+    n >= 3 ? (
+      i = 0;
+      loop(NBZ,
+        bzm[i] ? ( r = floor(i / BZ_NC); c = i - r * BZ_NC; bzd[i] = sqrt((bz_cx(r, c) - x0) ^ 2 + (bz_lgy(r) - y0) ^ 2) / BZ_D; );
+        i += 1;
+      );
+      g_bz_qt = n;
+      bz_chain(0);
+    ) : (
+      memset(bzm, 0, NBZ);
+      g_bz_qt = 0;
+    );
+  );
+  h = bz_commit(x0, y0);
+  h;
+);
+
+function bz_mouse_spawn(x, y, fur) local(k, j)
+(
+  k = -1; j = 0;
+  loop(NBM, k < 0 && bms[j] == 0 ? k = j; j += 1; );
+  k >= 0 ? (
+    bmx[k] = x; bmy[k] = y; bmx0[k] = x; bmy0[k] = y;
+    bmvx[k] = (x > 450 ? 1 : -1) * (30 + rand(1) * 40); bmvy[k] = -300 - rand(1) * 80;
+    bms[k] = 1; bmt[k] = g_bz_t; bmf[k] = fur;
+    bmk[k] = g_bz_slot; g_bz_slot += 1;
+    g_bz_score += 500;
+    bz_popup(x, y - 26, 500, 1);
+    db_snd(0, db_note(31), 0.32, 0, (x - 450) / 450);
+    db_snd(0, db_note(34), 0.26, 0.07, (x - 450) / 450);
+    g_bz_hop_t = g_bz_t;
+  );
+);
+
+function bz_slot_x(k) ( 52 + (k % 4) * 34 + (floor(k / 4) & 1) * 17; );
+
+function bz_slot_y(k) ( BRD_Y + BRD_H - 28 - floor(k / 4) * 20; );
+
+function bz_pmask(p, r, c, rows) local(x, u, v, m, d, dx, dy)
+(
+  x = bz_cx(r, c);
+  u = abs(x - 450) / (BZ_NC * BZ_D * 0.5);
+  v = rows > 1 ? r / (rows - 1) : 0;
+  m = 1;
+  p == 1 ? m = (u <= 1.02 - v * 0.75) :
+  p == 2 ? m = ((u + abs(v - 0.45) * 1.3 <= 0.95) || r == 0) :
+  p == 3 ? m = (((floor(u * 7 + 0.5) % 2) == 0) || r < 2) :
+  p == 4 ? (
+    dx = u - 0.42; dy = v - 0.28;
+    m = (dx * dx * 1.0 + dy * dy * 1.6 < 0.2) || (v > 0.28 && u < (1 - v) * 1.15) || r == 0;
+  ) :
+  p == 5 ? m = (u > 0.42 || v < 0.38) :
+  p == 6 ? m = ((v <= 0.62 + 0.38 * cos(u * $pi * 2.2)) || r < 2) :
+  p == 7 ? (
+    d = sqrt(u * u * 1.2 + (v - 0.35) * (v - 0.35));
+    m = (((floor(d * 4.2) % 2) == 0) || r == 0);
+  );
+  m;
+);
+
+function bz_gen(lv) local(rows, p, r, c, i, j, k, n, nm, cand, tries, nb, nl, nst, f, col, mc)
+(
+  memset(bzg, 0, NBZ); memset(bzt, 0, NBZ); memset(bzf, 0, NBZ);
+  g_bz_ncl = min(6, 3 + floor((lv - 1) / 3));
+  rows = min(10, 5 + floor(lv / 2));
+  p = lv <= 1 ? 0 : (lv + g_bz_pat) % 8;
+  r = 0;
+  loop(rows,
+    c = 0;
+    loop(bz_ncol(r),
+      bz_pmask(p, r, c, rows) ? bzg[r * BZ_NC + c] = 99;
+      c += 1;
+    );
+    r += 1;
+  );
+  bz_support(bzst);
+  i = 0; loop(NBZ, !bzst[i] ? bzg[i] = 0; i += 1; );
+  r = 0;
+  loop(rows,
+    c = 0;
+    loop(ceil(bz_ncol(r) / 2),
+      i = r * BZ_NC + c;
+      bzg[i] ? (
+        col = 1 + floor(rand(1) * g_bz_ncl) % g_bz_ncl;
+        k = 0; n = 0;
+        rand(1) < 0.5 ? (
+          loop(6,
+            bz_nb(r, c, k) && g_bz_nr <= r && (g_bz_nr < r || g_bz_nc < c) ? (
+              j = g_bz_nr * BZ_NC + g_bz_nc;
+              (bz_iscol(bzg[j]) && rand(1) < 0.5) ? col = bzg[j];
+            );
+            k += 1;
+          );
+        );
+        bzg[i] = col;
+        mc = bz_mc(r, c);
+        bzg[r * BZ_NC + mc] ? bzg[r * BZ_NC + mc] = col;
+      );
+      c += 1;
+    );
+    r += 1;
+  );
+  i = 0; loop(NBZ, bzg[i] == 99 ? bzg[i] = 1 + floor(rand(1) * g_bz_ncl) % g_bz_ncl; i += 1; );
+  nm = min(8, 2 + floor((lv - 1) / 2));
+  n = 0; tries = 0;
+  while (n < nm && tries < 400) (
+    f = lv <= 2 ? 0.35 : lv <= 5 ? 1 : 1 + min(1.5, (lv - 5) * 0.12);
+    r = min(rows - 1, floor(rows * rand(1) ^ f));
+    lv <= 2 ? r = max(r, rows - 3);
+    (n < 1 + (lv >= 10) && lv >= 6) ? r = floor(rand(1) * 2) % 2;
+    c = floor(rand(1) * bz_ncol(r)) % bz_ncol(r);
+    i = r * BZ_NC + c;
+    (bz_iscol(bzg[i]) && !bzt[i]) ? (
+      bzt[i] = 1; bzf[i] = floor(rand(1) * 4) % 4; n += 1;
+      mc = bz_mc(r, c);
+      j = r * BZ_NC + mc;
+      (n < nm && j != i && bz_iscol(bzg[j]) && !bzt[j]) ? ( bzt[j] = 1; bzf[j] = floor(rand(1) * 4) % 4; n += 1; );
+    );
+    tries += 1;
+  );
+  nb = lv >= 3 ? min(3, 1 + floor((lv - 3) / 5)) : 0;
+  nl = lv >= 4 ? min(2, 1 + floor((lv - 4) / 6)) : 0;
+  nst = lv >= 5 ? min(5, 1 + floor((lv - 5) / 3)) : 0;
+  k = 0;
+  loop(nb + nl + nst,
+    f = k < nb ? 8 : k < nb + nl ? 9 : 7;
+    tries = 0;
+    while (tries < 60) (
+      r = f == 7 ? floor(rows * 0.3) + floor(rand(1) * rows * 0.7) % max(1, ceil(rows * 0.7)) :
+          f == 9 ? floor(rows * 0.55) + floor(rand(1) * rows * 0.45) % max(1, ceil(rows * 0.45)) :
+          2 + floor(rand(1) * (rows - 2)) % max(1, rows - 2);
+      r = max(0, min(rows - 1, r));
+      c = floor(rand(1) * bz_ncol(r)) % bz_ncol(r);
+      i = r * BZ_NC + c;
+      (bz_iscol(bzg[i]) && !bzt[i]) ? (
+        bzg[i] = f;
+        f == 7 ? (
+          j = r * BZ_NC + bz_mc(r, c);
+          (bz_iscol(bzg[j]) && !bzt[j]) ? ( bzg[j] = 7; k += 1; );
+        );
+        tries = 1000;
+      );
+      tries += 1;
+    );
+    k += 1;
+  );
+  g_bz_mice = bz_trapped();
+);
+
+function bz_fire()
+(
+  g_bz_sx = BZ_LX + cos(g_bz_aim) * 4; g_bz_sy = BZ_LY + sin(g_bz_aim) * 4;
+  g_bz_svx = cos(g_bz_aim); g_bz_svy = sin(g_bz_aim);
+  g_bz_sk = g_bz_cur;
+  g_bz_cur = g_bz_nxt;
+  g_bz_nxt = bz_pick();
+  (g_bz_pw >= 1 && g_bz_cur <= 6) ? ( g_bz_cur = 11 + g_bz_spn % 3; g_bz_spn += 1; g_bz_pw = 0; g_bz_pwt = g_bz_t; );
+  g_bz_shots -= 1;
+  g_bz_cdn += 1;
+  g_bz_state = 1;
+  g_bz_fire_t = g_bz_t;
+  g_bz_freed = 0; g_bz_burnn = 0; g_bz_chain = 0;
+  db_snd(2, 0, 0.45, 0, 0);
+);
+
+function bz_after() local(i, lost, r)
+(
+  lost = 0;
+  i = 0;
+  loop(NBZ, bzg[i] ? ( r = floor(i / BZ_NC); r + g_bz_dn >= BZ_DR ? lost = 1; ); i += 1; );
+  lost;
+);
+
+function bz_settle() local(i, n, f)
+(
+  g_bz_mleft = bz_trapped();
+  g_bz_mleft == 0 ? (
+    g_bz_state = 5; g_bz_won_t = g_bz_t;
+  ) : bz_after() ? (
+    g_bz_state = 4; g_bz_won_t = g_bz_t; g_bz_why = 1;
+    db_snd(4, 392, 0.35, 0, 0); db_snd(4, 330, 0.35, 0.18, 0); db_snd(4, 262, 0.35, 0.36, 0);
+  ) : g_bz_shots <= 0 ? (
+    g_bz_state = 4; g_bz_won_t = g_bz_t; g_bz_why = 0;
+    db_snd(4, 392, 0.35, 0, 0); db_snd(4, 330, 0.35, 0.18, 0); db_snd(4, 262, 0.35, 0.36, 0);
+  ) : (
+    g_bz_state = 0;
+    (g_bz_every > 0 && g_bz_cdn >= g_bz_every) ? (
+      g_bz_cdn = 0; g_bz_dn += 1; g_bz_sink_t = g_bz_t;
+      db_snd(2, 0, 0.5, 0, 0);
+      bz_after() ? ( g_bz_state = 4; g_bz_won_t = g_bz_t; g_bz_why = 1; );
+    );
+    (!bz_iscol(g_bz_cur) && g_bz_cur < 11) ? g_bz_cur = bz_pick();
+    f = 0; n = 0; i = 0;
+    loop(NBZ, bzg[i] == g_bz_cur ? f = 1; bzg[i] == g_bz_nxt ? n = 1; i += 1; );
+    (g_bz_cur <= 6 && !f) ? g_bz_cur = bz_pick();
+    !n ? g_bz_nxt = bz_pick();
+  );
+);
+
+function bz_mouse(x, y, r, lk, bl, fur, ears) local(fr, fg, fb, ex, ey)
+(
+  fr = bz_fr[fur]; fg = bz_fg[fur]; fb = bz_fb[fur];
+  ears ? (
+    gfx_set(fr * 0.7, fg * 0.7, fb * 0.7, 1);
+    gfx_circle(x - r * 0.74, y - r * 0.6, r * 0.52, 1, 1);
+    gfx_circle(x + r * 0.74, y - r * 0.6, r * 0.52, 1, 1);
+    gfx_set(0.96, 0.62, 0.66, 1);
+    gfx_circle(x - r * 0.74, y - r * 0.58, r * 0.33, 1, 1);
+    gfx_circle(x + r * 0.74, y - r * 0.58, r * 0.33, 1, 1);
+  );
+  gfx_set(fr * 0.62, fg * 0.62, fb * 0.62, 1);
+  gfx_circle(x, y, r, 1, 1);
+  gfx_set(fr, fg, fb, 1);
+  gfx_circle(x, y - r * 0.04, r * 0.92, 1, 1);
+  gfx_set(min(1, fr * 0.5 + 0.5), min(1, fg * 0.5 + 0.48), min(1, fb * 0.5 + 0.46), 1);
+  gfx_circle(x + lk * r * 0.1, y + r * 0.34, r * 0.5, 1, 1);
+  gfx_set(1, 0.55, 0.62, 0.35);
+  gfx_circle(x - r * 0.52, y + r * 0.22, r * 0.2, 1, 1);
+  gfx_circle(x + r * 0.52, y + r * 0.22, r * 0.2, 1, 1);
+  ex = lk * r * 0.1; ey = y - r * 0.12;
+  bl ? (
+    gfx_set(0.1, 0.07, 0.07, 1);
+    gfx_line(x - r * 0.48 + ex, ey, x - r * 0.22 + ex, ey, 1);
+    gfx_line(x + r * 0.22 + ex, ey, x + r * 0.48 + ex, ey, 1);
+  ) : (
+    gfx_set(0.08, 0.06, 0.07, 1);
+    gfx_circle(x - r * 0.34 + ex, ey, max(1.2, r * 0.17), 1, 1);
+    gfx_circle(x + r * 0.34 + ex, ey, max(1.2, r * 0.17), 1, 1);
+    gfx_set(1, 1, 1, 0.95);
+    gfx_circle(x - r * 0.39 + ex, ey - r * 0.06, max(0.8, r * 0.065), 1, 1);
+    gfx_circle(x + r * 0.29 + ex, ey - r * 0.06, max(0.8, r * 0.065), 1, 1);
+  );
+  gfx_set(0.95, 0.45, 0.55, 1);
+  gfx_circle(x + lk * r * 0.16, y + r * 0.2, max(1, r * 0.13), 1, 1);
+  gfx_set(0.2, 0.14, 0.14, 0.7);
+  gfx_line(x - r * 0.2, y + r * 0.34, x - r * 1.05, y + r * 0.18, 1);
+  gfx_line(x - r * 0.2, y + r * 0.4, x - r * 1.0, y + r * 0.48, 1);
+  gfx_line(x + r * 0.2, y + r * 0.34, x + r * 1.05, y + r * 0.18, 1);
+  gfx_line(x + r * 0.2, y + r * 0.4, x + r * 1.0, y + r * 0.48, 1);
+);
+
+function bz_bolt(x0, y0, x1, y1, n, w, sd) local(k, px, py, qx_, qy_, t, nx, ny, l, j)
+(
+  l = sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2);
+  l > 0.5 ? (
+    nx = -(y1 - y0) / l; ny = (x1 - x0) / l;
+    px = x0; py = y0;
+    k = 1;
+    loop(n,
+      t = k / n;
+      j = k == n ? 0 : (hash(sd + k * 1.7) - 0.5) * l * 0.35;
+      qx_ = x0 + (x1 - x0) * t + nx * j; qy_ = y0 + (y1 - y0) * t + ny * j;
+      tline(px, py, qx_, qy_, w);
+      px = qx_; py = qy_;
+      k += 1;
+    );
+  );
+);
+
+function bz_ball(x, y, r, k, mouse, fur, a, id) local(cr, cg, cb, px, py, j, s, f, ang)
+(
+  px = sx(x); py = sy(y); r *= g_s;
+  k == 12 ? ( hue(g_bz_t * 0.6 + id * 0.13); cr = g_hr; cg = g_hg; cb = g_hb; ) : ( cr = bz_cr[k]; cg = bz_cg[k]; cb = bz_cb[k]; );
+  !mouse ? (
+    gfx_set(0, 0, 0, 0.32 * a);
+    gfx_circle(px + 2 * g_s, py + 3.5 * g_s, r, 1, 1);
+  ) : (
+    gfx_set(cr * 0.3, cg * 0.3, cb * 0.34, 0.9 * a);
+    gfx_circle(px, py, r, 1, 1);
+    gfx_set(cr * 0.75, cg * 0.75, cb * 0.8, a);
+    gfx_circle(px, py, r * 0.8, 1, 1);
+    bz_mouse(px, py + r * 0.1, r * 0.5, sin(g_bz_t * 0.7 + id) * 0.8, frac(g_bz_t * 0.23 + hash(id)) < 0.035, fur, 1);
+  );
+  k == 7 ? (
+    gfx_set(0.26, 0.26, 0.27, a); gfx_circle(px, py, r, 1, 1);
+    gfx_set(0.5, 0.5, 0.49, a); gfx_circle(px - r * 0.04, py - r * 0.06, r * 0.88, 1, 1);
+    gfx_set(0.62, 0.62, 0.6, a); gfx_circle(px - r * 0.2, py - r * 0.24, r * 0.52, 1, 1);
+    gfx_set(0.36, 0.52, 0.3, 0.85 * a);
+    gfx_circle(px + r * 0.36, py + r * 0.42, r * 0.3, 1, 1);
+    gfx_circle(px + r * 0.1, py + r * 0.58, r * 0.22, 1, 1);
+    gfx_set(0.22, 0.22, 0.23, a);
+    gfx_line(px - r * 0.5, py - r * 0.1, px - r * 0.1, py + r * 0.1, 1);
+    gfx_line(px - r * 0.1, py + r * 0.1, px + r * 0.05, py + r * 0.45, 1);
+    gfx_line(px - r * 0.1, py + r * 0.1, px + r * 0.4, py - r * 0.05, 1);
+    gfx_set(1, 1, 1, 0.35 * a); gfx_circle(px - r * 0.38, py - r * 0.42, max(1, r * 0.14), 1, 1);
+  ) : k == 8 || k == 11 ? (
+    s = hash(floor(g_bz_t * 24) + id * 7.3);
+    gfx_set(0.04, 0.04, 0.05, a); gfx_circle(px - r * 0.04, py + r * 0.08, r * 0.86, 1, 1);
+    gfx_set(0.13, 0.13, 0.16, a); gfx_circle(px - r * 0.12, py + r * 0.0, r * 0.72, 1, 1);
+    gfx_set(0.21, 0.21, 0.26, a); gfx_circle(px - r * 0.26, py - r * 0.14, r * 0.44, 1, 1);
+    gfx_set(0.3, 0.32, 0.4, 0.6 * a); gfx_circle(px + r * 0.3, py + r * 0.46, r * 0.18, 1, 1);
+    cr = px + r * 0.5; cg = py - r * 0.5;
+    gfx_set(0.22, 0.23, 0.27, a);
+    gfx_triangle(cr - r * 0.46, cg + r * 0.04, cr - r * 0.04, cg - r * 0.46, cr + r * 0.2, cg - r * 0.22, cr - r * 0.22, cg + r * 0.2);
+    gfx_set(0.55, 0.57, 0.63, a);
+    gfx_triangle(cr - r * 0.4, cg - r * 0.02, cr - r * 0.06, cg - r * 0.4, cr + r * 0.06, cg - r * 0.28, cr - r * 0.28, cg + r * 0.08);
+    gfx_set(0.82, 0.84, 0.9, a);
+    tline(cr - r * 0.34, cg - r * 0.06, cr - r * 0.1, cg - r * 0.32, max(1, r * 0.06));
+    j = 0;
+    loop(7,
+      f = j / 7; ang = (j + 1) / 7;
+      x = cr + r * (0.02 + 0.5 * f + 0.18 * sin(f * 5)); y = cg - r * (0.26 + 0.55 * f - 0.15 * sin(f * 6));
+      s = cr + r * (0.02 + 0.5 * ang + 0.18 * sin(ang * 5)); f = cg - r * (0.26 + 0.55 * ang - 0.15 * sin(ang * 6));
+      gfx_set(0.45, 0.32, 0.18, a); tline(x, y, s, f, max(2, r * 0.2));
+      gfx_set(0.86, 0.72, 0.48, a); tline(x, y, s, f, max(1.2, r * 0.12));
+      j += 1;
+    );
+    s = hash(floor(g_bz_t * 24) + id * 7.3);
+    x = cr + r * (0.02 + 0.5 + 0.18 * sin(5)); y = cg - r * (0.26 + 0.55 - 0.15 * sin(6));
+    glow(x, y, r * (0.15 + 0.08 * s), 1, 0.62 + 0.2 * s, 0.2, a);
+    gfx_mode = 1;
+    j = 0;
+    loop(7,
+      ang = j * $pi * 2 / 7 + g_bz_t * 9 + id;
+      f = r * (0.25 + 0.22 * hash(j + floor(g_bz_t * 30) + id));
+      gfx_set(1, 0.9, 0.5, 0.9 * a);
+      gfx_line(x, y, x + cos(ang) * f, y + sin(ang) * f, 1);
+      j += 1;
+    );
+    gfx_mode = 0;
+    gfx_set(1, 1, 1, 0.75 * a); gfx_circle(px - r * 0.42, py - r * 0.3, max(1, r * 0.16), 1, 1);
+    gfx_set(1, 1, 1, 0.35 * a); gfx_circle(px - r * 0.22, py - r * 0.5, max(1, r * 0.08), 1, 1);
+  ) : k == 9 ? (
+    s = 0.5 + 0.5 * sin(g_bz_t * 5 + id * 2);
+    gfx_mode = 1;
+    gfx_set(0.4, 0.6, 1, 0.18 * a * (0.6 + 0.4 * s)); gfx_circle(px, py, r * 1.45, 1, 1);
+    gfx_mode = 0;
+    gfx_set(0.04, 0.08, 0.26, a); gfx_circle(px, py, r, 1, 1);
+    gfx_set(0.1, 0.2, 0.52, a); gfx_circle(px - r * 0.05, py - r * 0.06, r * 0.88, 1, 1);
+    gfx_set(0.2, 0.36, 0.78, a); gfx_circle(px - r * 0.22, py - r * 0.26, r * 0.5, 1, 1);
+    gfx_set(1, 0.92, 0.4, a);
+    gfx_triangle(px + r * 0.12, py - r * 0.72, px - r * 0.38, py + r * 0.08, px + r * 0.02, py + r * 0.08);
+    gfx_triangle(px - r * 0.02, py - r * 0.06, px + r * 0.38, py - r * 0.06, px - r * 0.14, py + r * 0.74);
+    gfx_set(1, 1, 1, 0.85 * a); gfx_circle(px - r * 0.38, py - r * 0.44, max(1, r * 0.15), 1, 1);
+  ) : k == 13 ? (
+    gfx_mode = 1;
+    gfx_set(1, 0.45, 0.1, 0.25 * a); gfx_circle(px, py, r * 1.6, 1, 1);
+    gfx_set(1, 0.6, 0.15, 0.4 * a); gfx_circle(px, py, r * 1.15, 1, 1);
+    gfx_mode = 0;
+    gfx_set(0.85, 0.2, 0.05, a); gfx_circle(px, py, r, 1, 1);
+    gfx_set(1, 0.55, 0.1, a); gfx_circle(px, py + r * 0.08, r * 0.8, 1, 1);
+    gfx_set(1, 0.85, 0.3, a); gfx_circle(px, py + r * 0.16, r * 0.52, 1, 1);
+    gfx_set(1, 1, 0.8, a); gfx_circle(px, py + r * 0.2, r * 0.26, 1, 1);
+  ) : (
+    mouse ? (
+      gfx_set(cr, cg, cb, a);
+      gfx_circle(px, py, r, 0, 1); gfx_circle(px, py, r - 1, 0, 1); gfx_circle(px, py, r - 2, 0, 1);
+      gfx_set(min(1, cr * 0.5 + 0.5), min(1, cg * 0.5 + 0.5), min(1, cb * 0.5 + 0.5), 0.8 * a);
+      gfx_circle(px, py, r - 3, 0, 1);
+      gfx_set(cr, cg, cb, 0.28 * a);
+      gfx_circle(px, py, r * 0.86, 1, 1);
+    ) : (
+      gfx_set(cr * 0.36, cg * 0.36, cb * 0.42, a);
+      gfx_circle(px, py, r, 1, 1);
+      gfx_set(cr * 0.9, cg * 0.9, cb * 0.92, a);
+      gfx_circle(px, py + r * 0.04, r * 0.86, 1, 1);
+      gfx_set(min(1, cr * 0.55 + 0.42), min(1, cg * 0.55 + 0.42), min(1, cb * 0.55 + 0.42), a);
+      gfx_circle(px - r * 0.14, py - r * 0.2, r * 0.56, 1, 1);
+      gfx_set(min(1, cr * 1.05), min(1, cg * 1.05), min(1, cb * 1.05), a);
+      gfx_circle(px - r * 0.04, py - r * 0.04, r * 0.5, 1, 1);
+      gfx_set(cr * 0.5, cg * 0.5, cb * 0.56, 0.5 * a);
+      gfx_circle(px + r * 0.1, py + r * 0.62, r * 0.28, 1, 1);
+    );
+    k == 12 ? (
+      j = 0;
+      loop(6,
+        ang = g_bz_t * 2 + j * $pi / 3;
+        hue(j / 6 + g_bz_t * 0.3);
+        gfx_set(g_hr, g_hg, g_hb, 0.9 * a);
+        gfx_circle(px + cos(ang) * r * 0.48, py + sin(ang) * r * 0.48, r * 0.2, 1, 1);
+        j += 1;
+      );
+    );
+    gfx_set(1, 1, 1, 0.92 * a);
+    gfx_circle(px - r * 0.38, py - r * 0.42, max(1, r * 0.2), 1, 1);
+    gfx_set(1, 1, 1, 0.55 * a);
+    gfx_circle(px - r * 0.18, py - r * 0.6, max(1, r * 0.1), 1, 1);
+    gfx_set(1, 1, 1, 0.3 * a);
+    gfx_circle(px + r * 0.42, py + r * 0.34, max(1, r * 0.09), 1, 1);
+    mouse ? ( gfx_set(1, 1, 1, 0.22 * a); gfx_circle(px, py, r * 0.97, 0, 1); );
+  );
+);
+
+function bz_bg(w, h) local(dst, s0, ox0, oy0, tod, tr, tg, tb, hr, hg, hb, hy, x, y, k, j, f, a, mr, hw, xt, mx, my, c, ry, gr, gg, gb, tx, bw)
+(
+  dst = gfx_dest; s0 = g_s; ox0 = g_ox; oy0 = g_oy;
+  gfx_setimgdim(IMG_BZB, w, h);
+  gfx_dest = IMG_BZB;
+  g_s = w / BRD_W; g_ox = -BRD_X * g_s; g_oy = -BRD_Y * g_s;
+  gfx_mode = 0; gfx_a = 1;
+  tod = g_bz_tod;
+  tod == 0 ? ( tr = 0.2; tg = 0.13; tb = 0.34; hr = 0.92; hg = 0.52; hb = 0.44; ) :
+  tod == 1 ? ( tr = 0.04; tg = 0.07; tb = 0.2; hr = 0.26; hg = 0.34; hb = 0.6; ) :
+  tod == 2 ? ( tr = 0.012; tg = 0.018; tb = 0.06; hr = 0.07; hg = 0.12; hb = 0.24; ) :
+  ( tr = 0.07; tg = 0.12; tb = 0.25; hr = 0.78; hg = 0.62; hb = 0.6; );
+  hy = h * 0.62;
+  gfx_gradrect(0, 0, w, hy, tr, tg, tb, 1, 0, 0, 0, 0, (hr - tr) / hy, (hg - tg) / hy, (hb - tb) / hy, 0);
+  k = 0;
+  loop(tod == 2 ? 320 : tod == 1 ? 220 : 70,
+    x = hash(k * 1.37 + g_bz_sd) * w; y = hash(k * 2.11 + 7 + g_bz_sd) * hy * 0.85;
+    a = 0.3 + 0.7 * hash(k * 5.3);
+    gfx_set(0.88, 0.92, 1, a * (1 - y / hy) * (tod >= 1 && tod <= 2 ? 1 : 0.45));
+    gfx_rect(x, y, a > 0.9 ? 2 : 1, a > 0.9 ? 2 : 1);
+    k += 1;
+  );
+  k = 0;
+  loop(3,
+    f = k / 2;
+    gfx_set(db_mix(hr, tr, 0.35 + f * 0.4) * (0.75 - f * 0.3), db_mix(hg, tg, 0.35 + f * 0.4) * (0.75 - f * 0.3), db_mix(hb, tb, 0.35 + f * 0.4) * (0.8 - f * 0.3), 1);
+    x = 0;
+    loop(ceil(w / 2),
+      ry = db_ridge(x / w, g_bz_sd + k * 4.1, h * (0.1 - 0.02 * k), hy - h * (0.1 - 0.05 * k));
+      gfx_rect(x, ry, 2, h - ry);
+      x += 2;
+    );
+    k += 1;
+  );
+  gr = 0.05 + 0.08 * (tod == 0 || tod == 3); gg = 0.1 + 0.1 * (tod == 0 || tod == 3); gb = 0.09 + 0.06 * (tod != 2);
+  k = 0;
+  loop(30,
+    x = hash(k * 4.7 + g_bz_sd) * w; y = hy + h * 0.02 + hash(k * 3.1) * h * 0.04;
+    f = h * (0.05 + 0.06 * hash(k * 7.3));
+    gfx_set(gr * 0.8, gg * 0.85, gb * 0.9, 1);
+    gfx_circle(x, y - f * 0.6, f, 1, 1);
+    gfx_rect(x - f * 0.12, y - f * 0.2, f * 0.24, h * 0.1);
+    k += 1;
+  );
+  y = hy + h * 0.06;
+  while (y < h) (
+    f = (y - hy) / (h - hy);
+    gfx_set(gr * (1.1 - f * 0.5), gg * (1.1 - f * 0.5), gb * (1.1 - f * 0.5), 1);
+    gfx_rect(0, y, w, 2);
+    y += 2;
+  );
+  loop(2, gfx_x = 0; gfx_y = 0; gfx_blurto(w, h); );
+  mx = w * (hash(g_bz_sd) < 0.5 ? 0.08 + 0.05 * hash(g_bz_sd + 1) : 0.87 + 0.05 * hash(g_bz_sd + 1)); my = h * (0.1 + 0.08 * hash(g_bz_sd + 3));
+  mr = w * (tod == 0 ? 0.022 : 0.03);
+  gfx_mode = 1;
+  k = 0;
+  loop(9,
+    gfx_set(tod == 0 ? 1 : 0.85, tod == 0 ? 0.85 : 0.9, tod == 0 ? 0.7 : 1, tod == 3 ? 0.02 : 0.04);
+    gfx_circle(mx, my, mr * (1.3 + k * 1.1), 1, 1);
+    k += 1;
+  );
+  gfx_mode = 0;
+  gfx_set(0.95, 0.95, 0.88, tod == 3 ? 0.4 : 0.12);
+  gfx_circle(mx, my, mr, 1, 1);
+  gfx_set(0.97, 0.96, 0.9, tod == 3 ? 0.55 : 1);
+  y = -mr;
+  while (y < mr) (
+    hw = sqrt(max(0, mr * mr - (y + 0.5) * (y + 0.5)));
+    xt = hw * cos(2 * $pi * g_bz_mph);
+    g_bz_mph < 0.5 ? gfx_rect(mx + xt, my + y, hw - xt, 1) : gfx_rect(mx - hw, my + y, hw - xt, 1);
+    y += 1;
+  );
+  k = 0;
+  loop(2,
+    bw = 74;
+    tx = k ? BRD_X + BRD_W - bw : BRD_X;
+    y = BRD_Y;
+    while (y < BRD_Y + BRD_H) (
+      f = (y - BRD_Y) / BRD_H;
+      x = bw * (0.78 + 0.22 * f * f * f) + 6 * sin(f * 7 + k);
+      gfx_set(0.1 + 0.02 * sin(y * 0.3), 0.07 + 0.015 * sin(y * 0.3), 0.06, 1);
+      k ? gfx_rect(sx(BRD_X + BRD_W - x), sy(y), x * g_s + 1, 3 * g_s + 1) : gfx_rect(sx(BRD_X), sy(y), x * g_s + 1, 3 * g_s + 1);
+      y += 3;
+    );
+    j = 0;
+    loop(26,
+      x = (k ? BRD_X + BRD_W - bw * 0.9 : BRD_X + 4) + hash(j * 3.3 + k) * bw * 0.8;
+      y = BRD_Y + hash(j * 5.1 + k * 2) * BRD_H * 0.9;
+      gfx_set(0.2, 0.15, 0.11, 0.6);
+      tline(sx(x), sy(y), sx(x + 2 * sin(j)), sy(y + 30 + 40 * hash(j * 1.3)), 2 * g_s);
+      j += 1;
+    );
+    gfx_set(0.22, 0.36, 0.16, 0.7);
+    j = 0;
+    loop(9,
+      x = (k ? BRD_X + BRD_W - bw * 0.85 : BRD_X + 10) + hash(j * 7.9 + k) * bw * 0.7;
+      y = BRD_Y + 60 + hash(j * 2.9 + k * 5) * BRD_H * 0.75;
+      gfx_circle(sx(x), sy(y), (5 + 6 * hash(j * 1.9)) * g_s, 1, 1);
+      j += 1;
+    );
+    k += 1;
+  );
+  gfx_set(0.02, 0.03, 0.05, 0.42);
+  gfx_rect(sx(BZ_X0 - 2), sy(BRD_Y), (BZ_X1 - BZ_X0 + 4) * g_s, (BZ_LY - BRD_Y - 20) * g_s);
+  y = 0;
+  loop(14,
+    gfx_set(0.02, 0.03, 0.05, 0.03);
+    gfx_rect(sx(BZ_X0 - 2 - y), sy(BRD_Y), (BZ_X1 - BZ_X0 + 4 + 2 * y) * g_s, (BZ_LY - BRD_Y - 20 + y) * g_s);
+    y += 1.5;
+  );
+  k = 0;
+  loop(2,
+    x = k ? BZ_X1 + 3 : BZ_X0 - 3;
+    gfx_set(0.3, 0.2, 0.12, 1);
+    tline(sx(x), sy(BRD_Y), sx(x + 2 * (k ? 1 : -1)), sy(BZ_LY - 18), 6 * g_s);
+    gfx_set(0.46, 0.32, 0.2, 1);
+    tline(sx(x - 1), sy(BRD_Y), sx(x + 2 * (k ? 1 : -1) - 1), sy(BZ_LY - 18), 2 * g_s);
+    j = 0;
+    loop(16,
+      y = BRD_Y + 50 + j * 30 + 8 * hash(j + k * 9);
+      f = (j & 1 ? 1 : -1);
+      gfx_set(0.18 + 0.1 * hash(j * 3 + k), 0.42 + 0.14 * hash(j * 5 + k), 0.16, 1);
+      gfx_triangle(sx(x), sy(y), sx(x + f * 13), sy(y - 7), sx(x + f * 17), sy(y + 2), sx(x + f * 5), sy(y + 6));
+      gfx_set(0.3, 0.55, 0.24, 0.6);
+      gfx_line(sx(x), sy(y), sx(x + f * 14), sy(y - 2), 1);
+      j += 1;
+    );
+    k += 1;
+  );
+  x = 101; y = BRD_Y + BRD_H - 74;
+  gfx_mode = 1;
+  k = 0; loop(6, gfx_set(1, 0.7, 0.3, 0.03); gfx_circle(sx(x + 4), sy(y + 4), (30 + k * 14) * g_s, 1, 1); k += 1; );
+  gfx_mode = 0;
+  gfx_set(0.62, 0.55, 0.45, 1);
+  fill_rr(x - 30, y - 18, 60, 64, 14);
+  gfx_set(0.86, 0.8, 0.68, 1);
+  fill_rr(x - 27, y - 18, 52, 62, 12);
+  gfx_set(0.3, 0.18, 0.1, 1);
+  fill_rr(x - 10, y + 10, 20, 36, 9);
+  gfx_set(0.45, 0.28, 0.15, 1);
+  fill_rr(x - 8, y + 12, 16, 33, 7);
+  gfx_set(0.9, 0.75, 0.3, 1);
+  gfx_circle(sx(x + 4), sy(y + 30), 1.6 * g_s, 1, 1);
+  gfx_set(0.35, 0.22, 0.12, 1);
+  gfx_circle(sx(x + 16), sy(y - 1), 8 * g_s, 1, 1);
+  gfx_set(1, 0.78, 0.38, 1);
+  gfx_circle(sx(x + 16), sy(y - 1), 6 * g_s, 1, 1);
+  gfx_set(0.35, 0.22, 0.12, 1);
+  gfx_line(sx(x + 10), sy(y - 1), sx(x + 22), sy(y - 1), 1);
+  gfx_line(sx(x + 16), sy(y - 7), sx(x + 16), sy(y + 5), 1);
+  gfx_set(0.5, 0.08, 0.08, 1);
+  fan(sx(x), sy(y - 12), 64 * g_s, $pi, 2 * $pi, 24);
+  gfx_set(0.8, 0.16, 0.14, 1);
+  fan(sx(x), sy(y - 14), 60 * g_s, $pi, 2 * $pi, 24);
+  gfx_set(0.92, 0.3, 0.24, 1);
+  fan(sx(x - 10), sy(y - 22), 34 * g_s, $pi * 1.05, $pi * 1.6, 10);
+  gfx_set(0.45, 0.07, 0.07, 1);
+  gfx_rect(sx(x - 64), sy(y - 14), 128 * g_s, 4 * g_s);
+  gfx_set(0.98, 0.95, 0.9, 1);
+  gfx_circle(sx(x - 34), sy(y - 34), 7 * g_s, 1, 1);
+  gfx_circle(sx(x + 6), sy(y - 56), 9 * g_s, 1, 1);
+  gfx_circle(sx(x + 38), sy(y - 30), 6 * g_s, 1, 1);
+  gfx_circle(sx(x - 8), sy(y - 28), 4 * g_s, 1, 1);
+  gfx_circle(sx(x + 22), sy(y - 46), 4 * g_s, 1, 1);
+  gfx_set(0.12, 0.14, 0.08, 1);
+  gfx_rect(sx(BRD_X), sy(BRD_Y + BRD_H - 30), BRD_W * g_s, 30 * g_s);
+  k = 0;
+  loop(420,
+    x = BRD_X + hash(k * 1.31 + g_bz_sd) * BRD_W;
+    y = BRD_Y + BRD_H - 4 - hash(k * 2.7) * 30;
+    f = 8 + 18 * hash(k * 3.9);
+    gfx_set(0.1 + 0.12 * hash(k * 7.1), 0.2 + 0.2 * hash(k * 5.7), 0.08 + 0.06 * hash(k * 2.2), 1);
+    gfx_triangle(sx(x - 1.5), sy(y), sx(x + 1.5), sy(y), sx(x + 4 * sin(k)), sy(y - f));
+    k += 1;
+  );
+  k = 0;
+  loop(26,
+    x = BRD_X + 8 + hash(k * 9.7 + g_bz_sd) * (BRD_W - 16);
+    (x < BZ_LX - 130 || x > BZ_LX + 230) ? (
+      y = BRD_Y + BRD_H - 10 - hash(k * 4.3) * 20;
+      j = floor(hash(k * 6.1) * 3);
+      j == 0 ? (
+        gfx_set(0.3, 0.45, 0.25, 1);
+        gfx_line(sx(x), sy(y), sx(x + 3), sy(y - 26), 1);
+        a = 0; loop(4, gfx_set(0.35, 0.45, 0.95, 1); gfx_circle(sx(x + 3 + 4 + a * 2), sy(y - 24 + a * 5), 2.6 * g_s, 1, 1); a += 1; );
+      ) : j == 1 ? (
+        gfx_set(0.3, 0.5, 0.25, 1);
+        gfx_line(sx(x), sy(y), sx(x), sy(y - 16), 1);
+        a = 0; loop(8, gfx_set(0.97, 0.96, 0.92, 1); gfx_circle(sx(x + cos(a * $pi / 4) * 4), sy(y - 16 + sin(a * $pi / 4) * 4), 2 * g_s, 1, 1); a += 1; );
+        gfx_set(1, 0.85, 0.2, 1); gfx_circle(sx(x), sy(y - 16), 2.2 * g_s, 1, 1);
+      ) : (
+        gfx_set(0.85, 0.8, 0.7, 1);
+        gfx_rect(sx(x - 2), sy(y - 9), 4 * g_s, 9 * g_s);
+        gfx_set(0.7 + 0.2 * hash(k), 0.3, 0.15, 1);
+        fan(sx(x), sy(y - 8), 8 * g_s, $pi, 2 * $pi, 8);
+        gfx_set(1, 1, 0.9, 1); gfx_circle(sx(x - 3), sy(y - 12), 1.2 * g_s, 1, 1);
+      );
+    );
+    k += 1;
+  );
+  g_s = s0; g_ox = ox0; g_oy = oy0;
+  gfx_dest = dst;
+);
+
+function bz_branch() local(y, x, k, f, sw, a)
+(
+  y = BZ_TOP + g_bz_dnv * BZ_DY;
+  g_bz_dnv > 0.01 ? (
+    gfx_set(0.16, 0.11, 0.07, 1);
+    gfx_rect(sx(BZ_X0), sy(BZ_TOP - 6), BZ_NC * BZ_D * g_s, (y - BZ_TOP + 6) * g_s);
+    k = 0;
+    loop(ceil(g_bz_dnv * 2) + 1,
+      gfx_set(0.24, 0.16, 0.1, 1);
+      gfx_rect(sx(BZ_X0), sy(BZ_TOP - 6 + k * BZ_DY * 0.5), BZ_NC * BZ_D * g_s, max(1, 1.5 * g_s));
+      k += 1;
+    );
+  );
+  gfx_set(0.08, 0.05, 0.03, 0.5);
+  gfx_rect(sx(BZ_X0), sy(y), BZ_NC * BZ_D * g_s, 5 * g_s);
+  gfx_set(0.27, 0.17, 0.1, 1);
+  tline(sx(BZ_X0 - 30), sy(y - 8), sx(BZ_X1 + 30), sy(y - 6), 16 * g_s);
+  gfx_set(0.4, 0.27, 0.16, 1);
+  tline(sx(BZ_X0 - 30), sy(y - 12), sx(BZ_X1 + 30), sy(y - 10), 5 * g_s);
+  gfx_set(0.18, 0.11, 0.06, 1);
+  k = 0;
+  loop(12, x = BZ_X0 + 20 + k * 46; gfx_line(sx(x), sy(y - 14), sx(x + 18), sy(y - 3), 1); k += 1; );
+  k = 0;
+  loop(30,
+    x = BZ_X0 - 20 + k * 19 + 6 * hash(k);
+    sw = sin(g_bz_t * 1.3 + k * 0.7) * 3;
+    f = 7 + 9 * hash(k * 3.3);
+    gfx_set(0.2 + 0.08 * hash(k * 2.1), 0.42 + 0.16 * hash(k * 4.4), 0.17, 1);
+    gfx_triangle(sx(x), sy(y - 4), sx(x - 7 + sw), sy(y + f * 0.5), sx(x + sw * 1.5), sy(y + f), sx(x + 7 + sw), sy(y + f * 0.5));
+    gfx_set(0.35, 0.62, 0.26, 0.7);
+    gfx_line(sx(x), sy(y - 3), sx(x + sw * 1.4), sy(y + f - 2), 1);
+    (k % 5) == 2 ? (
+      a = 0.5 + 0.5 * sin(g_bz_t * 2 + k);
+      gfx_set(0.95, 0.72 + 0.1 * a, 0.85, 1);
+      gfx_circle(sx(x + sw * 1.5), sy(y + f + 3), 3 * g_s, 1, 1);
+    );
+    k += 1;
+  );
+);
+
+function bz_launcher() local(px, py, ca, sa, rc, k, a, l)
+(
+  px = BZ_LX; py = BZ_LY;
+  gfx_set(0.22, 0.14, 0.08, 1);
+  fill_rr(px - 44, py + 6, 88, 60, 10);
+  gfx_set(0.34, 0.22, 0.13, 1);
+  fill_rr(px - 40, py + 8, 80, 58, 10);
+  gfx_set(0.5, 0.36, 0.22, 1);
+  fill_rr(px - 44, py + 2, 88, 14, 7);
+  gfx_set(0.66, 0.5, 0.32, 1);
+  fill_rr(px - 40, py + 4, 80, 9, 4);
+  gfx_set(0.45, 0.32, 0.2, 1);
+  k = 0; loop(3, gfx_roundrect(sx(px - 30 + k * 8), sy(py + 5), (60 - k * 16) * g_s, 6 * g_s, 3 * g_s, 1); k += 1; );
+  gfx_set(0.26, 0.17, 0.1, 1);
+  k = 0; loop(5, gfx_line(sx(px - 34 + k * 17), sy(py + 20), sx(px - 32 + k * 17), sy(py + 62), 1); k += 1; );
+  rc = max(0, 1 - (g_bz_t - g_bz_fire_t) * 6) * 8;
+  ca = cos(g_bz_aim); sa = sin(g_bz_aim);
+  l = 54 - rc;
+  gfx_set(0, 0, 0, 0.35);
+  tline(sx(px + 3), sy(py + 4), sx(px + ca * l + 3), sy(py + sa * l + 4), 26 * g_s);
+  gfx_set(0.3, 0.19, 0.1, 1);
+  tline(sx(px), sy(py), sx(px + ca * l), sy(py + sa * l), 26 * g_s);
+  gfx_set(0.52, 0.35, 0.2, 1);
+  tline(sx(px - sa * 4), sy(py + ca * 4), sx(px + ca * l - sa * 4), sy(py + sa * l + ca * 4), 12 * g_s);
+  gfx_set(0.66, 0.48, 0.28, 1);
+  tline(sx(px - sa * 7), sy(py + ca * 7), sx(px + ca * l - sa * 7), sy(py + sa * l + ca * 7), 3 * g_s);
+  k = 0;
+  loop(2,
+    a = k ? l - 6 : 30;
+    gfx_set(0.62, 0.45, 0.14, 1);
+    tline(sx(px + ca * (a - 3)), sy(py + sa * (a - 3)), sx(px + ca * (a + 3)), sy(py + sa * (a + 3)), 30 * g_s);
+    gfx_set(0.95, 0.78, 0.36, 1);
+    tline(sx(px + ca * (a - 1) - sa * 8), sy(py + sa * (a - 1) + ca * 8), sx(px + ca * (a + 1) - sa * 8), sy(py + sa * (a + 1) + ca * 8), 8 * g_s);
+    k += 1;
+  );
+  gfx_set(0.1, 0.06, 0.03, 1);
+  gfx_circle(sx(px + ca * l), sy(py + sa * l), 10 * g_s, 1, 1);
+  gfx_set(0.42, 0.28, 0.16, 1);
+  gfx_circle(sx(px), sy(py), 28 * g_s, 1, 1);
+  gfx_set(0.62, 0.45, 0.14, 1);
+  gfx_circle(sx(px), sy(py), 25 * g_s, 1, 1);
+  gfx_set(0.95, 0.78, 0.36, 1);
+  gfx_circle(sx(px), sy(py), 25 * g_s, 0, 1);
+  gfx_set(0.16, 0.1, 0.06, 1);
+  gfx_circle(sx(px), sy(py), 21 * g_s, 1, 1);
+  k = 0;
+  loop(8,
+    a = k * $pi / 4 + 0.2;
+    gfx_set(1, 0.88, 0.5, 1);
+    gfx_circle(sx(px + cos(a) * 23.5), sy(py + sin(a) * 23.5), 1.6 * g_s, 1, 1);
+    k += 1;
+  );
+  g_bz_state == 0 || g_bz_state == 2 ? (
+    a = min(1, (g_bz_t - g_bz_fire_t) * 5);
+    bz_ball(px, py, BZ_R * a, g_bz_cur, 0, 0, 1, 99);
+  );
+);
+
+function bz_acorn(hov) local(x, y, k, a, s)
+(
+  x = BZ_LX - 98; y = BZ_LY + 22;
+  s = max(0, 1 - (g_bz_t - g_bz_swap_t) * 4);
+  hov ? (
+    gfx_mode = 1; gfx_set(1, 0.9, 0.6, 0.12); gfx_circle(sx(x), sy(y - 6), 30 * g_s, 1, 1); gfx_mode = 0;
+  );
+  bz_ball(x, y - 12 - 18 * sin(s * $pi), 15, g_bz_nxt, 0, 0, 1, 98);
+  gfx_set(0.3, 0.18, 0.08, 1);
+  fan(sx(x), sy(y - 8), 25 * g_s, 0, $pi, 16);
+  gfx_set(0.5, 0.32, 0.15, 1);
+  fan(sx(x), sy(y - 9), 22 * g_s, 0, $pi, 16);
+  gfx_set(0.62, 0.42, 0.2, 1);
+  tline(sx(x - 25), sy(y - 8), sx(x + 25), sy(y - 8), 7 * g_s);
+  gfx_set(0.38, 0.23, 0.1, 1);
+  k = 0;
+  loop(6,
+    a = 0.4 + k * 0.45;
+    gfx_line(sx(x + cos(a) * 6), sy(y - 8 + sin(a) * 6), sx(x + cos(a) * 20), sy(y - 8 + sin(a) * 20), 1);
+    gfx_line(sx(x - 22 + k * 8), sy(y - 11), sx(x - 18 + k * 8), sy(y - 5), 1);
+    k += 1;
+  );
+  gfx_set(0.3, 0.2, 0.1, 1);
+  tline(sx(x), sy(y + 13), sx(x + 2), sy(y + 19), 3 * g_s);
+  hov ? (
+    font(11, 'b'); gfx_set(1, 0.9, 0.6, 1);
+    txt_c("swap", x - 30, y + 18, 60, 14);
+  );
+);
+
+function bz_sign() local(x, y, low, a)
+(
+  x = BZ_LX + 98; y = BZ_LY + 14;
+  low = g_bz_shots <= 3 && g_bz_state < 3;
+  a = low ? 0.5 + 0.5 * sin(g_t * 8) : 0;
+  gfx_set(0.22, 0.14, 0.08, 1); gfx_circle(sx(x), sy(y), 25 * g_s, 1, 1);
+  gfx_set(0.56 + 0.3 * a, 0.4, 0.24, 1); gfx_circle(sx(x), sy(y), 22 * g_s, 1, 1);
+  gfx_set(0.48 + 0.25 * a, 0.33, 0.19, 1);
+  gfx_circle(sx(x), sy(y), 15 * g_s, 0, 1); gfx_circle(sx(x), sy(y), 9 * g_s, 0, 1);
+  sprintf(#g_tt, "%d", g_bz_shots);
+  db_otext(#g_tt, x - 24, y - 12, 48, 24, 20, 1, low ? 0.6 : 0.95, low ? 0.5 : 0.8, 1);
+  font(10, 'b');
+  gfx_set(0.95, 0.88, 0.75, 1);
+  txt_c("SHOTS", x - 30, y + 26, 60, 12);
+);
+
+function bz_mascot() local(x, y, hop, lk, arms, k, bl)
+(
+  x = BZ_LX + 186; y = BZ_LY + 30;
+  hop = g_bz_t - g_bz_hop_t < 0.5 ? sin((g_bz_t - g_bz_hop_t) / 0.5 * $pi) * 16 : 0;
+  g_bz_state == 3 || g_bz_state >= 5 ? hop = abs(sin(g_bz_t * 6)) * 12;
+  y -= hop;
+  lk = max(-1, min(1, cos(g_bz_aim) * 2));
+  gfx_set(0, 0, 0, 0.3);
+  gfx_circle(sx(x), sy(BZ_LY + 58), (20 - hop * 0.3) * g_s, 1, 1);
+  gfx_set(0.92, 0.62, 0.66, 1);
+  k = 0;
+  loop(10,
+    tline(sx(x + 14 + k * 2.6), sy(y + 18 - sin(k * 0.5 + g_bz_t * 2) * 6 - k * 1.2), sx(x + 16.6 + k * 2.6), sy(y + 18 - sin((k + 1) * 0.5 + g_bz_t * 2) * 6 - (k + 1) * 1.2), 2.2 * g_s);
+    k += 1;
+  );
+  gfx_set(bz_fr[0] * 0.62, bz_fg[0] * 0.62, bz_fb[0] * 0.62, 1);
+  gfx_circle(sx(x), sy(y + 12), 19 * g_s, 1, 1);
+  gfx_set(bz_fr[0], bz_fg[0], bz_fb[0], 1);
+  gfx_circle(sx(x), sy(y + 11), 17.5 * g_s, 1, 1);
+  gfx_set(0.95, 0.88, 0.8, 1);
+  gfx_circle(sx(x), sy(y + 16), 11 * g_s, 1, 1);
+  gfx_set(0.92, 0.3, 0.32, 1);
+  fill_rr(x - 15, y + 22, 30, 12, 5);
+  gfx_set(1, 1, 1, 0.9);
+  gfx_circle(sx(x - 8), sy(y + 28), 1.6 * g_s, 1, 1); gfx_circle(sx(x), sy(y + 30), 1.6 * g_s, 1, 1); gfx_circle(sx(x + 8), sy(y + 28), 1.6 * g_s, 1, 1);
+  arms = g_bz_state == 3 || g_bz_state >= 5 || hop > 2;
+  gfx_set(bz_fr[0] * 0.8, bz_fg[0] * 0.8, bz_fb[0] * 0.8, 1);
+  arms ? (
+    tline(sx(x - 14), sy(y + 4), sx(x - 24), sy(y - 12), 6 * g_s);
+    tline(sx(x + 14), sy(y + 4), sx(x + 24), sy(y - 12), 6 * g_s);
+  ) : (
+    tline(sx(x - 15), sy(y + 6), sx(x - 10), sy(y + 18), 6 * g_s);
+    tline(sx(x + 15), sy(y + 6), sx(x + 10), sy(y + 18), 6 * g_s);
+  );
+  bl = frac(g_t * 0.31) < 0.04;
+  bz_mouse(sx(x), sy(y - 12), 15 * g_s, lk, bl, 0, 1);
+  g_bz_shots <= 3 && g_bz_state < 3 ? (
+    gfx_set(0.6, 0.85, 1, 0.8);
+    gfx_circle(sx(x + 13), sy(y - 26 + frac(g_t) * 6), 2 * g_s, 1, 1);
+  );
+);
+
+function bz_jar() local(x, y, w, h, f, a, k, lv, px, py)
+(
+  x = 800; y = BRD_Y + 300; w = 58; h = 96;
+  f = g_bz_pwd;
+  g_bz_pwd += (g_bz_pw - g_bz_pwd) * min(1, g_dt * 4);
+  gfx_set(0.1, 0.12, 0.14, 0.6);
+  fill_rr(x - w * 0.5, y, w, h, 12);
+  lv = (h - 10) * f;
+  a = f >= 0.999 ? 0.5 + 0.5 * sin(g_t * 6) : 0;
+  lv > 1 ? (
+    gfx_mode = 1;
+    gfx_set(0.6, 1, 0.4, 0.06 + 0.1 * a);
+    gfx_circle(sx(x), sy(y + h - lv * 0.5), (30 + 10 * f) * g_s, 1, 1);
+    gfx_mode = 0;
+    gfx_set(0.45 + 0.3 * a, 0.85, 0.3, 0.9);
+    fill_rr(x - w * 0.5 + 5, y + h - 5 - lv, w - 10, lv, min(8, lv * 0.5));
+    gfx_set(0.8, 1, 0.55, 0.9);
+    gfx_rect(sx(x - w * 0.5 + 9), sy(y + h - 5 - lv), (w - 18) * g_s, max(1, 2 * g_s));
+    k = 0;
+    loop(7,
+      px = x - 18 + 36 * hash(k * 3.7);
+      py = y + h - 8 - frac(g_t * (0.15 + 0.1 * hash(k)) + hash(k * 1.3)) * lv;
+      gfx_set(1, 1, 0.8, 0.7);
+      gfx_circle(sx(px), sy(py), 1.4 * g_s, 1, 1);
+      k += 1;
+    );
+  );
+  gfx_set(0.75, 0.85, 0.95, 0.5);
+  gfx_roundrect(sx(x - w * 0.5), sy(y), w * g_s, h * g_s, 12 * g_s, 1);
+  gfx_set(1, 1, 1, 0.25);
+  fill_rr(x - w * 0.5 + 6, y + 10, 6, h - 30, 3);
+  gfx_set(0.5, 0.34, 0.2, 1);
+  fill_rr(x - w * 0.5 + 6, y - 12, w - 12, 15, 5);
+  gfx_set(0.66, 0.48, 0.3, 1);
+  fill_rr(x - w * 0.5 + 8, y - 11, w - 16, 5, 2);
+  font(11, 'b');
+  gfx_set(0.85, 0.95, 0.75, 1);
+  txt_c("POWER", x - 40, y + h + 6, 80, 14);
+  font(10, 0);
+  gfx_set(0.62, 0.7, 0.62, 1);
+  k = g_bz_spn % 3;
+  txt_c(k == 0 ? "next: bomb" : k == 1 ? "next: rainbow" : "next: fireball", x - 50, y + h + 21, 100, 14);
+);
+
+function bz_nest() local(k, x, y, j)
+(
+  k = 0;
+  loop(NBM,
+    bms[k] == 3 ? (
+      j = bmk[k];
+      x = bz_slot_x(j); y = bz_slot_y(j) - abs(sin(g_bz_t * 3 + j)) * (g_bz_state == 3 || g_bz_state >= 5 ? 8 : 0);
+      gfx_set(0, 0, 0, 0.3); gfx_circle(sx(x), sy(bz_slot_y(j) + 9), 10 * g_s, 1, 1);
+      gfx_set(bz_fr[bmf[k]] * 0.8, bz_fg[bmf[k]] * 0.8, bz_fb[bmf[k]] * 0.8, 1);
+      gfx_circle(sx(x), sy(y + 4), 9 * g_s, 1, 1);
+      gfx_set(0.92, 0.62, 0.66, 1);
+      gfx_line(sx(x + 8), sy(y + 8), sx(x + 15), sy(y + 2 + sin(g_bz_t * 3 + j) * 2), 1);
+      bz_mouse(sx(x), sy(y - 6), 8 * g_s, sin(g_bz_t * 0.5 + j), frac(g_t * 0.27 + j * 0.13) < 0.04, bmf[k], 1);
+    );
+    k += 1;
+  );
+);
+
+function bz_seed(x, y, a) local(k, ang)
+(
+  gfx_set(0.85, 0.8, 0.7, a);
+  gfx_line(sx(x), sy(y), sx(x), sy(y - 22), 1);
+  k = 0;
+  loop(14,
+    ang = -$pi * 0.5 + (k - 6.5) * 0.2;
+    gfx_set(1, 1, 1, 0.55 * a);
+    gfx_line(sx(x), sy(y - 22), sx(x + cos(ang) * 16), sy(y - 22 + sin(ang) * 12), 1);
+    gfx_set(1, 1, 1, 0.8 * a);
+    gfx_circle(sx(x + cos(ang) * 16), sy(y - 22 + sin(ang) * 12), 1.3 * g_s, 1, 1);
+    k += 1;
+  );
+);
+
+function bz_mice(dt) local(k, t, tx, ty, dx, dy, d, sp, fl)
+(
+  k = 0;
+  loop(NBM,
+    bms[k] == 1 || bms[k] == 2 ? (
+      t = g_bz_t - bmt[k];
+      bms[k] == 1 ? (
+        bmvy[k] += 900 * dt;
+        bmx[k] += bmvx[k] * dt; bmy[k] += bmvy[k] * dt;
+        t > 0.42 ? ( bms[k] = 2; bmt[k] = g_bz_t; );
+        bz_mouse(sx(bmx[k]), sy(bmy[k]), 10 * g_s, 0, 1, bmf[k], 1);
+      ) : (
+        tx = bz_slot_x(bmk[k]); ty = bz_slot_y(bmk[k]) - 6;
+        dx = tx - bmx[k]; dy = ty - bmy[k]; d = sqrt(dx * dx + dy * dy);
+        sp = min(190, 60 + t * 80);
+        fl = min(1, t * 3);
+        bmvx[k] += ((d > 1 ? dx / d * sp : 0) + sin(g_bz_t * 2.5 + k) * 40 - bmvx[k]) * min(1, dt * 2.5);
+        bmvy[k] += ((d > 1 ? dy / d * sp : 0) - bmvy[k]) * min(1, dt * 2.5);
+        bmx[k] += bmvx[k] * dt; bmy[k] += bmvy[k] * dt;
+        bz_seed(bmx[k], bmy[k] - 8, fl);
+        gfx_set(0.92, 0.62, 0.66, 1);
+        gfx_line(sx(bmx[k] - 3), sy(bmy[k] + 7), sx(bmx[k] - 4), sy(bmy[k] + 13), 1);
+        gfx_line(sx(bmx[k] + 3), sy(bmy[k] + 7), sx(bmx[k] + 4), sy(bmy[k] + 13), 1);
+        gfx_set(bz_fr[bmf[k]] * 0.8, bz_fg[bmf[k]] * 0.8, bz_fb[bmf[k]] * 0.8, 1);
+        gfx_circle(sx(bmx[k]), sy(bmy[k] + 4), 6 * g_s, 1, 1);
+        tline(sx(bmx[k] - 5), sy(bmy[k] + 1), sx(bmx[k] - 2), sy(bmy[k] - 12), 2.4 * g_s);
+        tline(sx(bmx[k] + 5), sy(bmy[k] + 1), sx(bmx[k] + 2), sy(bmy[k] - 12), 2.4 * g_s);
+        bz_mouse(sx(bmx[k]), sy(bmy[k] - 3), 8 * g_s, dx > 0 ? 0.6 : -0.6, 0, bmf[k], 1);
+        (d < 5 || t > 9) ? (
+          bms[k] = 3; g_bz_res += 1;
+          db_snd(3, db_note(24 + (g_bz_res % 5) * 2), 0.3, 0, -0.8);
+          loop(10, spawn(tx, ty, (rand(1) - 0.5) * 120, -40 - rand(1) * 100, 1, 0.9, 0.6, 0.6 + rand(1) * 0.4); );
+        );
+      );
+    );
+    k += 1;
+  );
+);
+
+function bz_effects(dt) local(k, t, a, r, n, j, ang, sp)
+(
+  n = 0;
+  k = 0;
+  loop(NBP,
+    bps[k] == 1 && g_bz_t >= bpt[k] ? (
+      bps[k] = 2;
+      r = bz_cr[bpc[k]]; a = bz_cg[bpc[k]]; t = bz_cb[bpc[k]];
+      bpc[k] == 12 ? ( r = 1; a = 1; t = 1; );
+      j = 0;
+      loop(9,
+        ang = j * $pi * 2 / 9 + rand(1) * 0.4; sp = 80 + rand(1) * 140;
+        spawn(bpx[k], bpy[k], cos(ang) * sp, sin(ang) * sp, min(1, r + 0.2), min(1, a + 0.2), min(1, t + 0.2), 0.35 + rand(1) * 0.3);
+        j += 1;
+      );
+      g_bz_pn += 1;
+      g_bz_sndn < 4 ? (
+        db_snd(1, 600 + rand(1) * 700, 0.16, 0, (bpx[k] - 450) / 450);
+        db_snd(0, db_note(min(36, 12 + g_bz_pn)), 0.12, 0, (bpx[k] - 450) / 450);
+        g_bz_sndn += 1;
+      );
+      bpm[k] ? bz_mouse_spawn(bpx[k], bpy[k], bpf[k]);
+    );
+    bps[k] == 1 ? (
+      bz_ball(bpx[k], bpy[k], BZ_R * (1 + 0.12 * max(0, 1 - (bpt[k] - g_bz_t) * 6)), bpc[k], bpm[k], bpf[k], 1, k + 300);
+      n += 1;
+    ) : bps[k] == 2 ? (
+      t = g_bz_t - bpt[k];
+      t > 0.28 ? bps[k] = 0 : (
+        a = 1 - t / 0.28;
+        gfx_set(1, 1, 1, 0.7 * a);
+        gfx_circle(sx(bpx[k]), sy(bpy[k]), (BZ_R + t * 90) * g_s, 0, 1);
+        gfx_set(bz_cr[bpc[k]], bz_cg[bpc[k]], bz_cb[bpc[k]], 0.5 * a);
+        gfx_circle(sx(bpx[k]), sy(bpy[k]), (BZ_R * 0.7 + t * 60) * g_s, 0, 1);
+      );
+    );
+    k += 1;
+  );
+  k = 0;
+  loop(NBQ,
+    bqs[k] ? (
+      g_bz_t >= bqt[k] ? (
+        bqvy[k] += 1500 * dt;
+        bqx[k] += bqvx[k] * dt; bqy[k] += bqvy[k] * dt;
+        bqx[k] < BZ_X0 + BZ_R ? bqvx[k] = abs(bqvx[k]);
+        bqx[k] > BZ_X1 - BZ_R ? bqvx[k] = -abs(bqvx[k]);
+      );
+      (bqy[k] > BRD_Y + BRD_H - 44 || (bqm[k] && g_bz_t - bqt[k] > 0.3)) ? (
+        bqs[k] = 0;
+        j = 0;
+        loop(7,
+          ang = -$pi * (0.1 + 0.8 * rand(1)); sp = 80 + rand(1) * 200;
+          spawn(bqx[k], bqy[k], cos(ang) * sp, sin(ang) * sp, min(1, bz_cr[bqc[k]] + 0.25), min(1, bz_cg[bqc[k]] + 0.25), min(1, bz_cb[bqc[k]] + 0.25), 0.4 + rand(1) * 0.4);
+          j += 1;
+        );
+        g_bz_dpn += 1;
+        g_bz_sndn < 4 ? (
+          db_snd(0, db_note(min(36, 7 + g_bz_dpn)), 0.14, 0, (bqx[k] - 450) / 450);
+          g_bz_sndn += 1;
+        );
+        bqm[k] ? bz_mouse_spawn(bqx[k], bqy[k], bqf[k]);
+      ) : (
+        bz_ball(bqx[k], bqy[k], BZ_R, bqc[k], bqm[k], bqf[k], 1, k + 600);
+        n += 1;
+      );
+    );
+    k += 1;
+  );
+  n;
+);
+
+function bz_scene() local(i, r, c, x, y, w, t, a, k, dy, lim, near)
+(
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_BZB, 1, 0, 0, 0, g_bz_bgw, g_bz_bgh, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  gfx_mode = 1;
+  k = 0;
+  loop(12,
+    x = BRD_X + 20 + (BRD_W - 40) * frac(hash(k * 3.1) + g_bz_t * 0.008 * (hash(k) - 0.5));
+    y = BRD_Y + 120 + 380 * hash(k * 7.7) + 26 * sin(g_bz_t * 0.4 + k);
+    a = max(0, sin(g_bz_t * (0.6 + hash(k * 2.3)) + k * 1.7));
+    a = a * a * a;
+    gfx_set(0.75, 1, 0.45, 0.12 * a); gfx_circle(sx(x), sy(y), 9 * g_s, 1, 1);
+    gfx_set(0.9, 1, 0.6, 0.8 * a); gfx_circle(sx(x), sy(y), 1.8 * g_s, 1, 1);
+    k += 1;
+  );
+  gfx_mode = 0;
+  bz_branch();
+  near = 0;
+  i = 0;
+  loop(NBZ, bzg[i] ? ( r = floor(i / BZ_NC); r + g_bz_dn >= BZ_DR - 2 ? near = 1; ); i += 1; );
+  dy = BZ_TOP + BZ_R + (BZ_DR - 0.5) * BZ_DY;
+  a = near ? 0.45 + 0.35 * sin(g_t * 6) : 0.16;
+  gfx_set(1, 0.35, 0.3, a);
+  x = BZ_X0 + 4;
+  while (x < BZ_X1 - 4) ( gfx_rect(sx(x), sy(dy), 10 * g_s, max(1, 2 * g_s)); x += 18; );
+  i = 0;
+  loop(NBZ,
+    bzg[i] ? (
+      r = floor(i / BZ_NC); c = i - r * BZ_NC;
+      t = g_bz_t - bzw[i];
+      w = t < 0.6 ? exp(-t * 7) * sin(t * 34) * 3 : 0;
+      x = bz_cx(r, c); y = bz_cy(r) + w;
+      t = g_bz_t - g_bz_sink_t;
+      t < 0.4 && t > 0 ? y += sin(t * 60) * (0.4 - t) * 4;
+      bz_ball(x, y, BZ_R, bzg[i], bzt[i], bzf[i], 1, i);
+    );
+    i += 1;
+  );
+  g_bz_state == 0 && g_t - g_bz_ready > 0.2 ? (
+    k = bz_trace(g_bz_aim, g_bz_glen);
+    gfx_mode = 1;
+    i = 0;
+    loop(g_bz_tn,
+      a = (1 - i / NBT) * 0.8;
+      (i > 2) ? (
+        g_bz_cur <= 6 ? ( gfx_set(min(1, bz_cr[g_bz_cur] + 0.3), min(1, bz_cg[g_bz_cur] + 0.3), min(1, bz_cb[g_bz_cur] + 0.3), a) ) : gfx_set(1, 0.95, 0.85, a);
+        gfx_circle(sx(btx[i]), sy(bty[i]), (2.2 + 0.8 * sin(g_t * 8 - i * 0.6)) * g_s, 1, 1);
+      );
+      i += 1;
+    );
+    gfx_mode = 0;
+    (k >= 0 && g_bz_lv <= 5 && g_bz_cur != 13) ? (
+      r = floor(k / BZ_NC); c = k - r * BZ_NC;
+      gfx_set(1, 1, 1, 0.32 + 0.12 * sin(g_t * 5));
+      gfx_circle(sx(bz_cx(r, c)), sy(bz_cy(r)), BZ_R * g_s, 0, 1);
+      gfx_circle(sx(bz_cx(r, c)), sy(bz_cy(r)), BZ_R * g_s - 1, 0, 1);
+    );
+  );
+  bz_effects(g_dt);
+  g_bz_state == 1 ? (
+    bz_ball(g_bz_sx, g_bz_sy, BZ_R, g_bz_sk, 0, 0, 1, 97);
+    g_bz_sk == 13 ? (
+      loop(3, spawn(g_bz_sx + (rand(1) - 0.5) * 16, g_bz_sy + (rand(1) - 0.5) * 16, -g_bz_svx * 60 + (rand(1) - 0.5) * 60, -g_bz_svy * 60 + (rand(1) - 0.5) * 60, 1, 0.4 + rand(1) * 0.4, 0.1, 0.3 + rand(1) * 0.3); );
+    ) : g_bz_sk == 12 ? (
+      hue(rand(1)); spawn(g_bz_sx, g_bz_sy, (rand(1) - 0.5) * 50, (rand(1) - 0.5) * 50, g_hr, g_hg, g_hb, 0.4);
+    );
+  );
+  t = g_bz_t - g_bz_bang_t;
+  t < 0.45 ? (
+    a = 1 - t / 0.45;
+    g_bz_bang_k == 9 ? (
+      gfx_mode = 1;
+      gfx_set(0.5, 0.7, 1, 0.35 * a);
+      tline(sx(BZ_X0), sy(g_bz_bang_y), sx(BZ_X1), sy(g_bz_bang_y), (30 + 20 * a) * g_s);
+      gfx_set(1, 1, 0.7, a);
+      bz_bolt(sx(BZ_X0), sy(g_bz_bang_y), sx(BZ_X1), sy(g_bz_bang_y), 16, 3 * g_s, floor(g_t * 20));
+      gfx_mode = 0;
+    ) : (
+      gfx_mode = 1;
+      gfx_set(1, 0.7, 0.3, 0.4 * a);
+      gfx_circle(sx(g_bz_bang_x), sy(g_bz_bang_y), (30 + t * 300) * g_s, 1, 1);
+      gfx_set(1, 0.95, 0.7, 0.8 * a);
+      gfx_circle(sx(g_bz_bang_x), sy(g_bz_bang_y), (20 + t * 260) * g_s, 0, 1);
+      gfx_circle(sx(g_bz_bang_x), sy(g_bz_bang_y), (21 + t * 260) * g_s, 0, 1);
+      gfx_mode = 0;
+    );
+  );
+  bz_launcher();
+  bz_acorn(g_bz_ahov);
+  bz_sign();
+  bz_mascot();
+  bz_jar();
+  bz_nest();
+  bz_mice(g_dt);
+  particles();
+  i = 0;
+  loop(NBU,
+    t = g_bz_t - but_[i];
+    but_[i] > 0 && t < 1 ? (
+      a = min(1, (1 - t) * 4);
+      sprintf(#g_tt, "+%d", buv[i]);
+      buk[i] == 1 ? db_otext(#g_tt, bux[i] - 40, buy[i] - 20 - t * 30, 80, 24, 16, 1, 0.9, 0.5, a) :
+      db_otext(#g_tt, bux[i] - 40, buy[i] - 16 - t * 30, 80, 20, 13, 0.85, 1, 0.8, a);
+    );
+    i += 1;
+  );
+  t = g_bz_t - g_bz_call_t;
+  t < 1.4 ? (
+    a = min(1, (1.4 - t) * 3);
+    db_otext(#g_bz_call, BZ_X0, BRD_Y + 300 - t * 30, BZ_X1 - BZ_X0, 50, 34 + 10 * max(0, 0.25 - t), 1, 0.85, 0.4, a);
+    g_bz_callv > 0 ? (
+      sprintf(#g_tt, "+%d", g_bz_callv);
+      db_otext(#g_tt, BZ_X0, BRD_Y + 346 - t * 30, BZ_X1 - BZ_X0, 30, 20, 0.7, 1, 0.8, a);
+    );
+  );
+);
+
+function bz_scorer(x, y, w, h) local(d, b, cx, cy, t, a)
+(
+  d = g_bz_score - g_bz_disp;
+  d > 0 ? (
+    g_bz_disp = min(g_bz_score, g_bz_disp + max(1, ceil(d * min(1, g_dt * 7))));
+    g_bz_bump = 1;
+  ) : g_bz_disp = g_bz_score;
+  g_bz_bump = max(0, g_bz_bump - g_dt * 4);
+  b = g_bz_bump;
+  gfx_set(0.05, 0.08, 0.16, 1);
+  fill_rr(x - 2, y - 1, w + 4, h + 5, h * 0.42);
+  gfx_set(0.16, 0.36, 0.72, 1);
+  fill_rr(x, y, w, h, h * 0.4);
+  gfx_set(0.3, 0.56, 0.95, 1);
+  fill_rr(x + 2, y + 2, w - 4, h - 6, h * 0.36);
+  gfx_set(0.55, 0.76, 1, 1);
+  fill_rr(x + 7, y + 4, w - 14, h * 0.3, h * 0.15);
+  gfx_set(1, 1, 1, 0.75);
+  gfx_circle(sx(x + 12), sy(y + 8), 2.2 * g_s, 1, 1);
+  sprintf(#g_tt, "%d", g_bz_disp);
+  db_otext(#g_tt, x, y - 1 - 3 * b, w, h, 26 + 6 * b, 1, 1, 1, 1);
+);
+
+function bz_call(s, v)
+(
+  strcpy(#g_bz_call, s); g_bz_call_t = g_bz_t; g_bz_callv = v;
+);
+
+function bz_afterfx(x0, y0)
+(
+  g_bz_dropn >= 12 ? bz_call("Avalanche!", g_bz_dropv) :
+  g_bz_dropn >= 6 ? bz_call("Landslide!", g_bz_dropv) :
+  g_bz_chain >= 2 ? bz_call("Chain reaction!", 0) :
+  g_bz_dropn >= 1 ? bz_call(g_bz_dropn == 1 ? "Drop!" : "Big drop!", g_bz_dropv) :
+  g_bz_popn >= 10 ? bz_call("Super pop!", 0);
+  g_bz_dropn > 0 && g_bz_dropn < 6 && g_bz_chain < 2 ? g_bz_call_t = g_bz_t - 0.35;
+  (g_bz_freed > 0 && bz_trapped() == 0) ? (
+    g_bz_fin_rt = g_t; g_bz_fx = x0; g_bz_fy = y0;
+  );
+  g_bz_dropn = 0; g_bz_popn = 0;
+  g_bz_state = 2;
+);
+
+function bz_land_shot() local(cell, n, r, c, k, j, x0, y0)
+(
+  cell = bz_land(g_bz_sx, g_bz_sy);
+  r = floor(cell / BZ_NC); c = cell - r * BZ_NC;
+  bzg[cell] = g_bz_sk <= 6 ? g_bz_sk : g_bz_sk == 12 ? 1 : 8;
+  bzt[cell] = 0;
+  bzw[cell] = g_bz_t;
+  k = 0;
+  loop(6, bz_nb(r, c, k) ? ( j = g_bz_nr * BZ_NC + g_bz_nc; bzg[j] ? bzw[j] = g_bz_t - 0.04; ); k += 1; );
+  x0 = bz_cx(r, c); y0 = bz_cy(r);
+  g_bz_pn = 0; g_bz_dpn = 0;
+  n = bz_resolve(cell, g_bz_sk);
+  n == 0 ? db_snd(2, 0, 0.25, 0, (x0 - 450) / 450);
+  bz_afterfx(x0, y0);
+);
+
+function bz_bot_eval(cell, k) local(r, c, n, v, j, m, nf, fm, i, dx, dy)
+(
+  r = floor(cell / BZ_NC); c = cell - r * BZ_NC;
+  v = 0;
+  k == 11 ? (
+    n = 0; m = 0; i = 0;
+    loop(NBZ,
+      bzg[i] ? (
+        j = floor(i / BZ_NC);
+        dx = bz_cx(j, i - j * BZ_NC) - bz_cx(r, c); dy = bz_lgy(j) - bz_lgy(r);
+        dx * dx + dy * dy < 2.15 * 2.15 * BZ_D * BZ_D ? ( n += 1; bzt[i] ? m += 1; );
+      );
+      i += 1;
+    );
+    v = n + m * 20;
+  ) : (
+    k == 12 ? k = bz_rainbow(cell);
+    bzg[cell] = k;
+    n = bz_flood(cell, k, bzm);
+    n >= 3 ? (
+      m = 0; i = 0;
+      loop(NBZ, bzm[i] ? ( bzt[i] ? m += 1; bzsg[i] = bzg[i]; bzg[i] = 0; ); i += 1; );
+      bz_support(bzst);
+      nf = 0; fm = 0; i = 0;
+      loop(NBZ, (bzg[i] && !bzst[i]) ? ( nf += 1; bzt[i] ? fm += 1; ); i += 1; );
+      i = 0; loop(NBZ, bzm[i] ? bzg[i] = bzsg[i]; i += 1; );
+      v = n + nf * 1.5 + (m + fm) * 20;
+    ) : (
+      v = -2 - r * 0.15;
+      j = 0; loop(6, bz_nb(r, c, j) ? ( bzg[g_bz_nr * BZ_NC + g_bz_nc] == k ? v += 0.8; ); j += 1; );
+    );
+    bzg[cell] = 0;
+  );
+  v + rand(1) * 0.3;
+);
+
+function bz_bot_aim(na) local(a, best, ba, cell, v, n)
+(
+  best = -1000; ba = -$pi * 0.5;
+  n = 0;
+  loop(na,
+    a = -$pi + 0.14 + n * ($pi - 0.28) / (na - 1);
+    cell = bz_trace(a, 3000);
+    (cell >= 0 && !bzg[cell]) ? (
+      v = g_bz_cur == 13 ? rand(1) : bz_bot_eval(cell, g_bz_cur);
+      v > best ? ( best = v; ba = a; );
+    );
+    n += 1;
+  );
+  g_bz_bbest = best;
+  ba;
+);
+
+function bz_bot_turn(na) local(h, k)
+(
+  g_bz_aim = bz_bot_aim(na);
+  (g_bz_bbest < 1 && g_bz_nxt != g_bz_cur && g_bz_cur < 11) ? (
+    k = g_bz_cur; g_bz_cur = g_bz_nxt; g_bz_nxt = k;
+    g_bz_aim = bz_bot_aim(na);
+  );
+  bz_fire();
+  g_bz_tx = g_bz_sx; g_bz_ty = g_bz_sy; g_bz_tvx = g_bz_svx; g_bz_tvy = g_bz_svy;
+  h = 0; k = 0;
+  while (!h && k < 400) ( h = bz_adv(12, g_bz_sk == 13); k += 1; );
+  g_bz_sx = g_bz_tx; g_bz_sy = g_bz_ty;
+  g_bz_sk == 13 ? ( g_bz_qt = 0; bz_commit(g_bz_sx, g_bz_sy); bz_afterfx(g_bz_sx, g_bz_sy); ) : bz_land_shot();
+  memset(bps, 0, NBP); memset(bqs, 0, NBQ); memset(bms, 0, NBM);
+  bz_settle();
+);
+
+function bz_calib(na) local(used)
+(
+  memcpy(bz_sg, bzg, NBZ); memcpy(bz_st0, bzt, NBZ); memcpy(bz_sf, bzf, NBZ);
+  g_snd_mute = 1;
+  g_bz_shots = 200; g_bz_state = 0; g_bz_pw = 0; g_bz_spn = 0; g_bz_dn = 0; g_bz_cdn = 0;
+  g_bz_cur = bz_pick(); g_bz_nxt = bz_pick();
+  used = 0;
+  while (g_bz_state == 0 && used < 90) ( bz_bot_turn(na); used += 1; );
+  g_bz_cwin = g_bz_state == 5;
+  memcpy(bzg, bz_sg, NBZ); memcpy(bzt, bz_st0, NBZ); memcpy(bzf, bz_sf, NBZ);
+  g_snd_mute = 0;
+  memset(bps, 0, NBP); memset(bqs, 0, NBQ); memset(bms, 0, NBM); memset(but_, 0, NBU);
+  g_bz_dn = 0; g_bz_dnv = 0; g_bz_cdn = 0; g_bz_score = 0; g_bz_pw = 0; g_bz_spn = 0;
+  g_bz_call_t = -10; g_bz_bang_t = -10; g_bz_fin_rt = -10; g_bz_hop_t = -10;
+  used;
+);
+
+function bz_start(lv) local(i, used, m, k)
+(
+  g_bz_lv = lv;
+  g_bz_pat = floor(rand(1) * 8);
+  g_bz_dn = 0; g_bz_dnv = 0; g_bz_cdn = 0;
+  g_bz_every = lv >= 8 ? max(5, 9 - floor((lv - 8) / 3)) : 0;
+  k = 0;
+  while (k < 4) (
+    bz_gen(lv);
+    used = bz_calib(71);
+    k = g_bz_cwin ? 4 : k + 1;
+  );
+  m = max(1.35, 2.2 - (lv - 1) * 0.06);
+  g_bz_shots = ceil(used * m + max(2, 5 - floor(lv / 4)));
+  g_bz_shots0 = g_bz_shots;
+  memset(bps, 0, NBP); memset(bqs, 0, NBQ); memset(bms, 0, NBM); memset(but_, 0, NBU);
+  g_bz_slot = 0; g_bz_res = 0; g_bz_freed = 0;
+  g_bz_score = 0; g_bz_disp = 0; g_bz_bonus = 0;
+  g_bz_t = max(g_bz_t, 1); g_bz_state = 0; g_bz_t0 = g_bz_t;
+  g_bz_pw = 0; g_bz_spn = 0;
+  g_bz_cur = bz_pick(); g_bz_nxt = bz_pick();
+  g_bz_tod = floor(rand(1) * 4) % 4;
+  lv <= 1 ? g_bz_tod = 0;
+  g_bz_mph = rand(1);
+  g_bz_sd = rand(1) * 100;
+  g_bz_bgw = 0;
+  g_bz_trk = (rand(1) < 0.5 ? 8 : 12) + g_bz_tod;
+  g_bz_trk == g_bz_ltrk ? g_bz_trk = g_bz_trk < 12 ? g_bz_trk + 4 : g_bz_trk - 4;
+  g_bz_ltrk = g_bz_trk;
+  g_bz_bn = lv == 1 ? 1 : lv == 3 ? 2 : lv == 4 ? 3 : lv == 5 ? 4 : lv == 8 ? 5 : 0;
+  g_bz_fin_rt = -10; g_bz_zoom = 1; g_bz_ts = 1;
+  g_bz_won_t = -10;
+  g_bz_nst += 1;
+);
+
+function bz_finale() local(i, r, n)
+(
+  n = 0; i = 0;
+  loop(NBZ, bzg[i] ? ( r = floor(i / BZ_NC); bz_fall(i, 0.05 * (BZ_NR - r) + rand(1) * 0.1); n += 1; ); i += 1; );
+  g_bz_score += n * 10;
+  n > 0 ? bz_call("Clear the branch!", n * 10);
+  g_bz_state = 6; g_bz_tick = g_bz_t + 0.6;
+);
+
+function draw_bubble() local(dst, bw, bh, a, d, k, i, n, s0, ox0, oy0, dt0, z, ts, h, cr, cg, cb, t, ax, ay, act)
+(
+  g_pgrav = 380;
+  g_bz_lv < 1 ? bz_start(max(1, sv2[30]));
+  bw = ceil(BRD_W * g_s); bh = ceil(BRD_H * g_s);
+  (g_bz_bgw !== bw || g_bz_bgh !== bh) ? ( bz_bg(bw, bh); g_bz_bgw = bw; g_bz_bgh = bh; );
+  g_bz_sndn = 0;
+
+  ts = 1; z = 1;
+  g_t - g_bz_fin_rt < 1.5 ? ( ts = 0.3; z = 1.5; );
+  g_bz_ts += (ts - g_bz_ts) * min(1, g_dt * 8);
+  g_bz_zoom += (z - g_bz_zoom) * min(1, g_dt * 5);
+  dt0 = g_dt * g_bz_ts;
+  g_bz_t += dt0;
+  g_bz_dnv += (g_bz_dn - g_bz_dnv) * min(1, dt0 * 7);
+  abs(g_bz_dn - g_bz_dnv) < 0.005 ? g_bz_dnv = g_bz_dn;
+
+  g_bz_kf = 0; g_bz_ks = 0;
+  k = 0;
+  while (k < 32 && (i = gfx_getchar()) > 0) (
+    (i == 'p' || i == 'P') ? g_pz_req = 1 : i == 'left' ? g_bz_klt = g_t : i == 'rght' ? g_bz_krt = g_t : (i == 'up' || i == 13) ? g_bz_kf = 1 : i == 'down' ? g_bz_ks = 1;
+    k += 1;
+  );
+  ax = BZ_LX - 98; ay = BZ_LY + 12;
+  g_bz_ahov = g_bz_state == 0 && (g_mx - ax) ^ 2 + (g_my - ay) ^ 2 < 30 * 30;
+  g_bz_state == 0 ? (
+    a = gfx_getchar('left') > 0 || g_t - g_bz_klt < 0.09;
+    d = gfx_getchar('rght') > 0 || g_t - g_bz_krt < 0.09;
+    (abs(g_mx - g_bz_lmx) > 1 || abs(g_my - g_bz_lmy) > 1) ? g_bz_kmode = 0;
+    g_bz_lmx = g_mx; g_bz_lmy = g_my;
+    (a || d) ? g_bz_kmode = 1;
+    g_bz_kmode ? (
+      g_bz_aim += (d - a) * g_dt * (mouse_cap & 8 ? 0.25 : 1.1);
+    ) : (
+      a = atan2(g_my - BZ_LY, g_mx - BZ_LX);
+      a > 0 ? a = (g_mx < BZ_LX ? -$pi : 0);
+      g_bz_aim = a;
+    );
+    g_bz_aim = max(-$pi + 0.14, min(-0.14, g_bz_aim));
+    g_bz_glen = g_bz_lv <= 6 ? 1400 : max(420, 1400 - (g_bz_lv - 6) * 70);
+    ((g_rclick && hit(BRD_X, BRD_Y, BRD_W, BRD_H)) || (g_click && g_bz_ahov) || g_bz_ks) ? (
+      g_click = 0; g_rclick = 0; g_bz_ks = 0;
+      g_bz_cur < 11 ? ( k = g_bz_cur; g_bz_cur = g_bz_nxt; g_bz_nxt = k; g_bz_swap_t = g_bz_t; db_snd(0, db_note(19), 0.12, 0, -0.3); );
+    );
+    ((g_click && hit(BRD_X, BRD_Y, BRD_W, BRD_H)) || g_bz_kf) && g_bz_t - g_bz_t0 > 0.5 && g_bz_dnv === g_bz_dn ? (
+      g_click = 0; g_bz_kf = 0;
+      bz_fire();
+    );
+  ) : g_bz_ready = g_t;
+
+  g_bz_state == 1 ? (
+    g_bz_tx = g_bz_sx; g_bz_ty = g_bz_sy; g_bz_tvx = g_bz_svx; g_bz_tvy = g_bz_svy;
+    h = bz_adv(BZ_V * dt0, g_bz_sk == 13);
+    g_bz_sx = g_bz_tx; g_bz_sy = g_bz_ty; g_bz_svx = g_bz_tvx; g_bz_svy = g_bz_tvy;
+    h ? (
+      g_bz_sk == 13 ? (
+        g_bz_qt = 0;
+        bz_commit(g_bz_sx, g_bz_sy);
+        g_bz_burnn > 0 ? bz_popup(g_bz_sx, g_bz_sy + 30, g_bz_burnn * 10, 0);
+        g_bz_burnn >= 8 ? bz_call("Scorcher!", 0);
+        bz_afterfx(g_bz_sx, g_bz_sy);
+      ) : bz_land_shot();
+    );
+  );
+
+  act = 0;
+  k = 0; loop(NBP, bps[k] == 1 ? act = 1; k += 1; );
+  k = 0; loop(NBQ, bqs[k] ? act = 1; k += 1; );
+  g_bz_state == 2 && !act ? bz_settle();
+  g_bz_state == 5 ? (
+    n = 0; k = 0; loop(NBM, (bms[k] == 1 || bms[k] == 2) ? n += 1; k += 1; );
+    (!act && n == 0) ? bz_finale();
+  );
+  g_bz_state == 6 ? (
+    g_bz_t > g_bz_tick && g_bz_shots > 0 ? (
+      g_bz_shots -= 1; g_bz_bonus += 150; g_bz_score += 150;
+      g_bz_tick = g_bz_t + 0.11;
+      db_snd(0, db_note(min(36, 14 + g_bz_bonus / 150)), 0.18, 0, 0.3);
+      loop(8, spawn(BZ_LX + 98, BZ_LY + 14, (rand(1) - 0.5) * 160, -60 - rand(1) * 160, 1, 0.85, 0.4, 0.5 + rand(1) * 0.4); );
+    );
+    (g_bz_shots <= 0 && !act && g_bz_t > g_bz_tick + 0.5) ? (
+      g_bz_state = 3; g_bz_won_t = g_t;
+      sv[0] = 1;
+      sv2[30] = g_bz_lv + 1;
+      sv2[31] += 1;
+      sv2[32] = max(sv2[32], g_bz_score);
+      sv2[33] += g_bz_score;
+      sv2[34] += g_bz_mice;
+      loop(60, spawn(BZ_X0 + rand(1) * (BZ_X1 - BZ_X0), BRD_Y + 60 + rand(1) * 300, (rand(1) - 0.5) * 300, -rand(1) * 200, 0.6 + rand(1) * 0.4, 0.6 + rand(1) * 0.4, 0.6 + rand(1) * 0.4, 1 + rand(1)); );
+    );
+  );
+
+  s0 = g_s; ox0 = g_ox; oy0 = g_oy; dst = gfx_dest;
+  gfx_setimgdim(IMG_BZS, bw, bh);
+  gfx_dest = IMG_BZS;
+  gfx_set(0, 0, 0, 1);
+  gfx_rect(0, 0, bw, bh);
+  z = g_bz_zoom;
+  g_s = s0 * z;
+  g_ox = -BRD_X * s0 * z + (g_bz_fx - BRD_X) * s0 * (1 - z);
+  g_oy = -BRD_Y * s0 * z + (g_bz_fy - BRD_Y) * s0 * (1 - z);
+  t = g_dt; g_dt = dt0;
+  bz_scene();
+  g_dt = t;
+  g_s = s0; g_ox = ox0; g_oy = oy0;
+  gfx_dest = dst;
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_BZS, 1, 0, 0, 0, bw, bh, floor(sx(BRD_X)), floor(sy(BRD_Y)), bw, bh);
+  gfx_set(0.2, 0.21, 0.24, 1);
+  outline_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+
+  cr = 0.55; cg = 0.78; cb = 1;
+  button("< Games", 18, 14, 96, 36, 0.4, 0.95, 0.78) ? g_screen = 0;
+  button("New", 122, 14, 64, 36, cr, cg, cb) ? bz_start(g_bz_lv);
+  g_t - g_bz_rst_t > 3 ? g_bz_rst_t = -1000;
+  g_bz_rst_t > 0 ? (
+    button("Sure?", 194, 14, 100, 36, 1, 0.4, 0.35) ? ( sv2[30] = 1; sv2[31] = 0; sv2[32] = 0; sv2[33] = 0; sv2[34] = 0; bz_start(1); );
+  ) : (
+    button("Start over", 194, 14, 100, 36, 1, 0.4, 0.35) ? g_bz_rst_t = g_t;
+  );
+  font(15, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  sprintf(#g_tt, "Bubble and Squeak  -  Level %d", g_bz_lv);
+  txt_c(#g_tt, 296, 9, 300, 22);
+  d = sv2[33] - g_bz_tdisp;
+  d > 0 ? g_bz_tdisp = min(sv2[33], g_bz_tdisp + max(1, ceil(d * min(1, g_dt * 3)))) : g_bz_tdisp = sv2[33];
+  sprintf(#g_tt, "Total %d", g_bz_tdisp);
+  db_otext(#g_tt, 296, 31, 300, 22, 15 + (d > 0 ? 2 : 0), 0.6, 0.82, 1, 1);
+  n = bz_trapped();
+  font(13, 'b');
+  n == 0 ? strcpy(#g_tt, "All mice free!") : n == 1 ? strcpy(#g_tt, "1 mouse to free") : sprintf(#g_tt, "%d mice to free", n);
+  pill(#g_tt, 610, 18, 144, 28, 1, 0.75, 0.5, 1);
+  bz_scorer(774, 9, 108, 44);
+
+  t = g_bz_t - g_bz_t0;
+  (g_bz_bn && t > 0.4 && t < 5.5 && g_bz_state == 0) ? (
+    a = min(1, min((t - 0.4) * 4, (5.5 - t) * 2));
+    g_bz_bn == 1 ? ( strcpy(#g_l1, "Free the mice!"); strcpy(#g_l2, "Pop three or more of a colour. Anything left hanging falls."); ) :
+    g_bz_bn == 2 ? ( strcpy(#g_l1, "New: bomb bubbles!"); strcpy(#g_l2, "Pop a group next to one and it blows up everything nearby."); ) :
+    g_bz_bn == 3 ? ( strcpy(#g_l1, "New: lightning bubbles!"); strcpy(#g_l2, "Pop a group next to one to clear its whole row."); ) :
+    g_bz_bn == 4 ? ( strcpy(#g_l1, "New: stones"); strcpy(#g_l2, "Stones never pop. Knock loose what holds them up."); ) :
+    ( strcpy(#g_l1, "The branch is sinking!"); sprintf(#g_l2, "Every %d shots it drops a row. Don't let it reach the line.", g_bz_every); );
+    gfx_set(0.05, 0.05, 0.08, 0.66 * a);
+    gfx_rect(sx(BZ_X0 + 10), sy(BRD_Y + 210), (BZ_X1 - BZ_X0 - 20) * g_s, 84 * g_s);
+    gfx_set(0.55, 0.78, 1, 0.5 * a);
+    gfx_rect(sx(BZ_X0 + 10), sy(BRD_Y + 210), (BZ_X1 - BZ_X0 - 20) * g_s, 84 * g_s, 0);
+    db_otext(#g_l1, BZ_X0 + 10, BRD_Y + 216, BZ_X1 - BZ_X0 - 20, 42, 26, 1, 0.85, 0.5, a);
+    font(13, 'b');
+    gfx_set(0.95, 0.96, 0.98, a);
+    txt_c(#g_l2, BZ_X0 + 10, BRD_Y + 260, BZ_X1 - BZ_X0 - 20, 26);
+  );
+
+  font(12, 0); gfx_set(0.62, 0.64, 0.68, 1);
+  txt_c("Aim: mouse or left/right (Shift = fine). Shoot: click or up. Swap: right-click, acorn or down.", 18, HINT_Y, 746, 22);
+  button(snd_lbl(), 774, HINT_Y - 4, 108, 28, 0.6, 1, 0.75) ? sv2[13] = snd_next();
+
+  g_bz_state == 3 ? (
+    sprintf(#g_l1, "Stage score %d, including %d for shots to spare", g_bz_score, g_bz_bonus);
+    sprintf(#g_l2, "Total: %d     Best stage: %d     Mice rescued: %d", sv2[33], sv2[32], sv2[34]);
+    i = win_card("All safe!", g_bz_won_t + 0.3, cr, cg, cb);
+    (g_bz_kf && g_t - g_bz_won_t > 1.2) ? i = 1;
+    i == 1 ? bz_start(g_bz_lv + 1) : i == 2 ? g_screen = 0;
+  );
+  g_bz_state == 4 ? (
+    n = bz_trapped();
+    g_bz_why ? strcpy(#g_l1, "The bubbles reached the line") :
+    n == 1 ? strcpy(#g_l1, "Out of shots with 1 mouse still trapped") : sprintf(#g_l1, "Out of shots with %d mice still trapped", n);
+    sprintf(#g_l2, "Stage score %d     Total: %d     Best stage: %d", g_bz_score, sv2[33], sv2[32]);
+    g_wcl = 3;
+    i = win_card("So close!", g_bz_won_t + 0.5, 1, 0.5, 0.45);
+    g_wcl = 0;
+    (g_bz_kf && g_t - g_bz_won_t > 1.2) ? i = 1;
+    i == 1 ? bz_start(g_bz_lv) : i == 2 ? g_screen = 0;
+  );
+);
+
+function pv_bubble(x, y, w, h) local(bw, bh, i, r, c)
+(
+  g_bz_lv < 1 ? bz_start(max(1, sv2[30]));
+  bw = ceil(BRD_W * g_s); bh = ceil(BRD_H * g_s);
+  (g_bz_bgw !== bw || g_bz_bgh !== bh) ? ( bz_bg(bw, bh); g_bz_bgw = bw; g_bz_bgh = bh; );
+  g_bz_state == 0 ? g_bz_t += g_dt;
+  pv_begin(x, y, w, h, 1);
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_BZB, 1, 0, 0, 0, g_bz_bgw, g_bz_bgh, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  i = 0;
+  loop(NBZ,
+    bzg[i] ? ( r = floor(i / BZ_NC); c = i - r * BZ_NC; bz_ball(bz_cx(r, c), bz_cy(r), BZ_R, bzg[i], bzt[i], bzf[i], 1, i); );
+    i += 1;
+  );
+  bz_branch();
+  g_bz_state == 0 ? g_bz_aim = -$pi * 0.5 + 0.6 * sin(g_t * 0.7);
+  bz_launcher();
+  bz_mascot();
+  pv_end();
+);

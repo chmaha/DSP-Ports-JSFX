@@ -1,0 +1,636 @@
+@init
+function clip_half(src, n, dst, a, b, c) local(i, j, m, x0, y0, x1, y1, d0, d1, t)
+(
+  m = 0;
+  i = 0;
+  loop(n,
+    j = (i + 1) % n;
+    x0 = src[2 * i]; y0 = src[2 * i + 1]; x1 = src[2 * j]; y1 = src[2 * j + 1];
+    d0 = (a * x0 + b * y0) + c; d1 = (a * x1 + b * y1) + c;
+    d0 >= 0 ? ( dst[2 * m] = x0; dst[2 * m + 1] = y0; m += 1; );
+    ((d0 >= 0 && d1 < 0) || (d0 < 0 && d1 >= 0)) ? (
+      t = d0 / (d0 - d1);
+      dst[2 * m] = x0 + (x1 - x0) * t; dst[2 * m + 1] = y0 + (y1 - y0) * t; m += 1;
+    );
+    i += 1;
+  );
+  m;
+);
+
+function kel_begin() ( g_kel = 0; g_kne = 0; );
+
+function kel_poly(r, g, b, n, src) local(i)
+(
+  g_kel + 4 + 2 * n < KELN ? (
+    KEL[g_kel] = r; KEL[g_kel + 1] = g; KEL[g_kel + 2] = b; KEL[g_kel + 3] = n;
+    i = 0;
+    loop(2 * n, KEL[g_kel + 4 + i] = src[i]; i += 1; );
+    g_kel += 4 + 2 * n;
+    g_kne += 1;
+  );
+);
+
+function kel_rect(r, g, b, x0, y0, x1, y1)
+(
+  KT1[0] = x0; KT1[1] = y0; KT1[2] = x1; KT1[3] = y0; KT1[4] = x1; KT1[5] = y1; KT1[6] = x0; KT1[7] = y1;
+  kel_poly(r, g, b, 4, KT1);
+);
+
+function kel_ell(r, g, b, cx, cy, rx, ry, rot, seg) local(i, a, ca, sa, ex, ey)
+(
+  ca = cos(rot); sa = sin(rot);
+  i = 0;
+  loop(seg,
+    a = 2 * $pi * i / seg;
+    ex = cos(a) * rx; ey = sin(a) * ry;
+    KT1[2 * i] = cx + ex * ca - ey * sa; KT1[2 * i + 1] = cy + ex * sa + ey * ca;
+    i += 1;
+  );
+  kel_poly(r, g, b, seg, KT1);
+);
+
+function kel_quad(r, g, b, x0, y0, x1, y1, x2, y2, x3, y3)
+(
+  KT1[0] = x0; KT1[1] = y0; KT1[2] = x1; KT1[3] = y1; KT1[4] = x2; KT1[5] = y2; KT1[6] = x3; KT1[7] = y3;
+  kel_poly(r, g, b, 4, KT1);
+);
+
+function kel_bands(r, g, b, top, bot, hw, dk) local(k, f, y0, y1)
+(
+  k = 0;
+  loop(18,
+    f = 1.06 - dk * k / 17;
+    y0 = top + (bot - top) * k / 18; y1 = top + (bot - top) * (k + 1) / 18 + 0.5;
+    kel_rect(min(1, r * f), min(1, g * f), min(1, b * f), -hw, y0, hw, y1);
+    k += 1;
+  );
+);
+
+function kel_sheen(r, g, b, cx, cy, rx, ry) local(k, f)
+(
+  k = 0;
+  loop(9,
+    f = 1 + 0.035 * (k + 1);
+    kel_ell(min(1, r * f + 0.008 * k), min(1, g * f + 0.008 * k), min(1, b * f + 0.008 * k), cx - rx * 0.03 * k, cy - ry * 0.025 * k, rx * (1 - k * 0.09), ry * (1 - k * 0.085), 0, 20);
+    k += 1;
+  );
+);
+
+function kg_vessel(t) local(i, n, tt, hw, a, x, y, w, h, c)
+(
+  kel_begin();
+  n = 0;
+  t == 0 ? (
+    i = 0; loop(13, tt = i / 12; hw = 68 + 84 * sqrt(max(0, 1 - tt * tt)); VO[2 * n] = hw; VO[2 * n + 1] = -110 + 220 * tt; n += 1; i += 1; );
+    i = 12; loop(13, tt = i / 12; hw = 68 + 84 * sqrt(max(0, 1 - tt * tt)); VO[2 * n] = -hw; VO[2 * n + 1] = -110 + 220 * tt; n += 1; i -= 1; );
+    kel_bands(0.14, 0.12, 0.11, -110, 110, 160, 0.45);
+    kel_sheen(0.15, 0.13, 0.12, -78, -10, 26, 70);
+    kel_rect(0.42, 0.26, 0.16, -170, -110, 170, -94);
+    kel_rect(0.52, 0.34, 0.22, -170, -110, 170, -105);
+    i = 0;
+    loop(8,
+      x = -130 + i * 37 + (hash(i * 3.1) - 0.5) * 14;
+      w = 7 + hash(i * 1.7) * 9; h = 30 + hash(i * 2.9) * 80;
+      c = 0.85 + 0.25 * hash(i * 5.3);
+      kel_quad(0.5 * c, 0.32 * c, 0.2 * c, x - w, -95, x + w, -95, x + w * 0.7, -95 + h, x - w * 0.7, -95 + h);
+      kel_ell(0.5 * c, 0.32 * c, 0.2 * c, x, -95 + h, w * 0.7, w * 0.8, 0, 10);
+      i += 1;
+    );
+    kel_rect(0.3, 0.22, 0.16, -170, 96, 170, 112);
+  ) : t == 1 ? (
+    i = 0;
+    loop(32,
+      a = 2 * $pi * i / 32;
+      x = cos(a) * 152; y = sin(a) * 140;
+      VO[2 * n] = x; VO[2 * n + 1] = max(-122, min(126, y)); n += 1;
+      i += 1;
+    );
+    kel_bands(0.9, 0.88, 0.82, -126, 126, 160, 0.28);
+    kel_sheen(0.9, 0.88, 0.83, -60, -40, 55, 70);
+    kel_rect(0.84, 0.82, 0.76, -160, -3, 160, 3);
+    i = 0;
+    loop(46,
+      x = (hash(i * 2.7 + 1) - 0.5) * 280; y = (hash(i * 1.9 + 2) - 0.5) * 230;
+      w = 1 + 1.6 * hash(i * 4.1);
+      kel_ell(0.5, 0.47, 0.43, x, y, w, w, hash(i), 6);
+      i += 1;
+    );
+    kel_rect(0.72, 0.68, 0.6, -170, -126, 170, -116);
+  ) : t == 2 ? (
+    i = 0;
+    loop(36, a = 2 * $pi * i / 36; VO[2 * n] = cos(a) * 155; VO[2 * n + 1] = sin(a) * 155; n += 1; i += 1; );
+    kel_ell(0.9, 0.9, 0.93, 0, 0, 160, 160, 0, 36);
+    kel_ell(0.95, 0.95, 0.97, -6, -6, 128, 128, 0, 32);
+    kel_ell(0.98, 0.98, 0.99, -30, -34, 60, 50, 0, 20);
+    i = 0;
+    loop(36,
+      a = 2 * $pi * i / 36; w = 2 * $pi / 36;
+      kel_quad(0.16, 0.27, 0.58, cos(a) * 132, sin(a) * 132, cos(a + w) * 132, sin(a + w) * 132, cos(a + w) * 152, sin(a + w) * 152, cos(a) * 152, sin(a) * 152);
+      (i & 1) ? kel_ell(0.93, 0.93, 0.96, cos(a + w * 0.5) * 142, sin(a + w * 0.5) * 142, 3, 3, 0, 8);
+      kel_quad(0.22, 0.33, 0.64, cos(a) * 112, sin(a) * 112, cos(a + w) * 112, sin(a + w) * 112, cos(a + w) * 117, sin(a + w) * 117, cos(a) * 117, sin(a) * 117);
+      i += 1;
+    );
+    i = 0;
+    loop(6,
+      a = i * $pi / 3;
+      kel_ell(0.2, 0.33, 0.66, cos(a) * 40, sin(a) * 40, 30, 13, a, 16);
+      kel_ell(0.45, 0.56, 0.82, cos(a) * 44, sin(a) * 44, 14, 5, a, 12);
+      kel_ell(0.2, 0.33, 0.66, cos(a + $pi / 6) * 82, sin(a + $pi / 6) * 82, 9, 4, a + $pi / 6, 10);
+      i += 1;
+    );
+    kel_ell(0.14, 0.24, 0.54, 0, 0, 15, 15, 0, 16);
+    kel_ell(0.9, 0.85, 0.5, 0, 0, 6, 6, 0, 10);
+  ) : t == 3 ? (
+    i = 0; loop(13, tt = i / 12; hw = 80 + 15 * (1 - tt) + 10 * sin($pi * tt); VO[2 * n] = hw; VO[2 * n + 1] = -132 + 256 * tt; n += 1; i += 1; );
+    i = 12; loop(13, tt = i / 12; hw = 80 + 15 * (1 - tt) + 10 * sin($pi * tt); VO[2 * n] = -hw; VO[2 * n + 1] = -132 + 256 * tt; n += 1; i -= 1; );
+    kel_bands(0.55, 0.71, 0.61, -132, 124, 120, 0.4);
+    kel_sheen(0.56, 0.72, 0.62, -52, -20, 20, 85);
+    i = 0;
+    loop(4, kel_rect(0.46, 0.61, 0.52, -120, -70 + i * 38, 120, -67 + i * 38); i += 1; );
+    kel_rect(0.66, 0.73, 0.66, -120, -132, 120, -124);
+    kel_rect(0.62, 0.5, 0.38, -120, 100, 120, 124);
+    kel_rect(0.5, 0.4, 0.3, -120, 118, 120, 124);
+    kel_quad(0.5, 0.66, 0.56, -120, 92, 120, 92, 120, 100, -120, 100);
+  ) : (
+    i = 0; loop(13, tt = i / 12; hw = 62 + 116 * sqrt(max(0, 1 - tt * tt)); VO[2 * n] = hw; VO[2 * n + 1] = -72 + 170 * tt; n += 1; i += 1; );
+    i = 12; loop(13, tt = i / 12; hw = 62 + 116 * sqrt(max(0, 1 - tt * tt)); VO[2 * n] = -hw; VO[2 * n + 1] = -72 + 170 * tt; n += 1; i -= 1; );
+    kel_bands(0.86, 0.56, 0.4, -72, 98, 190, 0.4);
+    kel_sheen(0.87, 0.58, 0.42, -96, -20, 40, 40);
+    i = 0;
+    loop(7,
+      x = -140 + i * 46 + (hash(i * 7.1) - 0.5) * 20; y = -40 + hash(i * 3.3) * 90;
+      kel_ell(0.94, 0.88, 0.8, x, y, 14 + 18 * hash(i * 1.1), 9 + 10 * hash(i * 2.2), hash(i) * 3, 14);
+      i += 1;
+    );
+    i = 0;
+    loop(36,
+      kel_ell(0.6, 0.3, 0.2, (hash(i * 2.1 + 5) - 0.5) * 300, -60 + hash(i * 3.7) * 150, 1.4, 1.4, 0, 6);
+      i += 1;
+    );
+    kel_rect(0.62, 0.36, 0.25, -200, -72, 200, -62);
+    kel_rect(0.45, 0.32, 0.24, -200, 88, 200, 100);
+  );
+  g_kvn = n;
+);
+
+function kg_inside(x, y, m) local(i, j, cx, cy, a, b, c, ok)
+(
+  cx = 0; cy = 0;
+  ok = 1;
+  i = 0;
+  loop(g_kvn,
+    j = (i + 1) % g_kvn;
+    a = -(VO[2 * j + 1] - VO[2 * i + 1]); b = VO[2 * j] - VO[2 * i];
+    c = -(a * VO[2 * i] + b * VO[2 * i + 1]);
+    (a * cx + b * cy + c) < 0 ? ( a = -a; b = -b; c = -c; );
+    (a * x + b * y + c) / max(0.001, sqrt(a * a + b * b)) < m ? ok = 0;
+    i += 1;
+  );
+  ok;
+);
+
+function kg_start(lv) local(t, nsh, i, j, k, n, m, tries, x, y, md, a, b, c, cx, cy, src, dst, tmp, p, e, ex, ey, cnt, q, d, mx, my, onb, bx0, by0)
+(
+  g_kg_lv = lv;
+  t = (lv - 1) % 5;
+  g_kg_t = t;
+  nsh = min(14, 3 + lv);
+  kg_vessel(t);
+  g_kg_cx = BRD_X + 300; g_kg_cy = BRD_Y + BRD_H * 0.52;
+  md = 0.6 * sqrt(70000 / nsh);
+  g_kg_n = 0;
+  tries = 0;
+  while (
+    x = (rand(1) - 0.5) * 300; y = (rand(1) - 0.5) * 280;
+    kg_inside(x, y, 12) ? (
+      k = 1; i = 0;
+      loop(g_kg_n, (kgsx[i] - x) * (kgsx[i] - x) + (kgsy[i] - y) * (kgsy[i] - y) < md * md ? k = 0; i += 1; );
+      k ? ( kgsx[g_kg_n] = x; kgsy[g_kg_n] = y; g_kg_n += 1; );
+    );
+    tries += 1;
+    g_kg_n < nsh && tries < 4000;
+  );
+  nsh = g_kg_n;
+  p = 0;
+  i = 0;
+  loop(nsh,
+    n = g_kvn;
+    k = 0; loop(2 * n, KT1[k] = VO[k]; k += 1; );
+    src = KT1; dst = KT2;
+    j = 0;
+    loop(nsh,
+      j !== i ? (
+        a = kgsx[i] - kgsx[j]; b = kgsy[i] - kgsy[j];
+        c = -(a * (kgsx[i] + kgsx[j]) * 0.5 + b * (kgsy[i] + kgsy[j]) * 0.5);
+        n = clip_half(src, n, dst, a, b, c);
+        tmp = src; src = dst; dst = tmp;
+      );
+      j += 1;
+    );
+    n = min(n, KMP);
+    cx = 0; cy = 0;
+    k = 0; loop(n, cx += src[2 * k]; cy += src[2 * k + 1]; k += 1; );
+    cx /= max(1, n); cy /= max(1, n);
+    k = 0;
+    loop(n,
+      kgpoly[(i * KMP + k) * 2] = src[2 * k] - cx;
+      kgpoly[(i * KMP + k) * 2 + 1] = src[2 * k + 1] - cy;
+      mx = (src[2 * k] + src[2 * ((k + 1) % n)]) * 0.5; my = (src[2 * k + 1] + src[2 * ((k + 1) % n) + 1]) * 0.5;
+      onb = 0;
+      q = 0;
+      loop(g_kvn,
+        e = (q + 1) % g_kvn;
+        a = -(VO[2 * e + 1] - VO[2 * q + 1]); b = VO[2 * e] - VO[2 * q];
+        d = sqrt(a * a + b * b);
+        abs((a * (mx - VO[2 * q]) + b * (my - VO[2 * q + 1])) / max(0.001, d)) < 0.4 ? onb = 1;
+        q += 1;
+      );
+      kgef[i * KMP + k] = !onb;
+      k += 1;
+    );
+    kgn[i] = n;
+    kgtx[i] = g_kg_cx + cx; kgty[i] = g_kg_cy + cy;
+    kgo[i] = p;
+    cnt = 0;
+    KGD[p] = 0;
+    m = p + 1;
+    q = 0;
+    e = 0;
+    loop(g_kne,
+      k = KEL[q + 3];
+      x = 0; loop(2 * k, KT1[x] = KEL[q + 4 + x]; x += 1; );
+      src = KT1; dst = KT2;
+      j = 0;
+      loop(n,
+        y = (j + 1) % n;
+        bx0 = kgpoly[(i * KMP + j) * 2] + cx; by0 = kgpoly[(i * KMP + j) * 2 + 1] + cy;
+        a = -((kgpoly[(i * KMP + y) * 2 + 1] + cy) - by0); b = (kgpoly[(i * KMP + y) * 2] + cx) - bx0;
+        c = -(a * bx0 + b * by0);
+        (a * cx + b * cy + c) < 0 ? ( a = -a; b = -b; c = -c; );
+        k >= 3 ? ( k = clip_half(src, k, dst, a, b, c); tmp = src; src = dst; dst = tmp; );
+        j += 1;
+      );
+      (k >= 3 && m + 4 + 2 * k < KGDN) ? (
+        KGD[m] = KEL[q]; KGD[m + 1] = KEL[q + 1]; KGD[m + 2] = KEL[q + 2]; KGD[m + 3] = k;
+        x = 0; loop(k, KGD[m + 4 + 2 * x] = src[2 * x] - cx; KGD[m + 5 + 2 * x] = src[2 * x + 1] - cy; x += 1; );
+        m += 4 + 2 * k;
+        cnt += 1;
+      );
+      q += 4 + 2 * KEL[q + 3];
+      e += 1;
+    );
+    KGD[p] = cnt;
+    p = m;
+    i += 1;
+  );
+  g_kg_ne = 0;
+  i = 0;
+  loop(nsh,
+    j = i + 1;
+    loop(nsh - i - 1,
+      a = kgsx[i] - kgsx[j]; b = kgsy[i] - kgsy[j];
+      c = -(a * (kgsx[i] + kgsx[j]) * 0.5 + b * (kgsy[i] + kgsy[j]) * 0.5);
+      d = sqrt(a * a + b * b);
+      cnt = 0;
+      k = 0;
+      loop(kgn[i],
+        x = kgpoly[(i * KMP + k) * 2] + kgtx[i] - g_kg_cx; y = kgpoly[(i * KMP + k) * 2 + 1] + kgty[i] - g_kg_cy;
+        abs(a * x + b * y + c) / max(0.001, d) < 0.05 && cnt < 2 ? (
+          cnt == 0 ? ( ex = x; ey = y; ) : ( (x - ex) * (x - ex) + (y - ey) * (y - ey) > 4 && g_kg_ne < KME ? (
+            kex0[g_kg_ne] = ex + g_kg_cx; key0[g_kg_ne] = ey + g_kg_cy; kex1[g_kg_ne] = x + g_kg_cx; key1[g_kg_ne] = y + g_kg_cy;
+            kei[g_kg_ne] = i; kej[g_kg_ne] = j; keb[g_kg_ne] = -1; g_kg_ne += 1;
+          ); );
+          cnt += 1;
+        );
+        k += 1;
+      );
+      j += 1;
+    );
+    i += 1;
+  );
+  i = 0;
+  loop(nsh,
+    tries = 0;
+    while (
+      x = BRD_X + 60 + rand(1) * (BRD_W - 120); y = BRD_Y + 60 + rand(1) * (BRD_H - 120);
+      tries += 1;
+      ((x - g_kg_cx) * (x - g_kg_cx) / (230 * 230) + (y - g_kg_cy) * (y - g_kg_cy) / (210 * 210) < 1) && tries < 200;
+    );
+    kgx[i] = x; kgy[i] = y; kga[i] = (rand(1) - 0.5) * 1.6;
+    kgpl[i] = 0;
+    kgord[i] = i;
+    i += 1;
+  );
+  g_kg_drag = -1;
+  g_kg_won = 0;
+  g_kg_bgw = -1;
+);
+
+function kg_xf(lx, ly) ( g_kqx = sx(g_kcx + lx * g_kca - ly * g_ksa); g_kqy = sy(g_kcy + lx * g_ksa + ly * g_kca); );
+
+function kg_shard(i, x, y, ang, sh) local(p, ne, k, n, q, x0, y0, x1, y1, x2, y2, j, ax, ay, bx, by, e)
+(
+  g_kca = cos(ang); g_ksa = sin(ang); g_kcx = x; g_kcy = y;
+  n = kgn[i];
+  sh > 0 ? (
+    g_kcx = x + 4 + sh * 6; g_kcy = y + 6 + sh * 8;
+    gfx_set(0.035, 0.022, 0.015, 1);
+    kg_xf(kgpoly[(i * KMP) * 2], kgpoly[(i * KMP) * 2 + 1]); x0 = g_kqx; y0 = g_kqy;
+    k = 1;
+    loop(n - 2,
+      kg_xf(kgpoly[(i * KMP + k) * 2], kgpoly[(i * KMP + k) * 2 + 1]); x1 = g_kqx; y1 = g_kqy;
+      kg_xf(kgpoly[(i * KMP + k + 1) * 2], kgpoly[(i * KMP + k + 1) * 2 + 1]); x2 = g_kqx; y2 = g_kqy;
+      gfx_triangle(x0, y0, x1, y1, x2, y2);
+      k += 1;
+    );
+    g_kcx = x; g_kcy = y;
+  );
+  p = kgo[i];
+  ne = KGD[p];
+  p += 1;
+  loop(ne,
+    gfx_set(KGD[p], KGD[p + 1], KGD[p + 2], 1);
+    k = KGD[p + 3];
+    q = p + 4;
+    kg_xf(KGD[q], KGD[q + 1]); x0 = g_kqx; y0 = g_kqy;
+    j = 1;
+    loop(k - 2,
+      kg_xf(KGD[q + 2 * j], KGD[q + 2 * j + 1]); x1 = g_kqx; y1 = g_kqy;
+      kg_xf(KGD[q + 2 * j + 2], KGD[q + 2 * j + 3]); x2 = g_kqx; y2 = g_kqy;
+      gfx_triangle(x0, y0, x1, y1, x2, y2);
+      j += 1;
+    );
+    p = q + 2 * k;
+  );
+  j = 0;
+  loop(n,
+    e = (j + 1) % n;
+    kg_xf(kgpoly[(i * KMP + j) * 2], kgpoly[(i * KMP + j) * 2 + 1]); ax = g_kqx; ay = g_kqy;
+    kg_xf(kgpoly[(i * KMP + e) * 2], kgpoly[(i * KMP + e) * 2 + 1]); bx = g_kqx; by = g_kqy;
+    kgef[i * KMP + j] && kgpl[i] != 1 ? (
+      gfx_set(0.78, 0.68, 0.56, 1);
+      aa_tline(ax, ay, bx, by, max(1, 2.2 * g_s));
+    ) : (
+      gfx_set(0, 0, 0, 0.35);
+      gfx_line(ax, ay, bx, by, 1);
+    );
+    j += 1;
+  );
+);
+
+function kg_seam(e, prog, bright) local(x0, y0, x1, y1, len, m, k, nx, ny, px, py, qx, qy, o, f, w)
+(
+  x0 = kex0[e]; y0 = key0[e]; x1 = kex1[e]; y1 = key1[e];
+  len = sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
+  m = max(2, ceil(len / 9));
+  nx = -(y1 - y0) / max(0.001, len); ny = (x1 - x0) / max(0.001, len);
+  w = 0;
+  loop(4,
+    w == 0 ? ( gfx_mode = 1; gfx_set(1, 0.72, 0.25, 0.1 * bright); ) :
+    w == 1 ? ( gfx_mode = 0; gfx_set(0.55, 0.36, 0.08, 1); ) :
+    w == 2 ? gfx_set(0.95, 0.74, 0.3, 1) : gfx_set(1, 0.95, 0.72, 0.9);
+    px = x0; py = y0;
+    k = 1;
+    loop(m,
+      f = k / m;
+      f <= prog ? (
+        o = k < m ? (hash(e * 13.7 + k * 1.71) - 0.5) * 2.4 : 0;
+        qx = x0 + (x1 - x0) * f + nx * o; qy = y0 + (y1 - y0) * f + ny * o;
+        aa_tline(sx(px - (w == 3 ? 0.6 : 0)), sy(py - (w == 3 ? 0.8 : 0)), sx(qx - (w == 3 ? 0.6 : 0)), sy(qy - (w == 3 ? 0.8 : 0)), (w == 0 ? 11 : w == 1 ? 4.6 : w == 2 ? 3.1 : 1) * g_s);
+        px = qx; py = qy;
+      );
+      k += 1;
+    );
+    w += 1;
+  );
+  gfx_mode = 0;
+  prog >= 1 ? (
+    f = frac(g_t * 0.23 + hash(e * 3.3));
+    f < 0.45 ? glow(sx(x0 + (x1 - x0) * f / 0.45), sy(y0 + (y1 - y0) * f / 0.45), 1.6 * g_s, 1, 0.92, 0.6, 0.8 * bright);
+  );
+);
+
+function kg_hit(i, mx, my) local(ca, sa, lx, ly, k, n, e, ax, ay, bx, by, s1, ok, sg)
+(
+  ca = cos(kga[i]); sa = sin(kga[i]);
+  lx = (mx - kgx[i]) * ca + (my - kgy[i]) * sa;
+  ly = -(mx - kgx[i]) * sa + (my - kgy[i]) * ca;
+  n = kgn[i];
+  ok = 1; sg = 0;
+  k = 0;
+  loop(n,
+    e = (k + 1) % n;
+    ax = kgpoly[(i * KMP + k) * 2]; ay = kgpoly[(i * KMP + k) * 2 + 1];
+    bx = kgpoly[(i * KMP + e) * 2]; by = kgpoly[(i * KMP + e) * 2 + 1];
+    s1 = (bx - ax) * (ly - ay) - (by - ay) * (lx - ax);
+    sg == 0 ? sg = s1 > 0 ? 1 : -1;
+    s1 * sg < 0 ? ok = 0;
+    k += 1;
+  );
+  ok;
+);
+
+function kg_table(w, h) local(dst, k, j, x, y, c, a)
+(
+  dst = gfx_dest;
+  gfx_setimgdim(IMG_KT, w, h);
+  gfx_dest = IMG_KT;
+  gfx_mode = 0; gfx_a = 1;
+  gfx_gradrect(0, 0, w, h, 0.2, 0.125, 0.08, 1, 0, 0, 0, 0, -0.08 / h, -0.05 / h, -0.035 / h, 0);
+  k = 0;
+  loop(6,
+    gfx_set(0.05, 0.03, 0.02, 0.6);
+    gfx_rect(0, floor(h * k / 6), w, max(1, 2 * g_s));
+    k += 1;
+  );
+  k = 0;
+  loop(260,
+    y = hash(k * 1.37 + 2) * h;
+    c = hash(k * 2.9);
+    c > 0.5 ? gfx_set(0.3, 0.2, 0.13, 0.12 * c) : gfx_set(0.06, 0.035, 0.02, 0.18 * (1 - c));
+    x = 0;
+    a = hash(k * 4.7) * 6;
+    loop(24,
+      gfx_line(x, y + sin(x * 0.012 + a) * 3 * g_s, x + w / 24, y + sin((x + w / 24) * 0.012 + a) * 3 * g_s, 1);
+      x += w / 24;
+    );
+    k += 1;
+  );
+  k = 0;
+  loop(4,
+    x = hash(k * 7.7 + 1) * w; y = hash(k * 3.1 + 5) * h;
+    j = 0;
+    loop(5,
+      gfx_set(0.08, 0.05, 0.03, 0.18);
+      gfx_circle(x, y, (14 - j * 2.5) * g_s, 0, 1);
+      j += 1;
+    );
+    k += 1;
+  );
+  gfx_mode = 1;
+  k = 0;
+  loop(10,
+    gfx_set(1, 0.75, 0.45, 0.022);
+    gfx_circle((g_kg_cx - BRD_X) * g_s, (g_kg_cy - BRD_Y) * g_s, (380 - k * 32) * g_s, 1, 1);
+    k += 1;
+  );
+  gfx_mode = 0;
+  gfx_dest = dst;
+);
+
+function kg_scene() local(i, k, e, a, t, o, x, y, ang, d)
+(
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_KT, 1, 0, 0, 0, g_kg_bgw, g_kg_bgh, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  gfx_set(1, 0.85, 0.6, 0.14);
+  i = 0;
+  loop(g_kvn,
+    k = (i + 1) % g_kvn;
+    (i & 1) ? gfx_line(sx(g_kg_cx + VO[2 * i]), sy(g_kg_cy + VO[2 * i + 1]), sx(g_kg_cx + VO[2 * k]), sy(g_kg_cy + VO[2 * k + 1]), 1);
+    i += 1;
+  );
+  i = 0;
+  loop(g_kg_n, kgpl[i] == 1 ? kg_shard(i, kgtx[i], kgty[i], 0, 0); i += 1; );
+  e = 0;
+  loop(g_kg_ne,
+    keb[e] >= 0 ? kg_seam(e, min(1, (g_t - keb[e]) / 0.9), g_kg_won ? 1.6 + 0.6 * sin(g_t * 3) : 1);
+    e += 1;
+  );
+  k = 0;
+  loop(g_kg_n,
+    i = kgord[k];
+    kgpl[i] == 2 ? (
+      t = min(1, (g_t - kgat[i]) / 0.35);
+      a = 1 - (1 - t) * (1 - t) * (1 - t);
+      d = -kgfa[i];
+      kg_shard(i, kgfx[i] + (kgtx[i] - kgfx[i]) * a, kgfy[i] + (kgty[i] - kgfy[i]) * a, kgfa[i] + d * a, 0.4 * (1 - a));
+    ) : kgpl[i] == 0 ? (
+      kg_shard(i, kgx[i], kgy[i], kga[i], i == g_kg_drag ? 1 : 0.25);
+      i == g_kg_drag && (kgx[i] - kgtx[i]) * (kgx[i] - kgtx[i]) + (kgy[i] - kgty[i]) * (kgy[i] - kgty[i]) < 3600 ? glow(sx(kgx[i]), sy(kgy[i]), 6 * g_s, 1, 0.8, 0.4, 0.6);
+    );
+    k += 1;
+  );
+);
+
+function draw_kintsugi() local(i, j, k, e, w, h, t, best, a)
+(
+  g_pgrav = 40;
+  g_kg_lv < 1 ? kg_start(max(1, sv[50]));
+  w = ceil(BRD_W * g_s); h = ceil(BRD_H * g_s);
+  (g_kg_bgw !== w || g_kg_bgh !== h) ? ( kg_table(w, h); g_kg_bgw = w; g_kg_bgh = h; );
+
+  i = 0;
+  loop(g_kg_n,
+    kgpl[i] == 2 && g_t - kgat[i] >= 0.35 ? (
+      kgpl[i] = 1;
+      e = 0;
+      loop(g_kg_ne,
+        (keb[e] < 0 && kgpl[kei[e]] == 1 && kgpl[kej[e]] == 1) ? keb[e] = g_t;
+        e += 1;
+      );
+      loop(14,
+        a = rand(1) * 2 * $pi;
+        spawn(kgtx[i], kgty[i], cos(a) * (30 + rand(1) * 70), sin(a) * (30 + rand(1) * 70), 1, 0.8 + rand(1) * 0.2, 0.4, 0.6 + rand(1) * 0.5);
+      );
+    );
+    i += 1;
+  );
+
+  !g_kg_won ? (
+    g_kg_drag < 0 && g_click && hit(BRD_X, BRD_Y, BRD_W, BRD_H) ? (
+      best = -1;
+      k = g_kg_n - 1;
+      loop(g_kg_n,
+        i = kgord[k];
+        best < 0 && kgpl[i] == 0 && kg_hit(i, g_mx, g_my) ? best = k;
+        k -= 1;
+      );
+      best >= 0 ? (
+        i = kgord[best];
+        k = best;
+        loop(g_kg_n - 1 - best, kgord[k] = kgord[k + 1]; k += 1; );
+        kgord[g_kg_n - 1] = i;
+        g_kg_drag = i;
+        g_kg_ox = kgx[i] - g_mx; g_kg_oy = kgy[i] - g_my;
+        g_click = 0;
+      );
+    );
+    g_kg_drag >= 0 ? (
+      i = g_kg_drag;
+      g_mdown ? (
+        kgx[i] = max(BRD_X + 20, min(BRD_X + BRD_W - 20, g_mx + g_kg_ox));
+        kgy[i] = max(BRD_Y + 20, min(BRD_Y + BRD_H - 20, g_my + g_kg_oy));
+        kga[i] *= 1 - min(1, g_dt * 1.2);
+      ) : (
+        (kgx[i] - kgtx[i]) * (kgx[i] - kgtx[i]) + (kgy[i] - kgty[i]) * (kgy[i] - kgty[i]) < 34 * 34 ? (
+          kgpl[i] = 2; kgat[i] = g_t; kgfx[i] = kgx[i]; kgfy[i] = kgy[i]; kgfa[i] = kga[i];
+        );
+        g_kg_drag = -1;
+      );
+    );
+    k = 1;
+    i = 0; loop(g_kg_n, kgpl[i] != 1 ? k = 0; i += 1; );
+    k ? (
+      g_kg_won = 1; g_kg_won_t = g_t;
+      sv[0] = 1; sv[50] = g_kg_lv + 1; sv[51] += 1;
+      e = 0;
+      loop(g_kg_ne,
+        loop(6,
+          t = rand(1);
+          spawn(kex0[e] + (kex1[e] - kex0[e]) * t, key0[e] + (key1[e] - key0[e]) * t, (rand(1) - 0.5) * 60, -20 - rand(1) * 60, 1, 0.85, 0.45, 1 + rand(1));
+        );
+        e += 1;
+      );
+    );
+  );
+
+  kg_scene();
+  particles();
+  gfx_set(0.3, 0.22, 0.16, 1);
+  outline_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+
+  button("< Games", 18, 14, 96, 36, 0.5, 0.88, 0.95) ? g_screen = 0;
+  button("New", 122, 14, 64, 36, 1, 0.8, 0.45) ? kg_start(g_kg_lv);
+  g_t - g_kg_rst_t > 3 ? g_kg_rst_t = -1000;
+  g_kg_rst_t > 0 ? (
+    button("Sure?", 194, 14, 100, 36, 1, 0.4, 0.35) ? ( g_kg_rst_t = -1000; sv[50] = 1; sv[51] = 0; kg_start(1); );
+  ) : (
+    button("Start over", 194, 14, 100, 36, 1, 0.4, 0.35) ? g_kg_rst_t = g_t;
+  );
+  font(18, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  sprintf(#g_tt, "Kintsugi  -  Piece %d", g_kg_lv);
+  txt_c(#g_tt, 330, 14, 260, 36);
+  font(13, 0);
+  gfx_set(0.78, 0.8, 0.84, 1);
+  k = 0; i = 0; loop(g_kg_n, kgpl[i] == 1 ? k += 1; i += 1; );
+  sprintf(#g_tt, "%d of %d shards", k, g_kg_n);
+  txt_r(#g_tt, 880, 24);
+  hint("Drag each shard to where it belongs. Close is close enough: it settles in and the crack fills with gold.", HINT_Y);
+
+  g_kg_won ? (
+    sprintf(#g_l1, "Piece %d is whole again", g_kg_lv);
+    sprintf(#g_l2, "Every crack is now part of its story.   Pieces mended: %d", sv[51]);
+    g_wcx = 680; g_wcl = 1;
+    i = win_card("Mended", g_kg_won_t + 0.6, 1, 0.8, 0.45);
+    g_wcx = 0; g_wcl = 0;
+    i == 1 ? kg_start(g_kg_lv + 1) : i == 2 ? g_screen = 0;
+  );
+);
+
+function pv_kintsugi(x, y, w, h) local(bw, bh, i, e)
+(
+  g_kg_lv < 1 ? kg_start(max(1, sv[50]));
+  bw = ceil(BRD_W * g_s); bh = ceil(BRD_H * g_s);
+  (g_kg_bgw !== bw || g_kg_bgh !== bh) ? ( kg_table(bw, bh); g_kg_bgw = bw; g_kg_bgh = bh; );
+  pv_begin(x, y, w, h, 1.35);
+  g_ox += (BRD_X + BRD_W * 0.5 - g_kg_cx) * g_s;
+  g_oy += (BRD_Y + BRD_H * 0.5 - g_kg_cy) * g_s;
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_KT, 1, 0, 0, 0, g_kg_bgw, g_kg_bgh, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  i = 0;
+  loop(g_kg_n, kg_shard(i, kgtx[i], kgty[i], 0, 0); i += 1; );
+  e = 0;
+  loop(g_kg_ne, kg_seam(e, 1, 1.2 + 0.4 * sin(g_t * 2)); e += 1; );
+  pv_end();
+);

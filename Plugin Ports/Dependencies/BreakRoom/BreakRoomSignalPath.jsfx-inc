@@ -1,0 +1,623 @@
+@init
+function sp_rot(m, k) ( k = k & 3; ((m << k) | (m >> (4 - k))) & 15; );
+function sp_pop(m) ( (m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1); );
+function sp_dx(d) ( d == 1 ? 1 : d == 3 ? -1 : 0; );
+function sp_dy(d) ( d == 0 ? -1 : d == 2 ? 1 : 0; );
+
+function sp_nb(c, d) local(x, y)
+(
+  x = c % g_sp_c + sp_dx(d);
+  y = floor(c / g_sp_c) + sp_dy(d);
+  (x >= 0 && x < g_sp_c && y >= 0 && y < g_sp_r) ? y * g_sp_c + x : -1;
+);
+
+function sp_gen() local(n, nf, i, c, d, nb, k, tries)
+(
+  memset(spm, 0, NSPC);
+  memset(spst, 0, NSPC);
+  g_sp_src = floor(g_sp_r / 2) * g_sp_c + floor(g_sp_c / 2) - (rand(1) < 0.5 && g_sp_c % 2 == 0 ? 1 : 0);
+  spst[g_sp_src] = 1;
+  n = 1; nf = 0;
+  d = 0;
+  loop(4, sp_nb(g_sp_src, d) >= 0 ? ( spfc[nf] = g_sp_src; spfd[nf] = d; nf += 1; ); d += 1; );
+  tries = 0;
+  while (n < g_sp_n && nf > 0) (
+    i = min(nf - 1, floor(rand(1) * nf));
+    c = spfc[i]; d = spfd[i]; nb = sp_nb(c, d);
+    spst[nb] ? (
+      nf -= 1; spfc[i] = spfc[nf]; spfd[i] = spfd[nf];
+    ) : (
+      k = sp_pop(spm[c]);
+      (k >= 3 && tries < 12 && rand(1) < 0.85) ? tries += 1 : (
+        tries = 0;
+        spm[c] |= 1 << d;
+        spm[nb] |= 1 << ((d + 2) & 3);
+        spst[nb] = 1;
+        n += 1;
+        nf -= 1; spfc[i] = spfc[nf]; spfd[i] = spfd[nf];
+        k = 0;
+        loop(4,
+          c = sp_nb(nb, k);
+          (c >= 0 && !spst[c]) ? ( spfc[nf] = nb; spfd[nf] = k; nf += 1; );
+          k += 1;
+        );
+      );
+    );
+  );
+);
+
+function sp_light() local(h, t, c, m, d, nb, op, n)
+(
+  memset(split, 0, NSPC);
+  memset(spo, 0, NSPC);
+  split[g_sp_src] = 1; spd[g_sp_src] = 0; spp[g_sp_src] = -1;
+  spq[0] = g_sp_src; h = 0; t = 1; op = 0;
+  while (h < t) (
+    c = spq[h]; h += 1;
+    m = sp_rot(spm[c], spr[c]);
+    d = 0;
+    loop(4,
+      (m & (1 << d)) ? (
+        nb = sp_nb(c, d);
+        (nb >= 0 && (sp_rot(spm[nb], spr[nb]) & (1 << ((d + 2) & 3)))) ? (
+          !split[nb] ? (
+            split[nb] = 1; spd[nb] = spd[c] + 1; spp[nb] = (d + 2) & 3;
+            spq[t] = nb; t += 1;
+          );
+        ) : (
+          spo[c] |= 1 << d; op += 1;
+        );
+      );
+      d += 1;
+    );
+  );
+  n = 0; c = 0;
+  loop(g_sp_n, (split[c] && c != g_sp_src && sp_pop(spm[c]) == 1) ? n += 1; c += 1; );
+  g_sp_on = n;
+  g_sp_lit = t;
+  (t == g_sp_n && op == 0) ? 1 : 0;
+);
+
+function sp_par() local(c, m, k, b, p)
+(
+  p = 0; c = 0;
+  loop(g_sp_n,
+    m = sp_rot(spm[c], spr[c]);
+    b = 4; k = 0;
+    loop(4, sp_rot(m, k) == spm[c] ? b = min(b, min(k, 4 - k)); k += 1; );
+    p += b;
+    c += 1;
+  );
+  p;
+);
+
+function sp_start(lv) local(c, tries, ts, k)
+(
+  g_sp_lv = lv;
+    g_sp_c = min(SPMC, 3 + floor(lv / 3));
+  g_sp_r = min(SPMR, 3 + floor((lv - 1) / 4));
+  g_sp_n = g_sp_c * g_sp_r;
+  g_sp_frac = min(1, (3 + 1.4 * (lv - 1) + 0.08 * (lv - 1) * (lv - 1)) / g_sp_n);
+  ts = floor(min(136, min(800 / g_sp_c, 530 / g_sp_r)));
+  g_sp_ts = ts;
+  g_sp_x0 = 450 - g_sp_c * ts * 0.5;
+  g_sp_y0 = BRD_Y + (BRD_H - g_sp_r * ts) * 0.5;
+  sp_gen();
+  g_sp_nspk = 0;
+  c = 0;
+  loop(g_sp_n, (c != g_sp_src && sp_pop(spm[c]) == 1) ? g_sp_nspk += 1; c += 1; );
+  tries = 0;
+  while (
+    c = 0;
+    g_sp_frac >= 1 ? (
+      loop(g_sp_n, spr[c] = min(3, floor(rand(1) * 4)); c += 1; );
+    ) : (
+      memset(spr, 0, NSPC);
+      k = max(2, floor(g_sp_n * g_sp_frac + 0.5));
+      loop(g_sp_n * 4,
+        c = min(g_sp_n - 1, floor(rand(1) * g_sp_n));
+        (k > 0 && spr[c] == 0 && spm[c] != 15) ? (
+          spr[c] = (spm[c] == 5 || spm[c] == 10) ? 1 + 2 * (rand(1) < 0.5) : 1 + min(2, floor(rand(1) * 3));
+          k -= 1;
+        );
+      );
+    );
+    g_sp_par = sp_par();
+    tries += 1;
+    (sp_light() || g_sp_par < min(g_sp_n * 0.6 * g_sp_frac, 3 + lv)) && tries < 50;
+  );
+  c = 0;
+  loop(g_sp_n,
+    spa[c] = spr[c] - 2;
+    spst[c] = 0.1 + 0.45 * hash(c * 7.3 + lv) + 0.15 * c / g_sp_n;
+    spl[c] = 0;
+    spph[c] = hash(c * 3.7 + lv * 1.3);
+    c += 1;
+  );
+  spl[g_sp_src] = 1;
+  g_sp_ci = (lv - 1) % 6;
+  g_sp_moves = 0;
+  g_sp_time = 0;
+  g_sp_won = 0;
+  g_sp_t0 = g_t;
+  g_sp_rst_t = -1000;
+  sp_light();
+);
+
+function sp_armpt(m, d, f, h) local(e, j, cx, cy, a0, a1, da, a)
+(
+  (sp_pop(m) == 2 && m != 5 && m != 10) ? (
+    e = d; j = 0;
+    loop(4, (j != d && (m & (1 << j))) ? e = j; j += 1; );
+    cx = (sp_dx(d) + sp_dx(e)) * h; cy = (sp_dy(d) + sp_dy(e)) * h;
+    a0 = atan2(-sp_dy(e), -sp_dx(e));
+    a1 = atan2(-sp_dy(d), -sp_dx(d));
+    da = a1 - a0;
+    da > $pi ? da -= 2 * $pi;
+    da < -$pi ? da += 2 * $pi;
+    a = a0 + da * 0.5 * (1 - f);
+    g_lx = cx + h * cos(a); g_ly = cy + h * sin(a);
+  ) : (
+    g_lx = sp_dx(d) * h * f; g_ly = sp_dy(d) * h * f;
+  );
+);
+
+function sp_cell_xy(c) ( g_tcx = g_sp_x0 + (c % g_sp_c + 0.5) * g_sp_ts; g_tcy = g_sp_y0 + (floor(c / g_sp_c) + 0.5) * g_sp_ts; );
+
+function sp_set_rot(c) local(a)
+(
+  sp_cell_xy(c);
+  a = spa[c] * $pi * 0.5;
+  g_tca = cos(a); g_tsa = sin(a);
+);
+
+function sp_xf(lx, ly) ( g_qx = sx(g_tcx + lx * g_tca - ly * g_tsa); g_qy = sy(g_tcy + lx * g_tsa + ly * g_tca); );
+
+function sp_geom() local(c, d, k, o, h)
+(
+  h = g_sp_ts * 0.5;
+  c = 0;
+  loop(g_sp_n,
+    sp_set_rot(c);
+    d = 0;
+    loop(4,
+      (spm[c] & (1 << d)) ? (
+        o = (c * 4 + d) * SPK;
+        k = 0;
+        loop(SPK,
+          sp_armpt(spm[c], d, k / (SPK - 1), h);
+          sp_xf(g_lx, g_ly);
+          spgx[o + k] = g_qx; spgy[o + k] = g_qy;
+          k += 1;
+        );
+      );
+      d += 1;
+    );
+    c += 1;
+  );
+);
+
+function sp_arm_draw(o, w, ox, oy) local(k, r)
+(
+  r = w * 0.5;
+  k = 0;
+  g_sp_cv ? loop(SPK - 1,
+    tline(spgx[o + k] + ox, spgy[o + k] + oy, spgx[o + k + 1] + ox, spgy[o + k + 1] + oy, w);
+    gfx_circle(spgx[o + k + 1] + ox, spgy[o + k + 1] + oy, r, 1, 1);
+    k += 1;
+  ) : (
+    tline(spgx[o] + ox, spgy[o] + oy, spgx[o + SPK - 1] + ox, spgy[o + SPK - 1] + oy, w);
+    gfx_circle(spgx[o + SPK - 1] + ox, spgy[o + SPK - 1] + oy, r, 1, 1);
+  );
+  gfx_circle(spgx[o] + ox, spgy[o] + oy, r, 1, 1);
+);
+
+function sp_arm_at(o, f) local(p, k, u)
+(
+  p = max(0, min(SPK - 1.001, f * (SPK - 1)));
+  k = floor(p); u = p - k;
+  g_qx = spgx[o + k] + (spgx[o + k + 1] - spgx[o + k]) * u;
+  g_qy = spgy[o + k] + (spgy[o + k + 1] - spgy[o + k]) * u;
+);
+
+function sp_rquad(x0, y0, x1, y1, r) local(ax, ay, bx, by, cx, cy, dx, dy)
+(
+  sp_xf(x0 + r, y0); ax = g_qx; ay = g_qy;
+  sp_xf(x1 - r, y0); bx = g_qx; by = g_qy;
+  sp_xf(x1 - r, y1); cx = g_qx; cy = g_qy;
+  sp_xf(x0 + r, y1); dx = g_qx; dy = g_qy;
+  gfx_triangle(ax, ay, bx, by, cx, cy, dx, dy);
+  sp_xf(x0, y0 + r); ax = g_qx; ay = g_qy;
+  sp_xf(x1, y0 + r); bx = g_qx; by = g_qy;
+  sp_xf(x1, y1 - r); cx = g_qx; cy = g_qy;
+  sp_xf(x0, y1 - r); dx = g_qx; dy = g_qy;
+  gfx_triangle(ax, ay, bx, by, cx, cy, dx, dy);
+  sp_xf(x0 + r, y0 + r); gfx_circle(g_qx, g_qy, r * g_s, 1, 1);
+  sp_xf(x1 - r, y0 + r); gfx_circle(g_qx, g_qy, r * g_s, 1, 1);
+  sp_xf(x1 - r, y1 - r); gfx_circle(g_qx, g_qy, r * g_s, 1, 1);
+  sp_xf(x0 + r, y1 - r); gfx_circle(g_qx, g_qy, r * g_s, 1, 1);
+);
+
+function sp_pedal(c, lv) local(hl, hw, v, ax, cr, cg, cb, ts)
+(
+  ts = g_sp_ts;
+  sp_set_rot(c);
+  spm[c] == 10 ? ( g_tca2 = g_tca; g_tca = -g_tsa; g_tsa = g_tca2; );
+  hl = ts * 0.25; hw = ts * 0.19;
+  v = min(4, floor(hash(c * 5.1 + g_sp_lv * 2.3) * 5));
+  cr = sper[v]; cg = speg[v]; cb = speb[v];
+  gfx_set(0, 0, 0, 0.45);
+  g_tcx += 2; g_tcy += 3;
+  sp_rquad(-hw, -hl, hw, hl, 4);
+  g_tcx -= 2; g_tcy -= 3;
+  gfx_set(cr * 0.55, cg * 0.55, cb * 0.55, 1);
+  sp_rquad(-hw, -hl, hw, hl, 4);
+  gfx_set(cr, cg, cb, 1);
+  sp_rquad(-hw + 1.2, -hl + 1.2, hw - 1.2, hl - 2.2, 3.2);
+  gfx_set(cr * 0.7, cg * 0.7, cb * 0.7, 1);
+  sp_rquad(-hw + 3, hl * 0.18, hw - 3, hl - 4, 2);
+  gfx_set(0.08, 0.08, 0.09, 1);
+  sp_xf(-hw * 0.48, -hl * 0.42); gfx_circle(g_qx, g_qy, ts * 0.05 * g_s, 1, 1);
+  sp_xf(hw * 0.48, -hl * 0.42); gfx_circle(g_qx, g_qy, ts * 0.05 * g_s, 1, 1);
+  gfx_set(0.85, 0.86, 0.88, 1);
+  sp_xf(-hw * 0.48, -hl * 0.42 - ts * 0.03); gfx_circle(g_qx, g_qy, max(1, ts * 0.012 * g_s), 1, 1);
+  sp_xf(hw * 0.48, -hl * 0.42 - ts * 0.03); gfx_circle(g_qx, g_qy, max(1, ts * 0.012 * g_s), 1, 1);
+  sp_xf(0, hl * 0.55);
+  gfx_set(0.3, 0.31, 0.34, 1); gfx_circle(g_qx, g_qy, ts * 0.06 * g_s, 1, 1);
+  gfx_set(0.72, 0.73, 0.76, 1); gfx_circle(g_qx, g_qy, ts * 0.042 * g_s, 1, 1);
+  sp_xf(0, -hl * 0.78);
+  lv > 0.02 ? glow(g_qx, g_qy, ts * 0.022 * g_s, 1, 0.25, 0.2, lv) : (
+    gfx_set(0.25, 0.08, 0.07, 1); gfx_circle(g_qx, g_qy, ts * 0.022 * g_s, 1, 1);
+  );
+);
+
+function sp_speaker(c, lv, env) local(x, y, b, r, cr, cg, cb, ts)
+(
+  ts = g_sp_ts;
+  sp_cell_xy(c);
+  x = g_tcx; y = g_tcy;
+  b = ts * 0.27;
+  cr = spcr[g_sp_ci]; cg = spcg[g_sp_ci]; cb = spcb[g_sp_ci];
+  lv > 0.02 ? glow(sx(x), sy(y), b * 1.05 * g_s, cr, cg, cb, 0.14 * lv * (1 + 2 * env));
+  gfx_set(0, 0, 0, 0.5);
+  fill_rr(x - b + 2, y - b + 3, b * 2, b * 2, 5);
+  gfx_set(0.13, 0.12, 0.12, 1);
+  fill_rr(x - b, y - b, b * 2, b * 2, 5);
+  gfx_set(0.2, 0.19, 0.19, 1);
+  outline_rr(x - b, y - b, b * 2, b * 2, 5);
+  r = b * 0.74 * (1 + 0.07 * env * lv);
+  gfx_set(0.3, 0.3, 0.32, 1);
+  gfx_circle(sx(x), sy(y + b * 0.08), r * g_s, 1, 1);
+  gfx_set(0.07, 0.07, 0.08, 1);
+  gfx_circle(sx(x), sy(y + b * 0.08), r * 0.84 * g_s, 1, 1);
+  gfx_set(0.13 + 0.25 * env * lv, 0.13 + 0.25 * env * lv, 0.15 + 0.25 * env * lv, 1);
+  gfx_circle(sx(x), sy(y + b * 0.08), r * 0.62 * g_s, 1, 1);
+  gfx_set(0.22, 0.22, 0.24, 1);
+  gfx_circle(sx(x), sy(y + b * 0.08), r * 0.3 * g_s, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(sx(x - r * 0.1), sy(y + b * 0.08 - r * 0.12), r * 0.12 * g_s, 1, 1);
+  lv > 0.02 ? glow(sx(x + b * 0.66), sy(y - b * 0.7), 1.4 * g_s, cr, cg, cb, lv) : (
+    gfx_set(0.22, 0.22, 0.24, 1); gfx_circle(sx(x + b * 0.66), sy(y - b * 0.7), 1.4 * g_s, 1, 1);
+  );
+);
+
+function sp_source(c) local(x, y, b, cr, cg, cb, k, px, py, qx0, qy0, ts)
+(
+  ts = g_sp_ts;
+  sp_cell_xy(c);
+  x = g_tcx; y = g_tcy;
+  b = ts * 0.33;
+  cr = spcr[g_sp_ci]; cg = spcg[g_sp_ci]; cb = spcb[g_sp_ci];
+  glow(sx(x), sy(y), b * 1.1 * g_s, cr, cg, cb, 0.22 + 0.06 * sin(g_t * 3));
+  gfx_set(0, 0, 0, 0.5);
+  fill_rr(x - b + 2, y - b + 3, b * 2, b * 2, 7);
+  gfx_set(0.2, 0.205, 0.225, 1);
+  fill_rr(x - b, y - b, b * 2, b * 2, 7);
+  gfx_set(0.34, 0.35, 0.38, 1);
+  outline_rr(x - b, y - b, b * 2, b * 2, 7);
+  gfx_set(0.03, 0.035, 0.045, 1);
+  fill_rr(x - b * 0.78, y - b * 0.7, b * 1.56, b * 0.95, 3);
+  gfx_set(cr, cg, cb, 1);
+  k = 0;
+  loop(17,
+    px = x - b * 0.7 + b * 1.4 * k / 16;
+    py = y - b * 0.22 + sin(k / 16 * 4 * $pi - g_t * 5) * b * 0.26 * (0.6 + 0.4 * sin(g_t * 1.3 + k * 0.4));
+    k ? aa_tline(sx(qx0), sy(qy0), sx(px), sy(py), 1.6 * g_s);
+    qx0 = px; qy0 = py;
+    k += 1;
+  );
+  gfx_set(0.55, 0.56, 0.6, 1);
+  gfx_circle(sx(x - b * 0.45), sy(y + b * 0.58), b * 0.13 * g_s, 1, 1);
+  gfx_circle(sx(x + b * 0.45), sy(y + b * 0.58), b * 0.13 * g_s, 1, 1);
+  gfx_set(0.1, 0.1, 0.11, 1);
+  gfx_circle(sx(x - b * 0.45), sy(y + b * 0.58), b * 0.06 * g_s, 1, 1);
+  gfx_circle(sx(x + b * 0.45), sy(y + b * 0.58), b * 0.06 * g_s, 1, 1);
+  glow(sx(x), sy(y + b * 0.58), 1.3 * g_s, cr, cg, cb, 1);
+);
+
+function sp_scene(hc) local(c, d, k, o, ts, x, y, w, l, cr, cg, cb, u, wi, f, pb, env, a, m, per, dl)
+(
+  ts = g_sp_ts;
+  cr = spcr[g_sp_ci]; cg = spcg[g_sp_ci]; cb = spcb[g_sp_ci];
+  gfx_set(0.052, 0.055, 0.064, 1);
+  fill_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+  gfx_set(0.2, 0.21, 0.24, 1);
+  outline_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+  gfx_set(0.035, 0.037, 0.044, 1);
+  fill_rr(g_sp_x0 - 10, g_sp_y0 - 10, g_sp_c * ts + 20, g_sp_r * ts + 20, 12);
+  gfx_set(0.15, 0.155, 0.175, 1);
+  outline_rr(g_sp_x0 - 10, g_sp_y0 - 10, g_sp_c * ts + 20, g_sp_r * ts + 20, 12);
+  k = 0;
+  loop(4,
+    x = k & 1 ? g_sp_x0 + g_sp_c * ts + 2 : g_sp_x0 - 2;
+    y = k & 2 ? g_sp_y0 + g_sp_r * ts + 2 : g_sp_y0 - 2;
+    gfx_set(0.24, 0.25, 0.28, 1);
+    gfx_circle(sx(x), sy(y), 3.2 * g_s, 1, 1);
+    gfx_set(0.1, 0.1, 0.12, 1);
+    gfx_line(sx(x - 2), sy(y - 2), sx(x + 2), sy(y + 2), 1);
+    k += 1;
+  );
+
+  c = 0;
+  loop(g_sp_n,
+    x = g_sp_x0 + (c % g_sp_c) * ts; y = g_sp_y0 + floor(c / g_sp_c) * ts;
+    l = spl[c];
+    c == hc ? gfx_set(0.115, 0.12, 0.138, 1) : gfx_set(0.078 + 0.03 * l * cr, 0.082 + 0.03 * l * cg, 0.095 + 0.03 * l * cb, 1);
+    fill_rr(x + 2.5, y + 2.5, ts - 5, ts - 5, 7);
+    gfx_set(1, 1, 1, c == hc ? 0.07 : 0.04);
+    gfx_line(sx(x + 9), sy(y + 3.5), sx(x + ts - 9), sy(y + 3.5), 1);
+    c == hc ? ( gfx_set(cr, cg, cb, 0.55); outline_rr(x + 2.5, y + 2.5, ts - 5, ts - 5, 7); );
+    c += 1;
+  );
+
+  sp_geom();
+  w = ts * 0.15 * g_s;
+
+  gfx_set(0, 0, 0, 0.4);
+  c = 0;
+  loop(g_sp_n,
+    d = 0;
+    g_sp_cv = sp_pop(spm[c]) == 2 && spm[c] != 5 && spm[c] != 10;
+    loop(4, (spm[c] & (1 << d)) ? sp_arm_draw((c * 4 + d) * SPK, w, 2 * g_s, 3 * g_s); d += 1; );
+    c += 1;
+  );
+  c = 0;
+  loop(g_sp_n,
+    l = spl[c];
+    l > 0.02 ? (
+      gfx_set(0.08 + (cr * 0.24 - 0.08) * l, 0.084 + (cg * 0.24 - 0.084) * l, 0.097 + (cb * 0.24 - 0.097) * l, 1);
+      d = 0;
+      g_sp_cv = sp_pop(spm[c]) == 2 && spm[c] != 5 && spm[c] != 10;
+    loop(4, (spm[c] & (1 << d)) ? sp_arm_draw((c * 4 + d) * SPK, w * 1.9, 0, 0); d += 1; );
+      gfx_set(0.08 + (cr * 0.4 - 0.08) * l, 0.084 + (cg * 0.4 - 0.084) * l, 0.097 + (cb * 0.4 - 0.097) * l, 1);
+      d = 0;
+      g_sp_cv = sp_pop(spm[c]) == 2 && spm[c] != 5 && spm[c] != 10;
+    loop(4, (spm[c] & (1 << d)) ? sp_arm_draw((c * 4 + d) * SPK, w * 1.4, 0, 0); d += 1; );
+    );
+    c += 1;
+  );
+  c = 0;
+  loop(g_sp_n,
+    l = spl[c];
+    gfx_set(0.16 + (cr * 0.42 - 0.16) * l, 0.165 + (cg * 0.42 - 0.165) * l, 0.19 + (cb * 0.42 - 0.19) * l, 1);
+    d = 0;
+    g_sp_cv = sp_pop(spm[c]) == 2 && spm[c] != 5 && spm[c] != 10;
+    loop(4, (spm[c] & (1 << d)) ? sp_arm_draw((c * 4 + d) * SPK, w, 0, 0); d += 1; );
+    c += 1;
+  );
+  c = 0;
+  loop(g_sp_n,
+    l = spl[c];
+    gfx_set(0.27 + (cr * 0.85 - 0.27) * l, 0.28 + (cg * 0.85 - 0.28) * l, 0.31 + (cb * 0.85 - 0.31) * l, 1);
+    d = 0;
+    g_sp_cv = sp_pop(spm[c]) == 2 && spm[c] != 5 && spm[c] != 10;
+    loop(4, (spm[c] & (1 << d)) ? sp_arm_draw((c * 4 + d) * SPK, w * 0.32, -w * 0.12, -w * 0.18); d += 1; );
+    c += 1;
+  );
+
+  c = 0;
+  loop(g_sp_n,
+    d = 0;
+    loop(4,
+      (spm[c] & (1 << d)) ? (
+        o = (c * 4 + d) * SPK + SPK - 1;
+        gfx_set(0, 0, 0, 0.4);
+        gfx_circle(spgx[o] + 1.5 * g_s, spgy[o] + 2 * g_s, w * 0.56, 1, 1);
+        gfx_set(0.34, 0.35, 0.38, 1);
+        gfx_circle(spgx[o], spgy[o], w * 0.56, 1, 1);
+        gfx_set(0.5, 0.51, 0.55, 1);
+        gfx_circle(spgx[o] - w * 0.1, spgy[o] - w * 0.12, w * 0.2, 1, 1);
+      );
+      d += 1;
+    );
+    c += 1;
+  );
+
+  per = g_sp_won ? 1 : 3;
+  c = 0;
+  loop(g_sp_n,
+    m = sp_pop(spm[c]);
+    l = spl[c];
+    u = g_sp_ph - spd[c];
+    c == g_sp_src ? 0 :
+    m == 1 ? (
+      dl = u - 0.5;
+      env = split[c] ? exp(-6 * (dl - per * floor(dl / per))) : 0;
+      sp_speaker(c, l, env);
+    ) :
+    (m == 2 && (spm[c] == 5 || spm[c] == 10) && spph[c] < 0.4) ? sp_pedal(c, l) :
+    m >= 3 ? (
+      sp_set_rot(c);
+      sp_xf(0, 0);
+      gfx_set(0, 0, 0, 0.45);
+      gfx_circle(g_qx + 2 * g_s, g_qy + 3 * g_s, w * 1.2, 1, 1);
+      gfx_set(0.3, 0.31, 0.34, 1);
+      gfx_circle(g_qx, g_qy, w * 1.2, 1, 1);
+      gfx_set(0.14, 0.145, 0.16, 1);
+      gfx_circle(g_qx, g_qy, w * 0.85, 1, 1);
+      l > 0.02 ? glow(g_qx, g_qy, w * 0.32, cr, cg, cb, l) : ( gfx_set(0.24, 0.25, 0.27, 1); gfx_circle(g_qx, g_qy, w * 0.32, 1, 1); );
+    );
+    c += 1;
+  );
+  sp_source(g_sp_src);
+
+  c = 0;
+  loop(g_sp_n,
+    split[c] && spl[c] > 0.5 && abs(spa[c] - spr[c]) < 0.01 ? (
+      u = g_sp_ph - spd[c];
+      wi = floor(u); f = u - wi;
+      (wi % per) == 0 ? (
+        pb = c == g_sp_src ? -1 : (spp[c] - spr[c]) & 3;
+        a = g_sp_won ? 1 : 0.8;
+        f < 0.5 ? (
+          pb >= 0 ? (
+            sp_arm_at((c * 4 + pb) * SPK, 1 - 2 * f);
+            glow(g_qx, g_qy, w * 0.3, cr, cg, cb, a);
+          );
+        ) : (
+          d = 0;
+          loop(4,
+            (d != pb && (spm[c] & (1 << d))) ? (
+              sp_arm_at((c * 4 + d) * SPK, 2 * f - 1);
+              glow(g_qx, g_qy, w * 0.3, cr, cg, cb, a);
+            );
+            d += 1;
+          );
+        );
+      );
+      d = 0;
+      loop(4,
+        (spo[c] & (1 << ((d + spr[c]) & 3))) ? (
+          o = (c * 4 + d) * SPK + SPK - 1;
+          glow(spgx[o], spgy[o], w * (0.35 + 0.15 * sin(g_t * 23 + c * 1.7 + d)), 1, 0.42, 0.25, 0.6 + 0.3 * sin(g_t * 17 + c));
+        );
+        d += 1;
+      );
+    );
+    c += 1;
+  );
+);
+
+function sp_tick() local(c, k, rate)
+(
+  rate = 12 * g_dt;
+  c = 0;
+  loop(g_sp_n,
+    g_t - g_sp_t0 >= spst[c] ? (
+      k = spr[c] - spa[c];
+      spa[c] += abs(k) <= rate ? k : sign(k) * rate;
+    );
+    spl[c] += ((split[c] && abs(spa[c] - spr[c]) < 0.01 ? 1 : 0) - spl[c]) * min(1, g_dt * 9);
+    c += 1;
+  );
+  g_sp_ph = 300 + g_t * (g_sp_won ? 3.2 : 2.2);
+);
+
+function sp_celebrate() local(c, k, a, sp0)
+(
+  c = 0;
+  loop(g_sp_n,
+    (c != g_sp_src && sp_pop(spm[c]) == 1) ? (
+      sp_cell_xy(c);
+      loop(10,
+        a = rand(1) * 2 * $pi;
+        sp0 = 50 + rand(1) * 170;
+        spawn(g_tcx, g_tcy, cos(a) * sp0, sin(a) * sp0 - 60, spcr[g_sp_ci], spcg[g_sp_ci], spcb[g_sp_ci], 0.8 + rand(1) * 1.1);
+      );
+    );
+    c += 1;
+  );
+);
+
+function draw_signal() local(c, hc, cx, cy, ready, k, i, cr, cg, cb, a)
+(
+  g_pgrav = 140;
+  g_sp_lv < 1 ? sp_start(max(1, sv2[0]));
+  cr = spcr[g_sp_ci]; cg = spcg[g_sp_ci]; cb = spcb[g_sp_ci];
+  ready = g_t - g_sp_t0 > 0.9;
+  hc = -1;
+  cx = floor((g_mx - g_sp_x0) / g_sp_ts); cy = floor((g_my - g_sp_y0) / g_sp_ts);
+  (cx >= 0 && cx < g_sp_c && cy >= 0 && cy < g_sp_r && !g_sp_won) ? hc = cy * g_sp_c + cx;
+  hc >= 0 && ready ? (
+    g_click ? (
+      g_click = 0;
+      spr[hc] += 1;
+      spr[hc] >= 4 ? ( spr[hc] -= 4; spa[hc] -= 4; );
+      g_sp_moves += 1;
+    ) : g_rclick ? (
+      spr[hc] -= 1;
+      spr[hc] < 0 ? ( spr[hc] += 4; spa[hc] += 4; );
+      g_sp_moves += 1;
+    );
+  );
+  k = sp_light();
+  !g_sp_won && ready ? (
+    g_sp_time += g_dt;
+    k ? (
+      g_sp_won = 1; g_sp_won_t = g_t;
+      sv[0] = 1;
+      sv2[0] = g_sp_lv + 1;
+      sv2[1] += 1;
+      g_sp_moves <= g_sp_par ? sv2[2] += 1;
+      sp_celebrate();
+    );
+  );
+  sp_tick();
+  sp_scene(ready ? hc : -1);
+
+  g_sp_won ? (
+    a = g_t - g_sp_won_t;
+    a < 1.6 ? (
+      sp_cell_xy(g_sp_src);
+      gfx_mode = 1;
+      gfx_set(cr, cg, cb, 0.35 * (1 - a / 1.6));
+      gfx_circle(sx(g_tcx), sy(g_tcy), a * 520 * g_s, 0, 1);
+      gfx_circle(sx(g_tcx), sy(g_tcy), a * 520 * g_s + 1, 0, 1);
+      gfx_mode = 0;
+    );
+  );
+  particles();
+
+  button("< Games", 18, 14, 96, 36, 0.4, 0.95, 0.78) ? g_screen = 0;
+  button("New", 122, 14, 64, 36, cr, cg, cb) ? sp_start(g_sp_lv);
+  g_t - g_sp_rst_t > 3 ? g_sp_rst_t = -1000;
+  g_sp_rst_t > 0 ? (
+    button("Sure?", 194, 14, 100, 36, 1, 0.4, 0.35) ? ( g_sp_rst_t = -1000; sv2[0] = 1; sv2[1] = 0; sv2[2] = 0; sp_start(1); );
+  ) : (
+    button("Start over", 194, 14, 100, 36, 1, 0.4, 0.35) ? g_sp_rst_t = g_t;
+  );
+  font(18, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  sprintf(#g_tt, "Signal Path  -  Level %d", g_sp_lv);
+  txt_c(#g_tt, 310, 14, 270, 36);
+  font(13, 'b');
+  sprintf(#g_tt, "%d of %d speakers", g_sp_on, g_sp_nspk);
+  g_sp_on == g_sp_nspk ? pill(#g_tt, 596, 18, 136, 28, cr, cg, cb, 1) : pill(#g_tt, 596, 18, 136, 28, 0.62, 0.64, 0.68, 0.8);
+  font(13, 0);
+  gfx_set(0.78, 0.8, 0.84, 1);
+  g_sp_moves == 1 ? strcpy(#g_tt, "1 turn") : sprintf(#g_tt, "%d turns", g_sp_moves);
+  txt_c(#g_tt, 738, 14, 80, 36);
+  gfx_set(0.95, 0.96, 0.98, 1);
+  font(14, 'b');
+  txt_r(fmt_time(g_sp_time), 880, 23);
+
+  hint("Click a tile to turn it clockwise, right-click to turn it back. Get the signal from the input to every speaker.", HINT_Y);
+
+  g_sp_won ? (
+    sprintf(#g_l1, "Level %d routed in %s with %d turns", g_sp_lv, fmt_time(g_sp_time), g_sp_moves);
+    sprintf(#g_l2, "Par for this layout: %d turns.   Levels routed: %d", g_sp_par, sv2[1]);
+    i = win_card(g_sp_moves <= g_sp_par ? "Perfect routing!" : "On air!", g_sp_won_t + 1, cr, cg, cb);
+    i == 1 ? sp_start(g_sp_lv + 1) : i == 2 ? g_screen = 0;
+  );
+);
+
+function pv_signal(x, y, w, h) local(k)
+(
+  g_sp_lv < 1 ? sp_start(max(1, sv2[0]));
+  sp_light();
+  sp_tick();
+  k = max(w / BRD_W, h / BRD_H);
+  pv_begin(x, y, w, h, max(1, min(w / k / (g_sp_c * g_sp_ts + 34), h / k / (g_sp_r * g_sp_ts + 34))));
+  sp_scene(-1);
+  pv_end();
+);

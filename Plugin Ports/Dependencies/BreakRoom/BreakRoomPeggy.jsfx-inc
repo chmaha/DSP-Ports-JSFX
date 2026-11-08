@@ -1,0 +1,2119 @@
+@init
+function db_ceil_init() local(n, a, x, y, vx, vy, k, b, h)
+(
+  b = 0; loop(240, dbc[b] = 100000; b += 1; );
+  h = 1 / 240;
+  n = 0;
+  loop(241,
+    a = DB_A0 + n * (DB_A1 - DB_A0) / 240;
+    x = 450 + cos(a) * DB_ML; y = DB_LY + sin(a) * DB_ML;
+    vx = cos(a) * DB_V0; vy = sin(a) * DB_V0;
+    k = 0;
+    while (k < 1200 && y < DB_BOT + 40) (
+      vy += DB_G * h; x += vx * h; y += vy * h;
+      x < BRD_X + DB_R ? ( x = BRD_X + DB_R; vx = abs(vx) * 0.8; );
+      x > BRD_X + BRD_W - DB_R ? ( x = BRD_X + BRD_W - DB_R; vx = -abs(vx) * 0.8; );
+      b = max(0, min(239, floor(x / 4)));
+      dbc[b] = min(dbc[b], y);
+      k += 1;
+    );
+    n += 1;
+  );
+);
+
+function db_ceil(x) local(b, f)
+(
+  b = max(0, min(238, floor(x / 4))); f = max(0, min(1, x / 4 - b));
+  max(dbc[b], dbc[b + 1]);
+);
+
+function db_cok(x, y) ( y >= db_ceil(x) - 10; );
+
+function db_zok(x, y) local(z, ok, d)
+(
+  ok = 1; z = 0;
+  while (ok && z < g_db_nz) (
+    d = sqrt((x - dzx[z]) * (x - dzx[z]) + (y - dzy[z]) * (y - dzy[z]));
+    dzt[z] == 1 ? ( abs(d - dzr[z]) < 40 ? ok = 0; ) :
+    dzt[z] == 2 ? ( d < dzr[z] + 40 ? ok = 0; ) :
+    ( (abs(x - dzx[z]) < dzw[z] + 40 && abs(y - dzy[z]) < dzh[z] + 40) ? ok = 0; );
+    z += 1;
+  );
+  ok;
+);
+
+function db_zfit(x, y, rb) local(z, ok)
+(
+  ok = x - rb > BRD_X + 38 && x + rb < BRD_X + BRD_W - 38 && y - rb > DB_TOP - 26 && y + rb < DB_BOT + 26 && g_db_nz < NDZ - 1;
+  z = 0; loop(13, ok && !db_cok(x + rb * cos($pi + z * $pi / 12), y + rb * sin($pi + z * $pi / 12)) ? ok = 0; z += 1; );
+  z = 0;
+  while (ok && z < g_db_nz) (
+    (x - dzx[z]) * (x - dzx[z]) + (y - dzy[z]) * (y - dzy[z]) < (rb + dzb[z] + 24) * (rb + dzb[z] + 24) ? ok = 0;
+    z += 1;
+  );
+  ok;
+);
+
+function db_zadd(t, x, y, rr, w, h, rb)
+(
+  dzt[g_db_nz] = t; dzx[g_db_nz] = x; dzy[g_db_nz] = y; dzr[g_db_nz] = rr; dzw[g_db_nz] = w; dzh[g_db_nz] = h; dzb[g_db_nz] = rb;
+  g_db_nz += 1;
+);
+
+function db_free(x, y) local(i, ok, ddx, ddy, ex, ey, l2, t)
+(
+  ok = x > BRD_X + 44 && x < BRD_X + BRD_W - 44 && y > DB_TOP && y < DB_BOT && db_cok(x, y) && db_zok(x, y);
+  i = 0;
+  while (ok && i < g_db_n) (
+    (g_db_cc >= 0 && dpc[i] == g_db_cc) ? 0 : dpt[i] ? (
+      ex = dpx2[i] - dpx[i]; ey = dpy2[i] - dpy[i];
+      l2 = ex * ex + ey * ey;
+      t = max(0, min(1, ((x - dpx[i]) * ex + (y - dpy[i]) * ey) / l2));
+      ddx = x - dpx[i] - ex * t; ddy = y - dpy[i] - ey * t;
+      ddx * ddx + ddy * ddy < 36 * 36 ? ok = 0;
+    ) : (
+      ddx = x - dpx[i]; ddy = y - dpy[i];
+      ddx * ddx + ddy * ddy < 40 * 40 ? ok = 0;
+    );
+    i += 1;
+  );
+  ok;
+);
+
+function db_put(x, y) local(r)
+(
+  r = 0;
+  (g_db_n < NDP && db_free(x, y)) ? (
+    dpx[g_db_n] = x; dpy[g_db_n] = y; dpt[g_db_n] = 0; dpm[g_db_n] = 0; dpb[g_db_n] = 0; dpc[g_db_n] = g_db_cc;
+    g_db_n += 1; r = 1;
+  );
+  r;
+);
+
+function db_peg(x, y)
+(
+  abs(x - 450) < 13 ? db_put(450, y) : ( db_put(x, y) ? db_put(900 - x, y); );
+);
+
+function db_putb(x1, y1, x2, y2) local(r)
+(
+  r = 0;
+  (g_db_n < NDP && db_free(x1, y1) && db_free(x2, y2) && db_free((x1 + x2) * 0.5, (y1 + y2) * 0.5)) ? (
+    dpx[g_db_n] = x1; dpy[g_db_n] = y1; dpx2[g_db_n] = x2; dpy2[g_db_n] = y2; dpt[g_db_n] = 1; dpm[g_db_n] = 0; dpb[g_db_n] = 0; dpc[g_db_n] = g_db_cc; dpo1[g_db_n] = g_db_o1; dpo2[g_db_n] = g_db_o2;
+    g_db_n += 1; r = 1;
+  );
+  r;
+);
+
+function db_brick(x1, y1, x2, y2)
+(
+  (abs(x1 - 450) < 13 && abs(x2 - 450) < 13) ? db_putb(x1, y1, x2, y2) :
+  ( db_putb(x1, y1, x2, y2) ? db_putb(900 - x1, y1, 900 - x2, y2); );
+);
+
+function db_mg(t, cx, cy, w, a, p) local(g)
+(
+  g = g_db_ng; g_db_ng += 1;
+  dmt[g] = t; dmx[g] = cx; dmy[g] = cy; dmw[g] = w; dma[g] = a; dmp[g] = p;
+  g;
+);
+
+function db_mset(i, g)
+(
+  dpm[i] = g + 1;
+  dmt[g] == 1 ? (
+    dpbx[i] = dpx[i] - dmx[g]; dpby[i] = dpy[i] - dmy[g];
+    dpbx2[i] = dpx2[i] - dmx[g]; dpby2[i] = dpy2[i] - dmy[g];
+  ) : (
+    dpbx[i] = dpx[i]; dpby[i] = dpy[i]; dpbx2[i] = dpx2[i]; dpby2[i] = dpy2[i];
+  );
+);
+
+// ==== Brick chains ====
+function db_awrap(a) ( a - 2 * $pi * floor((a + $pi) / (2 * $pi)); );
+
+function db_cbrick(x1, y1, x2, y2, mir, t0, t1) local(d, ux, uy, ok, da)
+(
+  d = sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+  ok = d > 2 * DB_BT + 2;
+  ok ? (
+    ux = (x2 - x1) / d; uy = (y2 - y1) / d;
+    da = atan2(uy, ux);
+    g_db_o1 = max(-0.7, min(0.7, db_awrap(t0 - da))); g_db_o2 = max(-0.7, min(0.7, db_awrap(t1 - da)));
+    x1 += ux * DB_BT; y1 += uy * DB_BT; x2 -= ux * DB_BT; y2 -= uy * DB_BT;
+    g_db_cg >= 0 ? ( ok = db_putb(x1, y1, x2, y2); ok ? db_mset(g_db_n - 1, g_db_cg); ) : (
+      ok = db_putb(x1, y1, x2, y2);
+      (ok && mir) ? ( g_db_o1 = -g_db_o1; g_db_o2 = -g_db_o2; ok = db_putb(900 - x1, y1, 900 - x2, y2); );
+    );
+    g_db_o1 = 0; g_db_o2 = 0;
+  );
+  ok;
+);
+
+function db_cwalk(n, closed, mir) local(i, tot, nb, step, k, s0, s1, j, acc, px, py, qx, qy, f, sl, x1, y1, x2, y2, fail, i0, t0, t1)
+(
+  tot = 0; i = 1;
+  loop(n - 1, tot += sqrt((dbqx[i] - dbqx[i - 1]) * (dbqx[i] - dbqx[i - 1]) + (dbqy[i] - dbqy[i - 1]) * (dbqy[i] - dbqy[i - 1])); i += 1; );
+  nb = closed ? max(6, floor(tot / (DB_BL + DB_BG) + 0.5)) : max(1, floor((tot + DB_BG) / (DB_BL + DB_BG)));
+  step = closed ? tot / nb : (tot + DB_BG) / nb;
+  g_db_cc = g_db_ccn; g_db_ccn += 1;
+  i0 = g_db_n; fail = 0;
+  k = 0;
+  while (k < nb && !fail) (
+    s0 = k * step; s1 = s0 + step - DB_BG;
+    j = 1; acc = 0; x1 = dbqx[0]; y1 = dbqy[0]; x2 = x1; y2 = y1;
+    t0 = atan2(dbqy[1] - dbqy[0], dbqx[1] - dbqx[0]); t1 = atan2(dbqy[n - 1] - dbqy[n - 2], dbqx[n - 1] - dbqx[n - 2]);
+    while (j < n) (
+      px = dbqx[j - 1]; py = dbqy[j - 1]; qx = dbqx[j]; qy = dbqy[j];
+      sl = sqrt((qx - px) * (qx - px) + (qy - py) * (qy - py));
+      (s0 >= acc && s0 <= acc + sl && sl > 0) ? ( f = (s0 - acc) / sl; x1 = px + (qx - px) * f; y1 = py + (qy - py) * f; t0 = atan2(qy - py, qx - px); );
+      (s1 >= acc && s1 <= acc + sl && sl > 0) ? ( f = (s1 - acc) / sl; x2 = px + (qx - px) * f; y2 = py + (qy - py) * f; t1 = atan2(qy - py, qx - px); );
+      acc += sl; j += 1;
+    );
+    s1 > acc ? ( x2 = dbqx[n - 1]; y2 = dbqy[n - 1]; );
+    (k == 0 && g_db_cvs) ? t0 = x2 < x1 ? $pi : 0;
+    !db_cbrick(x1, y1, x2, y2, mir, t0, t1) ? fail = 1;
+    k += 1;
+  );
+  (fail && g_db_cg < 0) ? g_db_n = i0;
+  g_db_cc = -1; g_db_cvs = 0;
+  !fail;
+);
+
+function db_cline(x1, y1, x2, y2, mir) local(n, i, d)
+(
+  d = sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+  n = min(2000, max(2, ceil(d / 3) + 1));
+  i = 0; loop(n, dbqx[i] = x1 + (x2 - x1) * i / (n - 1); dbqy[i] = y1 + (y2 - y1) * i / (n - 1); i += 1; );
+  db_cwalk(n, 0, mir);
+);
+
+function db_carc(cx, cy, r, a0, a1, mir) local(n, i, a, cl)
+(
+  cl = abs(a1 - a0) >= 2 * $pi - 0.001;
+  n = min(2000, max(3, ceil(r * abs(a1 - a0) / 3) + 1));
+  i = 0; loop(n, a = a0 + (a1 - a0) * i / (n - 1); dbqx[i] = cx + cos(a) * r; dbqy[i] = cy + sin(a) * r; i += 1; );
+  db_cwalk(n, cl, mir);
+);
+
+function db_cpara(x0, x1, y0, amp, mir) local(n, i, x)
+(
+  n = min(2000, max(2, ceil(abs(x1 - x0) / 3) + 1));
+  i = 0; loop(n, x = x0 + (x1 - x0) * i / (n - 1); dbqx[i] = x; dbqy[i] = y0 + amp * ((x - 450) / 370) * ((x - 450) / 370); i += 1; );
+  db_cwalk(n, 0, mir);
+);
+
+function db_ccurve(x1, y1, x2, y2, bulge, mir) local(n, i, t, d, cx, cy, nx, ny)
+(
+  d = sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+  nx = -(y2 - y1) / d; ny = (x2 - x1) / d;
+  ny > 0 ? ( nx = -nx; ny = -ny; );
+  abs(ny) < 0.01 ? ( nx = 1; ny = 0; );
+  cx = (x1 + x2) * 0.5 + nx * bulge * 2; cy = (y1 + y2) * 0.5 + ny * bulge * 2;
+  n = min(2000, max(3, ceil(d / 3) + 1));
+  i = 0;
+  loop(n,
+    t = i / (n - 1);
+    dbqx[i] = (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * cx + t * t * x2;
+    dbqy[i] = (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * cy + t * t * y2;
+    i += 1;
+  );
+  db_cwalk(n, 0, mir);
+);
+
+function db_cslope(x0, y0, dx, dy, mir) local(n, i, t)
+(
+  n = min(2000, max(3, ceil(sqrt(dx * dx + dy * dy) / 3) + 1));
+  i = 0;
+  loop(n,
+    t = i / (n - 1);
+    dbqx[i] = x0 - dx * t; dbqy[i] = y0 + dy * (t + 0.6 * sin(2 * $pi * t) / (2 * $pi));
+    i += 1;
+  );
+  db_cwalk(n, 0, mir);
+);
+
+function db_ring(cx, cy, r, br) local(n, k, a, b)
+(
+  br ? ( a = rand(1) * 2 * $pi; db_carc(cx, cy, r, a, a + 2 * $pi, abs(cx - 450) > 13); ) : (
+    n = max(6, floor(2 * $pi * r / 42));
+    k = 0;
+    loop(n,
+      a = 2 * $pi * k / n;
+      db_peg(cx + cos(a) * r, cy + sin(a) * r);
+      k += 1;
+    );
+  );
+);
+
+function db_mput(x, y, g) ( db_put(x, y) ? db_mset(g_db_n - 1, g); );
+
+function db_mputb(x1, y1, x2, y2, g) ( db_putb(x1, y1, x2, y2) ? db_mset(g_db_n - 1, g); );
+
+function db_mmirror(g, i0) local(g2, i, i1)
+(
+  g2 = db_mg(dmt[g], 900 - dmx[g], dmy[g], dmt[g] == 1 ? -dmw[g] : dmw[g], dmt[g] == 2 ? -dma[g] : dma[g], dmp[g]);
+  g_db_cc = i0 < g_db_n ? dpc[i0] : -1;
+  i = i0; i1 = g_db_n;
+  while (i < i1) (
+    dpt[i] ? ( db_mputb(900 - dpx[i], dpy[i], 900 - dpx2[i], dpy2[i], g2) ? ( dpo1[g_db_n - 1] = -dpo1[i]; dpo2[g_db_n - 1] = -dpo2[i]; ); ) : db_mput(900 - dpx[i], dpy[i], g2);
+    i += 1;
+  );
+  g_db_cc = -1;
+);
+
+function db_move() local(g, i, a, x, y)
+(
+  g = 0;
+  loop(g_db_ng,
+    a = dmp[g] + dmw[g] * g_db_mt;
+    dmt[g] == 1 ? ( dmc[g] = cos(a); dms[g] = sin(a); ) : ( dmo[g] = dma[g] * sin(a); dmv[g] = dma[g] * dmw[g] * cos(a); );
+    g += 1;
+  );
+  i = 0;
+  loop(g_db_n,
+    (dpm[i] && dps[i] <= 2) ? (
+      g = dpm[i] - 1;
+      dmt[g] == 1 ? (
+        dpx[i] = dmx[g] + dmc[g] * dpbx[i] - dms[g] * dpby[i]; dpy[i] = dmy[g] + dms[g] * dpbx[i] + dmc[g] * dpby[i];
+        dpt[i] ? ( dpx2[i] = dmx[g] + dmc[g] * dpbx2[i] - dms[g] * dpby2[i]; dpy2[i] = dmy[g] + dms[g] * dpbx2[i] + dmc[g] * dpby2[i]; );
+      ) : dmt[g] == 2 ? (
+        dpx[i] = dpbx[i] + dmo[g]; dpx2[i] = dpbx2[i] + dmo[g];
+      ) : (
+        dpy[i] = dpby[i] + dmo[g]; dpy2[i] = dpby2[i] + dmo[g];
+      );
+    );
+    i += 1;
+  );
+);
+
+function db_pvel(i, px, py) local(g)
+(
+  g_db_pvx = 0; g_db_pvy = 0;
+  dpm[i] ? (
+    g = dpm[i] - 1;
+    dmt[g] == 1 ? ( g_db_pvx = -dmw[g] * (py - dmy[g]); g_db_pvy = dmw[g] * (px - dmx[g]); ) :
+    dmt[g] == 2 ? g_db_pvx = dmv[g] : g_db_pvy = dmv[g];
+  );
+);
+
+function db_mring(cx, cy, r, w, br, sparse, mir) local(g, i0, n, k, a, b, st)
+(
+  g = db_mg(1, cx, cy, w, 0, 0);
+  i0 = g_db_n;
+  n = max(6, floor(2 * $pi * r / (br ? 46 : 42)));
+  st = sparse ? floor(n / (3 + floor(rand(1) * 2))) : 1;
+  br ? ( g_db_cg = g; db_carc(cx, cy, r, 0, 2 * $pi, 0); g_db_cg = -1; ) : (
+    k = 0;
+    while (k < n) (
+      a = 2 * $pi * k / n;
+      db_mput(cx + cos(a) * r, cy + sin(a) * r, g);
+      k += st;
+    );
+  );
+  mir ? db_mmirror(g, i0);
+  db_peg(cx, cy);
+  r > 76 ? ( k = 0; loop(3, a = $pi * 0.5 + k * 2 * $pi / 3; db_peg(cx + cos(a) * 27, cy + sin(a) * 27); k += 1; ); );
+  db_zadd(1, cx, cy, r, 0, 0, r + 16);
+  mir ? db_zadd(1, 900 - cx, cy, r, 0, 0, r + 16);
+);
+
+function db_mmill(cx, cy, m, na, w, br, mir) local(g, i0, k, j, a, rr)
+(
+  db_put(cx, cy);
+  mir ? db_put(900 - cx, cy);
+  g = db_mg(1, cx, cy, w, 0, 0);
+  i0 = g_db_n;
+  k = 0;
+  loop(na,
+    a = 2 * $pi * k / na;
+    br ? ( g_db_cg = g; db_cline(cx + cos(a) * 20, cy + sin(a) * 20, cx + cos(a) * (m * 42 + 4), cy + sin(a) * (m * 42 + 4), 0); g_db_cg = -1; ) : (
+      j = 1;
+      loop(m, rr = j * 42; db_mput(cx + cos(a) * rr, cy + sin(a) * rr, g); j += 1; );
+    );
+    k += 1;
+  );
+  mir ? db_mmirror(g, i0);
+  db_zadd(2, cx, cy, m * 42, 0, 0, m * 42 + 16);
+  mir ? db_zadd(2, 900 - cx, cy, m * 42, 0, 0, m * 42 + 16);
+);
+
+function db_mslide(cx, cy, n, amp, w, mir) local(g, i0, k, hw)
+(
+  hw = (n - 1) * 22;
+  g = db_mg(2, cx, cy, w, amp, rand(1) * 2 * $pi);
+  i0 = g_db_n;
+  k = 0;
+  loop(n, db_mput(cx - hw + k * 44, cy, g); k += 1; );
+  mir ? db_mmirror(g, i0);
+  db_zadd(3, cx, cy, 0, hw + amp + 6, 6, hw + amp + 16);
+  mir ? db_zadd(3, 900 - cx, cy, 0, hw + amp + 6, 6, hw + amp + 16);
+);
+
+function db_mlift(cx, cy, amp, w, mir) local(g, i0)
+(
+  g = db_mg(3, cx, cy, w, amp, rand(1) * 2 * $pi);
+  i0 = g_db_n;
+  g_db_cg = g; db_carc(cx, cy + 46, 50, -$pi * 0.5 - 0.78, -$pi * 0.5 + 0.78, 0); g_db_cg = -1;
+  mir ? db_mmirror(g, i0);
+  db_zadd(3, cx, cy, 0, 36, amp + 6, amp + 40);
+  mir ? db_zadd(3, 900 - cx, cy, 0, 36, amp + 6, amp + 40);
+);
+
+function db_moving(lv) local(np, spd, k, tries, ty, ok, cx, cy, r, rb, m, n, amp, mir, w, mid)
+(
+  spd = 1 + min(0.6, (lv - 11) * 0.04);
+  mid = (DB_TOP + DB_BOT) * 0.5;
+  (lv >= 20 && lv % 5 == 0) ? (
+    lv % 10 == 0 ? (
+      r = 148 + rand(1) * 14;
+      db_mring(450, mid, r, (rand(1) < 0.5 ? 1 : -1) * 0.3 * spd, rand(1) < 0.5, 0, 0);
+      db_ring(450, mid, 64, 0);
+      np = 1;
+    ) : (
+      db_mmill(250, mid, 3, 2 + floor(rand(1) * 2), 0.34 * spd, rand(1) < 0.5, 1);
+      np = 1;
+    );
+  ) : (
+    np = lv < 13 ? 1 : lv < 16 ? 2 : (lv < 22 && rand(1) < 0.5) ? 2 : 3;
+  );
+  k = (lv >= 20 && lv % 5 == 0) ? np : 0;
+  tries = 0;
+  while (k < np && tries < 60) (
+    tries += 1;
+    ty = lv < 12 ? 0 : lv < 13 ? floor(rand(1) * 2) * 2 : min(3, floor(rand(1) * 4));
+    mir = rand(1) > 0.25;
+    ty == 0 ? (
+      r = 52 + rand(1) * 42; rb = r + 16;
+    ) : ty == 1 ? (
+      m = 2 + (rand(1) < 0.4); rb = m * 42 + 16;
+    ) : ty == 2 ? (
+      n = 3 + floor(rand(1) * 3); amp = 34 + rand(1) * 40; rb = (n - 1) * 22 + amp + 16;
+    ) : (
+      amp = 34 + rand(1) * 26; rb = amp + 40;
+    );
+    cx = mir ? BRD_X + 24 + rb + rand(1) * max(0, 450 - (BRD_X + 24) - 2 * rb - 12) : 450;
+    cy = DB_TOP - 26 + rb + rand(1) * max(0, DB_BOT - DB_TOP + 52 - 2 * rb);
+    ok = db_zfit(cx, cy, rb) && (!mir || (db_zfit(900 - cx, cy, rb) && 900 - 2 * cx > 2 * rb + 24));
+    ok ? (
+      w = (rand(1) < 0.5 ? 1 : -1) * spd;
+      ty == 0 ? db_mring(cx, cy, r, w * (0.45 + rand(1) * 0.3), rand(1) < 0.3, rand(1) < 0.3, mir) :
+      ty == 1 ? db_mmill(cx, cy, m, 2 + floor(rand(1) * 2), w * (0.35 + rand(1) * 0.25), rand(1) < 0.5, mir) :
+      ty == 2 ? db_mslide(cx, cy, n, amp, abs(w) * 2 * $pi * (0.12 + rand(1) * 0.08), mir) :
+      db_mlift(cx, cy, amp, abs(w) * 2 * $pi * (0.14 + rand(1) * 0.08), mir);
+      k += 1;
+    );
+  );
+);
+
+function db_cspiral(cx, cy, r0, r1, turns, a0, dir, mir) local(n, i, t, r, a)
+(
+  n = min(2000, max(3, ceil(2 * $pi * turns * (r0 + r1) * 0.5 / 3) + 1));
+  i = 0;
+  loop(n,
+    t = i / (n - 1); r = r0 + (r1 - r0) * t; a = a0 + dir * 2 * $pi * turns * t;
+    dbqx[i] = cx + cos(a) * r; dbqy[i] = cy + sin(a) * r;
+    i += 1;
+  );
+  db_cwalk(n, 0, mir);
+);
+
+function db_bpattern(q) local(cx, cy, r, h, g, rot, len, x, y0, n, j, s, mir, ok, a)
+(
+  mir = rand(1) < 0.7;
+  q == 0 ? (
+    mir ? ( r = 45 + rand(1) * 45; cx = 90 + r + rand(1) * max(0, 340 - 2 * r); ) : ( r = 70 + rand(1) * 70; cx = 450; );
+    cy = DB_TOP + r + 10 + rand(1) * max(0, DB_BOT - DB_TOP - 2 * r - 20);
+    a = rand(1) * 2 * $pi; db_carc(cx, cy, r, a, a + 2 * $pi, mir);
+  ) : q == 1 ? (
+    mir ? ( r = 50 + rand(1) * 45; cx = 90 + r + rand(1) * max(0, 340 - 2 * r); ) : ( r = 80 + rand(1) * 70; cx = 450; );
+    cy = DB_TOP + r + 10 + rand(1) * max(0, DB_BOT - DB_TOP - 2 * r - 20);
+    h = 0.55 + rand(1) * 0.6; rot = (rand(1) * 2 - 1) * (h - 0.15);
+    mir ? 0 : rot = 0;
+    db_carc(cx, cy, r, $pi * 0.5 + rot + h, $pi * 0.5 + rot + 2 * $pi - h, mir);
+  ) : q == 2 ? (
+    r = 82 + rand(1) * 18;
+    mir ? cx = 90 + r + rand(1) * max(0, 340 - 2 * r) : cx = 450;
+    cy = DB_TOP + r + 10 + rand(1) * max(0, DB_BOT - DB_TOP - 2 * r - 20);
+    db_cspiral(cx, cy, 32, r, 1.25, rand(1) * 2 * $pi, rand(1) < 0.5 ? 1 : -1, mir);
+  ) : q == 3 ? (
+    n = 3 + floor(rand(1) * 4); len = n * (DB_BL + DB_BG) - DB_BG;
+    x = 90 + rand(1) * 300; y0 = DB_TOP + 10 + rand(1) * max(0, DB_BOT - DB_TOP - len - 20);
+    j = 0; s = rand(1) < 0.4 ? 2 : 1;
+    loop(s, db_cline(x - j * 64, y0, x - j * 64, y0 + len, 1); j += 1; );
+  ) : q == 4 ? (
+    n = 3 + floor(rand(1) * 4); len = n * (DB_BL + DB_BG) - DB_BG;
+    r = 150 + rand(1) * 170; h = asin(min(0.95, len * 0.5 / r));
+    x = 110 + rand(1) * 280; cy = DB_TOP + 10 + len * 0.5 + rand(1) * max(0, DB_BOT - DB_TOP - len - 20);
+    rand(1) < 0.5 ? db_carc(x - r, cy, r, -h, h, 1) : db_carc(x + r, cy, r, $pi - h, $pi + h, 1);
+  ) : (
+    mir ? ( r = 140 + rand(1) * 180; h = asin(min(0.95, (70 + rand(1) * 60) / r)); cx = 110 + r * sin(h) + rand(1) * max(0, 320 - 2 * r * sin(h)); )
+        : ( r = 180 + rand(1) * 240; h = asin(min(0.95, (110 + rand(1) * 100) / r)); cx = 450; );
+    cy = DB_TOP + 30 + rand(1) * (DB_BOT - DB_TOP - 80) + r;
+    db_carc(cx, cy, r, $pi * 1.5 - h, $pi * 1.5 + h, mir);
+  );
+);
+
+function db_pattern(p) local(x, y, k, a, r, cx, cy, y0, amp, n, dx, dy, j, br)
+(
+  br = 0;
+  p == 0 ? (
+    cx = 450 - 130 - rand(1) * 170; cy = DB_TOP + 60 + rand(1) * (DB_BOT - DB_TOP - 120);
+    r = 52 + rand(1) * 40;
+    db_ring(cx, cy, r, br);
+    r > 80 && rand(1) < 0.5 ? db_ring(cx, cy, r * 0.45, 0) : db_peg(cx, cy);
+  ) :
+  p == 1 ? (
+    y0 = DB_TOP + 20 + rand(1) * 200; amp = (rand(1) < 0.5 ? 1 : -1) * (80 + rand(1) * 120);
+    g_db_bot ? ( y0 = DB_BOT - 10 - rand(1) * 30; amp = -(60 + rand(1) * 80); );
+    br ? ( g_db_cvs = 1; db_cpara(448.5, 450 - 150 - rand(1) * 70, y0, 130 + rand(1) * 150, 1); ) : (
+      x = 450;
+      while (x > 80) (
+        db_peg(x, y0 + amp * ((x - 450) / 370) * ((x - 450) / 370));
+        x -= 42;
+      );
+    );
+  ) :
+  p == 2 ? (
+    y0 = g_db_bot ? DB_BOT - 30 - rand(1) * 40 : DB_TOP + 40 + rand(1) * (DB_BOT - DB_TOP - 80); amp = 18 + rand(1) * 30; n = 1 + floor(rand(1) * 3);
+    x = 450;
+    while (x > 70) (
+      db_peg(x, y0 + amp * sin((x - 450) / 370 * n * $pi));
+      x -= 42;
+    );
+  ) :
+  p == 3 ? (
+    cx = 450 - rand(1) * 220; cy = DB_TOP + 30 + rand(1) * 150;
+    j = 0;
+    loop(3 + floor(rand(1) * 3),
+      k = 0;
+      loop(2 + floor(rand(1) * 3),
+        db_peg(cx - k * 60 - (j & 1) * 30, cy + j * 48);
+        k += 1;
+      );
+      j += 1;
+    );
+  ) :
+  p == 4 ? (
+    y0 = DB_TOP + rand(1) * 180; dx = 140 + rand(1) * 220; dy = (rand(1) < 0.6 ? 1 : -1) * (60 + rand(1) * 110);
+    dy < 0 ? y0 += 140;
+    n = floor(sqrt(dx * dx + dy * dy) / 44);
+    br ? ( g_db_cvs = 1; db_ccurve(448.5, y0, 450 - 130 - rand(1) * 90, y0 + 50 + rand(1) * 100, 8 + rand(1) * 14, 1); ) : (
+      k = 0;
+      loop(n + 1, db_peg(450 - dx * k / n, y0 + dy * k / n); k += 1; );
+    );
+  ) :
+  p == 5 ? (
+    cx = 450 - 150 - rand(1) * 140; cy = DB_TOP + 90 + rand(1) * (DB_BOT - DB_TOP - 180);
+    a = rand(1) * 2 * $pi; r = 22;
+    while (r < 110) (
+      db_peg(cx + cos(a) * r, cy + sin(a) * r);
+      a += 42 / r; r += 7 * 42 / r * 3;
+    );
+  ) : p == 6 ? (
+    x = 450 - 60 - rand(1) * 300; y0 = DB_TOP + 20 + rand(1) * 120;
+    j = 0;
+    loop(2 + floor(rand(1) * 2),
+      db_ccurve(x - j * 58, y0, x - j * 58, y0 + (2 + floor(rand(1) * 3)) * (DB_BL + DB_BG) - DB_BG, (rand(1) < 0.5 ? 1 : -1) * (6 + rand(1) * 8), 1);
+      j += 1;
+    );
+  ) : p == 7 ? (
+    r = 170 + rand(1) * 160; a = asin(min(1, (130 + rand(1) * 90) / r));
+    cy = DB_BOT - 30 - rand(1) * 200 + r;
+    db_carc(450, cy, r, $pi * 1.5 - a, $pi * 1.5 + a, 0);
+  ) : (
+    y0 = DB_TOP + 30 + rand(1) * (DB_BOT - DB_TOP - 200);
+    g_db_cvs = 1; db_cslope(448.5, y0, 140 + rand(1) * 80, 40 + rand(1) * 90, 1);
+  );
+);
+
+function db_guard(i) local(j, x, y, ex, ey, l2, t, mx, my, d, s, z)
+(
+  x = dpt[i] ? (dpx[i] + dpx2[i]) * 0.5 : dpx[i];
+  y = dpt[i] ? (dpy[i] + dpy2[i]) * 0.5 : dpy[i];
+  ex = x - 450; ey = y - DB_LY; l2 = ex * ex + ey * ey;
+  s = (y - DB_TOP) / (DB_BOT - DB_TOP) * 0.8 + (dpm[i] ? 0.5 : 0);
+  j = 0;
+  loop(g_db_n,
+    j != i ? (
+      mx = dpt[j] ? (dpx[j] + dpx2[j]) * 0.5 : dpx[j];
+      my = dpt[j] ? (dpy[j] + dpy2[j]) * 0.5 : dpy[j];
+      t = ((mx - 450) * ex + (my - DB_LY) * ey) / l2;
+      (t > 0.05 && t < 0.95) ? (
+        d = abs((mx - 450) * ey - (my - DB_LY) * ex) / sqrt(l2);
+        d < 28 ? s += 1;
+      );
+    );
+    j += 1;
+  );
+  z = 0;
+  loop(g_db_nz,
+    (dzt[z] == 1 && (x - dzx[z]) * (x - dzx[z]) + (y - dzy[z]) * (y - dzy[z]) < (dzr[z] - 20) * (dzr[z] - 20)) ? s += 1.5;
+    z += 1;
+  );
+  s;
+);
+
+function db_direct() local(n, a, x, y, vx, vy, k, i, ex, ey, l2, t, px, py, rr, ddx, ddy, h, d, nx, ny, vn, nc, lc, done)
+(
+  memset(dpr, 0, NDP); memset(dpd, 0, NDP);
+  h = 1 / 120;
+  n = 0;
+  loop(121,
+    a = DB_A0 + n * (DB_A1 - DB_A0) / 120;
+    x = 450 + cos(a) * DB_ML; y = DB_LY + sin(a) * DB_ML;
+    vx = cos(a) * DB_V0; vy = sin(a) * DB_V0;
+    nc = 0; lc = -1; k = 0; done = 0;
+    while (!done && k < 420) (
+      vy += DB_G * h; x += vx * h; y += vy * h;
+      x < BRD_X + DB_R ? ( x = BRD_X + DB_R; vx = abs(vx) * 0.8; );
+      x > BRD_X + BRD_W - DB_R ? ( x = BRD_X + BRD_W - DB_R; vx = -abs(vx) * 0.8; );
+      y > DB_BOT + 40 ? done = 1;
+      i = 0;
+      loop(g_db_n,
+        dpt[i] ? (
+          ex = dpx2[i] - dpx[i]; ey = dpy2[i] - dpy[i];
+          l2 = ex * ex + ey * ey;
+          t = max(0, min(1, ((x - dpx[i]) * ex + (y - dpy[i]) * ey) / l2));
+          px = dpx[i] + ex * t; py = dpy[i] + ey * t; rr = DB_R + DB_BT;
+        ) : ( px = dpx[i]; py = dpy[i]; rr = DB_R + DB_PR; );
+        ddx = x - px; ddy = y - py;
+        (abs(ddx) < rr && abs(ddy) < rr && ddx * ddx + ddy * ddy < rr * rr) ? (
+          d = max(0.001, sqrt(ddx * ddx + ddy * ddy));
+          nx = ddx / d; ny = ddy / d;
+          x = px + nx * rr; y = py + ny * rr;
+          vn = vx * nx + vy * ny;
+          vn < 0 ? ( vx -= (1 + DB_E) * vn * nx; vy -= (1 + DB_E) * vn * ny; );
+          i !== lc ? ( dpr[i] += 1; lc = i; nc += 1; nc >= 4 ? done = 1; );
+        );
+        i += 1;
+      );
+      k += 1;
+    );
+    n += 1;
+  );
+  n = 0;
+  loop(121,
+    a = DB_A0 + n * (DB_A1 - DB_A0) / 120;
+    x = 450 + cos(a) * DB_ML; y = DB_LY + sin(a) * DB_ML;
+    vx = cos(a) * DB_V0; vy = sin(a) * DB_V0;
+    k = 0; done = 0;
+    while (!done && k < 420) (
+      vy += DB_G * h; x += vx * h; y += vy * h;
+      x < BRD_X + DB_R ? ( x = BRD_X + DB_R; vx = abs(vx) * 0.8; );
+      x > BRD_X + BRD_W - DB_R ? ( x = BRD_X + BRD_W - DB_R; vx = -abs(vx) * 0.8; );
+      y > DB_BOT + 40 ? done = 1;
+      i = 0;
+      loop(g_db_n,
+        dpt[i] ? (
+          ex = dpx2[i] - dpx[i]; ey = dpy2[i] - dpy[i];
+          l2 = ex * ex + ey * ey;
+          t = max(0, min(1, ((x - dpx[i]) * ex + (y - dpy[i]) * ey) / l2));
+          px = dpx[i] + ex * t; py = dpy[i] + ey * t; rr = DB_R + DB_BT;
+        ) : ( px = dpx[i]; py = dpy[i]; rr = DB_R + DB_PR; );
+        ddx = x - px; ddy = y - py;
+        (abs(ddx) < rr && abs(ddy) < rr && ddx * ddx + ddy * ddy < rr * rr) ? dpd[i] = 1;
+        i += 1;
+      );
+      k += 1;
+    );
+    n += 1;
+  );
+);
+
+function db_ok(j) ( dpr[j] >= 2 && (g_db_lv >= 8 || dpd[j]); );
+
+function db_pick(gp) local(i, k, j, b, bs, s)
+(
+  i = -1;
+  rand(1) < gp ? (
+    bs = -1;
+    loop(6,
+      j = min(g_db_n - 1, floor(rand(1) * g_db_n));
+      (!dpk[j] && !dpb[j] && db_ok(j)) ? ( s = db_guard(j); s > bs ? ( bs = s; i = j; ); );
+    );
+  ) : (
+    k = 0;
+    while (i < 0 && k < 40) (
+      j = min(g_db_n - 1, floor(rand(1) * g_db_n));
+      (!dpk[j] && !dpb[j] && db_ok(j)) ? i = j;
+      k += 1;
+    );
+  );
+  i;
+);
+
+function db_bumpers(np) local(k, tries, i, j, m)
+(
+  k = 0; tries = 0;
+  while (k < np && tries < 300) (
+    tries += 1;
+    i = min(g_db_n - 1, floor(rand(1) * g_db_n));
+    (!dpt[i] && !dpm[i] && !dpb[i] && dpx[i] < 440 && dpy[i] > DB_TOP + 40) ? (
+      m = -1; j = 0;
+      loop(g_db_n, (!dpt[j] && !dpm[j] && abs(dpx[j] - (900 - dpx[i])) < 1 && abs(dpy[j] - dpy[i]) < 1) ? m = j; j += 1; );
+      m >= 0 ? ( dpb[i] = 1; dpb[m] = 1; k += 1; );
+    );
+  );
+);
+
+function db_gen(lv) local(target, tries, i, k, nr, ngold, c, gp)
+(
+  g_db_n = 0;
+  g_db_ng = 0; g_db_nz = 0; g_db_mt = 0;
+  target = min(NDP - 10, 34 + min(50, lv * 5));
+  lv >= 11 ? db_moving(lv);
+  tries = 0;
+  g_db_bot = 1;
+  db_pattern(rand(1) < 0.5 ? 2 : 1);
+  g_db_bot = 0;
+  k = lv < 3 ? 1 : rand(1) < 0.55 ? 2 : 1;
+  loop(k,
+    i = g_db_n; tries = 0;
+    while (g_db_n == i && tries < 10) ( db_bpattern(min(5, floor(rand(1) * 6))); tries += 1; );
+  );
+  tries = 0;
+  while (g_db_n < target && tries < (lv < 3 ? 4 : 14)) (
+    rand(1) < 0.2 ? db_bpattern(min(5, floor(rand(1) * 6))) : db_pattern(min(5, floor(rand(1) * 6)));
+    tries += 1;
+  );
+  tries = 0;
+  while (g_db_n < min(30 + lv * 4, 46) && tries < 400) (
+    db_peg(80 + rand(1) * 370, DB_TOP + rand(1) * (DB_BOT - DB_TOP));
+    tries += 1;
+  );
+  memset(dpk, 0, NDP);
+  db_direct();
+  lv >= 14 ? db_bumpers(min(3, 1 + floor((lv - 14) / 4)));
+  nr = min(floor(g_db_n * 0.3), lv >= 11 ? 18 + floor(rand(1) * 5) : min(22, 3 + 2 * lv));
+  ngold = lv >= 4 ? 2 : 1;
+  gp = lv >= 13 ? min(0.8, 0.35 + (lv - 13) * 0.05) : 0;
+  k = 0;
+  tries = 0;
+  g_db_nrw = nr;
+  c = 0; i = 0; loop(g_db_n, (db_ok(i) && !dpb[i]) ? c += 1; i += 1; ); nr = min(nr, c);
+  while (k < nr && tries < 5000) (
+    i = db_pick(gp);
+    i >= 0 ? ( dpk[i] = 1; k += 1; );
+    tries += 1;
+  );
+  g_db_nr = k;
+  k = 0;
+  tries = 0;
+  while (k < ngold && tries < 5000) (
+    i = min(g_db_n - 1, floor(rand(1) * g_db_n));
+    (!dpk[i] && !dpt[i] && !dpb[i]) ? ( dpk[i] = 2; k += 1; );
+    tries += 1;
+  );
+  i = 0;
+  loop(g_db_n, dps[i] = 0; dpa[i] = g_t + 0.2 + 0.6 * (dpy[i] - DB_TOP) / (DB_BOT - DB_TOP) + 0.1 * rand(1); i += 1; );
+);
+
+function db_start(lv) local(i)
+(
+  g_db_lv = lv;
+  g_db_nst += 1;
+  g_db_bn = lv == 11 ? 1 : lv == 13 ? 2 : lv == 14 ? 3 : lv == 17 ? 4 : (lv >= 20 && lv % 5 == 0) ? 5 : 0;
+  db_gen(lv);
+  i = 0;
+  while (i < 8 && g_db_nr < g_db_nrw - 2) ( db_gen(lv); i += 1; );
+  g_db_balls = 10;
+  g_db_score = 0;
+  g_db_disp = 0;
+  g_db_tdisp = sv2[14];
+  g_db_last = 0;
+  g_db_state = 0;
+  g_db_ts = 1;
+  g_db_zoom = 1;
+  g_db_fin_t = -100;
+  g_db_rain = 0; g_db_rain_t = -100; g_db_cw = DB_CW; g_db_cph = 0; g_db_jack = -1; g_db_jack_t = -100;
+  i = 0; loop(5, DBBH[i] = -100; i += 1; );
+  DBBV[0] = 0; DBBV[1] = 2500; DBBV[2] = 5000; DBBV[3] = 10000; DBBV[4] = 25000;
+  i = 4; while (i > 0) ( g_db_bsw = min(i, floor(rand(i + 1))); g_db_btmp = DBBV[i]; DBBV[i] = DBBV[g_db_bsw]; DBBV[g_db_bsw] = g_db_btmp; i -= 1; );
+  memset(dbfs, 0, NDF);
+  g_db_caught_t = -100;
+  g_db_heat = 0; g_db_hm = 1; g_db_hmt = -100; g_db_hv = 0;
+  g_db_h10 = max(1, g_db_nr - max(1, floor(g_db_nr * 0.12 + 0.5)));
+  g_db_h5 = max(1, min(g_db_h10 - 1, floor(g_db_nr * 0.76 + 0.5)));
+  g_db_h3 = max(1, min(g_db_h5 - 1, floor(g_db_nr * 0.6 + 0.5)));
+  g_db_h2 = max(1, min(g_db_h3 - 1, floor(g_db_nr * 0.4 + 0.5)));
+  g_db_sd = rand(1) * 100;
+  g_db_tod = lv == 1 ? 1 : lv == 2 ? 0 : min(3, floor(rand(1) * 4));
+  i = g_db_tod + (rand(1) < 0.5 ? 4 : 0);
+  i == g_db_trk ? i = (i + 4) % 8;
+  g_db_trk = i;
+  g_db_scn = min(3, floor(rand(1) * 4));
+  g_db_pine = rand(1) < 0.4;
+  g_db_wx = 0;
+  lv > 2 ? (
+    g_db_bv = rand(1);
+    g_db_wx = g_db_bv < 0.45 ? 0 : g_db_bv < 0.65 ? 1 : g_db_bv < 0.77 ? 2 : g_db_bv < 0.89 ? 4 : 3;
+    g_db_wx == 4 ? g_db_pine = 1;
+  );
+  g_db_sunx = 0.15 + 0.7 * rand(1);
+  abs(g_db_sunx - 0.5) < 0.12 ? g_db_sunx += g_db_sunx < 0.5 ? -0.15 : 0.15;
+  g_db_suny = g_db_tod == 0 ? 0.16 + 0.12 * rand(1) : g_db_tod == 1 ? 0.42 + 0.08 * rand(1) : g_db_tod == 2 ? 0.52 + 0.04 * rand(1) : 0.14 + 0.16 * rand(1);
+  g_db_mph = 0.12 + 0.76 * rand(1);
+  g_db_bgw = -1;
+  memset(dbon, 0, NDB);
+  memset(put, 0, NPU);
+  g_db_rst_t = -1000;
+  g_db_t0 = g_t;
+);
+
+function db_ridge(x, s, amp, base) ( base - amp * (0.5 * sin(x * 5.3 + s) + 0.3 * sin(x * 11.7 + s * 2.1) + 0.2 * sin(x * 23.1 + s * 3.3) + 0.08 * sin(x * 61 + s)); );
+
+function db_mix(a, b, t) ( a + (b - a) * t; );
+
+function db_bg(w, h) local(dst, tod, wx, tr, tg, tb, hr, hg, hb, ir, ig, ib, fr, fg, fb, nr_, ng, nb, gr, gg, gb, sr, sg, sb, sx0, sy0, ssz, hy, x, y, k, j, ry, f, a, c, s, br, pine, mr, hw, xt, dk)
+(
+  dst = gfx_dest;
+  gfx_setimgdim(IMG_DBB, w, h);
+  gfx_dest = IMG_DBB;
+  gfx_mode = 0; gfx_a = 1;
+  tod = g_db_tod; wx = g_db_wx;
+  tod == 0 ? ( tr = 0.26; tg = 0.46; tb = 0.8; hr = 0.74; hg = 0.85; hb = 0.95; sr = 1; sg = 0.97; sb = 0.88; ssz = 0.035; br = 1; ) :
+  tod == 1 ? ( tr = 0.3; tg = 0.34; tb = 0.6; hr = 1; hg = 0.72; hb = 0.42; sr = 1; sg = 0.85; sb = 0.55; ssz = 0.05; br = 0.8; ) :
+  tod == 2 ? ( tr = 0.15; tg = 0.09; tb = 0.28; hr = 0.95; hg = 0.5; hb = 0.55; sr = 1; sg = 0.66; sb = 0.52; ssz = 0.06; br = 0.6; ) :
+  ( tr = 0.02; tg = 0.03; tb = 0.08; hr = 0.11; hg = 0.2; hb = 0.31; sr = 0.93; sg = 0.95; sb = 1; ssz = 0.028; br = 0.3; );
+  (wx == 1 || wx == 2 || wx == 3) ? (
+    dk = wx == 2 ? 0.55 : wx == 3 ? 0.4 : 0.25;
+    c = (tr + tg + tb) / 3; tr = db_mix(tr, c, dk); tg = db_mix(tg, c, dk); tb = db_mix(tb, c * 1.05, dk);
+    c = (hr + hg + hb) / 3; hr = db_mix(hr, c, dk); hg = db_mix(hg, c, dk); hb = db_mix(hb, c * 1.05, dk);
+    wx >= 2 ? ( br *= 0.75; );
+  );
+  g_db_scn == 0 ? ( ir = 0.3; ig = 0.2; ib = 0.38; ) : g_db_scn == 1 ? ( ir = 0.12; ig = 0.22; ib = 0.26; ) :
+  g_db_scn == 2 ? ( ir = 0.2; ig = 0.34; ib = 0.22; ) : ( ir = 0.36; ig = 0.2; ib = 0.16; );
+  fr = db_mix(ir, hr, 0.5) * (0.4 + 0.6 * br); fg = db_mix(ig, hg, 0.5) * (0.4 + 0.6 * br); fb = db_mix(ib, hb, 0.5) * (0.4 + 0.6 * br);
+  nr_ = ir * (0.35 + 0.65 * br); ng = ig * (0.35 + 0.65 * br); nb = ib * (0.35 + 0.65 * br);
+  gr = ir * (0.12 + 0.3 * br); gg = ig * (0.12 + 0.3 * br); gb = ib * (0.12 + 0.3 * br);
+  pine = g_db_scn == 1 || g_db_pine;
+  sx0 = g_db_sunx; sy0 = g_db_suny;
+  hy = h * 0.6;
+  gfx_gradrect(0, 0, w, hy, tr, tg, tb, 1, 0, 0, 0, 0, (hr - tr) / hy, (hg - tg) / hy, (hb - tb) / hy, 0);
+  (tod == 3 || (tod == 2 && wx == 0)) ? (
+    k = 0;
+    loop(tod == 3 ? 280 : 90,
+      x = hash(k * 1.37 + g_db_sd) * w; y = hash(k * 2.11 + 7 + g_db_sd) * hy * 0.9;
+      a = (0.3 + 0.7 * hash(k * 5.3)) * (wx == 1 ? 0.4 : 1);
+      gfx_set(0.85, 0.9, 1, a * (1 - y / hy) * (tod == 3 ? 1 : 0.5));
+      gfx_rect(x, y, a > 0.85 ? 2 : 1, a > 0.85 ? 2 : 1);
+      k += 1;
+    );
+  );
+  wx < 2 ? (
+    gfx_mode = 1;
+    k = 0;
+    loop(9,
+      gfx_set(sr, sg, sb, (tod == 3 ? 0.035 : 0.05) * (wx == 1 ? 0.6 : 1));
+      gfx_circle(sx0 * w, sy0 * h, w * ssz * (1 + k * 0.9), 1, 1);
+      k += 1;
+    );
+    gfx_mode = 0;
+    tod == 3 ? (
+      mr = w * ssz;
+      gfx_set(sr, sg, sb, 0.13);
+      gfx_circle(sx0 * w, sy0 * h, mr, 1, 1);
+      gfx_set(sr, sg, sb, 1);
+      y = -mr;
+      while (y < mr) (
+        hw = sqrt(max(0, mr * mr - (y + 0.5) * (y + 0.5)));
+        xt = hw * cos(2 * $pi * g_db_mph);
+        g_db_mph < 0.5 ? gfx_rect(sx0 * w + xt, sy0 * h + y, hw - xt, 1) : gfx_rect(sx0 * w - hw, sy0 * h + y, hw - xt, 1);
+        y += 1;
+      );
+    ) : (
+      gfx_set(sr, sg, sb, 1);
+      gfx_circle(sx0 * w, sy0 * h, w * ssz * 0.75, 1, 1);
+    );
+  );
+  (wx == 1 || wx == 2 || wx == 3) ? (
+    k = 0;
+    loop(wx == 1 ? 7 : 11,
+      x = hash(k * 3.9 + g_db_sd) * w * 1.2 - w * 0.1;
+      y = h * (0.06 + 0.32 * hash(k * 6.1 + g_db_sd));
+      c = wx == 1 ? 0.85 : 0.5;
+      j = 0;
+      loop(22,
+        a = hash(k * 13.1 + j * 2.7) * 2 - 1;
+        f = hash(k * 5.3 + j * 7.9);
+        gfx_set(db_mix(hr, c, 0.5) * (0.6 + 0.4 * br) + 0.06 + 0.05 * f, db_mix(hg, c, 0.5) * (0.6 + 0.4 * br) + 0.06 + 0.05 * f, db_mix(hb, c, 0.5) * (0.6 + 0.4 * br) + 0.08 + 0.05 * f, 0.16);
+        gfx_circle(x + a * w * 0.1, y - (1 - abs(a)) * h * 0.03 * f, h * (0.02 + 0.035 * (1 - abs(a)) * (0.5 + f)), 1, 1);
+        j += 1;
+      );
+      k += 1;
+    );
+  );
+  k = 0;
+  loop(4,
+    f = k / 3;
+    gfx_set(fr + (nr_ - fr) * f, fg + (ng - fg) * f, fb + (nb - fb) * f, 1);
+    s = hash(k * 9.1 + g_db_sd * 3.3) * 20;
+    x = 0;
+    loop(ceil(w / 2),
+      ry = db_ridge(x / w, s, h * (0.13 - 0.02 * k), hy - h * (0.12 - 0.035 * k));
+      gfx_rect(x, ry, 2, hy - ry + 1);
+      x += 2;
+    );
+    tod == 3 && k == 0 ? (
+      gfx_set(0.92, 0.95, 1, 0.5);
+      x = 0;
+      loop(ceil(w / 2),
+        ry = db_ridge(x / w, s, h * 0.13, hy - h * 0.12);
+        ry < hy - h * 0.17 ? gfx_rect(x, ry, 2, 2);
+        x += 2;
+      );
+    );
+    gfx_set(hr, hg, hb, (wx == 3 ? 0.3 : 0.16) - 0.04 * k);
+    gfx_rect(0, hy - h * (0.12 - 0.035 * k) - h * 0.02, w, hy);
+    k += 1;
+  );
+  y = hy;
+  while (y < h) (
+    f = (y - hy) / (h - hy);
+    c = 1 - min(1, f * 1.2);
+    gfx_set((hr * c + nr_ * (1 - c)) * 0.62, (hg * c + ng * (1 - c)) * 0.62, (hb * c + nb * (1 - c)) * 0.66, 1);
+    gfx_rect(0, y, w, 2);
+    y += 2;
+  );
+  wx < 2 ? (
+    gfx_mode = 1;
+    k = 0;
+    loop(60,
+      y = hy + 3 + (h - hy) * 0.7 * hash(k * 3.3 + 1) * hash(k * 1.9);
+      x = (sx0 + (hash(k * 7.7) - 0.5) * 0.25 * (1 + (y - hy) / (h - hy) * 2)) * w;
+      gfx_set(sr, sg, sb, (tod == 3 ? 0.12 : 0.18) * (1 - (y - hy) / (h - hy)) * (wx == 1 ? 0.5 : 1));
+      gfx_rect(x, y, w * (0.02 + 0.05 * hash(k * 4.1)), 1);
+      k += 1;
+    );
+    gfx_mode = 0;
+  );
+  j = 0;
+  loop(2,
+    gfx_set(gr, gg, gb, 1);
+    x = 0;
+    loop(ceil(w * 0.3 / 2),
+      f = x / (w * 0.3);
+      ry = h * (0.66 + 0.3 * f * f) + h * 0.02 * sin(f * 9 + j);
+      j ? gfx_rect(w - x - 2, ry, 2, h - ry) : gfx_rect(x, ry, 2, h - ry);
+      x += 2;
+    );
+    g_db_wx == 4 ? (
+      gfx_set(0.85, 0.88, 0.95, 0.5 + 0.3 * br);
+      x = 0;
+      loop(ceil(w * 0.3 / 2),
+        f = x / (w * 0.3);
+        ry = h * (0.66 + 0.3 * f * f) + h * 0.02 * sin(f * 9 + j);
+        j ? gfx_rect(w - x - 2, ry - 1, 2, 4) : gfx_rect(x, ry - 1, 2, 4);
+        x += 2;
+      );
+      gfx_set(gr, gg, gb, 1);
+    );
+    k = 0;
+    loop(7,
+      f = (k + 0.5) / 7 * 0.75;
+      x = f * w * 0.3 + w * 0.012 * sin(k * 3.1 + j);
+      ry = h * (0.66 + 0.3 * f * f) - 2;
+      a = h * (0.12 + 0.12 * hash(k * 2.7 + j * 5.1 + g_db_sd)) * (1 - f * 0.7);
+      x = j ? w - x : x;
+      pine ? (
+        c = 0;
+        loop(4,
+          gfx_triangle(x, ry - a * (1 - c * 0.2) - a * 0.15, x - a * (0.18 + c * 0.05), ry - a * (0.62 - c * 0.17), x + a * (0.18 + c * 0.05), ry - a * (0.62 - c * 0.17));
+          g_db_wx == 4 ? (
+            gfx_set(0.88, 0.9, 0.96, 0.75);
+            gfx_triangle(x, ry - a * (1 - c * 0.2) - a * 0.15, x - a * (0.1 + c * 0.03), ry - a * (0.8 - c * 0.17), x + a * (0.1 + c * 0.03), ry - a * (0.8 - c * 0.17));
+            gfx_set(gr, gg, gb, 1);
+          );
+          c += 1;
+        );
+        gfx_rect(x - a * 0.025, ry - a * 0.2, a * 0.05 + 1, a * 0.2 + 2);
+      ) : (
+        gfx_rect(x - a * 0.03, ry - a * 0.55, a * 0.06 + 1, a * 0.55 + 2);
+        gfx_circle(x, ry - a * 0.72, a * 0.26, 1, 1);
+        gfx_circle(x - a * 0.18, ry - a * 0.58, a * 0.2, 1, 1);
+        gfx_circle(x + a * 0.2, ry - a * 0.6, a * 0.19, 1, 1);
+      );
+      k += 1;
+    );
+    j += 1;
+  );
+  wx == 3 ? (
+    k = 0;
+    loop(5,
+      y = h * (0.5 + k * 0.1);
+      gfx_gradrect(0, y - h * 0.08, w, h * 0.08, hr, hg, hb, 0, 0, 0, 0, 0, 0, 0, 0, 0.32 / (h * 0.08));
+      gfx_gradrect(0, y, w, h * 0.08, hr, hg, hb, 0.32, 0, 0, 0, 0, 0, 0, 0, -0.32 / (h * 0.08));
+      k += 1;
+    );
+  );
+  loop(3, gfx_x = 0; gfx_y = 0; gfx_blurto(w, h); );
+  gfx_set(0, 0, 0, tod == 0 ? 0.3 : tod == 1 ? 0.3 : 0.26);
+  gfx_rect(0, 0, w, h);
+  gfx_gradrect(0, 0, w, h * 0.25, 0, 0, 0, 0.35, 0, 0, 0, 0, 0, 0, 0, -0.35 / (h * 0.25));
+  gfx_gradrect(0, 0, w * 0.12, h, 0, 0, 0, 0.3, 0, 0, 0, -0.3 / (w * 0.12), 0, 0, 0, 0);
+  gfx_gradrect(w * 0.88, 0, w * 0.12 + 1, h, 0, 0, 0, 0, 0, 0, 0, 0.3 / (w * 0.12), 0, 0, 0, 0);
+  gfx_dest = dst;
+);
+
+function db_weather() local(k, x, y, a, t, v)
+(
+  t = g_t;
+  g_db_wx == 2 ? (
+    gfx_set(0.75, 0.8, 0.9, 0.22);
+    k = 0;
+    loop(150,
+      v = 0.9 + 0.5 * hash(k * 1.7);
+      y = BRD_Y + frac(hash(k * 2.3) + t * v) * (BRD_H + 30) - 20;
+      x = BRD_X + frac(hash(k * 4.9) + t * v * 0.06) * BRD_W;
+      gfx_line(sx(x), sy(y), sx(x - 3), sy(y + 16), 1);
+      k += 1;
+    );
+  ) : g_db_wx == 4 ? (
+    k = 0;
+    loop(120,
+      v = 0.05 + 0.07 * hash(k * 1.7);
+      a = hash(k * 8.3);
+      y = BRD_Y + frac(hash(k * 2.3) + t * v) * (BRD_H + 10) - 5;
+      x = BRD_X + BRD_W * frac(hash(k * 4.9) + 0.01 * t) + 12 * sin(t * (0.6 + a) + k);
+      gfx_set(0.95, 0.97, 1, 0.35 + 0.45 * a);
+      gfx_circle(sx(x), sy(y), (1 + 1.6 * a) * g_s, 1, 1);
+      k += 1;
+    );
+  );
+);
+
+function db_kcol(k, lit)
+(
+  k == 1 ? ( g_cr = 0.93; g_cg = 0.17; g_cb = 0.3; ) :
+  k == 2 ? ( g_cr = 1; g_cg = 0.8; g_cb = 0.28; ) :
+  ( g_cr = 0.22; g_cg = 0.52; g_cb = 1; );
+  lit ? (
+    k == 0 ? ( g_cr = 0.62; g_cg = 0.9; g_cb = 1; ) : ( g_cr = min(1, g_cr * 1.15 + 0.1); g_cg = min(1, g_cg * 1.15 + 0.12); g_cb = min(1, g_cb * 1.15 + 0.12); );
+  );
+);
+
+function db_bquad2(x1, y1, x2, y2, hw, ext, ox, oy) local(d, ux, uy, a, c, b, l0, l1, n0x, n0y, n1x, n1y)
+(
+  d = sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+  d > 0.001 ? (
+    ux = (x2 - x1) / d; uy = (y2 - y1) / d;
+    a = atan2(uy, ux);
+    x1 += ox - ux * ext; y1 += oy - uy * ext; x2 += ox + ux * ext; y2 += oy + uy * ext;
+    c = a + g_db_bo1 + $pi * 0.5; l0 = hw / max(0.5, cos(g_db_bo1)); n0x = cos(c) * l0; n0y = sin(c) * l0;
+    b = a + g_db_bo2 + $pi * 0.5; l1 = hw / max(0.5, cos(g_db_bo2)); n1x = cos(b) * l1; n1y = sin(b) * l1;
+    gfx_triangle(x1 + n0x, y1 + n0y, x2 + n1x, y2 + n1y, x2 - n1x, y2 - n1y, x1 - n0x, y1 - n0y);
+  );
+);
+
+function db_bstrip(x1, y1, x2, y2, hw, side) local(d, ux, uy, nx, ny, s, a, b)
+(
+  d = sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+  d > 0.001 ? (
+    ux = (x2 - x1) / d; uy = (y2 - y1) / d; nx = -uy; ny = ux;
+    s = (ny < 0 ? 1 : -1) * side;
+    a = hw * 0.5; b = hw * 0.9;
+    x1 -= ux * (hw - 1.6 * g_s); y1 -= uy * (hw - 1.6 * g_s); x2 += ux * (hw - 1.6 * g_s); y2 += uy * (hw - 1.6 * g_s);
+    gfx_triangle(x1 + nx * s * a, y1 + ny * s * a, x2 + nx * s * a, y2 + ny * s * a, x2 + nx * s * b, y2 + ny * s * b, x1 + nx * s * b, y1 + ny * s * b);
+  );
+);
+
+function db_band(x1, y1, x2, y2, o1, o2, hw, off, t0, t1, ox, oy) local(d, ux, uy, a, l, c0x, c0y, c1x, c1y, cx, cy, k, t, bx, by, dx, dy, dl, nx, ny, px1, py1, px2, py2, qx1, qy1, qx2, qy2, n, sg)
+(
+  d = sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
+  d > 0.001 ? (
+    ux = (x2 - x1) / d; uy = (y2 - y1) / d; a = atan2(uy, ux);
+    l = d * 0.5;
+    c0x = x1 + cos(a + o1) * l / max(0.5, cos(o1)); c0y = y1 + sin(a + o1) * l / max(0.5, cos(o1));
+    c1x = x2 - cos(a + o2) * l / max(0.5, cos(o2)); c1y = y2 - sin(a + o2) * l / max(0.5, cos(o2));
+    cx = (c0x + c1x) * 0.5; cy = (c0y + c1y) * 0.5;
+    dx = (x2 - x1); dy = (y2 - y1); sg = (dx > 0) ? 1 : (dx < 0) ? -1 : (dy < 0 ? 1 : -1);
+    n = 6; k = 0;
+    loop(n + 1,
+      t = t0 + (t1 - t0) * k / n;
+      bx = (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * cx + t * t * x2 + ox;
+      by = (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * cy + t * t * y2 + oy;
+      dx = 2 * (1 - t) * (cx - x1) + 2 * t * (x2 - cx); dy = 2 * (1 - t) * (cy - y1) + 2 * t * (y2 - cy);
+      dl = max(0.0001, sqrt(dx * dx + dy * dy)); nx = dy / dl * sg; ny = -dx / dl * sg;
+      qx1 = bx + nx * (off + hw); qy1 = by + ny * (off + hw); qx2 = bx + nx * (off - hw); qy2 = by + ny * (off - hw);
+      k > 0 ? gfx_triangle(px1, py1, qx1, qy1, qx2, qy2, px2, py2);
+      px1 = qx1; py1 = qy1; px2 = qx2; py2 = qy2;
+      k += 1;
+    );
+  );
+);
+
+function db_halo() local(i, n, sc, x, y, x2, y2, w, a, r, p, e, ux, uy, od, iw, ih, L, f)
+(
+  n = 0; i = 0;
+  loop(g_db_n, (dpt[i] && (dps[i] == 1 || dps[i] == 2)) ? n += 1; i += 1; );
+  n > 0 ? (
+    od = gfx_dest;
+    gfx_getimgdim(od, iw, ih);
+    gfx_setimgdim(IMG_DBH, iw, ih);
+    gfx_dest = IMG_DBH;
+    gfx_mode = 0; gfx_set(0, 0, 0, 1); gfx_rect(0, 0, iw, ih);
+    L = 0;
+    loop(10,
+      p = 14 * (1 - L / 10);
+      f = 0.65 * ((L + 1) / 10) ^ 2;
+      i = 0;
+      loop(g_db_n,
+        (dpt[i] && (dps[i] == 1 || dps[i] == 2)) ? (
+          sc = dps[i] == 2 ? max(0, 1 - (g_t - dpa[i]) / 0.22) : min(1, max(0, (g_t - dpa[i]) / 0.25));
+          a = dps[i] == 2 ? sc : 0.85 * sc;
+          db_kcol(dpk[i], 1);
+          x = sx(dpx[i]); y = sy(dpy[i]); x2 = sx(dpx2[i]); y2 = sy(dpy2[i]);
+          w = DB_BT * g_s;
+          r = sqrt((x2 - x) * (x2 - x) + (y2 - y) * (y2 - y));
+          r > 0.001 ? (
+            e = w + p * g_s; ux = (x2 - x) / r * e; uy = (y2 - y) / r * e;
+            gfx_set(g_cr * f * a, g_cg * f * a, g_cb * f * a, 1);
+            db_band(x - ux, y - uy, x2 + ux, y2 + uy, dpo1[i], dpo2[i], w + p * g_s, 0, 0, 1, 0, 0);
+          );
+        );
+        i += 1;
+      );
+      L += 1;
+    );
+    gfx_dest = od;
+    gfx_mode = 1; gfx_a = 1;
+    gfx_blit(IMG_DBH, 1, 0, 0, 0, iw, ih, 0, 0, iw, ih);
+    gfx_mode = 0;
+  );
+);
+
+function db_draw_peg(i) local(x, y, r, lit, sc, a, k, x2, y2, w)
+(
+  lit = dps[i] == 1;
+  sc = dps[i] == 2 ? max(0, 1 - (g_t - dpa[i]) / 0.22) : min(1, max(0, (g_t - dpa[i]) / 0.25));
+  sc = dps[i] == 2 ? sc : sc < 1 ? sc * (1 + 0.6 * sin(sc * $pi)) : 1;
+  sc > 0.01 ? (
+    k = dpk[i];
+    (g_db_rain && k != 1 && (g_t - g_db_rain_t) * 700 > sqrt((dpx[i] - g_db_rx) * (dpx[i] - g_db_rx) + (dpy[i] - g_db_ry) * (dpy[i] - g_db_ry))) ? k = 2;
+    db_kcol(k, lit || dps[i] == 2);
+    dpt[i] ? (
+      x = sx(dpx[i]); y = sy(dpy[i]); x2 = sx(dpx2[i]); y2 = sy(dpy2[i]);
+      a = (1 - sc) * 0.5;
+      x = x + (x2 - x) * a; y = y + (y2 - y) * a; x2 = x2 + (x - x2) * a / max(0.001, 1 - a); y2 = y2 + (y - y2) * a / max(0.001, 1 - a);
+      w = DB_BT * g_s * min(1, sc * 1.4);
+      a = sqrt((x2 - x) * (x2 - x) + (y2 - y) * (y2 - y));
+      a > 0.001 ? ( r = w / a; k = (x2 - x) * r; a = (y2 - y) * r; x -= k; y -= a; x2 += k; y2 += a; );
+      k = dpk[i];
+      gfx_set(0, 0, 0, 0.42);
+      db_band(x, y, x2, y2, dpo1[i], dpo2[i], w, 0, 0, 1, 2 * g_s, 3 * g_s);
+      gfx_set(g_cr * 0.18, g_cg * 0.18, g_cb * 0.26, 1);
+      db_band(x, y, x2, y2, dpo1[i], dpo2[i], w + 0.6 * g_s, 0, 0, 1, 0, 0);
+      lit ? (
+        a = 0;
+        loop(8,
+          r = a / 7;
+          gfx_set(g_cr * (0.7 + 0.3 * r) + 0.3 * r * (1 - g_cr), g_cg * (0.7 + 0.3 * r) + 0.3 * r * (1 - g_cg), g_cb * (0.7 + 0.3 * r) + 0.3 * r * (1 - g_cb), 1);
+          db_band(x, y, x2, y2, dpo1[i], dpo2[i], (w - 1.4 * g_s) * (1 - 0.8 * r), 0, 0.045 + 0.06 * r, 0.955 - 0.06 * r, 0, 0);
+          a += 1;
+        );
+      ) : (
+        gfx_set(g_cr * 0.5, g_cg * 0.5, g_cb * 0.58, 1);
+        db_band(x, y, x2, y2, dpo1[i], dpo2[i], w - 1.4 * g_s, 0, 0.045, 0.955, 0, 0);
+        gfx_set(min(1, g_cr * 0.9 + 0.08), min(1, g_cg * 0.9 + 0.08), min(1, g_cb * 0.9 + 0.1), 1);
+        db_band(x, y, x2, y2, dpo1[i], dpo2[i], w * 0.5, 0, 0.1, 0.9, 0, 0);
+        gfx_set(min(1, g_cr * 0.4 + 0.62), min(1, g_cg * 0.4 + 0.62), min(1, g_cb * 0.4 + 0.66), 0.85);
+        db_band(x, y, x2, y2, dpo1[i], dpo2[i], w * 0.13, w * 0.25, 0.14, 0.86, 0, 0);
+      );
+    ) : dpb[i] ? (
+      x = sx(dpx[i]); y = sy(dpy[i]);
+      a = max(0, 1 - (g_t - dpht[i]) / 0.3);
+      r = (DB_PR + 1) * g_s * sc * (1 + 0.28 * a);
+      a > 0 ? glow(x, y, r * 1.5, 0.5, 1, 0.95, a);
+      gfx_set(0, 0, 0, 0.45);
+      gfx_circle(x + 2 * g_s, y + 3 * g_s, r, 1, 1);
+      gfx_set(0.04, 0.3, 0.34, 1);
+      gfx_circle(x, y, r, 1, 1);
+      gfx_set(0.18 + 0.6 * a, 0.82 + 0.18 * a, 0.78 + 0.2 * a, 1);
+      gfx_circle(x, y, r * 0.86, 1, 1);
+      gfx_set(0.06, 0.22, 0.27, 1);
+      gfx_circle(x, y, r * 0.6, 1, 1);
+      gfx_set(0.55 + 0.45 * a, 1, 0.95, 1);
+      gfx_circle(x, y - r * 0.04, r * 0.38, 1, 1);
+      gfx_set(1, 1, 1, 0.85);
+      gfx_circle(x - r * 0.42, y - r * 0.46, max(1, r * 0.16), 1, 1);
+    ) : (
+      x = sx(dpx[i]); y = sy(dpy[i]);
+      r = DB_PR * g_s * sc * (dps[i] == 2 ? 1 + 0.5 * (1 - sc) : 1);
+      lit || dps[i] == 2 ? glow(x, y, r * 1.15, g_cr, g_cg, g_cb, dps[i] == 2 ? sc : 0.85);
+      gfx_set(0, 0, 0, 0.45);
+      gfx_circle(x + 2 * g_s, y + 3 * g_s, r, 1, 1);
+      gfx_set(g_cr * 0.36, g_cg * 0.36, g_cb * 0.42, 1);
+      gfx_circle(x, y, r, 1, 1);
+      gfx_set(g_cr * 0.8, g_cg * 0.8, g_cb * 0.84, 1);
+      gfx_circle(x, y + r * 0.05, r * 0.84, 1, 1);
+      gfx_set(min(1, g_cr * 0.55 + 0.4), min(1, g_cg * 0.55 + 0.4), min(1, g_cb * 0.55 + 0.4), 1);
+      gfx_circle(x - r * 0.12, y - r * 0.16, r * 0.56, 1, 1);
+      gfx_set(g_cr * 0.95, g_cg * 0.95, g_cb * 0.97, 1);
+      gfx_circle(x - r * 0.04, y - r * 0.02, r * 0.5, 1, 1);
+      dpk[i] == 2 ? (
+        gfx_set(1, 0.97, 0.75, 1);
+        star_shape(x, y, r * 0.62, g_t * 1.2 + i);
+      );
+      gfx_set(1, 1, 1, lit ? 0.95 : 0.75);
+      gfx_circle(x - r * 0.36, y - r * 0.4, max(1, r * 0.2), 1, 1);
+      gfx_set(1, 1, 1, 0.3);
+      gfx_circle(x + r * 0.3, y + r * 0.36, max(1, r * 0.1), 1, 1);
+    );
+  );
+);
+
+function db_ball(x, y) local(r)
+(
+  r = DB_R * g_s;
+  gfx_set(0, 0, 0, 0.45);
+  gfx_circle(sx(x) + 2 * g_s, sy(y) + 3 * g_s, r, 1, 1);
+  gfx_set(0.38, 0.4, 0.45, 1);
+  gfx_circle(sx(x), sy(y), r, 1, 1);
+  gfx_set(0.72, 0.75, 0.8, 1);
+  gfx_circle(sx(x) - r * 0.08, sy(y) - r * 0.1, r * 0.82, 1, 1);
+  gfx_set(0.9, 0.92, 0.95, 1);
+  gfx_circle(sx(x) - r * 0.2, sy(y) - r * 0.24, r * 0.5, 1, 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_circle(sx(x) - r * 0.32, sy(y) - r * 0.36, max(1, r * 0.2), 1, 1);
+);
+
+function db_otext(s, x, y, w, h, sz, cr, cg, cb, a) local(tw, th, px, py, o, k)
+(
+  gfx_setfont(2, "Arial Black", sz * g_s, 'b');
+  gfx_measurestr(s, tw, th);
+  px = sx(x) + (w * g_s - tw) * 0.5; py = sy(y) + (h * g_s - th) * 0.5;
+  o = max(1, sz * 0.09 * g_s);
+  gfx_set(0.16, 0.07, 0.03, a);
+  gfx_x = px + o * 0.6; gfx_y = py + o * 1.6; gfx_drawstr(s);
+  k = 0;
+  loop(8,
+    gfx_x = px + o * cos(k * $pi / 4); gfx_y = py + o * sin(k * $pi / 4);
+    gfx_drawstr(s);
+    k += 1;
+  );
+  gfx_set(cr, cg, cb, a);
+  gfx_x = px; gfx_y = py; gfx_drawstr(s);
+);
+
+function db_catcher_x() ( 450 + (418 - g_db_cw) * sin(g_db_cph); );
+
+function db_jidx() ( floor(g_db_cph * 2.6) % 4; );
+
+function db_bk_top() ( DB_CY - 50 + 80 * (1 - min(1, max(0, (g_t - g_db_rain_t) / 0.7))) ^ 2; );
+
+function db_fw_go() local(k)
+(
+  k = 0;
+  loop(NDF,
+    dbfs[k] = 1; dbft[k] = g_t + 0.15 + k * 0.32 + rand(1) * 0.2;
+    dbfx[k] = 120 + rand(1) * 660; dbfy[k] = BRD_Y + BRD_H; dbfh[k] = BRD_Y + 70 + rand(1) * 230;
+    dbfv[k] = 0; dbfc[k] = floor(rand(1) * 6);
+    k += 1;
+  );
+);
+
+function db_fireworks() local(k, c, cr, cg, cb, n, a, v)
+(
+  k = 0;
+  loop(NDF,
+    (dbfs[k] == 1 && g_t >= dbft[k]) ? ( dbfs[k] = 2; dbfv[k] = -(560 + rand(1) * 160); db_snd(1, 300 + rand(1) * 200, 0.12, 0, (dbfx[k] - 450) / 450); );
+    dbfs[k] == 2 ? (
+      dbfy[k] += dbfv[k] * g_dt; dbfv[k] += 260 * g_dt;
+      gfx_set(1, 0.9, 0.6, 1); gfx_circle(sx(dbfx[k]), sy(dbfy[k]), 2.5 * g_s, 1, 1);
+      rand(1) < 0.8 ? spawn(dbfx[k] + (rand(1) - 0.5) * 3, dbfy[k] + 4, (rand(1) - 0.5) * 30, 40 + rand(1) * 40, 1, 0.75, 0.4, 0.35 + rand(1) * 0.3);
+      (dbfy[k] <= dbfh[k] || dbfv[k] > -60) ? (
+        dbfs[k] = 0;
+        c = dbfc[k];
+        cr = c == 0 ? 1 : c == 1 ? 0.3 : c == 2 ? 1 : c == 3 ? 0.5 : c == 4 ? 1 : 0.4;
+        cg = c == 0 ? 0.3 : c == 1 ? 1 : c == 2 ? 0.85 : c == 3 ? 0.6 : c == 4 ? 0.45 : 0.95;
+        cb = c == 0 ? 0.35 : c == 1 ? 0.5 : c == 2 ? 0.25 : c == 3 ? 1 : c == 4 ? 0.9 : 1;
+        n = 0;
+        loop(70,
+          a = n * 2 * $pi / 70 + rand(1) * 0.05; v = 150 + rand(1) * 120;
+          spawn(dbfx[k], dbfy[k], cos(a) * v, sin(a) * v, cr, cg, cb, 0.9 + rand(1) * 0.8);
+          n += 1;
+        );
+        loop(20, a = rand(1) * 2 * $pi; v = rand(1) * 90; spawn(dbfx[k], dbfy[k], cos(a) * v, sin(a) * v, 1, 1, 0.95, 0.5 + rand(1) * 0.5); );
+        glow(sx(dbfx[k]), sy(dbfy[k]), 70 * g_s, cr, cg, cb, 0.9);
+        db_snd(7, 55 + rand(1) * 30, 0.55, 0, (dbfx[k] - 450) / 450);
+        db_snd(14, 3.2, 0.08, 0.12, (dbfx[k] - 450) / 450);
+      );
+    );
+    k += 1;
+  );
+);
+
+function db_poly_ell(cx, cy, rx, ry) local(k, a, x0, y0, x1, y1)
+(
+  k = 0;
+  loop(16,
+    a = k * 2 * $pi / 16;
+    x0 = cx + cos(a) * rx; y0 = cy + sin(a) * ry; x1 = cx + cos(a + 2 * $pi / 16) * rx; y1 = cy + sin(a + 2 * $pi / 16) * ry;
+    gfx_triangle(sx(cx), sy(cy), sx(x0), sy(y0), sx(x1), sy(y1));
+    k += 1;
+  );
+);
+
+function db_trap(cx, y0, y1, w0, w1)
+(
+  gfx_triangle(sx(cx - w0 * 0.5), sy(y0), sx(cx + w0 * 0.5), sy(y0), sx(cx + w1 * 0.5), sy(y1), sx(cx - w1 * 0.5), sy(y1));
+);
+
+function db_pail(cx, yt, yb, tw, bw, cr, cg, cb, gold, val) local(h, k, f, y, w0, w1, a, r, by)
+(
+  h = yb - yt;
+  gfx_set(0, 0, 0, 0.35); db_trap(cx + 4, yt + 6, yb + 4, tw, bw);
+  gfx_set(0.13, 0.07, 0.05, 1);
+  k = 0; loop(9, a = $pi + k * $pi / 8; aa_tline(sx(cx + cos(a) * tw * 0.42), sy(yt - 2 + sin(a) * 22), sx(cx + cos(a + $pi / 8) * tw * 0.42), sy(yt - 2 + sin(a + $pi / 8) * 22), 3.4 * g_s); k += 1; );
+  gfx_set(0.75, 0.75, 0.8, 1);
+  k = 0; loop(8, a = $pi + k * $pi / 8; aa_tline(sx(cx + cos(a) * tw * 0.42), sy(yt - 2 + sin(a) * 22), sx(cx + cos(a + $pi / 8) * tw * 0.42), sy(yt - 2 + sin(a + $pi / 8) * 22), 1.6 * g_s); k += 1; );
+  gfx_set(0.13, 0.07, 0.05, 1); db_trap(cx, yt - 3, yb + 3, tw + 7, bw + 7);
+  gfx_set(cr * 0.62, cg * 0.62, cb * 0.62, 1); db_trap(cx, yt, yb, tw, bw);
+  gfx_set(cr, cg, cb, 1); db_trap(cx - tw * 0.06, yt, yb, tw * 0.8, bw * 0.8);
+  gfx_set(min(1, cr * 0.5 + 0.55), min(1, cg * 0.5 + 0.55), min(1, cb * 0.5 + 0.55), 1);
+  db_trap(cx - tw * 0.3, yt + 6, yb - 6, tw * 0.09, bw * 0.09);
+  k = 0;
+  loop(2,
+    f = k == 0 ? 0.28 : 0.78; y = yt + h * f;
+    w0 = tw + (bw - tw) * (f - 0.05); w1 = tw + (bw - tw) * (f + 0.07);
+    gfx_set(0.13, 0.07, 0.05, 1); db_trap(cx, y - 1, y + h * 0.12 + 1, w0 + 3, w1 + 3);
+    gfx_set(0.62, 0.64, 0.7, 1); db_trap(cx, y, y + h * 0.12, w0, w1);
+    gfx_set(0.9, 0.92, 0.96, 1); db_trap(cx, y + 1, y + h * 0.04, w0 * 0.96, w0 * 0.95);
+    k += 1;
+  );
+  gfx_set(0.13, 0.07, 0.05, 1); db_poly_ell(cx, yt, tw * 0.5 + 5, 9);
+  gfx_set(min(1, cr * 0.4 + 0.6), min(1, cg * 0.4 + 0.6), min(1, cb * 0.4 + 0.6), 1); db_poly_ell(cx, yt, tw * 0.5 + 2, 7);
+  gfx_set(cr * 0.2, cg * 0.2, cb * 0.22, 1); db_poly_ell(cx, yt + 1, tw * 0.5 - 4, 4.5);
+  by = yt + h * 0.56; r = min(24, h * 0.4); w0 = tw * 0.86;
+  gold ? (
+    gfx_set(0.13, 0.07, 0.05, 1);
+    star_shape(sx(cx), sy(by), (w0 * 0.5 + 14 + 2 * sin(g_t * 5)) * g_s, g_t * 0.8);
+    gfx_set(1, 0.97, 0.6, 1);
+    star_shape(sx(cx), sy(by), (w0 * 0.5 + 11 + 2 * sin(g_t * 5)) * g_s, g_t * 0.8);
+  );
+  gfx_set(0.13, 0.07, 0.05, 1); fill_rr(cx - w0 * 0.5 - 2.5, by - r - 2.5, w0 + 5, 2 * r + 5, r * 0.6);
+  gfx_set(cr * 0.75, cg * 0.75, cb * 0.75, 1); fill_rr(cx - w0 * 0.5, by - r, w0, 2 * r, r * 0.5);
+  gfx_set(1, 0.98, 0.92, 1); fill_rr(cx - w0 * 0.5 + 3, by - r + 3, w0 - 6, 2 * r - 6, r * 0.4);
+  val >= 1000 ? sprintf(#g_tt, "%d,%03d", floor(val / 1000), val - 1000 * floor(val / 1000)) : sprintf(#g_tt, "%d", val);
+  gfx_setfont(2, "Arial Black", (val >= 10000 ? 23 : 26) * g_s, 'b');
+  gfx_measurestr(#g_tt, w1, h);
+  gfx_set(cr * 0.45, cg * 0.45, cb * 0.5, 1);
+  gfx_x = floor(sx(cx) - w1 * 0.5 + 0.5); gfx_y = floor(sy(by) - h * 0.5 + 0.5); gfx_drawstr(#g_tt);
+  gfx_set(1, 1, 1, 0.75); gfx_circle(sx(cx - tw * 0.3), sy(yt + 12), 3.5 * g_s, 1, 1);
+);
+
+function db_buckets() local(k, x0, w, yt, yb, a, sq, cr, cg, cb, tw, bw, bob, s, v, px, py, pw, pi)
+(
+  yt = db_bk_top(); yb = BRD_Y + BRD_H - 2; w = BRD_W / 5;
+  k = 0;
+  loop(5,
+    x0 = BRD_X + (k + 0.5) * w;
+    a = max(0, 1 - (g_t - DBBH[k]) / 0.7);
+    sq = a > 0 ? sin(a * $pi * 3) * a : 0;
+    bob = 1.5 * sin(g_t * 3 + k * 1.1);
+    v = DBBV[k];
+    v >= 25000 ? ( cr = 1; cg = 0.78; cb = 0.15; ) : v >= 10000 ? ( cr = 0.9; cg = 0.3; cb = 0.85; ) : v >= 5000 ? ( cr = 0.35; cg = 0.85; cb = 0.3; ) : v > 0 ? ( cr = 0.2; cg = 0.6; cb = 1; ) : ( cr = 0.55; cg = 0.56; cb = 0.6; );
+    s = 1 + 0.12 * sq;
+    tw = (w - 22) * s; bw = (w - 48) * s;
+    a > 0 ? glow(sx(x0), sy(yt + 20), w * 0.75 * g_s, cr, cg, cb, a * 0.8);
+    db_pail(x0, yt + 10 + bob + 8 * sq, yb, tw, bw, cr, cg, cb, v >= 25000, v);
+    k += 1;
+  );
+  k = 1;
+  loop(4,
+    x0 = BRD_X + k * w;
+    px = floor(sx(x0) + 0.5); py = floor(sy(yt) + 0.5);
+    pw = 2 * floor(4 * g_s) + 1; pi = 2 * floor(2.5 * g_s) + 1;
+    gfx_set(0.13, 0.07, 0.05, 1); gfx_rect(px - (pw - 1) * 0.5, py, pw, (yb - yt) * g_s);
+    gfx_set(1, 0.3, 0.3, 1); gfx_rect(px - (pi - 1) * 0.5, py, pi, (yb - yt) * g_s);
+    gfx_set(1, 1, 1, 1); a = 0; loop(5, gfx_rect(px - (pi - 1) * 0.5, sy(yt + 6 + a * 12), pi, 5 * g_s); a += 1; );
+    gfx_set(0.13, 0.07, 0.05, 1); gfx_circle(px, py, floor(7.5 * g_s + 0.5), 1, 1);
+    gfx_set(1, 0.84, 0.25, 1); gfx_circle(px, py, floor(5.5 * g_s + 0.5), 1, 1);
+    gfx_set(1, 1, 0.85, 1); gfx_circle(px - floor(1.8 * g_s + 0.5), py - floor(1.8 * g_s + 0.5), 2 * g_s, 1, 1);
+    k += 1;
+  );
+  db_fireworks();
+);
+
+function db_catcher() local(cx, cy, k, a0, a1, hw, gr, rr, rg, rb, u, v, w, f, y0, a)
+(
+  cx = db_catcher_x(); cy = DB_CY; hw = g_db_cw;
+  gr = g_db_rain ? min(1, (g_t - g_db_rain_t) * 2) : 0;
+  rr = 0.55 + 0.45 * gr; rg = 0.9 - 0.08 * gr; rb = 0.85 - 0.5 * gr;
+  gr > 0 ? glow(sx(cx), sy(cy + 6), hw * 0.55 * g_s, 1, 0.8, 0.3, 0.25 * gr * (0.8 + 0.2 * sin(g_t * 8)));
+  gfx_set(0, 0, 0, 0.4);
+  k = 0;
+  loop(14,
+    a0 = $pi * k / 14; a1 = $pi * (k + 1) / 14;
+    gfx_triangle(sx(cx + 2), sy(cy + 3), sx(cx + 2 + cos(a0) * hw), sy(cy + 3 + sin(a0) * 20), sx(cx + 2 + cos(a1) * hw), sy(cy + 3 + sin(a1) * 20));
+    k += 1;
+  );
+  gfx_set(0.1 + 0.12 * gr, 0.12 + 0.08 * gr, 0.16 - 0.06 * gr, 1);
+  k = 0;
+  loop(14,
+    a0 = $pi * k / 14; a1 = $pi * (k + 1) / 14;
+    gfx_triangle(sx(cx), sy(cy), sx(cx + cos(a0) * hw), sy(cy + sin(a0) * 20), sx(cx + cos(a1) * hw), sy(cy + sin(a1) * 20));
+    k += 1;
+  );
+  gfx_set(0.16 + 0.22 * gr, 0.2 + 0.14 * gr, 0.26 - 0.1 * gr, 1);
+  k = 0;
+  loop(14,
+    a0 = $pi * k / 14; a1 = $pi * (k + 1) / 14;
+    gfx_triangle(sx(cx), sy(cy), sx(cx + cos(a0) * (hw - 5)), sy(cy + sin(a0) * 14), sx(cx + cos(a1) * (hw - 5)), sy(cy + sin(a1) * 14));
+    k += 1;
+  );
+  gfx_set(rr, rg, rb, 1);
+  aa_tline(sx(cx - hw), sy(cy), sx(cx + hw), sy(cy), 2.4 * g_s);
+  glow(sx(cx - hw), sy(cy), 4 * g_s, rr, rg + 0.05, rb + 0.03, 0.9);
+  glow(sx(cx + hw), sy(cy), 4 * g_s, rr, rg + 0.05, rb + 0.03, 0.9);
+  gr > 0 ? (
+    w = 104; f = 28; y0 = cy - 50;
+    a = gr;
+    gfx_set(0.16, 0.07, 0.03, a);
+    fill_rr(cx - w * 0.5 - 2, y0 - 2, w + 4, f + 5, 8);
+    gfx_set(0.85, 0.45, 0.1, a);
+    fill_rr(cx - w * 0.5, y0, w, f, 7);
+    gfx_set(0.12, 0.06, 0.03, a);
+    fill_rr(cx - w * 0.5 + 4, y0 + 3, w - 8, f - 6, 5);
+    g_db_jack >= 0 ? (
+      sprintf(#g_tt, "%d", DBJV[g_db_jack]);
+      db_otext(#g_tt, cx - w * 0.5, y0, w, f, 17 + 3 * max(0, 1 - (g_t - g_db_jack_t) * 2), 1, 0.9, 0.4, a);
+    ) : (
+      u = g_db_cph * 2.6;
+      k = floor(u) % 4; v = u - floor(u);
+      v = v < 0.75 ? 0 : (v - 0.75) / 0.25;
+      v = v * v * (3 - 2 * v);
+      sprintf(#g_tt, "%d", DBJV[k]);
+      v < 0.5 ? db_otext(#g_tt, cx - w * 0.5, y0 - v * 10, w, f, 17, 1, 0.92, 0.55, a * (1 - 2 * v));
+      sprintf(#g_tt, "%d", DBJV[(k + 1) % 4]);
+      v >= 0.5 ? db_otext(#g_tt, cx - w * 0.5, y0 + (1 - v) * 10, w, f, 17, 1, 0.92, 0.55, a * (2 * v - 1));
+    );
+    font(11, 'b');
+    gfx_set(1, 0.85, 0.4, a * (0.75 + 0.25 * sin(g_t * 6)));
+    txt_c("JACKPOT", cx - 50, y0 - 17, 100, 14);
+  );
+);
+
+function db_bquad(x, y, ca, sa, d0, d1, w0, w1, ox, oy)
+(
+  gfx_triangle(sx(x + ca * d0 - sa * w0 + ox), sy(y + sa * d0 + ca * w0 + oy), sx(x + ca * d1 - sa * w1 + ox), sy(y + sa * d1 + ca * w1 + oy),
+               sx(x + ca * d1 + sa * w1 + ox), sy(y + sa * d1 - ca * w1 + oy), sx(x + ca * d0 + sa * w0 + ox), sy(y + sa * d0 - ca * w0 + oy));
+);
+
+function db_launcher() local(x, y, a, ca, sa, rc, bl, k, t, px, py, rr)
+(
+  x = 450; y = DB_LY;
+  a = g_db_aim; ca = cos(a); sa = sin(a);
+  t = g_t - g_db_fire_t;
+  rc = t < 0.5 ? 9 * exp(-t * 14) * min(1, t * 60) : 0;
+  bl = DB_ML - rc;
+  gfx_set(0, 0, 0, 0.4);
+  db_bquad(x, y, ca, sa, 0, bl, 12, 9, 3, 4);
+  gfx_set(0.23, 0.15, 0.07, 1);
+  gfx_triangle(sx(x - 46), sy(BRD_Y), sx(x + 46), sy(BRD_Y), sx(x + 20), sy(y - 14), sx(x - 20), sy(y - 14));
+  gfx_set(0.55, 0.38, 0.17, 1);
+  gfx_triangle(sx(x - 42), sy(BRD_Y), sx(x + 42), sy(BRD_Y), sx(x + 17), sy(y - 16), sx(x - 17), sy(y - 16));
+  gfx_set(0.78, 0.6, 0.32, 1);
+  gfx_rect(sx(x - 42), sy(BRD_Y), 84 * g_s, 3 * g_s);
+  gfx_set(0.2, 0.13, 0.06, 1);
+  db_bquad(x, y, ca, sa, 0, bl, 13.5, 10.5, 0, 0);
+  gfx_set(0.6, 0.43, 0.2, 1);
+  db_bquad(x, y, ca, sa, 0, bl - 1, 12, 9, 0, 0);
+  gfx_set(0.84, 0.66, 0.36, 1);
+  db_bquad(x, y, ca, sa, 0, bl - 1, 6, 4.2, -sa * 4, ca * 4 * 0 - 0);
+  gfx_set(1, 0.9, 0.62, 0.8);
+  db_bquad(x - sa * 6.5, y + ca * 6.5 * 0, ca, sa, 4, bl - 4, 1.4, 1.1, 0, 0);
+  k = 0;
+  loop(2,
+    px = 18 + k * 14 - rc * 0.5;
+    gfx_set(0.3, 0.2, 0.09, 1);
+    db_bquad(x, y, ca, sa, px, px + 4, 13.2, 12.6, 0, 0);
+    gfx_set(0.92, 0.76, 0.44, 1);
+    db_bquad(x, y, ca, sa, px + 0.8, px + 2, 12.4, 12, 0, 0);
+    k += 1;
+  );
+  gfx_set(0.3, 0.2, 0.09, 1);
+  db_bquad(x, y, ca, sa, bl - 7, bl, 12.5, 12.5, 0, 0);
+  gfx_set(0.82, 0.64, 0.34, 1);
+  db_bquad(x, y, ca, sa, bl - 6, bl - 1, 11.2, 11.2, 0, 0);
+  px = x + ca * bl; py = y + sa * bl;
+  gfx_set(0.06, 0.05, 0.05, 1);
+  gfx_circle(sx(px), sy(py), 7.5 * g_s, 1, 1);
+  g_db_state == 0 && g_db_balls > 0 ? glow(sx(px), sy(py), 3 * g_s, 1, 0.85, 0.55, 0.35 + 0.15 * sin(g_t * 4));
+  rr = 25;
+  gfx_set(0, 0, 0, 0.45);
+  gfx_circle(sx(x + 3), sy(y + 4), rr * g_s, 1, 1);
+  gfx_set(0.22, 0.14, 0.06, 1);
+  gfx_circle(sx(x), sy(y), rr * g_s, 1, 1);
+  gfx_set(0.58, 0.41, 0.19, 1);
+  gfx_circle(sx(x), sy(y), (rr - 2) * g_s, 1, 1);
+  gfx_set(0.74, 0.56, 0.28, 1);
+  gfx_circle(sx(x - 2), sy(y - 3), (rr - 6) * g_s, 1, 1);
+  gfx_set(0.86, 0.7, 0.4, 1);
+  gfx_circle(sx(x - 5), sy(y - 7), (rr - 15) * g_s, 1, 1);
+  gfx_set(0.6, 0.43, 0.2, 1);
+  gfx_circle(sx(x), sy(y), 15 * g_s, 1, 1);
+  k = 0;
+  loop(10,
+    t = k * $pi / 5 + 0.3;
+    gfx_set(0.28, 0.18, 0.08, 1);
+    gfx_circle(sx(x + cos(t) * 19.5), sy(y + sin(t) * 19.5 + 0.6), 1.9 * g_s, 1, 1);
+    gfx_set(0.98, 0.86, 0.6, 1);
+    gfx_circle(sx(x + cos(t) * 19.5 - 0.5), sy(y + sin(t) * 19.5 - 0.5), 1.1 * g_s, 1, 1);
+    k += 1;
+  );
+  gfx_set(0.2, 0.13, 0.06, 1);
+  gfx_circle(sx(x), sy(y), 13 * g_s, 1, 1);
+  gfx_set(0.07, 0.09, 0.12, 1);
+  gfx_circle(sx(x), sy(y), 11.5 * g_s, 1, 1);
+  g_db_state == 0 && g_db_balls > 0 ? db_ball(x, y + 1) : (
+    gfx_set(0.16, 0.2, 0.26, 1);
+    gfx_circle(sx(x), sy(y), 5 * g_s, 1, 1);
+  );
+  gfx_set(0.7, 0.85, 1, 0.22);
+  gfx_circle(sx(x - 3), sy(y - 3), 8 * g_s, 1, 1);
+  gfx_set(1, 1, 1, 0.75);
+  gfx_arc(sx(x), sy(y), 9.5 * g_s, -1.7, -0.6, 1);
+  gfx_set(1, 0.95, 0.8, 0.45);
+  gfx_arc(sx(x), sy(y), 23.5 * g_s, -2.1, -0.4, 1);
+);
+
+function db_hit_peg(i, b) local(v, k)
+(
+  dps[i] = 1; dpht[i] = g_t;
+  g_db_hits += 1;
+  dpk[i] == 1 ? (
+    g_db_heat += 1;
+    k = g_db_heat >= g_db_h10 ? 10 : g_db_heat >= g_db_h5 ? 5 : g_db_heat >= g_db_h3 ? 3 : g_db_heat >= g_db_h2 ? 2 : 1;
+    k > g_db_hm ? (
+      g_db_hm = k; g_db_hmt = g_t;
+      db_snd(3, db_note(k == 2 ? 12 : k == 3 ? 16 : k == 5 ? 19 : 24), 0.3, 0.05, -0.6);
+      db_snd(3, db_note(k == 2 ? 19 : k == 3 ? 23 : k == 5 ? 26 : 31), 0.26, 0.13, -0.6);
+    );
+  );
+  v = (dpk[i] == 1 ? 100 : dpk[i] == 2 ? 50 : 10) * (1 + floor(g_db_hits / 8)) * (g_db_rain ? 10 : g_db_hm);
+  g_db_shot += v;
+  g_db_rain ? db_snd(0, db_note(g_db_hits + 11), 0.3, 0.05, 0);
+  db_snd(0, db_note(g_db_hits - 1), dpk[i] == 1 ? 0.55 : 0.38, 0, ((dpt[i] ? (dpx[i] + dpx2[i]) * 0.5 : dpx[i]) - 450) / 450);
+  g_db_score += v;
+  pux[g_db_pi] = dpt[i] ? (dpx[i] + dpx2[i]) * 0.5 : dpx[i];
+  puy[g_db_pi] = dpt[i] ? (dpy[i] + dpy2[i]) * 0.5 : dpy[i];
+  puv[g_db_pi] = v; puk[g_db_pi] = g_db_rain ? 2 : dpk[i]; put[g_db_pi] = g_t;
+  g_db_pi = (g_db_pi + 1) % NPU;
+  dpk[i] == 1 ? (
+    k = 0; v = 0;
+    loop(g_db_n, (dpk[k] == 1 && dps[k] == 0) ? v += 1; k += 1; );
+    v == 0 ? (
+      g_db_fin_t = g_t;
+      g_db_rain = 1; g_db_rain_t = g_t; g_db_rx = dpx[i]; g_db_ry = dpy[i];
+      db_snd(6, 0, 1, 0, 0);
+      loop(40, v = rand(1) * 2 * $pi; spawn(dpx[i], dpy[i], cos(v) * (60 + rand(1) * 260), sin(v) * (60 + rand(1) * 260), 1, 0.35 + rand(1) * 0.5, 0.4, 0.8 + rand(1) * 0.8); );
+    );
+  );
+  dpk[i] == 2 ? (
+    k = 0;
+    while (k < NDB && dbon[k]) ( k += 1; );
+    k < NDB ? (
+      dbon[k] = 1; dbx[k] = dbx[b]; dby[k] = dby[b];
+      db_snd(0, 1568, 0.3, 0, 0); db_snd(0, 2093, 0.25, 0.05, 0); db_snd(0, 2637, 0.2, 0.1, 0);
+      dbvx[k] = -dbvx[b] * 0.9 + (dbvx[b] >= 0 ? -60 : 60); dbvy[k] = dbvy[b];
+      dbsx[k] = dbx[k]; dbsy[k] = dby[k]; dbst[k] = g_t;
+      k = 0;
+      loop(16, spawn(dbx[b], dby[b], (rand(1) - 0.5) * 300, (rand(1) - 0.5) * 300, 1, 0.85, 0.4, 0.5 + rand(1) * 0.5); k += 1; );
+    );
+  );
+);
+
+function db_collide(b, h) local(i, x, y, ddx, ddy, d2, d, nx, ny, vn, rr, ex, ey, l2, t, px, py, cx, k, sp)
+(
+  dbvy[b] += DB_G * h;
+  dbvx[b] *= 1 - 0.02 * h; dbvy[b] *= 1 - 0.02 * h;
+  sp = sqrt(dbvx[b] * dbvx[b] + dbvy[b] * dbvy[b]);
+  sp > 1050 ? ( dbvx[b] *= 1050 / sp; dbvy[b] *= 1050 / sp; );
+  dbx[b] += dbvx[b] * h; dby[b] += dbvy[b] * h;
+  x = dbx[b]; y = dby[b];
+  x < BRD_X + DB_R ? ( dbx[b] = BRD_X + DB_R; dbvx[b] = abs(dbvx[b]) * 0.8; );
+  x > BRD_X + BRD_W - DB_R ? ( dbx[b] = BRD_X + BRD_W - DB_R; dbvx[b] = -abs(dbvx[b]) * 0.8; );
+  y < BRD_Y + DB_R ? ( dby[b] = BRD_Y + DB_R; dbvy[b] = abs(dbvy[b]) * 0.8; );
+  i = 0;
+  loop(g_db_n,
+    dps[i] <= 1 ? (
+      x = dbx[b]; y = dby[b];
+      dpt[i] ? (
+        ex = dpx2[i] - dpx[i]; ey = dpy2[i] - dpy[i];
+        px = dpx[i]; py = dpy[i];
+        (x > min(px, dpx2[i]) - 20 && x < max(px, dpx2[i]) + 20 && y > min(py, dpy2[i]) - 20 && y < max(py, dpy2[i]) + 20) ? (
+          l2 = ex * ex + ey * ey;
+          t = max(0, min(1, ((x - px) * ex + (y - py) * ey) / l2));
+          px += ex * t; py += ey * t;
+          rr = DB_R + DB_BT;
+        ) : ( rr = 0; );
+      ) : (
+        px = dpx[i]; py = dpy[i]; rr = DB_R + DB_PR;
+      );
+      ddx = x - px; ddy = y - py;
+      (rr > 0 && abs(ddx) < rr && abs(ddy) < rr) ? (
+        d2 = ddx * ddx + ddy * ddy;
+        d2 < rr * rr ? (
+          d = max(0.001, sqrt(d2));
+          nx = ddx / d; ny = ddy / d;
+          dbx[b] = px + nx * rr; dby[b] = py + ny * rr;
+          db_pvel(i, px, py);
+          vn = (dbvx[b] - g_db_pvx) * nx + (dbvy[b] - g_db_pvy) * ny;
+          vn < 0 ? (
+            dpb[i] ? (
+              dbvx[b] -= 2 * vn * nx - 170 * nx;
+              dbvy[b] -= 2 * vn * ny - 170 * ny;
+              g_t - dpht[i] > 0.12 ? ( dpht[i] = g_t; db_snd(1, 520 + rand(1) * 80, 0.3, 0, (px - 450) / 450); );
+            ) : (
+              dbvx[b] -= (1 + DB_E) * vn * nx;
+              dbvy[b] -= (1 + DB_E) * vn * ny;
+              vn = -dbvy[b] * nx + dbvx[b] * ny;
+              dbvx[b] -= 0.06 * vn * ny; dbvy[b] += 0.06 * vn * nx;
+            );
+          );
+          (dps[i] == 0 && !dpb[i]) ? db_hit_peg(i, b);
+        );
+      );
+    );
+    i += 1;
+  );
+  g_db_rain ? (
+    py = db_bk_top();
+    k = 1;
+    loop(4,
+      px = BRD_X + k * BRD_W / 5;
+      t = max(py, min(BRD_Y + BRD_H, dby[b]));
+      ddx = dbx[b] - px; ddy = dby[b] - t;
+      d2 = ddx * ddx + ddy * ddy;
+      d2 < (DB_R + 5) * (DB_R + 5) ? (
+        d = max(0.001, sqrt(d2)); nx = ddx / d; ny = ddy / d;
+        dbx[b] = px + nx * (DB_R + 5); dby[b] = t + ny * (DB_R + 5);
+        vn = dbvx[b] * nx + dbvy[b] * ny;
+        vn < 0 ? ( dbvx[b] -= 1.6 * vn * nx; dbvy[b] -= 1.6 * vn * ny; );
+      );
+      k += 1;
+    );
+    (dbvy[b] > 0 && dby[b] > py + 14) ? (
+      k = max(0, min(4, floor((dbx[b] - BRD_X) / (BRD_W / 5))));
+      dbon[b] = 0;
+      g_db_jack = k; g_db_jack_t = g_t; DBBH[k] = g_t;
+      DBBV[k] >= 25000 ? db_fw_go();
+      g_db_score += DBBV[k]; g_db_shot += DBBV[k];
+      DBBV[k] > 0 ? ( i = 0; loop(5, db_snd(0, 1046.5 * 2 ^ ((i + (DBBV[k] >= 25000 ? 3 : 0)) * 4 / 12), 0.35, i * 0.06, (k - 2) * 0.3); i += 1; ); ) :
+        ( i = 0; loop(4, db_snd(4, 392 * 2 ^ (-i * 2 / 12), 0.3, i * 0.16, 0); i += 1; ); );
+      DBBV[k] > 0 ? loop(DBBV[k] >= 25000 ? 90 : 50, i = rand(1) * $pi; spawn(dbx[b], py + 10, cos(i) * (80 + rand(1) * 260) * (rand(1) < 0.5 ? 1 : -1), -60 - rand(1) * 340, 1, 0.75 + rand(1) * 0.25, 0.3, 0.9 + rand(1) * 0.9); );
+    );
+  ) : (
+  cx = db_catcher_x();
+  k = -1;
+  loop(2,
+    px = cx + k * g_db_cw; py = DB_CY;
+    ddx = dbx[b] - px; ddy = dby[b] - py;
+    d2 = ddx * ddx + ddy * ddy;
+    d2 < (DB_R + 4) * (DB_R + 4) ? (
+      d = max(0.001, sqrt(d2)); nx = ddx / d; ny = ddy / d;
+      dbx[b] = px + nx * (DB_R + 4); dby[b] = py + ny * (DB_R + 4);
+      vn = dbvx[b] * nx + dbvy[b] * ny;
+      vn < 0 ? ( dbvx[b] -= 1.7 * vn * nx; dbvy[b] -= 1.7 * vn * ny; );
+    );
+    k += 2;
+  );
+  (dbvy[b] > 0 && abs(dbx[b] - cx) < g_db_cw - 6 && dby[b] > DB_CY - 2 && dby[b] < DB_CY + 12) ? (
+    dbon[b] = 0;
+    g_db_balls += 1;
+    g_db_caught_t = g_t;
+    (g_db_rain && g_db_jack < 0) ? (
+      g_db_jack = db_jidx(); g_db_jack_t = g_t;
+      g_db_score += DBJV[g_db_jack];
+      g_db_shot += DBJV[g_db_jack];
+      i = 0; loop(5, db_snd(0, 1046.5 * 2 ^ (i * 4 / 12), 0.35, i * 0.06, (i - 2) * 0.3); i += 1; );
+      loop(70, k = rand(1) * $pi; spawn(dbx[b], DB_CY, cos(k) * (80 + rand(1) * 260) * (rand(1) < 0.5 ? 1 : -1), -60 - rand(1) * 320, 1, 0.75 + rand(1) * 0.25, 0.3, 0.9 + rand(1) * 0.9); );
+    );
+    db_snd(3, 880, 0.5, 0, (dbx[b] - 450) / 450); db_snd(3, 1319, 0.4, 0.08, (dbx[b] - 450) / 450);
+    loop(18, spawn(dbx[b], DB_CY, (rand(1) - 0.5) * 200, -80 - rand(1) * 200, 0.55, 0.95, 0.88, 0.6 + rand(1) * 0.6); );
+  );
+  );
+  dby[b] > BRD_Y + BRD_H + DB_R ? dbon[b] = 0;
+);
+
+function db_unstick(b) local(i, best, bi, d)
+(
+  best = 1000000; bi = -1;
+  i = 0;
+  loop(g_db_n,
+    (dps[i] <= 1 && !dpb[i]) ? (
+      d = (dpx[i] - dbx[b]) * (dpx[i] - dbx[b]) + (dpy[i] - dby[b]) * (dpy[i] - dby[b]);
+      dpt[i] ? d = min(d, (dpx2[i] - dbx[b]) * (dpx2[i] - dbx[b]) + (dpy2[i] - dby[b]) * (dpy2[i] - dby[b]));
+      d < best ? ( best = d; bi = i; );
+    );
+    i += 1;
+  );
+  bi >= 0 ? (
+    dps[bi] == 0 ? db_hit_peg(bi, b);
+    dps[bi] = 2; dpa[bi] = g_t;
+  );
+);
+
+function db_trace() local(x, y, vx, vy, k, i, hitp, ddx, ddy, rr, ex, ey, l2, t, px, py, h, nb, d, k2)
+(
+  nb = 0; k2 = 0;
+  x = 450 + cos(g_db_aim) * DB_ML; y = DB_LY + sin(g_db_aim) * DB_ML;
+  vx = cos(g_db_aim) * DB_V0; vy = sin(g_db_aim) * DB_V0;
+  h = 1 / 240;
+  g_db_tn = 0;
+  hitp = 0; k = 0;
+  while (!hitp && k < 300) (
+    vy += DB_G * h; x += vx * h; y += vy * h;
+    (x < BRD_X + DB_R || x > BRD_X + BRD_W - DB_R || y > BRD_Y + BRD_H) ? hitp = 1;
+    i = 0;
+    while (!hitp && i < g_db_n) (
+      dps[i] <= 1 ? (
+        dpt[i] ? (
+          ex = dpx2[i] - dpx[i]; ey = dpy2[i] - dpy[i];
+          l2 = ex * ex + ey * ey;
+          t = max(0, min(1, ((x - dpx[i]) * ex + (y - dpy[i]) * ey) / l2));
+          px = dpx[i] + ex * t; py = dpy[i] + ey * t; rr = DB_R + DB_BT;
+        ) : ( px = dpx[i]; py = dpy[i]; rr = DB_R + DB_PR; );
+        ddx = x - px; ddy = y - py;
+        ddx * ddx + ddy * ddy < rr * rr ? (
+          nb < (g_db_lv <= 3 ? 1 : 0) ? (
+            nb += 1;
+            d = max(0.001, sqrt(ddx * ddx + ddy * ddy));
+            ddx /= d; ddy /= d;
+            x = px + ddx * rr; y = py + ddy * rr;
+            d = vx * ddx + vy * ddy;
+            d < 0 ? ( vx -= (1 + DB_E) * d * ddx; vy -= (1 + DB_E) * d * ddy; );
+            k2 = k;
+          ) : hitp = 1;
+        );
+      );
+      i += 1;
+    );
+    nb > 0 && k - k2 > 70 ? hitp = 1;
+    k % 6 == 0 ? ( dtx[g_db_tn] = x; dty[g_db_tn] = y; g_db_tn += 1; );
+    k += 1;
+  );
+  dtx[g_db_tn] = x; dty[g_db_tn] = y; g_db_tn += 1;
+);
+
+function db_scene() local(i, a, t, s, w, h, k)
+(
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_DBB, 1, 0, 0, 0, g_db_bgw, g_db_bgh, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  db_weather();
+  g_db_state == 0 && g_db_tn > 1 ? (
+    gfx_mode = 1;
+    i = 0;
+    loop(g_db_tn,
+      a = 1 - i / g_db_tn;
+      gfx_set(1, 0.95, 0.8, 0.6 * a + 0.3);
+      gfx_circle(sx(dtx[i]), sy(dty[i]), (i == g_db_tn - 1 ? 4 : 2.4) * g_s, 1, 1);
+      i += 1;
+    );
+    gfx_mode = 0;
+  );
+  i = 0;
+  db_halo();
+  i = 0;
+  loop(g_db_n, dps[i] <= 2 ? db_draw_peg(i); dps[i] == 2 && g_t - dpa[i] > 0.22 ? dps[i] = 3; i += 1; );
+  g_db_zoom > 1.03 ? (
+    a = (g_db_zoom - 1) / 0.6;
+    gfx_set(1, 0.85, 0.8, 0.5 * a);
+    k = 0;
+    loop(2,
+      gfx_circle(sx(g_db_fx), sy(g_db_fy), (DB_PR + 9 + 3 * sin(g_t * 9) + k * 7) * g_s, 0, 1);
+      k += 1;
+    );
+  );
+  g_db_rain ? db_buckets() : db_catcher();
+  i = 0;
+  loop(NDB, dbon[i] ? db_ball(dbx[i], dby[i]); i += 1; );
+  db_launcher();
+  particles();
+  i = 0;
+  loop(NPU,
+    t = g_t - put[i];
+    put[i] > 0 && t < 0.9 ? (
+      a = min(1, (0.9 - t) * 4);
+      font(puk[i] == 1 ? 14 : 11, 'b');
+      db_kcol(puk[i], 1);
+      gfx_set(g_cr, g_cg, g_cb, a);
+      sprintf(#g_tt, "%d", puv[i]);
+      txt_c(#g_tt, pux[i] - 30, puy[i] - 26 - t * 30, 60, 16);
+    );
+    i += 1;
+  );
+  g_t - g_db_jack_t < 2 ? (
+    k = g_t - g_db_jack_t;
+    DBBV[g_db_jack] >= 25000 ? sprintf(#g_tt, "JACKPOT +%d!", DBBV[g_db_jack]) : DBBV[g_db_jack] > 0 ? sprintf(#g_tt, "BONUS +%d!", DBBV[g_db_jack]) : strcpy(#g_tt, "Zero! Unlucky");
+    db_otext(#g_tt, BRD_X + (g_db_jack + 0.5) * BRD_W / 5 - 160, DB_CY - 120 - k * 30, 320, 40, 30 + 8 * max(0, 0.4 - k), 1, 0.85, 0.35, min(1, (2 - k) * 2));
+  ) : g_t - g_db_caught_t < 1.2 ? (
+    font(16, 'b');
+    gfx_set(0.6, 1, 0.92, min(1, (1.2 - (g_t - g_db_caught_t)) * 3));
+    txt_c("Free ball!", db_catcher_x() - 60, DB_CY - 50 - (g_t - g_db_caught_t) * 20, 120, 22);
+  );
+);
+
+function db_end_shot() local(i, n)
+(
+  g_db_last = g_db_shot; g_db_shot_t = g_t;
+  n = 0; i = 0;
+  loop(g_db_n, (dpk[i] == 1 && dps[i] <= 1) ? n += 1; i += 1; );
+  g_db_left = n;
+  n == 0 ? (
+    g_db_state = 3; g_db_won_t = g_t;
+    g_db_bonus = g_db_balls * 250;
+    g_db_score += g_db_bonus;
+    sv[0] = 1;
+    sv2[10] = g_db_lv + 1;
+    sv2[11] += 1;
+    sv2[12] = max(sv2[12], g_db_score);
+    sv2[14] += g_db_score;
+    i = 0;
+    loop(60, spawn(100 + rand(1) * 700, BRD_Y + 60 + rand(1) * 300, (rand(1) - 0.5) * 300, -rand(1) * 200, 0.6 + rand(1) * 0.4, 0.6 + rand(1) * 0.4, 0.6 + rand(1) * 0.4, 1 + rand(1)); );
+  ) : g_db_balls <= 0 ? (
+    g_db_state = 4; g_db_won_t = g_t;
+    db_snd(4, 392, 0.35, 0, 0); db_snd(4, 330, 0.35, 0.18, 0); db_snd(4, 262, 0.35, 0.36, 0);
+  ) : g_db_state = 0;
+);
+
+function db_scorer(x, y, w, h) local(d, b, k, a, t, cx, cy)
+(
+  d = g_db_score - g_db_disp;
+  d > 0 ? (
+    g_db_disp = min(g_db_score, g_db_disp + max(1, ceil(d * min(1, g_dt * 7))));
+    g_db_bump = 1;
+  ) : g_db_disp = g_db_score;
+  g_db_bump = max(0, g_db_bump - g_dt * 4);
+  b = g_db_bump;
+  cx = x + w * 0.5; cy = y + h * 0.5;
+  b > 0.05 ? (
+    gfx_mode = 1;
+    k = 0;
+    loop(12,
+      a = k * $pi / 6 + g_t * 0.8;
+      gfx_set(1, 0.85, 0.35, 0.18 * b);
+      gfx_triangle(sx(cx + cos(a - 0.12) * h * 0.3), sy(cy + sin(a - 0.12) * h * 0.3), sx(cx + cos(a) * (w * 0.62 + 6 * b)), sy(cy + sin(a) * (h * 0.95 + 6 * b)), sx(cx + cos(a + 0.12) * h * 0.3), sy(cy + sin(a + 0.12) * h * 0.3));
+      k += 1;
+    );
+    gfx_mode = 0;
+  );
+  gfx_set(0.16, 0.07, 0.03, 1);
+  fill_rr(x - 2, y - 1, w + 4, h + 5, h * 0.42);
+  gfx_set(0.85, 0.45, 0.1, 1);
+  fill_rr(x, y, w, h, h * 0.4);
+  gfx_set(1, 0.72, 0.22, 1);
+  fill_rr(x + 2, y + 2, w - 4, h - 6, h * 0.36);
+  gfx_set(1, 0.86, 0.45, 1);
+  fill_rr(x + 7, y + 4, w - 14, h * 0.3, h * 0.15);
+  gfx_set(1, 1, 1, 0.7);
+  gfx_circle(sx(x + 12), sy(y + 8), 2.2 * g_s, 1, 1);
+  sprintf(#g_tt, "%d", g_db_disp);
+  db_otext(#g_tt, x, y - 1 - 3 * b, w, h, 26 + 6 * b, 1, 1, 1, 1);
+  t = g_t - g_db_shot_t;
+  t < 1.4 && g_db_last > 0 ? (
+    a = min(1, (1.4 - t) * 3);
+    sprintf(#g_tt, "+%d", g_db_last);
+    db_otext(#g_tt, x - 70, y + h + 8 + t * 14, 90, 22, 15 + 6 * max(0, 0.3 - t), 0.6, 1, 0.75, a);
+  );
+);
+
+function db_flame(cx, cy, r, h, wob, cr, cg, cb) local(tx, ty, a, d, k)
+(
+  tx = cx + wob; ty = cy - h;
+  d = sqrt((tx - cx) * (tx - cx) + (ty - cy) * (ty - cy));
+  a = acos(min(1, r / max(r + 0.01, d)));
+  k = atan2(ty - cy, tx - cx);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(sx(cx), sy(cy), r * g_s, 1, 1);
+  gfx_triangle(sx(tx), sy(ty), sx(cx + cos(k + a) * r), sy(cy + sin(k + a) * r), sx(cx), sy(cy), sx(cx + cos(k - a) * r), sy(cy + sin(k - a) * r));
+);
+
+function db_heat_draw() local(x, w, y1, y2, f, hh, k, n, yb, c, a, p, r, m, cr_, cg_, cb_, bx, by, br, t, fy, wob, sc, q)
+(
+  x = 856; w = 16; y1 = 160; y2 = DB_BOT - 14; bx = x + w * 0.5; by = y2 + 14; br = 14;
+  t = g_t;
+  f = g_db_heat / max(1, g_db_nr);
+  g_db_hv += (f - g_db_hv) * min(1, g_dt * 4);
+  p = max(0, 1 - (t - g_db_hmt) / 0.8);
+  gfx_set(0.13, 0.06, 0.04, 1);
+  fill_rr(x - 3, y1 - 3, w + 6, by - y1, 11);
+  gfx_circle(sx(bx), sy(by), (br + 3) * g_s, 1, 1);
+  gfx_set(0.97, 0.94, 0.9, 1);
+  fill_rr(x, y1, w, by - y1 - 4, 8);
+  gfx_circle(sx(bx), sy(by), br * g_s, 1, 1);
+  gfx_set(0.92, 0.2, 0.12, 1);
+  gfx_circle(sx(bx), sy(by), (br - 3) * g_s, 1, 1);
+  hh = (y2 - y1 - 4) * g_db_hv;
+  n = 30; k = 0;
+  loop(n,
+    yb = y2 - (y2 - y1 - 4) * (k + 1) / n;
+    c = y2 - (y2 - y1 - 4) * k / n;
+    c > y2 - hh ? (
+      q = k / (n - 1);
+      gfx_set(1, min(1, 0.18 + 0.55 * q + 0.5 * max(0, q - 0.7)), min(1, 0.1 + max(0, q - 0.75) * 2.4), 1);
+      gfx_rect(sx(x + 3), sy(max(yb, y2 - hh)), (w - 6) * g_s, (c - max(yb, y2 - hh)) * g_s + 1);
+    );
+    k += 1;
+  );
+  gfx_set(0.92, 0.2, 0.12, 1);
+  gfx_rect(sx(x + 3), sy(y2 - 1), (w - 6) * g_s, (by - y2) * g_s);
+  hh > 4 ? (
+    gfx_set(1, 0.9, 0.55, 1);
+    gfx_circle(sx(bx), sy(y2 - hh), (w * 0.5 - 3) * g_s, 1, 1);
+    k = 0;
+    loop(5,
+      q = (t * (0.35 + 0.07 * k) + k * 0.37) - floor(t * (0.35 + 0.07 * k) + k * 0.37);
+      yb = by - q * (hh + by - y2);
+      yb > y2 - hh + 4 ? ( gfx_set(1, 0.95, 0.8, 0.75 * (1 - q)); gfx_circle(sx(x + 5 + ((k * 3) % 6)), sy(yb), (1.4 + (k & 1)) * g_s, 1, 1); );
+      k += 1;
+    );
+  );
+  gfx_set(1, 1, 1, 0.55);
+  fill_rr(x + 2.5, y1 + 6, 3, by - y1 - 26, 1.5);
+  gfx_circle(sx(bx - 5), sy(by - 5), 3 * g_s, 1, 1);
+  k = 0;
+  loop(4,
+    a = (k == 0 ? g_db_h2 : k == 1 ? g_db_h3 : k == 2 ? g_db_h5 : g_db_h10) / max(1, g_db_nr);
+    yb = y2 - (y2 - y1 - 4) * a;
+    g_db_hv >= a - 0.001 ? gfx_set(1, 0.75, 0.2, 1) : gfx_set(0.13, 0.06, 0.04, 1);
+    gfx_rect(sx(x + w + 1), sy(yb - 1.5), 6 * g_s, 3 * g_s);
+    k += 1;
+  );
+  m = g_db_hm;
+  sc = m >= 10 ? 1.35 : m >= 5 ? 1.2 : m >= 3 ? 1.08 : m >= 2 ? 1 : 0.82;
+  sc *= 1 + 0.3 * p * p;
+  fy = 120; wob = 2.2 * sin(t * 9) + 1.3 * sin(t * 14.3);
+  r = 12 * sc;
+  m >= 2 ? glow(sx(864), sy(fy - 6), (r * 1.9 + 8 * p) * g_s, 1, 0.55, 0.15, 0.25 + 0.4 * p);
+  db_flame(864, fy, r + 3, r * (2.1 + 0.08 * sin(t * 11)) + 4, wob, 0.18, 0.06, 0.03);
+  m >= 2 ? (
+    db_flame(864, fy, r, r * (2.1 + 0.08 * sin(t * 11)), wob, 0.95, 0.22, 0.08);
+    db_flame(864, fy + r * 0.22, r * 0.72, r * (1.45 + 0.1 * sin(t * 13 + 1)), wob * 0.7, 1, 0.58, 0.1);
+    db_flame(864, fy + r * 0.42, r * 0.45, r * (0.95 + 0.12 * sin(t * 17 + 2)), wob * 0.4, 1, 0.92, 0.45);
+  ) : (
+    db_flame(864, fy, r, r * 1.6, wob * 0.4, 0.45, 0.36, 0.34);
+    db_flame(864, fy + r * 0.3, r * 0.6, r * 0.9, wob * 0.2, 0.62, 0.5, 0.46);
+  );
+  sprintf(#g_tt, "x%d", m);
+  db_otext(#g_tt, 839, fy - 9, 50, 22, m >= 10 ? 15 * sc / 1.35 + 3 : 16, 1, 1, 1, 1);
+  p > 0 && m >= 2 ? (
+    sprintf(#g_tt, "Heat x%d!", m);
+    db_otext(#g_tt, 626, 86 + (1 - p) * 4, 210, 34, 22 + 8 * p, 1, m >= 10 ? 0.95 : 0.6, m >= 10 ? 0.6 : 0.2, min(1, p * 2));
+  );
+);
+
+function draw_drop() local(dst, i, k, n, steps, h, any, bw, bh, a, z, fx, fy, d, best, bi, ts, s0, ox0, oy0, dt0, cr, cg, cb, t)
+(
+  g_pgrav = 300;
+  g_db_lv < 1 ? db_start(max(1, sv2[10]));
+  bw = ceil(BRD_W * g_s); bh = ceil(BRD_H * g_s);
+  (g_db_bgw !== bw || g_db_bgh !== bh) ? ( db_bg(bw, bh); g_db_bgw = bw; g_db_bgh = bh; );
+
+  g_db_kf = 0;
+  k = 0;
+  while (k < 32 && (i = gfx_getchar()) > 0) (
+    (i == 'p' || i == 'P') ? g_pz_req = 1 : i == 'left' ? g_db_klt = g_t : i == 'rght' ? g_db_krt = g_t : (i == 13 || i == 'down') ? g_db_kf = 1;
+    k += 1;
+  );
+  a = gfx_getchar('left') > 0 || g_t - g_db_klt < 0.09;
+  d = gfx_getchar('rght') > 0 || g_t - g_db_krt < 0.09;
+  g_db_state == 0 ? (
+    (abs(g_mx - g_db_lmx) > 1 || abs(g_my - g_db_lmy) > 1) ? g_db_kmode = 0;
+    g_db_lmx = g_mx; g_db_lmy = g_my;
+    (a || d) ? g_db_kmode = 1;
+    g_db_kmode ? (
+      g_db_aim += (a - d) * g_dt * (mouse_cap & 8 ? 0.25 : 0.9);
+    ) : (
+      g_db_aim = atan2(g_my - DB_LY, g_mx - 450);
+      g_db_aim < -$pi * 0.5 ? g_db_aim += 2 * $pi;
+    );
+    g_db_aim = max(DB_A0, min(DB_A1, g_db_aim));
+    db_trace();
+    (((g_click && hit(BRD_X, BRD_Y, BRD_W, BRD_H)) || g_db_kf) && g_db_balls > 0 && g_t - g_db_t0 > 0.9) ? (
+      g_click = 0; g_db_kf = 0;
+      dbon[0] = 1;
+      dbx[0] = 450 + cos(g_db_aim) * DB_ML; dby[0] = DB_LY + sin(g_db_aim) * DB_ML;
+      g_db_fire_t = g_t;
+      loop(14, k = g_db_aim + (rand(1) - 0.5) * 1.1; spawn(dbx[0], dby[0], cos(k) * (60 + rand(1) * 160), sin(k) * (60 + rand(1) * 160), 1, 0.85 + rand(1) * 0.15, 0.55, 0.25 + rand(1) * 0.3); );
+      dbvx[0] = cos(g_db_aim) * DB_V0; dbvy[0] = sin(g_db_aim) * DB_V0;
+      dbsx[0] = dbx[0]; dbsy[0] = dby[0]; dbst[0] = g_t;
+      g_db_balls -= 1;
+      db_snd(2, 0, 0.6, 0, 0);
+      g_db_hits = 0; g_db_shot = 0;
+      g_db_state = 1;
+    );
+  );
+
+  ts = 1; z = 1;
+  g_db_state == 1 ? (
+    n = 0; i = 0; bi = -1;
+    loop(g_db_n, (dpk[i] == 1 && dps[i] == 0) ? ( n += 1; bi = i; ); i += 1; );
+    n == 1 ? (
+      i = 0;
+      loop(NDB,
+        dbon[i] ? (
+          fx = dpx[bi] - dbx[i]; fy = dpy[bi] - dby[i];
+          d = sqrt(fx * fx + fy * fy);
+          (d < 130 && fx * dbvx[i] + fy * dbvy[i] > 0) ? ( ts = 0.28; z = 1.6; g_db_fx = dpx[bi]; g_db_fy = dpy[bi]; );
+        );
+        i += 1;
+      );
+    );
+    g_t - g_db_fin_t < 0.9 ? ( ts = 0.28; z = 1.6; );
+    g_db_ts += (ts - g_db_ts) * min(1, g_dt * 8);
+    g_db_rain ? g_db_cw += (DB_CW * 2 - g_db_cw) * min(1, g_dt * 4);
+    g_db_zoom += (z - g_db_zoom) * min(1, g_dt * 5);
+    steps = ceil(g_dt * g_db_ts * 240);
+    h = g_dt * g_db_ts / steps;
+    loop(steps,
+      g_db_ng ? ( g_db_mt += h; db_move(); );
+      i = 0;
+      loop(NDB, dbon[i] ? db_collide(i, h); i += 1; );
+    );
+    any = 0;
+    i = 0;
+    loop(NDB,
+      dbon[i] ? (
+        any = 1;
+        g_t - dbst[i] > 1.4 ? (
+          (dbx[i] - dbsx[i]) * (dbx[i] - dbsx[i]) + (dby[i] - dbsy[i]) * (dby[i] - dbsy[i]) < 24 * 24 ? db_unstick(i);
+          dbsx[i] = dbx[i]; dbsy[i] = dby[i]; dbst[i] = g_t;
+        );
+      );
+      i += 1;
+    );
+    !any ? ( g_db_state = 2; g_db_popn = g_t; );
+  ) : (
+    g_db_ts += (1 - g_db_ts) * min(1, g_dt * 8);
+    g_db_zoom += (1 - g_db_zoom) * min(1, g_dt * 5);
+    g_db_ng ? ( g_db_mt += g_dt * g_db_ts; db_move(); );
+  );
+  g_db_csp = g_db_lv >= 17 ? (1 + min(0.3, (g_db_lv - 16) * 0.03)) * (1 + 0.35 * sin(g_t * 0.45 + g_db_sd)) : 1;
+  g_db_cph += g_dt * g_db_ts * 0.62 * g_db_csp * (g_db_rain ? 1.7 : 1);
+  g_db_state == 2 && g_t >= g_db_popn ? (
+    best = 1000000; bi = -1; i = 0;
+    loop(g_db_n, (dps[i] == 1 && dpht[i] < best) ? ( best = dpht[i]; bi = i; ); i += 1; );
+    bi >= 0 ? (
+      dps[bi] = 2; dpa[bi] = g_t;
+      db_kcol(dpk[bi], 1);
+      fx = dpt[bi] ? (dpx[bi] + dpx2[bi]) * 0.5 : dpx[bi];
+      fy = dpt[bi] ? (dpy[bi] + dpy2[bi]) * 0.5 : dpy[bi];
+      loop(dpk[bi] == 1 ? 10 : 5, a = rand(1) * 2 * $pi; spawn(fx, fy, cos(a) * (40 + rand(1) * 90), sin(a) * (40 + rand(1) * 90) - 40, g_cr, g_cg, g_cb, 0.4 + rand(1) * 0.4); );
+      g_db_popn = g_t + 0.04;
+      db_snd(1, 700 + rand(1) * 500, 0.22, 0, (fx - 450) / 450);
+    ) : db_end_shot();
+  );
+
+  s0 = g_s; ox0 = g_ox; oy0 = g_oy; dst = gfx_dest;
+  gfx_setimgdim(IMG_DBS, bw, bh);
+  gfx_dest = IMG_DBS;
+  gfx_set(0, 0, 0, 1);
+  gfx_rect(0, 0, bw, bh);
+  z = g_db_zoom;
+  g_s = s0 * z;
+  g_ox = -BRD_X * s0 * z + (g_db_fx - BRD_X) * s0 * (1 - z);
+  g_oy = -BRD_Y * s0 * z + (g_db_fy - BRD_Y) * s0 * (1 - z);
+  dt0 = g_dt; g_dt *= g_db_ts;
+  db_scene();
+  g_dt = dt0;
+  g_s = s0; g_ox = ox0; g_oy = oy0;
+  gfx_dest = dst;
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_DBS, 1, 0, 0, 0, bw, bh, floor(sx(BRD_X)), floor(sy(BRD_Y)), bw, bh);
+  gfx_set(0.2, 0.21, 0.24, 1);
+  outline_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+  db_heat_draw();
+
+  cr = 1; cg = 0.78; cb = 0.4;
+  button("< Games", 18, 14, 96, 36, 0.4, 0.95, 0.78) ? g_screen = 0;
+  button("New", 122, 14, 64, 36, cr, cg, cb) ? db_start(g_db_lv);
+  g_t - g_db_rst_t > 3 ? g_db_rst_t = -1000;
+  g_db_rst_t > 0 ? (
+    button("Sure?", 194, 14, 100, 36, 1, 0.4, 0.35) ? ( sv2[10] = 1; sv2[11] = 0; sv2[12] = 0; sv2[14] = 0; db_start(1); );
+  ) : (
+    button("Start over", 194, 14, 100, 36, 1, 0.4, 0.35) ? g_db_rst_t = g_t;
+  );
+  font(15, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  sprintf(#g_tt, "Peggy  -  Level %d", g_db_lv);
+  txt_c(#g_tt, 296, 9, 252, 22);
+  d = sv2[14] - g_db_tdisp;
+  d > 0 ? g_db_tdisp = min(sv2[14], g_db_tdisp + max(1, ceil(d * min(1, g_dt * 3)))) : g_db_tdisp = sv2[14];
+  sprintf(#g_tt, "Total %d", g_db_tdisp);
+  db_otext(#g_tt, 296, 31, 252, 22, 15 + (d > 0 ? 2 : 0), 1, 0.85, 0.4, 1);
+  n = 0; i = 0;
+  loop(g_db_n, (dpk[i] == 1 && dps[i] == 0) ? n += 1; i += 1; );
+  font(13, 'b');
+  n == 1 ? strcpy(#g_tt, "1 red left") : sprintf(#g_tt, "%d red left", n);
+  pill(#g_tt, 554, 18, 100, 28, 0.93, 0.3, 0.4, 1);
+  k = min(10, g_db_balls);
+  i = 0;
+  loop(k,
+    gfx_set(0.8, 0.82, 0.86, 1);
+    gfx_circle(sx(668 + i * 9), sy(32), 3.4 * g_s, 1, 1);
+    gfx_set(1, 1, 1, 1);
+    gfx_circle(sx(667 + i * 9), sy(31), 1.2 * g_s, 1, 1);
+    i += 1;
+  );
+  g_db_balls > 10 ? ( font(11, 'b'); gfx_set(0.8, 0.82, 0.86, 1); sprintf(#g_tt, "+%d", g_db_balls - 10); txt_l(#g_tt, 758, 25); );
+  db_scorer(774, 9, 108, 44);
+  t = g_t - g_db_t0;
+  (g_db_bn && t > 0.5 && t < 5 && g_db_state == 0) ? (
+    a = min(1, min((t - 0.5) * 4, (5 - t) * 2));
+    g_db_bn == 1 ? ( strcpy(#g_l1, "New: moving pegs!"); strcpy(#g_l2, "Some pegs now spin and slide. Time your shot."); ) :
+    g_db_bn == 2 ? ( strcpy(#g_l1, "Red pegs are hiding"); strcpy(#g_l2, "Look for reds tucked behind other pegs and inside rings."); ) :
+    g_db_bn == 3 ? ( strcpy(#g_l1, "New: bumpers!"); strcpy(#g_l2, "Teal bumpers never clear, but they kick the ball away hard."); ) :
+    g_db_bn == 4 ? ( strcpy(#g_l1, "The catcher gets restless"); strcpy(#g_l2, "It now speeds up and slows down as it slides."); ) :
+    ( strcpy(#g_l1, "Showpiece level!"); strcpy(#g_l2, "One giant spinning shape. Good luck!"); );
+    gfx_set(0.05, 0.05, 0.08, 0.62 * a);
+    gfx_rect(sx(230), sy(BRD_Y + 118), 440 * g_s, 84 * g_s);
+    gfx_set(1, 0.85, 0.4, 0.5 * a);
+    gfx_rect(sx(230), sy(BRD_Y + 118), 440 * g_s, 84 * g_s, 0);
+    db_otext(#g_l1, 230, BRD_Y + 124, 440, 42, 28, 1, 0.85, 0.4, a);
+    font(14, 'b');
+    gfx_set(0.95, 0.96, 0.98, a);
+    txt_c(#g_l2, 230, BRD_Y + 168, 440, 26);
+  );
+
+  hint("Click to drop a ball, or aim with the left and right arrows and press down. Clear every red peg.", HINT_Y - 0);
+  button(snd_lbl(), 774, HINT_Y - 4, 108, 28, 0.6, 1, 0.75) ? sv2[13] = snd_next();
+
+  g_db_state == 3 ? (
+    sprintf(#g_l1, "Stage score %d, including %d for %d balls to spare", g_db_score, g_db_bonus, g_db_balls);
+    g_db_jack >= 0 ? sprintf(#g_l2, "Jackpot %d!     Total: %d     Best stage: %d", DBJV[g_db_jack], sv2[14], sv2[12]) :
+    sprintf(#g_l2, "Total: %d     Best stage: %d     Levels cleared: %d", sv2[14], sv2[12], sv2[11]);
+    i = win_card("Cleared!", g_db_won_t + 0.4, cr, cg, cb);
+    (g_db_kf && g_t - g_db_won_t > 1.2) ? i = 1;
+    i == 1 ? db_start(g_db_lv + 1) : i == 2 ? g_screen = 0;
+  );
+  g_db_state == 4 ? (
+    g_db_left == 1 ? strcpy(#g_l1, "Out of balls with 1 red peg to go") : sprintf(#g_l1, "Out of balls with %d red pegs to go", g_db_left);
+    sprintf(#g_l2, "Stage score %d     Total: %d     Best stage: %d", g_db_score, sv2[14], sv2[12]);
+    g_wcl = 3;
+    i = win_card("So close!", g_db_won_t, 1, 0.5, 0.45);
+    g_wcl = 0;
+    (g_db_kf && g_t - g_db_won_t > 1.2) ? i = 1;
+    i == 1 ? db_start(g_db_lv) : i == 2 ? g_screen = 0;
+  );
+);
+
+function pv_drop(x, y, w, h) local(bw, bh, i)
+(
+  g_db_lv < 1 ? db_start(max(1, sv2[10]));
+  bw = ceil(BRD_W * g_s); bh = ceil(BRD_H * g_s);
+  (g_db_bgw !== bw || g_db_bgh !== bh) ? ( db_bg(bw, bh); g_db_bgw = bw; g_db_bgh = bh; );
+  pv_begin(x, y, w, h, 1);
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_DBB, 1, 0, 0, 0, g_db_bgw, g_db_bgh, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  i = 0;
+  loop(g_db_n, dps[i] <= 1 ? db_draw_peg(i); i += 1; );
+  db_catcher();
+  g_db_aim = $pi * 0.5 + 0.5 * sin(g_t * 0.7);
+  db_launcher();
+  pv_end();
+);
+
+db_ceil_init();

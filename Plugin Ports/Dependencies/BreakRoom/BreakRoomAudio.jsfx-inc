@@ -1,0 +1,874 @@
+@init
+g_sfxd = 2.5; g_sfxg = g_sfxd; au_gs = 1; g_sfxl = 0;
+function db_snd(k, fr, gn, dl, pan)
+(
+  (sv2[13] && !g_snd_mute && !(play_state & 1)) ? (
+    evk[g_evw] = k; evf[g_evw] = fr; evg[g_evw] = gn * g_sfxg * ((g_screen == 9 || g_screen == 12) ? 0.5012 : 1); evd[g_evw] = dl; evp[g_evw] = max(-1, min(1, pan)); evl[g_evw] = g_sfxl;
+    g_evw = (g_evw + 1) % NEV;
+  );
+);
+
+function db_snl(k, fr, gn, dl, pan, ln)
+(
+  g_sfxl = ln; db_snd(k, fr, gn, dl, pan); g_sfxl = 0;
+);
+
+function db_note(n) ( 261.63 * 2 ^ (min(36, n) / 12); );
+
+function au_new(k, fr, gn, dl, pan, ln) local(v, j, best)
+(
+  v = -1; best = -1; j = 0;
+  loop(NAV,
+    v < 0 && !avk[j] ? v = j;
+    avt[j] > best ? ( best = avt[j]; au_old = j; );
+    j += 1;
+  );
+  v < 0 ? v = au_old;
+  avk[v] = k; avf[v] = fr; avg[v] = gn * au_gs; avp[v] = pan;
+  avd[v] = floor((dl + au_dly) * srate); avt[v] = 0; avph[v] = 0; avph2[v] = 0; avlp[v] = 0;
+  avl[v] = floor(ln * srate);
+  avm[v] = au_mus;
+  ave[v] = (k == 6 || (k >= 9 && k <= 13)) ? 0 : 1;
+  ava[v] = k == 9 ? 0.005 : k == 12 ? 0.07 : k == 13 ? au_pa : 0.02;
+  avs[v] = k == 9 ? 0.7 : k == 12 ? 0.85 : 1;
+  avph3[v] = 0; avlp2[v] = 0;
+  aved[v] = exp(-(k == 16 ? au_pd : k == 17 ? 5 : (k == 8 && au_kd > 0) ? au_kd : k == 1 ? 14 : k == 2 ? 60 : k == 3 ? 22 : k == 4 ? 4.5 : k == 5 ? 9 : k == 7 ? au_pd : k == 8 ? 9 :
+    k == 9 ? 30 : k == 12 ? 14 : k == 13 ? 3 : k == 14 ? 2.2 : k == 15 ? fr : k == 18 ? 9 : 5) / srate);
+  k == 15 ? avf[v] = 0;
+  au_any = 1;
+);
+
+function cel_start()
+(
+  cel.fh >= 0 ? file_close(cel.fh);
+  cel.fh = -1; cel.st = 0; cel.gn = 1; cel.pi = 0; cel.fail = 0;
+);
+
+function cel_stop()
+(
+  cel.fh >= 0 ? file_close(cel.fh);
+  cel.fh = -1; cel.st = 4; cel.gn = 0; wt_play = 0;
+);
+
+function au_start(e)
+(
+  evk[e] == 6 ? (
+    sv2[13] == 1 ? ( wt_play = 1; wt_out = 0; au_wgen = g_db_nst; au_song = 0; cel_start(); );
+  ) :
+  au_new(evk[e] + 1, evf[e], evg[e], evd[e], evp[e], evl[e]);
+);
+
+function au_mf(n) ( 440 * 2 ^ ((n - 69) / 12); );
+
+function au_mel(tr, st, k, g, pan) local(i, o)
+(
+  o = tr * 48; i = 0;
+  loop(MLC[tr],
+    MLS[o + i] == st ? au_new(k, au_mf(MLN[o + i] + au_tp - ((au_tp && MLN[o + i] + au_tp > 86) ? 12 : 0) + (k == 14 ? 12 : 0)), g, 0, pan, MLL[o + i] * SDU[tr] * 0.92);
+    i += 1;
+  );
+);
+
+function au_hop(tr, st, b, p) local(w, root, mn, d, th, fi, nt, rl, k3, ln, q, g, sl)
+(
+  w = tr - 40;
+  au_gs = hb_gn[w];
+  mn = 0;
+  sl = w;
+  q = au_part % 11; fi = (q == 1 || q == 9) ? 1 : (q == 3 || q == 7) ? 2 : q == 5 ? 3 : 0; sl = w * 4 + fi;
+  fi = w % 5;
+  root = fi == 0 ? 55 : fi == 1 ? 62 : fi == 2 ? 57 : fi == 3 ? 60 : 52;
+  d = hb_pg[((w + (sl & 3)) & 3) * 8 + b];
+  th = 4;
+  nt = hb_tm[sl * 64 + st];
+  ln = hb_tl[sl * 64 + st] * SDU[tr] * 0.92;
+  q = p & 3;
+
+  w == 0 ? (
+    au_pd = 8;
+    p == 0 ? au_new(7, au_mf(root + d - 12), 0.3, 0, -0.1, 0);
+    p == 4 ? au_new(7, au_mf(root + d - 5), 0.26, 0, -0.1, 0);
+    (p == 2 || p == 6) ? (
+      au_pd = 16;
+      au_new(7, au_mf(root + d + th), 0.055, 0, 0.3, 0);
+      au_new(7, au_mf(root + d + 7), 0.05, 0.004, 0.35, 0);
+      au_new(7, au_mf(root + d + 12), 0.045, 0.008, 0.25, 0);
+      au_new(15, 70, 0.016, 0, 0.3, 0);
+    );
+    rl = p == 0 ? 2 : p == 1 ? 1 : p == 2 ? 0 : p == 3 ? 2 : p == 4 ? 1 : p == 5 ? 0 : p == 6 ? 1 : 2;
+    k3 = rl == 0 ? 0 : rl == 1 ? th : 7;
+    au_pd = 20;
+    au_new(7, au_mf(root + d + 12 + k3), (p & 1) ? 0.05 : 0.075, 0, -0.3, 0);
+    (w == 0 && (sl & 3) == 2) ? ( au_pd = 9; nt >= 0 ? au_new(7, au_mf(root + nt + 12), 0.16, 0, 0.1, 0); ) :
+    nt >= 0 ? au_new(12, au_mf(root + nt + (sl == 1 ? 12 : 0)), 0.09, 0, 0.1, ln);
+  ) : w == 1 ? (
+    au_pd = 6;
+    (p == 0 || p == 4) ? au_new(7, au_mf(root + d - 12 + (p == 4 ? 7 : 0)), 0.3, 0, -0.1, 0);
+    au_pd = 11;
+    (p & 1) == 0 ? au_new(7, au_mf(root + d + 12 + (q == 0 ? 0 : q == 2 ? th : 7)), 0.07, 0, 0.3, 0);
+    p == 0 ? au_new(8, 62, 0.12, 0, 0, 0);
+    p == 4 ? au_new(15, 25, 0.025, 0, 0.2, 0);
+    nt >= 0 ? au_new(12, au_mf(root + nt + 12), 0.075, 0, 0.1, ln * 1.3);
+  ) : w == 2 ? (
+    au_pd = 5;
+    p == 0 ? au_new(7, au_mf(root + d - 12), 0.26, 0, -0.1, 0);
+    au_pd = 14;
+    (p == 2 || p == 4) ? ( au_new(7, au_mf(root + d + th), 0.05, 0, 0.3, 0); au_new(7, au_mf(root + d + 7), 0.045, 0.004, 0.35, 0); );
+    p == 0 ? ( au_pa = 0.6; au_new(13, au_mf(root + d), 0.04, 0, 0, SDU[tr] * 6); );
+    nt >= 0 ? au_new(14, au_mf(root + nt), 0.12, 0, 0.1, 0);
+  ) : w == 3 ? (
+    (p & 3) == 0 ? au_new(8, 52, 0.26, 0, 0, 0);
+    (p & 1) ? ( au_pd = 5; au_new(7, au_mf(root + d - 12), 0.26, 0, -0.1, 0); au_new(15, 90, 0.014, 0, 0.3, 0); );
+    au_new(9, au_mf(root + d + 12 + (q == 0 ? 0 : q == 1 ? th : q == 2 ? 7 : th)), 0.045, 0, (p & 1) ? 0.4 : -0.4, SDU[tr] * 0.5);
+    p == 2 ? au_new(15, 20, 0.03, 0, 0.2, 0);
+    nt >= 0 ? au_new(9, au_mf(root + nt + 12), 0.075, 0, 0.1, ln);
+  ) : w == 4 ? (
+    (p == 0 || p == 3 || p == 5) ? au_new(8, 150, 0.2, 0, -0.3, 0);
+    (p == 2 || p == 6 || p == 7) ? au_new(8, 105, 0.16, 0, 0.3, 0);
+    au_new(15, 60, 0.012, 0, 0.3, 0);
+    au_pd = 14;
+    au_new(7, au_mf(root + d + (p == 0 || p == 4 ? 0 : p == 1 || p == 5 ? 7 : p == 2 || p == 6 ? 12 : 7) + (p & 1 ? 12 : 0)), 0.1, 0, p & 1 ? 0.3 : -0.3, 0);
+    p == 0 ? ( au_pd = 6; au_new(7, au_mf(root + d - 12), 0.28, 0, 0, 0); );
+    nt >= 0 ? au_new(12, au_mf(root + nt + 12), 0.07, 0, 0.1, ln);
+  ) : w == 5 ? (
+    au_pd = 7;
+    p == 0 ? au_new(7, au_mf(root + d - 12), 0.3, 0, -0.1, 0);
+    p == 4 ? au_new(7, au_mf(root + d - 5), 0.26, 0, -0.1, 0);
+    (p == 2 || p == 6) ? (
+      au_new(9, au_mf(root + d + th), 0.05, 0, 0.3, SDU[tr] * 0.5);
+      au_new(9, au_mf(root + d + 7), 0.04, 0, 0.35, SDU[tr] * 0.5);
+      au_new(9, au_mf(root + d + 12), 0.04, 0, 0.25, SDU[tr] * 0.5);
+    );
+    p & 1 ? au_new(15, 100, 0.01, 0, 0.3, 0);
+    nt >= 0 ? au_new(9, au_mf(root + nt + 12), 0.075, 0, 0.1, ln);
+    (p == 0 && (b & 1)) ? au_new(14, au_mf(root + d + 24), 0.05, 0, 0.2, 0);
+  ) : w == 6 ? (
+    (p == 0 || p == 4 || p == 6) ? au_new(8, 48, 0.3, 0, 0, 0);
+    (p == 2 || p == 6) ? au_new(15, 22, 0.035, 0, 0.2, 0);
+    (p == 0 || p == 3 || p == 4) ? au_new(6, au_mf(root + d - 24), 0.2, 0, -0.1, SDU[tr] * 1.7);
+    au_pd = 5;
+    p == 0 ? ( au_new(17, au_mf(root + d), 0.06, 0, 0.25, 0); au_new(17, au_mf(root + d + 7), 0.05, 0, -0.25, 0); );
+    p == 4 ? ( au_new(17, au_mf(root + d + 7), 0.05, 0, 0.25, 0); au_new(17, au_mf(root + d + 12), 0.045, 0, -0.25, 0); );
+    nt >= 0 ? au_new(12, au_mf(root + nt), 0.085, 0, 0.1, ln);
+  ) : w == 7 ? (
+    (p == 0 || p == 4) ? au_new(8, 60, 0.22, 0, 0, 0);
+    p & 1 ? au_new(15, 80, 0.014, 0, 0.3, 0);
+    au_pd = 8;
+    (p == 0 || p == 4) ? au_new(7, au_mf(root + d - 12 + (p == 4 ? 7 : 0)), 0.24, 0, -0.1, 0);
+    au_new(14, au_mf(root + d + 12 + (q == 0 ? 0 : q == 1 ? th : q == 2 ? 7 : 12) + ((b & 1) ? 12 : 0)), 0.06, 0, (q - 1.5) * 0.25, 0);
+    p == 0 ? ( au_pa = 0.3; au_new(13, au_mf(root + d), 0.03, 0, 0, SDU[tr] * 8); );
+    nt >= 0 ? au_new(12, au_mf(root + nt + 12), 0.08, 0, 0.1, ln);
+  ) : w == 8 ? (
+    au_pd = 7;
+    p == 0 ? au_new(7, au_mf(root + d - 12), 0.28, 0, -0.1, 0);
+    au_pd = 14;
+    (p == 2 || p == 4) ? ( au_new(7, au_mf(root + d + th), 0.06, 0, 0.3, 0); au_new(7, au_mf(root + d + 7), 0.05, 0.004, 0.35, 0); );
+    (p == 0 && (b & 3) == 0) ? au_new(14, au_mf(root + d + 24), 0.05, 0, 0.2, 0);
+    au_pd = 11;
+    nt >= 0 ? au_new(7, au_mf(root + nt + 12), 0.12, 0, 0.1, 0);
+  ) : (
+    (p & 1) == 0 ? au_new(8, 55, 0.26, 0, 0, 0);
+    p & 1 ? au_new(15, 38, 0.02, 0, 0.3, 0);
+    au_pd = 6;
+    au_new(7, au_mf(root + d - 12 + ((p & 1) ? 12 : 0)), 0.2, 0, -0.1, 0);
+    au_pd = 12;
+    (p == 3 || p == 7) ? ( au_new(7, au_mf(root + d + th), 0.07, 0, 0.3, 0); au_new(7, au_mf(root + d + 7), 0.06, 0, 0.35, 0); au_new(7, au_mf(root + d + 12), 0.055, 0, 0.25, 0); );
+    nt >= 0 ? au_new(9, au_mf(root + nt + 12), 0.08, 0, 0.1, ln);
+  );
+  au_gs = 1;
+);
+
+function au_step(tr, st) local(b, p, c, i, sn, mk, sec, fi, ty, hf)
+(
+  au_mus = 1;
+  b = floor(st / SPB[tr]); p = st % SPB[tr]; c = tr * 32 + b * 4;
+  sn = g_screen == 9 && g_db_wx == 4;
+  au_pd = 7; au_pa = 0.3;
+  tr >= 40 ? ( au_hop(tr, st, b, p); ) : tr >= 32 ? (
+    ty = tr == 33 ? 0 : tr == 34 ? 0 : 0.3;
+    sec = (p & 1) * SDU[tr] * ty;
+    au_dly += sec;
+    i = tr * 32 + ((b + 1) % 8) * 4;
+    mk = CH[c];
+    hf = au_part & 1;
+    tr == 33 ? (
+      au_pd = 8;
+      (p == 0 || p == 4) ? au_new(7, au_mf(p == 4 ? mk + 7 : mk), 0.34, 0, -0.08, 0);
+      (p == 2 || p == 6) ? ( au_pd = 11; fi = 1; loop(3, au_new(7, au_mf(CH[c + fi] - 12), 0.09, 0, (fi - 2) * 0.35, 0); fi += 1; ); );
+      (p & 1) ? au_new(15, 90, 0.012, 0, 0.3, 0);
+    ) : tr == 34 ? (
+      au_pd = 5;
+      (p == 0 || p == 7) ? au_new(7, au_mf(mk), 0.32, 0, -0.05, 0);
+      (p == 3 || p == 4) ? au_new(7, au_mf(mk + 7), 0.24, 0, -0.05, 0);
+      (st % 16 == 0 || st % 16 == 3 || st % 16 == 6 || st % 16 == 10 || st % 16 == 13) ? ( au_new(8, 900, 0.035, 0, 0.3, 0); au_pd = 2.6; fi = 1; loop(3, au_new(1, au_mf(CH[c + fi]), 0.05, 0.012 * fi, (fi - 2) * 0.3, 0); fi += 1; ); );
+      au_new(15, 110, (p & 1) ? 0.008 : 0.016, 0, -0.3, 0);
+    ) : tr == 35 ? (
+      p == 0 ? ( au_pa = 0.6; au_new(13, au_mf(mk), 0.16, 0, 0, SPB[35] * SDU[35]); );
+      au_new(1, au_mf(CH[c + 1 + (p % 3)] + ((p >> 1) & 1) * 12), 0.05, 0, (p - 3.5) * 0.14, 0);
+      (p == 2 || p == 6) ? au_new(15, 16, 0.012, 0, 0.2, 0);
+      au_new(15, 70, 0.006, 0, -0.25, 0);
+    ) : (
+      au_pd = 4;
+      (p & 1) == 0 ? au_new(7, au_mf(p == 0 ? mk : p == 2 ? mk + 3 : p == 4 ? mk + 7 : CH[i] - 1), 0.26, 0, -0.05, 0);
+      tr == 36 ? (
+        (p == 0 && (b & 1) == 0) ? au_new(8, 50, 0.14, 0, 0, 0);
+        (p == 3 && (b & 1)) ? ( au_pa = 0.08; fi = 1; loop(3, au_new(13, au_mf(CH[c + fi]), 0.035, 0, (fi - 2) * 0.4, SDU[36] * 3); fi += 1; ); );
+        (p == 2 || p == 6) ? au_new(15, 18, 0.012, 0, 0.25, 0);
+        (p != 1 && p != 5) ? au_new(15, 80, 0.006, 0, -0.3, 0);
+      ) : (
+        (p == 0 || p == 2 || p == 3 || p == 4 || p == 6 || p == 7) ? au_new(15, 42, (p == 3 || p == 7) ? 0.011 : 0.018, 0, -0.3, 0);
+        (p == 2 || p == 6) ? au_new(15, 14, 0.014, 0, 0.25, 0);
+        ((b & 1) ? (p == 3 || p == 6) : (p == 1 || p == 4)) ? ( au_pd = 3.2; fi = 1; loop(3, au_new(1, au_mf(CH[c + fi]), 0.052, 0.008 * fi, (fi - 2) * 0.35, 0); fi += 1; ); );
+      );
+    );
+    !hf ? (
+      au_mel(tr, st, tr == 33 ? 12 : tr == 34 ? 14 : tr == 35 ? 14 : tr == 36 ? 6 : 12, tr == 33 ? 0.09 : tr == 34 ? 0.14 : tr == 35 ? 0.16 : tr == 36 ? 0.05 : 0.09, 0.12);
+    ) : (
+      rand(1) < (tr == 35 || tr == 36 ? 0.3 : 0.55) ? (
+        fi = 1 + floor(rand(1) * 3) % 3;
+        ty = CH[c + fi] + 12 + (rand(1) < 0.25 ? 12 : 0) + (rand(1) < 0.2 ? 2 : 0);
+        au_new(tr == 33 ? 12 : 14, au_mf(ty), tr == 33 ? 0.08 : 0.12, 0, 0.12 + rand(1) * 0.2 - 0.1, SDU[tr] * (1 + floor(rand(1) * 2)) * 0.92);
+      );
+    );
+    au_dly -= sec;
+  ) : tr == 0 ? (
+    au_pd = 12;
+    au_new(7, au_mf(CH[c] - 12 + (p & 1) * 12), 0.26, 0, 0, 0);
+    p & 1 ? au_new(15, 55, 0.05, 0, 0.3, 0);
+    (p == 2 || p == 6) ? ( i = 1; loop(3, au_new(7, au_mf(CH[c + i]), 0.06, 0, (i - 2) * 0.4, 0); i += 1; ); );
+    au_mel(0, st, sn ? 14 : 9, sn ? 0.16 : 0.11, 0);
+  ) : tr == 1 ? (
+    au_pd = 6;
+    i = st % 16;
+    (i == 0 || i == 3 || i == 6 || i == 10 || i == 12) ? (
+      i = 1; loop(3, au_new(7, au_mf(CH[c + i]), 0.075, 0.016 * i, (i - 2) * 0.3, 0); i += 1; );
+    );
+    au_pd = 4;
+    p == 0 ? au_new(7, au_mf(CH[c] - 12), 0.3, 0, 0, 0);
+    p == 4 ? au_new(7, au_mf(CH[c] - 5), 0.22, 0, 0, 0);
+    p == 7 ? au_new(7, au_mf(CH[c] - 12), 0.14, 0, 0, 0);
+    au_new(15, 30, p & 1 ? 0.035 : 0.02, 0, -0.3, 0);
+    au_mel(1, st, sn ? 14 : 12, sn ? 0.16 : 0.13, 0.15);
+  ) : tr == 2 ? (
+    p == 0 ? ( au_pa = 0.25; au_new(13, au_mf(CH[c] - 12), 0.2, 0, 0, SPB[2] * SDU[2] * 0.95); );
+    au_new(1, au_mf(CH[c + 1 + p % 3] + 12 * floor(p / 3)), 0.07, 0, (p - 2.5) * 0.25, 0);
+    au_mel(2, st, sn ? 14 : 12, sn ? 0.15 : 0.12, -0.1);
+  ) : tr == 3 ? (
+    p == 0 ? (
+      au_pa = 1.2;
+      au_new(13, au_mf(CH[c] - 12), 0.2, 0, 0, SPB[3] * SDU[3]);
+      i = 1; loop(3, au_new(13, au_mf(CH[c + i]), 0.08, 0, (i - 2) * 0.5, SPB[3] * SDU[3]); i += 1; );
+    );
+    au_mel(3, st, 14, 0.19, 0.2);
+    rand(1) < 0.18 ? au_new(14, au_mf(CH[c + 1 + floor(rand(3)) % 3] + 24), 0.035, rand(1) * 0.5, rand(2) - 1, 0);
+  ) : tr == 4 ? (
+    au_pd = 10;
+    p == 0 ? au_new(7, au_mf(CH[c] - 12), 0.3, 0, 0, 0);
+    p == 4 ? au_new(7, au_mf(CH[c] - 5), 0.24, 0, 0, 0);
+    (p == 2 || p == 6) ? (
+      au_pd = 16;
+      i = 1; loop(3, au_new(7, au_mf(CH[c + i] - 12), 0.06, 0, (i - 2) * 0.4, 0); i += 1; );
+      au_new(15, 45, 0.03, 0, 0.2, 0);
+    );
+    au_mel(4, st, sn ? 14 : 1, sn ? 0.16 : 0.21, 0);
+  ) : tr == 5 ? (
+    au_dly += (p & 1) * SDU[5] * 0.32;
+    au_pd = 2.5;
+    (p == 0 || p == 5) ? ( i = 1; loop(3, au_new(7, au_mf(CH[c + i]), 0.05, 0.012 * i, (i - 2) * 0.35, 0); i += 1; ); );
+    au_pd = 5;
+    p == 0 ? au_new(7, au_mf(CH[c] - 12), 0.3, 0, 0, 0);
+    p == 3 ? au_new(7, au_mf(CH[c] - 5), 0.2, 0, 0, 0);
+    p == 6 ? au_new(7, au_mf(CH[c]), 0.16, 0, 0, 0);
+    au_new(15, 70, (p == 2 || p == 6) ? 0.03 : 0.012, 0, 0.25, 0);
+    au_mel(5, st, 14, 0.15, -0.15);
+    au_dly -= (p & 1) * SDU[5] * 0.32;
+  ) : tr == 6 ? (
+    au_pd = 7;
+    (p & 3) == 0 ? au_new(7, au_mf(CH[c] - 12), 0.3, 0, 0, 0);
+    (p & 3) == 1 ? au_new(7, au_mf(CH[c] - 12), 0.18, SDU[6] * 0.5, 0, 0);
+    (p & 3) == 2 ? au_new(7, au_mf(CH[c] - 5), 0.22, 0, 0, 0);
+    (p & 3) == 3 ? au_new(7, au_mf(CH[c] - 12), 0.2, 0, 0, 0);
+    (p == 2 || p == 6) ? ( au_pd = 18; i = 1; loop(3, au_new(7, au_mf(CH[c + i]), 0.07, 0, (i - 2) * 0.4, 0); i += 1; ); );
+    ((p & 3) == 0 || (p & 3) == 2) ? au_new(15, 90, 0.025, 0, -0.3, 0);
+    (p & 3) == 1 ? au_new(15, 90, 0.02, SDU[6] * 0.5, -0.3, 0);
+    au_mel(6, st, sn ? 14 : 9, sn ? 0.15 : 0.08, 0.1);
+  ) : tr == 8 ? (
+    au_pd = 16;
+    (p == 0 || p == 4) ? au_new(7, au_mf(CH[c] + (p == 4 ? 7 : 0)), 0.26, 0, 0, 0);
+    (p == 2 || p == 6) ? ( au_pd = 22; i = 1; loop(3, au_new(7, au_mf(CH[c + i]), 0.06, 0.01 * i, (i - 2) * 0.4, 0); i += 1; ); );
+    (p & 1) ? au_new(15, 120, 0.014, 0, 0.3, 0);
+    au_mel(8, st, 14, 0.15, 0.1);
+  ) : tr == 9 ? (
+    au_pd = 9;
+    p == 0 ? ( au_new(7, au_mf(CH[c]), 0.28, 0, 0, 0); au_new(8, 65, 0.1, 0, -0.1, 0); );
+    p == 3 ? ( au_new(7, au_mf(CH[c] + 7), 0.2, 0, 0, 0); au_new(8, 72, 0.06, 0, -0.1, 0); );
+    (p == 2 || p == 5) ? ( au_pd = 20; i = 1; loop(3, au_new(7, au_mf(CH[c + i]), 0.055, 0.008 * i, (i - 2) * 0.4, 0); i += 1; ); );
+    au_mel(9, st, 12, 0.11, 0.15);
+  ) : tr == 10 ? (
+    p == 0 ? ( au_pa = 0.4; au_new(13, au_mf(CH[c]), 0.14, 0, 0, SPB[10] * SDU[10] * 0.95); );
+    (p == 2 || p == 4) ? ( i = 1; loop(3, au_new(1, au_mf(CH[c + i] + 12), 0.035, 0, (i - 2) * 0.4, 0); i += 1; ); );
+    au_mel(10, st, 14, 0.14, -0.1);
+  ) : tr == 11 ? (
+    au_pd = 2.6;
+    p == 0 ? ( au_new(7, au_mf(CH[c]), 0.22, 0, 0, 0); au_pa = 1.2; au_new(13, au_mf(CH[c] + 12), 0.06, 0, 0, SPB[11] * SDU[11]); );
+    p > 0 ? au_new(7, au_mf(p == 4 ? CH[c + 1] + 12 : CH[c + 1 + (p < 4 ? p - 1 : 7 - p) % 3]), 0.065, 0, (p - 4) * 0.15, 0);
+    au_mel(11, st, 12, 0.1, 0.15);
+  ) : tr == 12 ? (
+    au_pd = 14;
+    (p == 0 || p == 4) ? au_new(7, au_mf(CH[c] + (p == 4 ? 7 : 0)), 0.419, 0, 0, 0);
+    (p == 2 || p == 6) ? ( au_pd = 24; i = 1; loop(3, au_new(7, au_mf(CH[c + i]), 0.109, 0, (i - 2) * 0.4, 0); i += 1; ); au_new(15, 60, 0.046, 0, 0.25, 0); );
+    au_mel(12, st, 6, 0.093, 0.1);
+  ) : tr == 13 ? (
+    au_pd = 20;
+    (p & 1) == 0 ? au_new(7, au_mf(CH[c] + (p == 2 || p == 6 ? 7 : p == 4 ? 12 : 0)), 0.35, 0, -0.1, 0);
+    (p & 1) ? au_new(15, 140, 0.018, 0, 0.35, 0);
+    (p == 3 || p == 7) ? ( au_pd = 26; i = 1; loop(2, au_new(7, au_mf(CH[c + i + 1]), 0.07, 0, (i - 1.5) * 0.6, 0); i += 1; ); );
+    au_mel(13, st, 1, 0.228, 0.15);
+  ) : tr == 14 ? (
+    p == 0 ? (
+      au_pa = 1.5;
+      au_new(13, au_mf(CH[c]), 0.216, 0, 0, SPB[14] * SDU[14]);
+      i = 1; loop(3, au_new(13, au_mf(CH[c + i]), 0.068, 0, (i - 2) * 0.5, SPB[14] * SDU[14]); i += 1; );
+    );
+    (p == 0 || p == 3 || p == 6) ? au_new(1, au_mf(CH[c + 1 + (p / 3) % 3] + 12), 0.054, 0, (p - 3) * 0.2, 0);
+    au_mel(14, st, 14, 0.203, -0.15);
+  ) : tr == 15 ? (
+    au_pd = 11;
+    (p == 0 || p == 3 || p == 6) ? au_new(7, au_mf(CH[c] + (p == 3 ? 7 : p == 6 ? 12 : 0)), 0.24, 0, 0, 0);
+    (p == 2 || p == 5 || p == 7) ? ( i = 1; loop(3, au_new(1, au_mf(CH[c + i]), 0.045, 0, (i - 2) * 0.4, 0); i += 1; ); );
+    p == 4 ? au_new(15, 50, 0.025, 0, 0.2, 0);
+    au_mel(15, st, 12, 0.1, 0.1);
+  ) : tr == 19 ? (
+    au_kd = 14;
+    sn = SDU[19];
+    (st < 32 && ((st < 16 && (st & 3) == 0) || (st >= 16 && (st & 1) == 0))) ? (
+      mk = st < 16 ? st / 4 : 4 + (st - 16) / 2;
+      i = 62 - mk;
+      c = 0; loop(4, au_new(17, au_mf(i + c * 3), 0.032, 0.002 * c, (c - 1.5) * 0.3, sn * (st < 16 ? 3.6 : 1.8)); c += 1; );
+      au_pd = 6;
+      au_new(16, au_mf(i - 24), 0.2, 0, -0.35, sn * (st < 16 ? 3.6 : 1.8)); au_new(16, au_mf(i - 21), 0.16, 0.004, 0.35, sn * (st < 16 ? 3.6 : 1.8));
+      au_new(8, 48, 0.32, 0, 0, 0); au_new(15, 14, 0.12, 0, 0.05, 0); au_new(3, 0, 0.15, 0, 0, 0);
+      (st == 0 || st == 16) ? au_new(15, 2.5, 0.07, 0, 0, 0);
+    );
+    (st >= 28 && st < 32) ? ( au_new(15, 16, 0.08 + (st - 28) * 0.02, 0, 0.05, 0); au_new(8, 120 - (st - 28) * 18, 0.2, 0, (st - 29.5) * 0.3, 0); );
+    st == 32 ? (
+      au_pd = 0.9;
+      au_new(16, au_mf(26), 0.26, 0, -0.45, sn * 18); au_new(16, au_mf(26.35), 0.24, 0.006, 0.45, sn * 18);
+      au_new(16, au_mf(38), 0.14, 0.003, -0.2, sn * 16); au_new(16, au_mf(39), 0.12, 0.009, 0.2, sn * 16);
+      au_new(17, au_mf(74), 0.03, 0.05, 0, sn * 20);
+      au_new(15, 1.2, 0.09, 0, 0, 0); au_new(15, 2, 0.08, 0, -0.4, 0); au_new(15, 2, 0.08, 0, 0.4, 0);
+      au_new(8, 42, 0.42, 0, 0, 0); au_new(8, 36, 0.3, 0.12, 0, 0);
+    );
+  ) : tr == 17 ? (
+    au_kd = 22;
+    sn = SDU[17];
+    mk = au_part % 8;
+    au_tp = mk == 1 ? 1 : mk == 2 ? 6 : mk == 3 ? 5 : mk == 5 ? -1 : mk == 6 ? 7 : mk == 7 ? 3 : 0;
+    ty = floor((b + 8 * (au_part & 1)) / 4) & 3;
+    i = CH[c] + au_tp;
+    p == 0 ? au_new(15, 2.5, 0.07, 0, (b & 1) ? 0.4 : -0.4, 0);
+    ty == 0 ? (
+      mk = (p >> 1) & 7;
+      i = CH[c + (mk == 2 || mk == 6 ? 1 : mk == 4 ? 2 : mk == 7 ? 3 : 0)] + au_tp;
+      au_pd = 40;
+      au_new(16, au_mf(i), 0.15, 0, -0.35, 0); au_new(16, au_mf(i), 0.15, 0.003, 0.35, 0); au_new(16, au_mf(i + 12), 0.06, 0.002, 0, 0);
+      (p & 1) == 0 ? au_new(8, 54, 0.24, 0, 0, 0) : ( au_new(15, 18, 0.1, 0, 0.05, 0); au_new(3, 0, 0.12, 0, 0, 0); );
+      au_new(15, 22, 0.024, 0, (p & 2) ? 0.35 : -0.35, 0);
+    ) : ty == 1 ? (
+      au_pd = 42;
+      mk = ((p >> 1) & 1) ? 6 : 0;
+      au_new(16, au_mf(i + mk), 0.15, 0, -0.35, 0); au_new(16, au_mf(i + mk), 0.15, 0.003, 0.35, 0); au_new(16, au_mf(i + mk + 12), 0.05, 0.002, 0, 0);
+      au_new(8, 54, 0.2 + 0.06 * ((p & 3) == 0), 0, 0, 0);
+      (p == 4 || p == 12) ? ( au_new(15, 15, 0.14, 0, 0.05, 0); au_new(3, 0, 0.16, 0, 0, 0); );
+      (p >= 12 && (p & 1)) ? au_new(15, 18, 0.08, 0, 0.05, 0);
+      au_new(15, 22, 0.022, 0, (p & 1) ? 0.4 : -0.4, 0);
+      rand(1) < 0.13 ? ( mk = floor(rand(1) * 7); au_new(17, au_mf(i + 24 + (mk == 0 ? 0 : mk == 1 ? 3 : mk == 2 ? 6 : mk == 3 ? 7 : mk == 4 ? 10 : mk == 5 ? 12 : 13)), 0.06, 0, rand(1.2) - 0.6, sn * (1 + floor(rand(1) * 3))); );
+    ) : ty == 2 ? (
+      (p == 0 || p == 3 || p == 6 || p == 8 || p == 11 || p == 14) ? (
+        mk = p == 6 || p == 14 ? 6 : p == 11 ? 1 : 0;
+        au_pd = (p == 3 || p == 11) ? 30 : 8;
+        au_new(16, au_mf(i + mk), 0.19, 0, -0.4, (p == 3 || p == 11) ? 0 : sn * 2);
+        au_new(16, au_mf(i + mk + 1), 0.15, 0.004, 0.4, (p == 3 || p == 11) ? 0 : sn * 2);
+        au_new(16, au_mf(i + mk + 12), 0.06, 0.002, 0, (p == 3 || p == 11) ? 0 : sn * 2);
+        au_new(8, 48, 0.34, 0, 0, 0); au_new(15, 3, 0.04, 0, (p - 7) * 0.08, 0);
+      ) : (
+        au_new(8, 170 - (p % 8) * 14, 0.15, 0, ((p % 8) - 3.5) * 0.2, 0);
+      );
+      (p == 4 || p == 12) ? ( au_new(15, 14, 0.14, 0, 0.05, 0); au_new(3, 0, 0.17, 0, 0, 0); );
+    ) : (
+      au_pd = 34;
+      mk = (b & 1) && p >= 8 ? CH[c + 1] - CH[c] : 0;
+      au_new(16, au_mf(i + mk), 0.15, 0, -0.35, 0); au_new(16, au_mf(i + mk), 0.15, 0.003, 0.35, 0);
+      au_new(8, 52, 0.22, 0, 0, 0);
+      (p & 3) == 0 ? ( au_new(15, 15, 0.12, 0, 0.05, 0); au_new(3, 0, 0.13, 0, 0, 0); );
+      au_new(15, 22, 0.022, 0, 0.3, 0);
+      au_new(17, au_mf(i + 36 + ((p >> 2) & 1) * (((b & 3) == 3) ? 2 : 1)), 0.04, 0, 0.15, sn * 0.9);
+      ((b & 3) == 3 && p >= 8) ? ( au_new(8, 150 - (p - 8) * 12, 0.2, 0, (p - 11.5) * 0.15, 0); au_new(15, 18, 0.06 + (p - 8) * 0.012, 0, 0.05, 0); );
+      ((b & 3) == 3 && p == 15) ? au_new(15, 2, 0.08, 0, 0, 0);
+    );
+    au_tp = 0;
+  ) : tr == 16 || (tr >= 24 && tr <= 27) ? (
+    au_kd = 16;
+    fi = floor(au_part / 2) % 11;
+    ty = (fi == 1 || fi == 9) ? 1 : (fi == 3 || fi == 7) ? 2 : fi == 5 ? 3 : 0;
+    hf = au_part & 1;
+    au_tp = ty == 0 ? 0 : ty == 1 ? (tr == 16 ? 5 : tr == 17 ? 1 : tr == 24 ? -4 : tr == 25 ? 1 : tr == 26 ? 5 : 1) :
+            ty == 2 ? (tr == 16 ? 3 : tr == 17 ? 6 : tr == 24 ? 3 : tr == 25 ? 6 : tr == 26 ? -2 : 5) : (tr == 24 ? -2 : 0);
+    sn = hf;
+    mk = tr == 16 ? 0 : tr == 24 ? 6 : tr == 25 ? 4 : tr == 26 ? 5 : 1;
+    sec = ty == 1 ? 7 : ty == 3 ? (hf ? 9 : 8) : ty == 2 ? (b < 6 ? (hf ? 1 : 6) : b == 6 ? 2 : 3) :
+          (b == 7 && hf) ? 3 : mk;
+    ty == 2 ? c = tr * 32 + ((b * 3 + 1) % 8) * 4;
+    ty == 0 ? ( c = tr * 32 + (b == 6 ? 2 : b == 7 ? 3 : (b & 1)) * 4; sn = 0; );
+    g_au_var = sn;
+    sn = SDU[tr];
+    (p == 0 && (b == 0 || b == 4 || sec == 2)) ? au_new(15, 2.5, 0.06, 0, 0.4, 0);
+    sec == 0 ? (
+      mk = (tr == 16 && ty == 0 && (b == 4 || (b == 0 && hf)));
+      (mk && p == 0) ? (
+        au_pd = 2.2;
+        au_new(16, au_mf(CH[c] + au_tp), 0.21, 0, -0.4, sn * 6); au_new(16, au_mf(CH[c] + au_tp), 0.21, 0.006, 0.4, sn * 6);
+        au_new(16, au_mf(CH[c] + au_tp + 12), 0.09, 0.003, 0, sn * 6);
+        au_new(8, 46, 0.36, 0, 0, 0); au_new(15, 2.2, 0.08, 0, 0, 0);
+      );
+      (!(mk && p < 6) && ((g_au_var && ty != 0) ? (p % 4) != 2 : (p % 4) != 1)) ? (
+        au_pd = 30; au_new(16, au_mf(CH[c + ((p == 14 || p == 15) ? 1 : 0)] + au_tp), (p % 4) == 0 ? 0.2 : 0.16, 0, -0.3, 0);
+        au_pd = 30; au_new(16, au_mf(CH[c + ((p == 14 || p == 15) ? 1 : 0)] + au_tp), (p % 4) == 0 ? 0.2 : 0.16, 0.004, 0.3, 0);
+        au_new(8, 52, (p % 4) == 0 ? 0.3 : 0.2, 0, 0, 0);
+      );
+      (p == 4 || p == 12) ? ( au_new(15, 16, 0.13, 0, 0.05, 0); au_new(3, 0, 0.16, 0, 0, 0); );
+      (p & 1) == 0 ? au_new(15, 90, 0.02, 0, 0.3, 0);
+    ) : sec == 1 ? (
+      mk = (p >> 1) & 7;
+      i = mk == 2 || mk == 6 ? 1 : mk == 4 ? 2 : mk == 7 ? 3 : 0;
+      au_pd = 38;
+      au_new(16, au_mf(CH[c + i] + au_tp), 0.15, 0, -0.3, 0); au_new(16, au_mf(CH[c + i] + au_tp), 0.15, 0.003, 0.3, 0);
+      (p & 1) == 0 ? au_new(8, 52, 0.22, 0, 0, 0) : ( au_new(15, 18, 0.1, 0, 0.05, 0); au_new(3, 0, 0.11, 0, 0, 0); );
+      au_new(15, 30, 0.018, 0, -0.35, 0);
+    ) : sec == 7 ? (
+      i = CH[tr * 32] + au_tp + ((tr & 1) ? (b == 1 ? 3 : b == 2 ? 5 : b == 3 ? 1 : b == 5 ? 3 : b == 6 ? -2 : b == 7 ? -1 : 0) : (b == 1 ? -4 : b == 2 ? -2 : b == 3 ? 3 : b == 5 ? -4 : b == 6 ? 5 : b == 7 ? 7 : 0));
+      (p == 0 || p == 6 || p == 8) ? (
+        au_pd = 5;
+        au_new(16, au_mf(i), 0.19, 0, -0.4, sn * (p == 0 ? 5.5 : p == 6 ? 1.6 : 3.5));
+        au_new(16, au_mf(i), 0.19, 0.006, 0.4, sn * (p == 0 ? 5.5 : p == 6 ? 1.6 : 3.5));
+      );
+      (p == 12 || p == 13 || p == 14) ? ( au_pd = 30; au_new(16, au_mf(i), 0.15, 0, -0.3, 0); au_new(16, au_mf(i), 0.15, 0.003, 0.3, 0); );
+      (p == 0 || p == 3 || p == 6 || p == 10 || p == 12) ? au_new(8, 50, p == 0 ? 0.34 : 0.24, 0, 0, 0);
+      p == 8 ? ( au_new(15, 14, 0.14, 0, 0.05, 0); au_new(3, 0, 0.17, 0, 0, 0); );
+      (p & 1) == 0 ? au_new(15, 22, 0.018, 0, -0.35, 0);
+      (b == 7 && p >= 12) ? au_new(8, 160 - (p - 12) * 25, 0.2, 0, (p - 13.5) * 0.25, 0);
+      (g_au_var && (b == 3 || b == 7) && p == 0) ? au_new(17, au_mf(i + 24), 0.05, 0, 0.2, sn * 14);
+    ) : sec == 8 ? (
+      i = CH[c] + au_tp;
+      (p & 1) == 0 ? ( au_pd = 2.2; au_new(7, au_mf(i + 12 + (p == 0 ? 0 : p == 2 ? 7 : p == 4 ? 12 : p == 6 ? 15 : p == 8 ? 19 : p == 10 ? 15 : p == 12 ? 12 : 7)), 0.09, 0, ((p >> 1) - 3.5) * 0.15, 0); );
+      p == 0 ? ( au_pa = 1.2; au_new(13, au_mf(i + 12), 0.07, 0, -0.2, sn * 16); au_new(13, au_mf(i + 19), 0.05, 0, 0.2, sn * 16); );
+      (p == 0 || p == 10) ? au_new(8, 85, 0.12, 0, 0, 0);
+      (p & 3) == 2 ? au_new(15, 25, 0.01, 0, 0.3, 0);
+    ) : sec == 9 ? (
+      i = CH[c] + au_tp;
+      ((p == 0 || p == 3 || p == 6 || p == 10 || p == 12) && b < 7) ? (
+        au_pd = (p == 3 || p == 12) ? 30 : 6;
+        au_new(16, au_mf(i + (p == 10 ? 1 : 0)), 0.2, 0, -0.35, (p == 3 || p == 12) ? 0 : sn * 2.5);
+        au_new(16, au_mf(i + (p == 10 ? 1 : 0)), 0.2, 0.005, 0.35, (p == 3 || p == 12) ? 0 : sn * 2.5);
+        au_new(8, 46, 0.36, 0, 0, 0);
+        p == 0 ? au_new(15, 2.5, 0.06, 0, -0.3, 0);
+      );
+      (p == 8 && b < 7) ? ( au_new(15, 12, 0.15, 0, 0.05, 0); au_new(3, 0, 0.19, 0, 0, 0); );
+      b == 7 ? (
+        au_new(15, 16, 0.05 + p * 0.008, 0, 0.05, 0); au_new(3, 0, 0.06 + p * 0.007, 0, 0, 0);
+        au_new(8, 50, 0.18 + p * 0.01, 0, 0, 0);
+        p == 0 ? ( au_pd = 1.5; au_new(16, au_mf(i), 0.2, 0, -0.35, sn * 15); au_new(16, au_mf(i), 0.2, 0.005, 0.35, sn * 15); );
+        p == 15 ? au_new(15, 2, 0.08, 0, 0, 0);
+      );
+    ) : sec == 4 ? (
+      mk = g_au_var ? (p == 0 || p == 2 || p == 5 || p == 8 || p == 10 || p == 13 || p == 15) : (p == 0 || p == 3 || p == 6 || p == 8 || p == 11 || p == 14);
+      mk ? (
+        i = (p == 14 || p == 15) ? 1 : (p == 8 && b == 3) ? 2 : 0;
+        au_pd = 40; au_new(16, au_mf(CH[c + i] + au_tp), 0.2, 0, -0.3, 0); au_new(16, au_mf(CH[c + i] + au_tp), 0.2, 0.003, 0.3, 0);
+        au_new(8, 52, 0.3, 0, 0, 0);
+      );
+      (p == 4 || p == 12) ? ( au_new(15, 14, 0.13, 0, 0.05, 0); au_new(3, 0, 0.16, 0, 0, 0); );
+      (p & 1) == 0 ? au_new(15, 160, 0.022, 0, 0.35, 0);
+      (p == 7 && (b & 1)) ? au_new(15, 6, 0.03, 0, -0.4, 0);
+    ) : sec == 5 ? (
+      (p == 0 || p == 3 || p == 6 || p == 8 || p == 10 || p == 13 || p == 14) ? au_new(8, p == 0 ? 52 : p == 3 ? 150 : p == 6 ? 120 : p == 8 ? 52 : p == 10 ? 100 : p == 13 ? 130 : 85, p == 0 || p == 8 ? 0.32 : 0.22, 0, (p == 3 || p == 13) ? -0.4 : (p == 6 || p == 10) ? 0.4 : 0, 0);
+      (p == 0 || p == 6 || p == 10) ? ( au_pd = 26; au_new(16, au_mf(CH[c + (p == 10 ? 1 : 0)] + au_tp), 0.2, 0, -0.3, 0); au_new(16, au_mf(CH[c + (p == 10 ? 1 : 0)] + au_tp), 0.2, 0.003, 0.3, 0); );
+      (p == 12) ? ( au_pd = 9; au_new(16, au_mf(CH[c + 2] + au_tp), 0.18, 0, -0.35, sn * 3); au_new(16, au_mf(CH[c + 2] + au_tp), 0.18, 0.005, 0.35, sn * 3); au_new(15, 14, 0.13, 0, 0.05, 0); au_new(3, 0, 0.16, 0, 0, 0); );
+      (p & 3) == 2 ? au_new(15, 120, 0.02, 0, 0.35, 0);
+    ) : sec == 6 ? (
+      mk = (p >> 1) & 7;
+      i = mk == 2 || mk == 6 ? 1 : mk == 4 ? 2 : mk == 7 ? 3 : 0;
+      au_pd = 36;
+      au_new(16, au_mf(CH[c + i] + au_tp), 0.15, 0, -0.3, 0); au_new(16, au_mf(CH[c + i] + au_tp), 0.15, 0.003, 0.3, 0);
+      (p == 0 || p == 3 || p == 8 || p == 11) ? au_new(8, 52, 0.28, 0, 0, 0);
+      (p == 4 || p == 12) ? ( au_new(15, 16, 0.13, 0, 0.05, 0); au_new(3, 0, 0.15, 0, 0, 0); );
+      (p & 1) == 0 ? au_new(15, 30, 0.02, 0, -0.35, 0);
+    ) : sec == 2 ? (
+      (p == 0 || p == 3 || p == 6 || p == 10 || p == 12) ? (
+        i = p == 0 ? 0 : p == 3 ? 0 : p == 6 ? 1 : p == 10 ? 2 : 3;
+        au_pd = 7;
+        au_new(16, au_mf(CH[c + i] + au_tp), 0.19, 0, -0.35, sn * (p == 12 ? 4 : 2.6));
+        au_new(16, au_mf(CH[c + i] + au_tp), 0.19, 0.005, 0.35, sn * (p == 12 ? 4 : 2.6));
+        au_new(8, 48, 0.34, 0, 0, 0);
+        au_new(15, 3, 0.04, 0, (p - 6) * 0.08, 0);
+      );
+      p == 8 ? ( au_new(15, 14, 0.14, 0, 0.05, 0); au_new(3, 0, 0.18, 0, 0, 0); );
+    ) : (
+      p < 12 ? (
+        i = CH[c] + (p == 0 ? 0 : p == 1 ? 1 : p == 2 ? 3 : p == 3 ? 4 : p == 4 ? 6 : p == 5 ? 7 : p == 6 ? 9 : p == 7 ? 10 : p == 8 ? 12 : p == 9 ? 11 : p == 10 ? 10 : 9);
+        au_pd = 34; au_new(16, au_mf(i + au_tp), 0.15, 0, -0.3, 0); au_new(16, au_mf(i + au_tp), 0.15, 0.003, 0.3, 0);
+        p >= 6 ? au_new(8, 130 - (p - 6) * 12, 0.18, 0, (p - 8.5) * 0.15, 0) : au_new(8, 52, 0.2, 0, 0, 0);
+      ) : (
+        p == 12 ? ( au_pd = 6; au_new(16, au_mf(CH[c] + au_tp), 0.2, 0, -0.35, sn * 4); au_new(16, au_mf(CH[c] + au_tp), 0.2, 0.005, 0.35, sn * 4); au_new(8, 48, 0.34, 0, 0, 0); );
+        au_new(15, 16, 0.08 + (p - 12) * 0.02, 0, 0.05, 0); au_new(3, 0, 0.1, 0, 0, 0);
+      );
+    );
+    mk = ty == 2 ? (tr == 16 ? 20 : tr == 17 ? 21 : tr + 4) : tr;
+    ty == 0 ? (
+      i = st % 64;
+      i >= 32 ? (
+        i = (tr == 16 ? 64 : 0) + i - 32;
+        au_mel(tr, i, 17, 0.07, 0.1);
+        tr == 24 ? ( au_tp -= 5; au_mel(tr, i, 17, 0.045, -0.25); );
+      );
+    ) : ty == 2 ? (
+      au_mel(mk, st, 17, 0.07, 0.1);
+      au_tp -= 5; au_mel(mk, st, 17, 0.045, -0.25);
+    ) : (ty == 3 && !hf && b >= 4) ? ( au_tp -= 12; au_mel(tr, st, 17, 0.05, 0); );
+    au_tp = 0;
+  ) : tr == 18 ? (
+    au_kd = 12;
+    mk = au_part % 4;
+    au_tp = mk == 1 ? 5 : mk == 2 ? 3 : 0;
+    g_au_var = mk & 1;
+    sn = SDU[18];
+    p == 0 ? (
+      au_pd = 3;
+      au_new(16, au_mf(CH[c] + au_tp), 0.2, 0, -0.4, sn * 3.5); au_new(16, au_mf(CH[c] + au_tp), 0.2, 0.006, 0.4, sn * 3.5);
+      au_new(8, 46, 0.36, 0, 0, 0); au_new(15, 2, 0.06, 0, 0.3, 0);
+    );
+    (p == 5 || p == 6) ? ( au_pd = 22; au_new(16, au_mf(CH[c] + au_tp + (p == 6 ? 1 : 0)), 0.17, 0, -0.3, 0); au_new(16, au_mf(CH[c] + au_tp + (p == 6 ? 1 : 0)), 0.17, 0.004, 0.3, 0); au_new(8, 50, 0.22, 0, 0, 0); );
+    p == 4 ? ( au_new(15, 12, 0.14, 0, 0.05, 0); au_new(3, 0, 0.18, 0, 0, 0); );
+    (p & 1) == 0 ? au_new(15, 40, 0.016, 0, 0.35, 0);
+    au_mel(g_au_var ? 22 : 18, st, 17, 0.06, 0.15);
+    au_tp = 0;
+  ) : (
+    p == 0 ? ( au_pa = 0.8; au_new(13, au_mf(CH[c] - 12), 0.15, 0, 0, SPB[7] * SDU[7]); );
+    p > 0 ? au_new(1, au_mf(CH[c + 1 + (p - 1) % 3] + 12), 0.04, 0, (p - 3) * 0.2, 0);
+    au_mel(7, st, 14, 0.17, 0.15);
+  );
+  au_mus = 0; au_kd = 0;
+);
+
+
+function au_render(v, n) local(k, ts, t, ph, ph2, e, ed, lp, f, w, w2, l, at, su, o, a, sw, gl, gr, bl, br, j, isr, nm, dn, ph3, lp2, c, dr)
+(
+  j = avd[v];
+  j >= n ? ( avd[v] = j - n; ) : (
+    avd[v] = 0;
+    k = avk[v]; ts = avt[v]; ph = avph[v]; ph2 = avph2[v]; e = ave[v]; ed = aved[v]; lp = avlp[v];
+    f = avf[v]; l = avl[v]; at = ava[v]; su = avs[v];
+    isr = 1 / srate;
+    a = avp[v];
+    gl = avg[v] * (1 - max(0, a) * 0.6); gr = avg[v] * (1 + min(0, a) * 0.6);
+    avm[v] ? ( bl = ABML; br = ABMR; ) : ( bl = ABSL; br = ABSR; );
+    dn = 0;
+    k == 16 || k == 17 ? (
+      ph3 = avph3[v]; lp2 = avlp2[v];
+      w = f * isr;
+      k == 16 ? ( c = (l > 0 ? 0.34 : 0.17) * min(1, 48000 * isr); dr = l > 0 ? 3.2 : 4.5; ) : ( c = 0.4 * min(1, 48000 * isr); dr = 7; );
+      while (j < n && !dn) (
+        t = ts * isr;
+        k == 16 ? (
+          ph += w * 1.0035; ph -= floor(ph);
+          ph2 += w * 1.4983; ph2 -= floor(ph2);
+          ph3 += w * 0.9965; ph3 -= floor(ph3);
+          o = (2 * ph - 1) + 0.75 * (2 * ph2 - 1) + 0.9 * (2 * ph3 - 1);
+        ) : (
+          ph += w * (1 + (t > 0.14 ? 0.011 * sin(t * 2 * $pi * 5.6) : 0)); ph -= floor(ph);
+          ph2 += w * 2.003; ph2 -= floor(ph2);
+          o = (2 * ph - 1) + 0.35 * (2 * ph2 - 1);
+        );
+        o *= dr; o = o / (1 + abs(o));
+        lp += (o - lp) * c; lp2 += (lp - lp2) * c;
+        a = min(1, t * 500) * e;
+        (l <= 0 || ts >= l) ? e *= ed;
+        o = lp2 * a;
+        ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        e < 0.0005 ? dn = 1;
+      );
+      avph3[v] = ph3; avlp2[v] = lp2;
+    ) : k == 1 ? (
+      w = 2 * $pi * f * isr; w2 = w * 2.76;
+      while (j < n && !dn) (
+        t = ts * isr;
+        ph += w; ph2 += w2;
+        o = (sin(ph) + 0.22 * sin(ph2) * e) * e * min(1, t * 400);
+        e *= ed; ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        e < 0.0005 ? dn = 1;
+      );
+    ) : k == 2 ? (
+      while (j < n && !dn) (
+        t = ts * isr;
+        ph += 2 * $pi * f * (1 - min(0.6, t * 9)) * isr;
+        lp += ((rand(2) - 1) - lp) * 0.25;
+        o = (0.6 * sin(ph) + 0.5 * lp) * e;
+        e *= ed; ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        e < 0.0005 ? dn = 1;
+      );
+    ) : k == 3 ? (
+      while (j < n && !dn) (
+        t = ts * isr;
+        ph += 2 * $pi * 210 * (1 - min(0.55, t * 5)) * isr;
+        lp += ((rand(2) - 1) - lp) * 0.08;
+        o = (sin(ph) + 0.4 * lp * max(0, 1 - t * 40)) * e;
+        e *= ed; ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        e < 0.0005 ? dn = 1;
+      );
+    ) : k == 6 ? (
+      w2 = f * 1.004 * isr;
+      while (j < n && !dn) (
+        t = ts * isr;
+        ph += f * (1 + 0.003 * sin(t * 33 + v)) * isr; ph -= floor(ph);
+        ph2 += w2; ph2 -= floor(ph2);
+        sw = (2 * ph - 1) + (2 * ph2 - 1);
+        a = ts < l ? min(1, t * 30) * (1 - 0.18 * min(1, t * 3)) : e * ed;
+        e = a;
+        lp += (sw - lp) * min(0.5, (0.06 + 0.2 * min(1, t * 12)) * f / 400);
+        o = lp * a * 0.45;
+        ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        ts >= l && a < 0.001 ? dn = 1;
+      );
+    ) : (k == 9 || k == 12 || k == 13) ? (
+      w = f * isr; w2 = f * 1.007 * isr;
+      nm = k == 13 ? min(0.3, 0.02 * f / 110) : 0;
+      while (j < n && !dn) (
+        t = ts * isr;
+        a = ts < l ? min(1, t / at) * su : e * ed;
+        ts < l && t < at ? a = t / at;
+        e = a;
+        k == 9 ? (
+          ph += w; ph -= floor(ph);
+          lp += ((ph < 0.3 ? 1 : -1) - lp) * 0.3;
+          o = lp * a * 0.5;
+        ) : k == 12 ? (
+          ph += 2 * $pi * f * (1 + 0.006 * min(1, max(0, t - 0.2) * 3) * sin(t * 2 * $pi * 5)) * isr;
+          lp += ((rand(2) - 1) - lp) * 0.2;
+          o = (sin(ph) + 0.15 * sin(2 * ph) + 0.06 * lp) * a;
+        ) : (
+          ph += w; ph -= floor(ph);
+          ph2 += w2; ph2 -= floor(ph2);
+          sw = (2 * ph - 1) + (2 * ph2 - 1) + 0.6 * sin(ph * 2 * $pi);
+          lp += (sw - lp) * nm;
+          o = lp * a * 0.5;
+        );
+        ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        ts >= l && a < 0.001 ? dn = 1;
+      );
+    ) : k == 14 ? (
+      w = 2 * $pi * f * isr;
+      while (j < n && !dn) (
+        t = ts * isr;
+        ph += w;
+        o = sin(ph + 1.6 * e * sin(3.5 * ph)) * e * min(1, t * 500);
+        e *= ed; ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        e < 0.0005 ? dn = 1;
+      );
+    ) : k == 15 ? (
+      while (j < n && !dn) (
+        a = rand(2) - 1;
+        lp += (a - lp) * 0.5;
+        o = (a - lp) * e;
+        e *= ed; ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        e < 0.002 ? dn = 1;
+      );
+    ) : k == 7 ? (
+      w = 2 * $pi * f * isr;
+      while (j < n && !dn) (
+        t = ts * isr;
+        ph += w;
+        o = (sin(ph) + 0.3 * sin(2 * ph) * e) * e * min(1, t * 200);
+        e *= ed; ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        e < 0.0005 ? dn = 1;
+      );
+    ) : k == 8 ? (
+      while (j < n && !dn) (
+        t = ts * isr;
+        ph += 2 * $pi * f * (1 + 0.5 * exp(-t * 30)) * isr;
+        lp += ((rand(2) - 1) - lp) * 0.1;
+        o = (sin(ph) + 0.5 * lp * exp(-t * 40)) * e;
+        e *= ed; ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        e < 0.002 ? dn = 1;
+      );
+    ) : k == 18 ? (
+      while (j < n && !dn) (
+        t = ts * isr;
+        ph += 2 * $pi * f * exp(t * 3.7) * isr;
+        o = (sin(ph) + 0.25 * sin(3 * ph)) * exp(-t * 11) * min(1, t * 400);
+        ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        t > 0.3 ? dn = 1;
+      );
+    ) : (
+      w2 = 2 * $pi * f * 1.5 * isr;
+      while (j < n && !dn) (
+        t = ts * isr;
+        ph += 2 * $pi * f * (1 + 0.004 * sin(t * 31)) * isr;
+        ph2 += w2;
+        o = (sin(ph) + 0.45 * sin(ph2)) * e * min(1, t * 300) * 0.75;
+        e *= ed; ts += 1;
+        bl[j] += o * gl; br[j] += o * gr; j += 1;
+        e < 0.0005 ? dn = 1;
+      );
+    );
+    dn ? avk[v] = 0 : (
+      avt[v] = ts; avph[v] = ph; avph2[v] = ph2; ave[v] = e; avlp[v] = lp;
+    );
+  );
+);
+
+// ==== Music playlists ====
+function mp_init(name, buf, gs) instance(pfx, rb, fh, st, gn, pi, gsec, ntr, once, vol, rz, fin, fout, ep) local(k)
+(
+  pfx = name; rb = buf; fh = -1; st = 0; gn = 0; gsec = gs; ntr = 5; once = 0; vol = 1; rz = ZMF; fin = 2; fout = 1; ep = 0;
+  k = floor(rand(5)) + floor(time_precise() * (buf === ZMR ? 1000 : 977));
+  pi = k - 5 * floor(k / 5);
+);
+
+function mp_open() instance(pfx, rb, fh, st, pi, ntr, sr, wp, rp, fr, av, eof, fail) local(nch, srr, k)
+(
+  k = pi % ntr; pi = k + 1;
+  sprintf(#mp_fn, "BreakRoom/BreakRoom-%s%d.opus", pfx, k + 1);
+  fh = file_open(#mp_fn);
+  fh < 0 ? ( sprintf(#mp_fn, "Dependencies/BreakRoom/BreakRoom-%s%d.opus", pfx, k + 1); fh = file_open(#mp_fn); );
+  nch = 0; srr = 0;
+  fh >= 0 ? file_riff(fh, nch, srr);
+  (fh >= 0 && nch == 2 && srr > 0) ? (
+    sr = srr; wp = 0; rp = 0; fr = 0; av = 0; eof = 0; fail = 0; st = 1;
+  ) : (
+    fh >= 0 ? file_close(fh);
+    fh = -1; fail += 1; st = fail >= 5 ? 3 : 0;
+  );
+);
+
+function mp_fill() instance(rb, fh, wp, av, eof, rz) local(want, n, got)
+(
+  want = rz - 4 - av;
+  while (want > 0 && !eof) (
+    n = min(want, rz - wp);
+    got = floor(file_mem(fh, rb + wp * 2, n * 2) / 2);
+    wp = (wp + got) % rz; av += got; want -= got;
+    got < n ? ( eof = 1; file_close(fh); fh = -1; );
+  );
+);
+
+function mp_render(n, on) instance(rb, gn, sr, rp, fr, av, vol, rz, fin, fout, ep) local(i, a, b, inc, dn, up, g)
+(
+  inc = sr / srate; dn = 1 / (fout * srate); up = 1 / (fin * srate);
+  i = 0;
+  while (i < n) (
+    gn = max(0, min(1, gn + (on ? up : -dn)));
+    av >= 2 && gn > 0 ? (
+      a = rb + rp * 2; b = rb + ((rp + 1) % rz) * 2;
+      g = (ep ? sin(gn * $pi * 0.5) : gn * gn) * zm_lv * vol;
+      ABSL[i] += (a[0] + (b[0] - a[0]) * fr) * g;
+      ABSR[i] += (a[1] + (b[1] - a[1]) * fr) * g;
+      fr += inc;
+      while (fr >= 1) ( fr -= 1; rp = (rp + 1) % rz; av -= 1; );
+    );
+    i += 1;
+  );
+);
+
+function mp_block(on) instance(st, gn, gap, gsec, av, eof, once, rz)
+(
+  on = on && st != 3;
+  (on || gn > 0) ? (
+    st == 0 ? this.mp_open();
+    st == 2 ? (
+      gn = on;
+      on ? gap -= au_n;
+      gap <= 0 ? this.mp_open();
+    );
+    st == 1 ? (
+      (av < rz / 2 && !eof) ? this.mp_fill();
+      !au_out ? ( memset(ABSL, 0, au_n); memset(ABSR, 0, au_n); );
+      this.mp_render(au_n, on);
+      au_out = 1;
+      (eof && av < 2) ? ( once ? st = 4 : ( st = 2; gap = gsec * srate; ); );
+    );
+  );
+);
+
+function kx_start(t) instance(fh, st, gn, pi, fail, kt) ( fh >= 0 ? file_close(fh); fh = -1; st = 0; gn = 0; pi = t; fail = 0; kt = t; );
+function kx_stop() instance(fh, st, gn) ( fh >= 0 ? file_close(fh); fh = -1; st = 4; gn = 0; );
+function kx_left() instance(st, av, eof, sr) ( (st == 1 && eof) ? av / sr : (st == 3 || st == 4) ? 0 : 1000; );
+
+function kr_block() local(bg, l, xf, og, cur, shm, sh, wd)
+(
+  wd = floor((max(1, g_xs_lv) - 1) / 2) % 5;
+  shm = g_xs_trk == 18;
+  (shm && !g_kr_shl && !g_ksh_bad && ksh.st == 4) ? ksh.kx_start(0);
+  ksh.st == 3 ? g_ksh_bad = 1;
+  (ka.st == 3 || kbk.st == 3) ? g_kr_bad = 1;
+  g_kr_shl = shm;
+  sh = shm && !g_ksh_bad && ksh.st != 3;
+  bg = g_kr_on && !g_kr_b && !sh && !g_kr_bad;
+  (bg && ka.st == 4 && kbk.st == 4) ? ( ka.kx_start(wd); g_kd = 0; g_kr_xin = 0; g_kr_rs = 0; );
+  cur = g_kd ? kbk.kt : ka.kt;
+  l = g_kd ? kbk.kx_left() : ka.kx_left();
+  og = g_kd ? kbk.gn : ka.gn;
+  (bg && (g_kr_rs || cur != wd || l <= KXF || (og <= 0.01 && l < 100))) ? (
+    xf = (og > 0.01 && !g_kr_rs && cur == wd) ? max(0.05, l) : 2;
+    g_kd ? ( kbk.fout = xf / max(og, 0.01); ka.kx_start(wd); ka.fin = xf; ) : ( ka.fout = xf / max(og, 0.01); kbk.kx_start(wd); kbk.fin = xf; );
+    g_kd = !g_kd; g_kr_xin = 1; g_kr_rs = 0;
+  );
+  (g_kr_xin && ((g_kd ? kbk.gn : ka.gn) >= 1 || !bg)) ? g_kr_xin = 0;
+  !g_kr_xin ? ( g_kd ? ( kbk.fin = 2; kbk.fout = g_kr_on ? 2 : 1; ) : ( ka.fin = 2; ka.fout = g_kr_on ? 2 : 1; ); );
+  kb.fin = 2; kb.fout = g_kr_on ? 2 : 1;
+  ksh.fin = 2; ksh.fout = g_kr_on ? 2 : 1;
+  ka.mp_block(bg && g_kd == 0);
+  kbk.mp_block(bg && g_kd == 1);
+  kb.mp_block(g_kr_on && g_kr_b);
+  ksh.mp_block(g_kr_on && sh && !g_kr_b);
+  (g_kd == 1 && ka.st == 1 && ka.gn <= 0) ? ka.kx_stop();
+  (g_kd == 0 && kbk.st == 1 && kbk.gn <= 0) ? kbk.kx_stop();
+);
+
+function mp_scr() ( g_screen == 1 || g_screen == 2 || g_screen == 8 || g_screen == 9 || g_screen == 10 || g_screen == 11 || g_screen == 13 || g_screen == 15; );
+
+function kb_restart()
+(
+  kb.fh >= 0 ? file_close(kb.fh);
+  kb.fh = -1; kb.st = 0; kb.gn = 0; kb.pi = 0; kb.fail = 0;
+);
+
+function zm_block()
+(
+  zen.mp_block(sv2[13] == 1 && g_screen >= 3 && g_screen <= 7 && (!g_pz || (g_hl && !g_hl_pz)) && au_hbc < srate * 0.5);
+  gm.mp_block(sv2[13] == 1 && mp_scr() && (au_mt || (g_pz && g_hl && !g_hl_pz)) && au_hbc < srate * 0.5 && !(g_screen == 9 && wt_play && !wt_out));
+  g_kr_b = g_xs_trk == 17;
+  (g_kr_b && !g_kr_bl) ? kb_restart();
+  g_kr_bl = g_kr_b;
+  g_kr_on = sv2[13] == 1 && g_screen == 12 && (au_mt || (g_pz && g_hl && !g_hl_pz)) && au_hbc < srate * 0.5;
+  kr_block();
+);
+
+zen.mp_init("Zen", ZMR, 3);
+gm.mp_init("Game", ZMG, 0);
+ka.mp_init("Krypton", ZMK, 0); ka.ntr = 5; ka.once = 1; ka.rz = KRZ; ka.ep = 1; ka.st = 4;
+kbk.mp_init("Krypton", ZMK2, 0); kbk.ntr = 5; kbk.once = 1; kbk.rz = KRZ; kbk.ep = 1; kbk.st = 4;
+kb.mp_init("KryptonBoss", ZMB, 0); kb.ntr = 1; kb.pi = 0; kb.ep = 1; kb.fout = 2;
+ksh.mp_init("KryptonShop", ZMS, 0); ksh.ntr = 1; ksh.pi = 0; ksh.ep = 1; ksh.st = 4;
+g_kd = 0; KXF = 3;
+cel.mp_init("Celebration", ZMC, 0); cel.ntr = 1; cel.once = 1; cel.vol = 1.778; cel.st = 4;

@@ -1,0 +1,703 @@
+@init
+function jack(px, py, r, state, hov)
+(
+  gfx_set(0, 0, 0, 0.45);
+  gfx_circle(px + 2 * g_s, py + 3 * g_s, r * 1.02, 1, 1);
+  gfx_set(0.42, 0.44, 0.48, 1);
+  gfx_circle(px, py, r, 1, 1);
+  gfx_set(0.66, 0.68, 0.72, 1);
+  gfx_circle(px, py, r * 0.86, 1, 1);
+  gfx_set(0.5, 0.52, 0.56, 1);
+  gfx_circle(px, py, r * 0.7, 1, 1);
+  state == 1 ? gfx_set(1, 0.32, 0.28, 1) : state == 2 ? gfx_set(0.35, 1, 0.65, 1) : gfx_set(0.35, 0.95, 0.75, 0.85);
+  gfx_circle(px, py, r * 0.62, 0, 1);
+  gfx_circle(px, py, r * 0.62 - 1, 0, 1);
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_circle(px, py, r * 0.42, 1, 1);
+  gfx_set(1, 1, 1, 0.28);
+  gfx_circle(px - r * 0.32, py - r * 0.36, r * 0.2, 1, 1);
+  hov ? (
+    gfx_set(1, 1, 1, 0.5);
+    gfx_circle(px, py, r + 3 * g_s, 0, 1);
+  );
+);
+
+function sag_of(x0, y0, x1, y1, maxy)
+(
+  min(0.16 * abs(x1 - x0), max(0, 2 * (maxy - max(y0, y1))));
+);
+
+function curve_pts(x0, y0, x1, y1, maxy) local(cmx, cmy, k, t, u)
+(
+  cmx = (x0 + x1) * 0.5;
+  cmy = (y0 + y1) * 0.5 + sag_of(x0, y0, x1, y1, maxy);
+  k = 0;
+  loop(NP1,
+    t = k / NS; u = 1 - t;
+    tpx[k] = u * u * x0 + 2 * u * t * cmx + t * t * x1;
+    tpy[k] = u * u * y0 + 2 * u * t * cmy + t * t * y1;
+    k += 1;
+  );
+);
+
+function poly_line(w, joints) local(k)
+(
+  k = 0;
+  loop(NS,
+    joints ? aa_tline(sx(tpx[k]), sy(tpy[k]), sx(tpx[k + 1]), sy(tpy[k + 1]), w) : tline(sx(tpx[k]), sy(tpy[k]), sx(tpx[k + 1]), sy(tpy[k + 1]), w);
+    joints && k > 0 ? gfx_circle(sx(tpx[k]), sy(tpy[k]), w * 0.5, 1, 1);
+    k += 1;
+  );
+);
+
+function cable(x1, y1, x2, y2, maxy, cr, cg, cb, bad, hl) local(w, k, pr, pg, pb, sh)
+(
+  w = 5 * g_s;
+  curve_pts(x1, y1, x2, y2, maxy);
+  sh = 0;
+  loop(NP1, tpx[sh] += 3; tpy[sh] += 5; sh += 1; );
+  gfx_set(0, 0, 0, 0.3);
+  poly_line(w * 1.2, 0);
+  sh = 0;
+  loop(NP1, tpx[sh] -= 3; tpy[sh] -= 5; sh += 1; );
+  bad ? (
+    pr = 1; pg = 0.22; pb = 0.18;
+    k = 0.75 + 0.25 * sin(g_t * 6);
+  ) : (
+    pr = cr; pg = cg; pb = cb;
+    k = 0.8;
+  );
+  hl ? k *= 1.5;
+  gfx_mode = 1;
+  gfx_set(pr, pg, pb, 0.04 * k); poly_line(w * 5, 0);
+  gfx_set(pr, pg, pb, 0.07 * k); poly_line(w * 2.8, 0);
+  gfx_mode = 0;
+  bad ? gfx_set(cr * 0.5, cg * 0.5, cb * 0.5, 1) : gfx_set(cr * 0.82, cg * 0.82, cb * 0.82, 1);
+  poly_line(w, 1);
+  gfx_set(1, 1, 1, bad ? 0.16 : 0.3);
+  sh = 0;
+  loop(NP1, tpx[sh] -= 0.6; tpy[sh] -= 1; sh += 1; );
+  poly_line(1.2 * g_s, 0);
+);
+
+function bez_at(x0, y0, x1, y1, maxy, t) local(cmx, cmy, u)
+(
+  cmx = (x0 + x1) * 0.5;
+  cmy = (y0 + y1) * 0.5 + sag_of(x0, y0, x1, y1, maxy);
+  u = 1 - t;
+  g_bx = u * u * x0 + 2 * u * t * cmx + t * t * x1;
+  g_by = u * u * y0 + 2 * u * t * cmy + t * t * y1;
+);
+
+function seg_x(ax, ay, bx, by, cx, cy, dx, dy) local(d1, d2, d3, d4, tt)
+(
+  d1 = (dx - cx) * (ay - cy) - (dy - cy) * (ax - cx);
+  d2 = (dx - cx) * (by - cy) - (dy - cy) * (bx - cx);
+  d3 = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+  d4 = (bx - ax) * (dy - ay) - (by - ay) * (dx - ax);
+  ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)) ? (
+    tt = d3 / (d3 - d4);
+    g_ix = cx + (dx - cx) * tt;
+    g_iy = cy + (dy - cy) * tt;
+    1;
+  ) : 0;
+);
+
+function edge_pts(e) local(k, a, b, o)
+(
+  a = ea[e]; b = eb[e];
+  curve_pts(jx[a], jy[a], jx[b], jy[b], BRD_Y + BRD_H - 6);
+  o = e * NP1;
+  ebx0[e] = tpx[0]; ebx1[e] = tpx[0]; eby0[e] = tpy[0]; eby1[e] = tpy[0];
+  k = 0;
+  loop(NP1,
+    cpx[o + k] = tpx[k]; cpy[o + k] = tpy[k];
+    ebx0[e] = min(ebx0[e], tpx[k]); ebx1[e] = max(ebx1[e], tpx[k]);
+    eby0[e] = min(eby0[e], tpy[k]); eby1[e] = max(eby1[e], tpy[k]);
+    k += 1;
+  );
+);
+
+function pair_test(i, j) local(n, si, sj, oi, oj, p, q, a1, b1, a2, b2)
+(
+  n = 0;
+  (ebx0[i] <= ebx1[j] && ebx0[j] <= ebx1[i] && eby0[i] <= eby1[j] && eby0[j] <= eby1[i]) ? (
+    a1 = ea[i]; b1 = eb[i]; a2 = ea[j]; b2 = eb[j];
+    si = -1; sj = -1;
+    a1 === a2 ? ( si = 0; sj = 0; ) :
+    a1 === b2 ? ( si = 0; sj = NS - 1; ) :
+    b1 === a2 ? ( si = NS - 1; sj = 0; ) :
+    b1 === b2 ? ( si = NS - 1; sj = NS - 1; );
+    oi = i * NP1; oj = j * NP1;
+    p = 0;
+    loop(NS,
+      q = 0;
+      loop(NS,
+        (p !== si || q !== sj) ? (
+          seg_x(cpx[oi + p], cpy[oi + p], cpx[oi + p + 1], cpy[oi + p + 1], cpx[oj + q], cpy[oj + q], cpx[oj + q + 1], cpy[oj + q + 1]) ? (
+            n == 0 ? ( g_px = g_ix; g_py = g_iy; );
+            n += 1;
+          );
+        );
+        q += 1;
+      );
+      p += 1;
+    );
+  );
+  n;
+);
+
+function set_pair(i, j) local(idx)
+(
+  idx = min(i, j) * MAXE + max(i, j);
+  pc[idx] = pair_test(i, j);
+  pcx[idx] = g_px;
+  pcy[idx] = g_py;
+);
+
+function full_update() local(i, j)
+(
+  i = 0;
+  loop(g_ne, edge_pts(i); i += 1; );
+  i = 0;
+  loop(g_ne,
+    j = i + 1;
+    loop(g_ne - i - 1, set_pair(i, j); j += 1; );
+    i += 1;
+  );
+);
+
+function update_jack(jj) local(i, k)
+(
+  i = 0;
+  loop(g_ne, (ea[i] === jj || eb[i] === jj) ? edge_pts(i); i += 1; );
+  i = 0;
+  loop(g_ne,
+    (ea[i] === jj || eb[i] === jj) ? (
+      k = 0;
+      loop(g_ne, k !== i ? set_pair(i, k); k += 1; );
+    );
+    i += 1;
+  );
+);
+
+function tally() local(i, j, n, idx, c)
+(
+  memset(ebad, 0, MAXE);
+  memset(jbad, 0, MAXN);
+  n = 0;
+  g_ncx = 0;
+  i = 0;
+  loop(g_ne,
+    j = i + 1;
+    loop(g_ne - i - 1,
+      idx = i * MAXE + j;
+      c = pc[idx];
+      c > 0 ? (
+        n += c;
+        ebad[i] = 1; ebad[j] = 1;
+        jbad[ea[i]] = 1; jbad[eb[i]] = 1; jbad[ea[j]] = 1; jbad[eb[j]] = 1;
+        g_ncx < NCX ? ( cxp[g_ncx] = pcx[idx]; cyp[g_ncx] = pcy[idx]; g_ncx += 1; );
+      );
+      j += 1;
+    );
+    i += 1;
+  );
+  n;
+);
+
+function pt_seg_d2(px, py, ax, ay, bx, by) local(ddx, ddy, l2, t, ex, ey)
+(
+  ddx = bx - ax; ddy = by - ay;
+  l2 = ddx * ddx + ddy * ddy;
+  t = l2 > 0 ? max(0, min(1, ((px - ax) * ddx + (py - ay) * ddy) / l2)) : 0;
+  ex = px - ax - t * ddx; ey = py - ay - t * ddy;
+  ex * ex + ey * ey;
+);
+
+function clear_ok(jj) local(i, m, o, lim, ok)
+(
+  lim = (g_pb_jr + 5) * (g_pb_jr + 5);
+  ok = 1;
+  i = 0;
+  loop(g_ne,
+    (ea[i] !== jj && eb[i] !== jj) ? (
+      o = i * NP1;
+      m = 0;
+      loop(NS,
+        pt_seg_d2(jx[jj], jy[jj], cpx[o + m], cpy[o + m], cpx[o + m + 1], cpy[o + m + 1]) < lim ? ok = 0;
+        m += 1;
+      );
+    );
+    i += 1;
+  );
+  ok;
+);
+
+function gen_graph(nl) local(i, j, k, ok, tries, a, den, t, u, ex, ey, c, m, q, tv, nv)
+(
+  g_pb_nl = nl;
+  tries = 0;
+  while (
+    ok = 1;
+    i = 0;
+    loop(nl,
+      a = rand(1) * $pi;
+      ldx[i] = cos(a); ldy[i] = sin(a);
+      lpx[i] = 0.3 + rand(1) * 0.4; lpy[i] = 0.3 + rand(1) * 0.4;
+      lcnt[i] = 0;
+      i += 1;
+    );
+    k = 0;
+    i = 0;
+    loop(nl,
+      j = i + 1;
+      loop(nl - i - 1,
+        den = ldx[i] * ldy[j] - ldy[i] * ldx[j];
+        abs(den) < 0.08 ? ok = 0;
+        ex = lpx[j] - lpx[i]; ey = lpy[j] - lpy[i];
+        den !== 0 ? (
+          t = (ex * ldy[j] - ey * ldx[j]) / den;
+          u = (ex * ldy[i] - ey * ldx[i]) / den;
+        ) : ( t = 0; u = 0; );
+        lt[i * MAXL + lcnt[i]] = t; lnid[i * MAXL + lcnt[i]] = k; lcnt[i] += 1;
+        lt[j * MAXL + lcnt[j]] = u; lnid[j * MAXL + lcnt[j]] = k; lcnt[j] += 1;
+        k += 1;
+        j += 1;
+      );
+      i += 1;
+    );
+    g_ne = 0;
+    i = 0;
+    loop(nl,
+      c = lcnt[i];
+      m = 1;
+      loop(c - 1,
+        q = m;
+        tv = lt[i * MAXL + q];
+        nv = lnid[i * MAXL + q];
+        while ((q > 0 && lt[i * MAXL + q - 1] > tv) ? (
+          lt[i * MAXL + q] = lt[i * MAXL + q - 1];
+          lnid[i * MAXL + q] = lnid[i * MAXL + q - 1];
+          q -= 1;
+          1;
+        ) : 0);
+        lt[i * MAXL + q] = tv;
+        lnid[i * MAXL + q] = nv;
+        m += 1;
+      );
+      m = 1;
+      loop(c - 1,
+        lt[i * MAXL + m] - lt[i * MAXL + m - 1] < 0.02 ? ok = 0;
+        ea[g_ne] = lnid[i * MAXL + m - 1];
+        eb[g_ne] = lnid[i * MAXL + m];
+        ecol[g_ne] = i;
+        eph[g_ne] = rand(1);
+        jcol[ea[g_ne]] = i;
+        jcol[eb[g_ne]] = i;
+        g_ne += 1;
+        m += 1;
+      );
+      i += 1;
+    );
+    g_nn = k;
+    tries += 1;
+    !ok && tries < 200;
+  );
+);
+
+function crowding(sp) local(i, k, d, n)
+(
+  n = 0;
+  i = 0;
+  loop(g_nn,
+    k = i + 1;
+    loop(g_nn - i - 1,
+      d = (jx[k] - jx[i]) * (jx[k] - jx[i]) + (jy[k] - jy[i]) * (jy[k] - jy[i]);
+      d < sp ? n += 1;
+      k += 1;
+    );
+    i += 1;
+  );
+  n;
+);
+
+function pb_scramble(target) local(i, m, n, mnx, mxx, mny, mxy, cur, c, it, acc, jj, ox, oy, ok, d, sp, en, eo, cw)
+(
+  i = 0;
+  loop(g_pb_nl,
+    m = 0;
+    loop(lcnt[i],
+      n = lnid[i * MAXL + m];
+      jx[n] = lpx[i] + lt[i * MAXL + m] * ldx[i];
+      jy[n] = lpy[i] + lt[i * MAXL + m] * ldy[i];
+      m += 1;
+    );
+    i += 1;
+  );
+  mnx = mny = 1000000; mxx = mxy = -1000000;
+  i = 0;
+  loop(g_nn,
+    mnx = min(mnx, jx[i]); mxx = max(mxx, jx[i]);
+    mny = min(mny, jy[i]); mxy = max(mxy, jy[i]);
+    i += 1;
+  );
+  i = 0;
+  loop(g_nn,
+    jx[i] = BRD_X + 70 + (jx[i] - mnx) / max(0.001, mxx - mnx) * (BRD_W - 140);
+    jy[i] = BRD_Y + 50 + (jy[i] - mny) / max(0.001, mxy - mny) * (BRD_H - 120);
+    i += 1;
+  );
+  full_update();
+  sp = 2.6 * g_pb_jr * 2.6 * g_pb_jr;
+  cur = tally();
+  cw = crowding(sp);
+  eo = abs(cur - target) + 2 * cw;
+  it = 0; acc = 0;
+  while (
+    jj = min(g_nn - 1, floor(rand(1) * g_nn));
+    ox = jx[jj]; oy = jy[jj];
+    d = 2 * $pi * rand(1);
+    m = 30 + rand(1) * 200;
+    jx[jj] = max(BRD_X + 50, min(BRD_X + BRD_W - 50, ox + cos(d) * m));
+    jy[jj] = max(BRD_Y + 40, min(BRD_Y + BRD_H - 60, oy + sin(d) * m));
+    update_jack(jj);
+    c = tally();
+    n = crowding(sp);
+    en = abs(c - target) + 2 * n;
+    ok = en <= eo && clear_ok(jj);
+    ok ? ( cur = c; cw = n; eo = en; acc += 1; ) : ( jx[jj] = ox; jy[jj] = oy; update_jack(jj); );
+    it += 1;
+    it < 5000 && (acc < g_nn * 4 || eo > 0);
+  );
+  g_pb_iters = it;
+  tally();
+);
+
+function pb_lines(lv) ( lv <= 2 ? 4 : lv <= 5 ? 5 : lv <= 9 ? 6 : lv <= 14 ? 7 : 8; );
+
+function pb_reset_play()
+(
+  g_pb_moves = 0;
+  g_pb_time = 0;
+  g_pb_won = 0;
+  g_pb_drag = 0;
+  g_pb_intro = 0;
+);
+
+function pb_shuffle()
+(
+  pb_scramble(g_pb_lv);
+  pb_reset_play();
+);
+
+function pb_start(lv)
+(
+  g_pb_lv = lv;
+  gen_graph(pb_lines(lv));
+  g_pb_jr = g_nn <= 10 ? 15 : g_nn <= 21 ? 13 : 11;
+  pb_shuffle();
+);
+
+function pb_celebrate() local(i, a, sp, c)
+(
+  i = 0;
+  loop(g_nn,
+    c = jcol[i];
+    loop(14,
+      a = rand(1) * 2 * $pi;
+      sp = 60 + rand(1) * 240;
+      spawn(jx[i], jy[i], cos(a) * sp, sin(a) * sp - 80, ccr[c], ccg[c], ccb[c], 1 + rand(1) * 1.2);
+    );
+    i += 1;
+  );
+);
+
+function fmt_time(t) ( sprintf(#g_ts, "%d:%02d", floor(t / 60), floor(t) % 60); #g_ts; );
+
+function draw_patchbay() local(i, e, a, b, x1, y1, x2, y2, c, ph, k, st, hov, hj, d, best, cx0, cy0, pa, cw, chh)
+(
+  g_pgrav = 160;
+  g_pb_lv < 1 ? pb_start(max(1, sv[1]));
+
+  g_pb_intro = min(1, g_pb_intro + g_dt * 1.4);
+  k = 1 - (1 - g_pb_intro) * (1 - g_pb_intro) * (1 - g_pb_intro);
+  i = 0;
+  loop(g_nn,
+    jdx[i] = 450 + (jx[i] - 450) * k;
+    jdy[i] = BRD_CY + (jy[i] - BRD_CY) * k;
+    i += 1;
+  );
+
+  gfx_set(0.06, 0.062, 0.072, 1);
+  fill_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+  gfx_set(0.2, 0.21, 0.24, 1);
+  outline_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+  gfx_set(1, 1, 1, 0.05);
+  a = BRD_Y + 18;
+  loop(18,
+    b = BRD_X + 18;
+    loop(36,
+      gfx_rect(sx(b), sy(a), max(1, g_s * 1.2), max(1, g_s * 1.2));
+      b += 24;
+    );
+    a += 24;
+  );
+  i = 0;
+  loop(4,
+    a = i & 1 ? BRD_X + BRD_W - 12 : BRD_X + 12;
+    b = i & 2 ? BRD_Y + BRD_H - 12 : BRD_Y + 12;
+    gfx_set(0.3, 0.31, 0.34, 1);
+    gfx_circle(sx(a), sy(b), 4 * g_s, 1, 1);
+    gfx_set(0.12, 0.12, 0.14, 1);
+    gfx_line(sx(a - 2.5), sy(b - 2.5), sx(a + 2.5), sy(b + 2.5), 1);
+    i += 1;
+  );
+
+  g_pb_nc = tally();
+
+  hj = -1;
+  g_pb_intro >= 1 && !g_pb_won ? (
+    g_pb_drag > 0 ? (
+      hj = g_pb_drag - 1;
+      g_mdown ? (
+        jx[hj] = max(BRD_X + g_pb_jr + 4, min(BRD_X + BRD_W - g_pb_jr - 4, g_mx + g_pb_offx));
+        jy[hj] = max(BRD_Y + g_pb_jr + 4, min(BRD_Y + BRD_H - g_pb_jr - 4, g_my + g_pb_offy));
+        jdx[hj] = jx[hj]; jdy[hj] = jy[hj];
+        (jx[hj] !== g_pb_lx || jy[hj] !== g_pb_ly) ? (
+          update_jack(hj);
+          g_pb_nc = tally();
+          g_pb_lx = jx[hj]; g_pb_ly = jy[hj];
+        );
+      ) : (
+        abs(jx[hj] - g_pb_sx) + abs(jy[hj] - g_pb_sy) > 2 ? g_pb_moves += 1;
+        g_pb_drag = 0;
+      );
+    ) : (
+      best = (g_pb_jr + 8) * (g_pb_jr + 8);
+      i = 0;
+      loop(g_nn,
+        d = (jx[i] - g_mx) * (jx[i] - g_mx) + (jy[i] - g_my) * (jy[i] - g_my);
+        d < best ? ( best = d; hj = i; );
+        i += 1;
+      );
+      hj >= 0 && g_click ? (
+        g_pb_drag = hj + 1;
+        g_pb_offx = jx[hj] - g_mx;
+        g_pb_offy = jy[hj] - g_my;
+        g_pb_sx = jx[hj];
+        g_pb_sy = jy[hj];
+        g_pb_lx = jx[hj]; g_pb_ly = jy[hj];
+        g_click = 0;
+      );
+    );
+    g_pb_time += g_dt;
+    g_pb_nc == 0 && g_pb_drag == 0 ? (
+      g_pb_won = 1;
+      g_pb_won_t = g_t;
+      sv[0] = 1;
+      sv[1] = g_pb_lv + 1;
+      sv[2] += 1;
+      pb_celebrate();
+    );
+  );
+
+  e = 0;
+  loop(g_ne,
+    a = ea[e]; b = eb[e]; c = ecol[e];
+    cable(jdx[a], jdy[a], jdx[b], jdy[b], BRD_Y + BRD_H - 6, ccr[c], ccg[c], ccb[c], ebad[e], a == hj || b == hj || g_pb_won);
+    e += 1;
+  );
+
+  g_pb_intro >= 1 ? (
+    i = 0;
+    loop(g_ncx,
+      glow(sx(cxp[i]), sy(cyp[i]), (3 + 1.2 * sin(g_t * 7 + i)) * g_s, 1, 0.3, 0.2, 0.9);
+      i += 1;
+    );
+  );
+
+  e = 0;
+  loop(g_ne,
+    !ebad[e] ? (
+      a = ea[e]; b = eb[e]; c = ecol[e];
+      ph = frac(g_t * (g_pb_won ? 0.9 : 0.3) + eph[e]);
+      bez_at(jdx[a], jdy[a], jdx[b], jdy[b], BRD_Y + BRD_H - 6, ph);
+      glow(sx(g_bx), sy(g_by), 2.6 * g_s, ccr[c], ccg[c], ccb[c], g_pb_won ? 1 : 0.7);
+    );
+    e += 1;
+  );
+
+  i = 0;
+  loop(g_nn,
+    st = jbad[i] ? 1 : g_pb_won ? 2 : 0;
+    hov = i == hj;
+    jack(sx(jdx[i]), sy(jdy[i]), (g_pb_jr + (g_pb_drag == i + 1 ? 3 : 0)) * g_s, st, hov);
+    i += 1;
+  );
+
+  g_pb_won ? (
+    a = g_t - g_pb_won_t;
+    a < 1.6 ? (
+      gfx_mode = 1;
+      gfx_set(0.4, 1, 0.75, 0.35 * (1 - a / 1.6));
+      gfx_circle(sx(450), sy(BRD_CY), a * 420 * g_s, 0, 1);
+      gfx_circle(sx(450), sy(BRD_CY), a * 420 * g_s + 1, 0, 1);
+      gfx_mode = 0;
+    );
+  );
+
+  particles();
+
+  button("< Games", 18, 14, 96, 36, 0.4, 0.9, 0.75) ? ( g_screen = 0; );
+  button("Shuffle", 122, 14, 84, 36, 0.4, 0.9, 0.75) ? pb_shuffle();
+  button("New", 214, 14, 64, 36, 0.4, 0.9, 0.75) ? pb_start(g_pb_lv);
+  g_t - g_pb_rst_t > 3 ? g_pb_rst_t = -1000;
+  g_pb_rst_t > 0 ? (
+    button("Sure?", 286, 14, 100, 36, 1, 0.4, 0.35) ? (
+      g_pb_rst_t = -1000;
+      sv[1] = 1;
+      sv[2] = 0;
+      pb_start(1);
+    );
+  ) : (
+    button("Start over", 286, 14, 100, 36, 1, 0.4, 0.35) ? g_pb_rst_t = g_t;
+  );
+
+  font(18, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  sprintf(#g_tt, "Patch Bay  -  Level %d", g_pb_lv);
+  txt_c(#g_tt, 392, 14, 244, 36);
+
+  font(13, 'b');
+  g_pb_intro < 1 ? strcpy(#g_tt, "...") : g_pb_nc == 1 ? strcpy(#g_tt, "1 crossing") : sprintf(#g_tt, "%d crossings", g_pb_nc);
+  g_pb_nc == 0 ? pill(#g_tt, 640, 18, 110, 28, 0.4, 1, 0.7, 1) : pill(#g_tt, 640, 18, 110, 28, 1, 0.4, 0.35, 1);
+  font(13, 0);
+  gfx_set(0.78, 0.8, 0.84, 1);
+  sprintf(#g_tt, "%d moves", g_pb_moves);
+  txt_c(#g_tt, 756, 14, 70, 36);
+  gfx_set(0.95, 0.96, 0.98, 1);
+  font(14, 'b');
+  txt_r(fmt_time(g_pb_time), 880, 23);
+
+  hint("Drag the jacks until no two cables cross.   Tip: start with the jacks whose rings glow red.", HINT_Y);
+
+  g_pb_won && g_t - g_pb_won_t > 0.8 ? (
+    pa = min(1, (g_t - g_pb_won_t - 0.8) * 3);
+    gfx_set(0, 0, 0, 0.45 * pa);
+    gfx_rect(sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+    cw = 380; chh = 200;
+    cx0 = 450 - cw * 0.5;
+    cy0 = BRD_CY - chh * 0.5 + (1 - pa) * 24;
+    gfx_set(0.11, 0.115, 0.13, 1);
+    fill_rr(cx0, cy0, cw, chh, 8);
+    gfx_set(0.4, 1, 0.75, 0.8);
+    outline_rr(cx0, cy0, cw, chh, 8);
+    font(26, 'b');
+    gfx_set(0.55, 1, 0.8, 1);
+    txt_c("Patched!", cx0, cy0 + 22, cw, 40);
+    font(14, 0);
+    gfx_set(0.82, 0.84, 0.88, 1);
+    sprintf(#g_tt, "Level %d solved in %s with %d moves", g_pb_lv, fmt_time(g_pb_time), g_pb_moves);
+    txt_c(#g_tt, cx0, cy0 + 72, cw, 24);
+    sprintf(#g_tt, "Puzzles solved so far: %d", sv[2]);
+    gfx_set(0.62, 0.64, 0.68, 1);
+    font(12, 0);
+    txt_c(#g_tt, cx0, cy0 + 98, cw, 20);
+    button("Next level", cx0 + 40, cy0 + 136, 160, 40, 0.4, 1, 0.75) ? pb_start(g_pb_lv + 1);
+    button("Games", cx0 + 216, cy0 + 136, 124, 40, 0.4, 1, 0.75) ? g_screen = 0;
+  );
+);
+
+function hue(h)
+(
+  g_hr = 0.55 + 0.45 * cos(2 * $pi * h);
+  g_hg = 0.55 + 0.45 * cos(2 * $pi * (h - 0.33));
+  g_hb = 0.55 + 0.45 * cos(2 * $pi * (h - 0.67));
+);
+
+function stars(x, y, w, h, n, seed) local(k, a)
+(
+  k = 0;
+  loop(n,
+    a = 0.25 + 0.5 * hash(seed + k * 3.1) * (0.6 + 0.4 * sin(g_t * 1.5 + k));
+    gfx_set(0.8, 0.85, 1, a);
+    gfx_rect(sx(x + w * hash(seed + k)), sy(y + h * hash(seed + k + 0.5)), max(1, g_s), max(1, g_s));
+    k += 1;
+  );
+);
+
+function prev_patch(x, y, w, h) local(i, a, b, cx, cy, c)
+(
+  cx = x + w * 0.5; cy = y + h * 0.5;
+  i = 0;
+  loop(6,
+    a = i * $pi / 3 + 0.35 * sin(g_t * 0.6 + i * 1.3);
+    pvx[i] = cx + w * 0.33 * cos(a);
+    pvy[i] = cy + h * 0.33 * sin(a) + 4 * sin(g_t * 0.9 + i);
+    i += 1;
+  );
+  i = 0;
+  loop(8,
+    a = i < 6 ? i : i == 6 ? 0 : 1;
+    b = i < 6 ? (i + 1) % 6 : i == 6 ? 3 : 4;
+    c = i < 6 ? i : 0;
+    cable(pvx[a], pvy[a], pvx[b], pvy[b], y + h - 4, ccr[c], ccg[c], ccb[c], i >= 6, 0);
+    i += 1;
+  );
+  i = 0;
+  loop(6,
+    jack(sx(pvx[i]), sy(pvy[i]), 10 * g_s, i == 0 || i == 1 || i == 3 || i == 4, 0);
+    i += 1;
+  );
+);
+
+function prev_sling(x, y, w, h) local(cx, cy, k, th, px, py, a, tx, ty)
+(
+  stars(x, y, w, h, 40, 1.7);
+  cx = x + w * 0.42; cy = y + h * 0.55;
+  glow(sx(cx), sy(cy), 14 * g_s, 0.35, 0.55, 1, 0.6);
+  gfx_set(0.22, 0.32, 0.62, 1);
+  gfx_circle(sx(cx), sy(cy), 15 * g_s, 1, 1);
+  gfx_set(0.42, 0.55, 0.9, 1);
+  gfx_circle(sx(cx - 4), sy(cy - 4), 8 * g_s, 1, 1);
+  gfx_set(0.7, 0.8, 1, 0.5);
+  gfx_arc(sx(cx), sy(cy), 24 * g_s, -0.9, 0.9, 1);
+  tx = x + w * 0.84; ty = y + h * 0.42;
+  gfx_set(1, 0.75, 0.35, 0.6 + 0.3 * sin(g_t * 4));
+  gfx_circle(sx(tx), sy(ty), 9 * g_s, 0, 1);
+  gfx_circle(sx(tx), sy(ty), 4 * g_s, 0, 1);
+  th = g_t * 1.6;
+  k = 26;
+  loop(26,
+    a = th - k * 0.045;
+    px = cx + w * 0.34 * cos(a);
+    py = cy + h * 0.3 * sin(a) * (1 + 0.15 * cos(a));
+    gfx_mode = 1;
+    gfx_set(1, 0.7, 0.3, 0.35 * (1 - k / 26));
+    gfx_circle(sx(px), sy(py), (1 + 3.5 * (1 - k / 26)) * g_s, 1, 1);
+    gfx_mode = 0;
+    k -= 1;
+  );
+  glow(sx(cx + w * 0.34 * cos(th)), sy(cy + h * 0.3 * sin(th) * (1 + 0.15 * cos(th))), 3.5 * g_s, 1, 0.8, 0.45, 1);
+);
+
+function prev_firefly(x, y, w, h) local(k, fx, fy, a, lx, ly)
+(
+  gfx_set(0.05, 0.09, 0.07, 1);
+  gfx_gradrect(sx(x), sy(y + h * 0.62), w * g_s, h * 0.38 * g_s, 0.02, 0.05, 0.035, 0, 0, 0, 0, 0, 0, 0, 0, 1 / (h * 0.38 * g_s));
+  lx = x + w * 0.82; ly = y + h * 0.48;
+  glow(sx(lx), sy(ly), 12 * g_s, 1, 0.65, 0.25, 0.7 + 0.2 * sin(g_t * 2.3));
+  gfx_set(0.25, 0.2, 0.15, 1);
+  gfx_rect(sx(lx - 7), sy(ly - 15), 14 * g_s, 4 * g_s);
+  gfx_rect(sx(lx - 7), sy(ly + 11), 14 * g_s, 4 * g_s);
+  gfx_line(sx(lx), sy(ly - 15), sx(lx), sy(y + 4), 1);
+  k = 0;
+  loop(26,
+    fx = x + w * 0.4 + w * 0.26 * sin(g_t * 0.5 * (1 + k * 0.04) + k * 1.7) + 10 * sin(g_t * 2.1 + k);
+    fy = y + h * 0.5 + h * 0.3 * sin(g_t * 0.7 * (1 + k * 0.03) + k * 2.3);
+    a = 0.35 + 0.65 * max(0, sin(g_t * 2.4 + k * 1.9));
+    glow(sx(fx), sy(fy), 2 * g_s, 0.82, 1, 0.42, a);
+    k += 1;
+  );
+);

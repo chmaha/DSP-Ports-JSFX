@@ -1,0 +1,571 @@
+@init
+function sl_acc(x, y) local(i, ddx, ddy, d2, f)
+(
+  g_ax = 0; g_ay = 0; g_hitp = -1;
+  i = 0;
+  loop(g_sl_np,
+    ddx = plx[i] - x; ddy = ply[i] - y;
+    d2 = ddx * ddx + ddy * ddy;
+    d2 < (plr[i] + 4) * (plr[i] + 4) ? g_hitp = i;
+    f = SL_G * plm[i] / (d2 * sqrt(d2) + 1);
+    g_ax += ddx * f; g_ay += ddy * f;
+    i += 1;
+  );
+  ddx = g_sl_tx - x; ddy = g_sl_ty - y;
+  d2 = ddx * ddx + ddy * ddy;
+  g_capk = 0;
+  d2 < g_sl_cap * g_sl_cap ? (
+    f = sqrt(d2);
+    g_capk = 1 - f / g_sl_cap;
+    f = SL_PK * g_capk / max(1, f);
+    g_ax += ddx * f; g_ay += ddy * f;
+  );
+);
+
+function sl_step() local(ddx, ddy)
+(
+  sl_acc(s_x, s_y);
+  s_vx += g_ax * SL_DT; s_vy += g_ay * SL_DT;
+  g_capk > 0 ? ( s_vx *= 1 - SL_PD * g_capk * SL_DT; s_vy *= 1 - SL_PD * g_capk * SL_DT; );
+  s_x += s_vx * SL_DT; s_y += s_vy * SL_DT;
+  ddx = s_x - g_sl_tx; ddy = s_y - g_sl_ty;
+  g_hitp >= 0 ? 1 :
+  ddx * ddx + ddy * ddy < SL_TR * SL_TR ? 2 :
+  (s_x < BRD_X - 30 || s_x > BRD_X + BRD_W + 30 || s_y < BRD_Y - 30 || s_y > BRD_Y + BRD_H + 30) ? 3 : 0;
+);
+
+function sl_shot(ang, pw, rec) local(st, n)
+(
+  s_x = g_sl_lx; s_y = g_sl_ly;
+  s_vx = cos(ang) * pw * SL_VMAX; s_vy = sin(ang) * pw * SL_VMAX;
+  n = 0;
+  g_rpn = 0;
+  while (
+    st = sl_step();
+    (rec && (n & 1) == 0 && g_rpn < NRP) ? ( rpx[g_rpn] = s_x; rpy[g_rpn] = s_y; g_rpn += 1; );
+    n += 1;
+    st == 0 && n < SL_MAXN;
+  );
+  st;
+);
+
+function sl_free(x, y, r) local(i, ok, ddx, ddy, md)
+(
+  ok = 1;
+  i = 0;
+  loop(g_sl_np,
+    ddx = plx[i] - x; ddy = ply[i] - y;
+    md = plr[i] + r + 46;
+    ddx * ddx + ddy * ddy < md * md ? ok = 0;
+    i += 1;
+  );
+  ddx = g_sl_lx - x; ddy = g_sl_ly - y;
+  ddx * ddx + ddy * ddy < (r + 90) * (r + 90) ? ok = 0;
+  ddx = g_sl_tx - x; ddy = g_sl_ty - y;
+  ddx * ddx + ddy * ddy < (r + max(60, g_sl_cap * 0.8)) * (r + max(60, g_sl_cap * 0.8)) ? ok = 0;
+  (y - r < BRD_Y + 12 || y + r > BRD_Y + BRD_H - 12) ? ok = 0;
+  ok;
+);
+
+function sl_gen(lv) local(tries, np, k, t2, r, x, y, a, pw, hits, tot, pka, pkp, ok, i, n)
+(
+  np = lv <= 1 ? 1 : lv <= 3 ? 2 : lv <= 6 ? 3 : lv <= 10 ? 4 : 5;
+  g_sl_cap = max(34, 120 - 8 * (lv - 1));
+  g_sl_guide = max(60, 150 - 15 * (lv - 1));
+  tries = 0;
+  while (
+    g_sl_lx = BRD_X + 70;
+    g_sl_ly = BRD_Y + 110 + rand(1) * (BRD_H - 220);
+    g_sl_tx = BRD_X + BRD_W - max(70, g_sl_cap + 12) - rand(1) * 140;
+    g_sl_ty = BRD_Y + max(70, g_sl_cap + 12) + rand(1) * (BRD_H - 2 * max(70, g_sl_cap + 12));
+    g_sl_np = 0;
+    k = 0;
+    loop(np,
+      t2 = 0;
+      while (
+        r = lv <= 1 ? 34 + rand(1) * 14 : 22 + rand(1) * 34;
+        k == 0 ? (
+          a = 0.35 + rand(1) * 0.3;
+          x = g_sl_lx + (g_sl_tx - g_sl_lx) * a;
+          y = g_sl_ly + (g_sl_ty - g_sl_ly) * a + (lv <= 2 ? (rand(1) < 0.5 ? -1 : 1) * (r + 30 + rand(1) * 30) : (rand(1) - 0.5) * 60);
+        ) : (
+          x = BRD_X + 200 + rand(1) * (BRD_W - 400);
+          y = BRD_Y + 40 + rand(1) * (BRD_H - 80);
+        );
+        t2 += 1;
+        !sl_free(x, y, r) && t2 < 60;
+      );
+      sl_free(x, y, r) ? (
+        plx[g_sl_np] = x; ply[g_sl_np] = y; plr[g_sl_np] = r;
+        plm[g_sl_np] = r * r;
+        plc[g_sl_np] = min(5, floor(rand(1) * 6));
+        plring[g_sl_np] = r > 30 && rand(1) < 0.4;
+        g_sl_np += 1;
+      );
+      k += 1;
+    );
+    (lv >= 8 && g_sl_np > 2 && rand(1) < 0.5) ? (
+      plm[g_sl_np - 1] = -0.8 * plm[g_sl_np - 1];
+      plr[g_sl_np - 1] = min(plr[g_sl_np - 1], 26);
+      plring[g_sl_np - 1] = 0;
+    );
+    hits = 0; tot = 0;
+    a = -1.3;
+    loop(44,
+      pw = 0.3;
+      loop(11,
+        sl_shot(a, pw, 0) == 2 ? (
+          hits += 1;
+          rand(1) * hits < 1 ? ( pka = a; pkp = pw; );
+        );
+        tot += 1;
+        pw += 0.07;
+      );
+      a += 0.06;
+    );
+    tries += 1;
+    ok = hits >= 2 && (lv <= 2 || hits < tot * 0.1);
+    (!ok && tries < 12) || (hits < 1 && tries < 40);
+  );
+  g_sl_hits = hits;
+  g_sl_sola = pka; g_sl_solp = pkp;
+  sl_shot(pka, pkp, 1);
+  i = 0;
+  loop(3,
+    n = min(g_rpn - 1, floor(g_rpn * (0.28 + i * 0.25)));
+    stx[i] = rpx[n]; sty[i] = rpy[n]; stgot[i] = 0;
+    i += 1;
+  );
+  g_sl_seed = rand(1) * 100;
+  g_sl_gx = BRD_X + 160 + rand(1) * (BRD_W - 320);
+  g_sl_gy = BRD_Y + 120 + rand(1) * (BRD_H - 240);
+  g_sl_ginc = 0.35 + rand(1) * 0.55;
+  g_sl_groll = (rand(1) - 0.5) * 1.6;
+  g_sl_ghue = rand(1);
+);
+
+function sl_reset_play()
+(
+  g_sl_state = 0;
+  g_sl_shots = 0;
+  g_sl_aim = 0;
+  g_sl_ghn = 0;
+  g_sl_trn = 0;
+  g_sl_got = 0;
+);
+
+function sl_start(lv)
+(
+  g_sl_lv = lv;
+  sl_gen(lv);
+  sl_reset_play();
+);
+
+function sl_end_shot() local(t)
+(
+  t = g_sl_ghc;
+  g_sl_ghc = g_sl_ghp;
+  g_sl_ghp = t;
+  g_sl_ghn = g_sl_ghcn;
+);
+
+function sl_galaxy() local(n, r, th, x, y, xr, yr, ci, si, ca, sa, rg, b, k)
+(
+  ci = cos(g_sl_ginc); si = sin(g_sl_ginc);
+  ca = cos(g_sl_groll); sa = sin(g_sl_groll);
+  rg = 135;
+  gfx_mode = 1;
+  k = 0;
+  loop(7,
+    gfx_set(1, 0.88, 0.7, 0.07 * (1 - k / 7));
+    gfx_circle(sx(g_sl_gx), sy(g_sl_gy), (3 + 5 * k) * g_s, 1, 1);
+    k += 1;
+  );
+  n = 0;
+  loop(NGC,
+    r = gcr[n];
+    th = gca[n] + g_t * 0.025 * (1 + 0.15 / (0.2 + r));
+    x = r * cos(th) * rg; y = r * sin(th) * rg * ci;
+    xr = g_sl_gx + x * ca - y * sa; yr = g_sl_gy + x * sa + y * ca;
+    hue(g_sl_ghue + (gck[n] == 1 ? 0.5 : 0));
+    gfx_set(g_hr, g_hg, g_hb, 0.04 * (1.2 - r));
+    gfx_circle(sx(xr), sy(yr), gcs[n] * rg * 0.7 * g_s, 1, 1);
+    n += 1;
+  );
+  gfx_mode = 0;
+  n = 0;
+  loop(NGC,
+    gck[n] == 2 ? (
+      r = gcr[n] * 0.94;
+      th = gca[n] - 0.12 + g_t * 0.025 * (1 + 0.15 / (0.2 + gcr[n]));
+      x = r * cos(th) * rg; y = r * sin(th) * rg * ci;
+      xr = g_sl_gx + x * ca - y * sa; yr = g_sl_gy + x * sa + y * ca;
+      gfx_set(0, 0, 0, 0.12);
+      gfx_circle(sx(xr), sy(yr), gcs[n] * rg * 0.6 * g_s, 1, 1);
+    );
+    n += 1;
+  );
+  gfx_mode = 1;
+  n = 0;
+  loop(NGS,
+    r = gsr[n];
+    th = gsa[n] + g_t * 0.025 * (1 + 0.15 / (0.2 + r));
+    x = r * cos(th) * rg; y = r * sin(th) * rg * ci;
+    xr = g_sl_gx + x * ca - y * sa; yr = g_sl_gy + x * sa + y * ca;
+    hue(g_sl_ghue + r * 0.25);
+    b = min(1, gsb[n] * (1.25 - 0.6 * r));
+    gfx_set(g_hr * b * 0.6 + 0.4 * b, g_hg * b * 0.6 + 0.4 * b, g_hb * b * 0.6 + 0.4 * b, 1);
+    gfx_rect(sx(xr), sy(yr), max(1, g_s), max(1, g_s));
+    n += 1;
+  );
+  gfx_mode = 0;
+);
+
+function ring_half(px, py, r, front, cr, cg, cb) local(k, j, t0, t1, ra, rb, ct, st, ex, ey, x0, y0, x1, y1)
+(
+  ct = cos(-0.32); st = sin(-0.32);
+  j = 0;
+  loop(9,
+    ra = r * (1.45 + j * 0.055); rb = ra * 0.26;
+    gfx_set(cr * (0.75 + 0.25 * sin(j * 1.7)), cg * (0.75 + 0.25 * sin(j * 1.7)), cb * (0.75 + 0.25 * sin(j * 1.7)), j == 3 ? 0.15 : 0.55);
+    k = 0;
+    loop(64,
+      t0 = k / 64 * 2 * $pi; t1 = (k + 1) / 64 * 2 * $pi;
+      (sin(t0 + 0.05) > 0) == front ? (
+        ex = cos(t0) * ra; ey = sin(t0) * rb;
+        x0 = px + ex * ct - ey * st; y0 = py + ex * st + ey * ct;
+        ex = cos(t1) * ra; ey = sin(t1) * rb;
+        x1 = px + ex * ct - ey * st; y1 = py + ex * st + ey * ct;
+        gfx_line(x0, y0, x1, y1, 1);
+      );
+      k += 1;
+    );
+    j += 1;
+  );
+);
+
+function planet(i) local(px, py, r, cr, cg, cb, k, f, rr, off, a, rep)
+(
+  px = sx(plx[i]); py = sy(ply[i]); r = plr[i] * g_s;
+  rep = plm[i] < 0;
+  rep ? ( cr = 0.78; cg = 0.92; cb = 1; ) : ( cr = pcr[plc[i]]; cg = pcg[plc[i]]; cb = pcb[plc[i]]; );
+  gfx_mode = 1;
+  k = 0;
+  loop(3,
+    f = frac(g_t * 0.22 + k / 3);
+    rr = rep ? r * (1.1 + f * 1.8) : r * (2.9 - f * 1.8);
+    a = rep ? 1 - f : f;
+    gfx_set(cr, cg, cb, 0.09 * a);
+    gfx_circle(px, py, rr, 0, 1);
+    k += 1;
+  );
+  gfx_set(cr, cg, cb, 0.05); gfx_circle(px, py, r * 1.5, 1, 1);
+  gfx_set(cr, cg, cb, 0.09); gfx_circle(px, py, r * 1.2, 1, 1);
+  gfx_mode = 0;
+  plring[i] ? ring_half(px, py, r, 0, cr, cg, cb);
+  rep ? (
+    glow(px, py, r * 0.8, cr, cg, cb, 0.8 + 0.2 * sin(g_t * 5));
+  ) : (
+    k = 0;
+    loop(18,
+      f = k / 17;
+      rr = r * (1 - f * 0.8);
+      off = (r - rr) * 0.5;
+      gfx_set(cr * (0.18 + 0.82 * f), cg * (0.18 + 0.82 * f), cb * (0.18 + 0.82 * f), 1);
+      gfx_circle(px - off, py - off, rr, 1, 1);
+      k += 1;
+    );
+    plc[i] & 1 ? (
+      k = 0;
+      loop(3,
+        f = hash(i * 7 + k);
+        gfx_set(0, 0, 0, 0.16);
+        gfx_circle(px + (hash(i * 3 + k + 0.3) - 0.5) * r, py + (f - 0.5) * r, r * (0.1 + 0.1 * hash(i + k * 5)), 1, 1);
+        k += 1;
+      );
+    );
+    gfx_set(min(1, cr + 0.3), min(1, cg + 0.3), min(1, cb + 0.3), 0.35);
+    gfx_arc(px, py, r - 1, -1.9, -0.2, 1);
+  );
+  plring[i] ? ring_half(px, py, r, 1, cr, cg, cb);
+);
+
+function portal(px, py, cr) local(t, k, a, f, rr)
+(
+  t = g_t;
+  gfx_mode = 1;
+  gfx_set(0.55, 1, 0.8, 0.035);
+  gfx_circle(px, py, cr, 1, 1);
+  gfx_set(0.55, 1, 0.8, 0.45);
+  k = 0;
+  loop(12,
+    a = t * 0.6 + k * 2 * $pi / 12;
+    gfx_arc(px, py, cr, a, a + 0.28, 1);
+    gfx_arc(px, py, cr - 1, a, a + 0.28, 1);
+    k += 1;
+  );
+  k = 0;
+  loop(10,
+    f = frac(t * 0.5 + k / 10);
+    a = k * 2.4 + f * 2.5;
+    rr = cr * (1 - f);
+    gfx_set(0.6, 1, 0.85, 0.45 * f);
+    gfx_circle(px + sin(a) * rr, py - cos(a) * rr, 1.6 * g_s, 1, 1);
+    k += 1;
+  );
+  gfx_mode = 0;
+  glow(px, py, 7 * g_s, 0.55, 1, 0.8, 0.85 + 0.15 * sin(t * 4));
+  gfx_mode = 1;
+  gfx_set(0.55, 1, 0.8, 0.18);
+  gfx_circle(px, py, 26 * g_s, 1, 1);
+  gfx_mode = 0;
+  gfx_set(0.6, 1, 0.82, 0.95);
+  gfx_arc(px, py, 17 * g_s, t * 2, t * 2 + 2, 1);
+  gfx_arc(px, py, 17 * g_s, t * 2 + $pi, t * 2 + $pi + 2, 1);
+  gfx_arc(px, py, 17 * g_s + 1, t * 2, t * 2 + 2, 1);
+  gfx_arc(px, py, 17 * g_s + 1, t * 2 + $pi, t * 2 + $pi + 2, 1);
+  gfx_set(0.45, 0.8, 1, 0.75);
+  gfx_arc(px, py, 23 * g_s, -t * 1.4, -t * 1.4 + 1.6, 1);
+  gfx_arc(px, py, 23 * g_s, -t * 1.4 + $pi, -t * 1.4 + $pi + 1.6, 1);
+);
+
+function draw_slingshot() local(i, k, st, pdx, pdy, pl, cxp0, cyp0, a, n, px0, py0, px1, py1, w, r)
+(
+  g_pgrav = 0;
+  g_sl_lv < 1 ? ( g_sl_ghc = gh1x; g_sl_ghp = gh2x; sl_start(max(1, sv[10])); );
+
+  gfx_set(0.022, 0.024, 0.036, 1);
+  fill_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+  sl_galaxy();
+  gfx_mode = 1;
+  k = 0;
+  loop(160,
+    a = 0.12 + 0.35 * hash(g_sl_seed + k * 3.1) * (0.7 + 0.3 * sin(g_t * (1 + hash(k)) + k));
+    gfx_set(0.8, 0.85, 1, a);
+    gfx_rect(sx(BRD_X + 6 + (BRD_W - 12) * hash(g_sl_seed + k)), sy(BRD_Y + 6 + (BRD_H - 12) * hash(g_sl_seed + k + 0.5)), max(1, g_s), max(1, g_s));
+    k += 1;
+  );
+  gfx_mode = 0;
+  gfx_set(0.2, 0.21, 0.24, 1);
+  outline_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 8);
+
+  g_sl_ghn > 1 ? (
+    gfx_mode = 1;
+    i = 0;
+    loop(g_sl_ghn,
+      gfx_set(1, 0.75, 0.45, 0.22);
+      gfx_circle(sx(g_sl_ghp[i]), sy(g_sl_ghp[i + NGH]), 1.3 * g_s, 1, 1);
+      i += 1;
+    );
+    gfx_mode = 0;
+  );
+
+  i = 0;
+  loop(g_sl_np, planet(i); i += 1; );
+  portal(sx(g_sl_tx), sy(g_sl_ty), g_sl_cap * g_s);
+
+  i = 0;
+  loop(3,
+    !stgot[i] ? (
+      glow(sx(stx[i]), sy(sty[i]), 4 * g_s, 1, 0.85, 0.35, 0.6);
+      gfx_set(1, 0.88, 0.4, 1);
+      star_shape(sx(stx[i]), sy(sty[i]), 8 * g_s, g_t * 0.8 + i);
+    );
+    i += 1;
+  );
+
+  g_sl_state == 0 ? (
+    g_click && hit(BRD_X, BRD_Y, BRD_W, BRD_H) ? ( g_sl_aim = 1; g_sl_px = g_mx; g_sl_py = g_my; g_click = 0; );
+  );
+  pdx = 0; pdy = 0; pl = 0;
+  g_sl_aim ? (
+    pdx = g_sl_px - g_mx; pdy = g_sl_py - g_my;
+    pl = sqrt(pdx * pdx + pdy * pdy);
+    pl > SL_PMAX ? ( pdx *= SL_PMAX / pl; pdy *= SL_PMAX / pl; pl = SL_PMAX; );
+    !g_mdown ? (
+      g_sl_aim = 0;
+      pl > 8 ? (
+        s_x = g_sl_lx; s_y = g_sl_ly;
+        s_vx = pdx / SL_PMAX * SL_VMAX; s_vy = pdy / SL_PMAX * SL_VMAX;
+        g_sl_state = 1; g_sl_n = 0; g_sl_acc = 0;
+        g_sl_shots += 1; g_sl_ghcn = 0; g_sl_trn = 0;
+      );
+      pdx = pdy = pl = 0;
+    );
+  );
+
+  pl > 8 ? (
+    s_x = g_sl_lx; s_y = g_sl_ly;
+    s_vx = pdx / SL_PMAX * SL_VMAX; s_vy = pdy / SL_PMAX * SL_VMAX;
+    gfx_mode = 1;
+    k = 0;
+    loop(g_sl_guide,
+      sl_step() ? k = 1000;
+      k < 1000 && k % 4 == 3 ? (
+        gfx_set(0.9, 0.95, 1, 0.8 * (1 - k / g_sl_guide));
+        gfx_circle(sx(s_x), sy(s_y), 1.8 * g_s, 1, 1);
+      );
+      k += 1;
+    );
+    gfx_mode = 0;
+  );
+
+  g_sl_state == 1 ? (
+    g_sl_acc += g_dt;
+    k = 0; st = 0;
+    while ((g_sl_acc >= SL_DT && st == 0 && k < 14) ? (
+      st = sl_step();
+      g_sl_n += 1; g_sl_acc -= SL_DT; k += 1;
+      i = 0;
+      loop(3,
+        (!stgot[i] && (s_x - stx[i]) * (s_x - stx[i]) + (s_y - sty[i]) * (s_y - sty[i]) < 256) ? (
+          stgot[i] = 1;
+          g_sl_got += 1;
+          loop(16,
+            a = rand(1) * 2 * $pi;
+            spawn(stx[i], sty[i], cos(a) * (40 + rand(1) * 120), sin(a) * (40 + rand(1) * 120), 1, 0.85, 0.4, 0.5 + rand(1) * 0.5);
+          );
+        );
+        i += 1;
+      );
+      (g_sl_n & 1) == 0 ? ( tlx[g_sl_trn % NTR] = s_x; tly[g_sl_trn % NTR] = s_y; g_sl_trn += 1; );
+      (g_sl_n % 3 == 0 && g_sl_ghcn < NGH) ? ( g_sl_ghc[g_sl_ghcn] = s_x; g_sl_ghc[g_sl_ghcn + NGH] = s_y; g_sl_ghcn += 1; );
+      (g_sl_n >= SL_MAXN && st == 0) ? st = 4;
+      1;
+    ) : 0);
+    g_sl_acc = min(g_sl_acc, SL_DT * 4);
+    st > 0 ? (
+      sl_end_shot();
+      st == 2 ? (
+        g_sl_state = 3;
+        g_sl_won_t = g_t;
+        sv[0] = 1;
+        sv[10] = g_sl_lv + 1;
+        sv[11] += 1;
+        sv[12] += g_sl_got;
+        loop(70,
+          a = rand(1) * 2 * $pi;
+          r = 60 + rand(1) * 220;
+          k = rand(1);
+          spawn(g_sl_tx, g_sl_ty, cos(a) * r, sin(a) * r, 0.55 + 0.45 * k, 1, 0.8 - 0.4 * k, 0.8 + rand(1) * 0.9);
+        );
+      ) : (
+        g_sl_state = 2;
+        g_sl_wait_t = g_t;
+        st == 1 ? (
+          strcpy(#g_sl_msg, "Crashed!");
+          i = g_hitp;
+          loop(50,
+            a = rand(1) * 2 * $pi;
+            r = 30 + rand(1) * 200;
+            k = rand(1) < 0.5;
+            spawn(s_x, s_y, cos(a) * r, sin(a) * r, k ? 1 : pcr[plc[i]], k ? 0.75 : pcg[plc[i]], k ? 0.4 : pcb[plc[i]], 0.5 + rand(1) * 0.8);
+          );
+        ) : st == 3 ? strcpy(#g_sl_msg, "Lost in space") : strcpy(#g_sl_msg, "Stuck in orbit");
+      );
+    );
+  );
+  g_sl_state == 2 && g_t - g_sl_wait_t > 1 ? g_sl_state = 0;
+
+  (g_sl_state == 1 || g_sl_state == 2) && g_sl_trn > 1 ? (
+    a = g_sl_state == 2 ? max(0, 1 - (g_t - g_sl_wait_t) * 2.5) : 1;
+    n = min(g_sl_trn, NTR);
+    i = 1;
+    loop(n - 1,
+      k = g_sl_trn - n + i;
+      w = i / n;
+      px0 = sx(tlx[(k - 1) % NTR]); py0 = sy(tly[(k - 1) % NTR]);
+      px1 = sx(tlx[k % NTR]); py1 = sy(tly[k % NTR]);
+      gfx_mode = 1;
+      gfx_set(1, 0.6 + 0.3 * w, 0.3 + 0.3 * w, 0.12 * w * a);
+      tline(px0, py0, px1, py1, (2 + 9 * w) * g_s);
+      gfx_set(1, 0.8, 0.5, 0.5 * w * a);
+      tline(px0, py0, px1, py1, (1 + 2.5 * w) * g_s);
+      gfx_mode = 0;
+      i += 1;
+    );
+  );
+
+  px0 = sx(g_sl_lx); py0 = sy(g_sl_ly);
+  gfx_mode = 1;
+  gfx_set(0.35, 0.75, 1, 0.06); gfx_circle(px0, py0, 34 * g_s, 1, 1);
+  gfx_set(0.35, 0.75, 1, 0.08); gfx_circle(px0, py0, 25 * g_s, 1, 1);
+  gfx_mode = 0;
+  gfx_set(0.32, 0.34, 0.4, 1); gfx_circle(px0, py0, 20 * g_s, 1, 1);
+  gfx_set(0.55, 0.58, 0.64, 1); gfx_circle(px0, py0, 18 * g_s, 1, 1);
+  gfx_set(0.04, 0.05, 0.08, 1); gfx_circle(px0, py0, 13 * g_s, 1, 1);
+  gfx_set(0.35, 0.75, 1, 0.7); gfx_circle(px0, py0, 13 * g_s, 0, 1);
+  k = 0;
+  loop(6,
+    a = k * $pi / 3 + g_t * 0.4;
+    r = 0.5 + 0.5 * sin(g_t * 3 + k * 1.1);
+    glow(px0 + sin(a) * 15.5 * g_s, py0 - cos(a) * 15.5 * g_s, 1.3 * g_s, 0.4, 0.85, 1, 0.4 + 0.6 * r);
+    k += 1;
+  );
+  pl > 8 ? (
+    w = pl / SL_PMAX;
+    w < 0.5 ? gfx_set(0.35 + w, 0.85, 1 - w * 0.8, 1) : gfx_set(1, 0.85 - (w - 0.5) * 1.2, 0.6 - (w - 0.5), 1);
+    k = 0;
+    loop(4,
+      gfx_arc(px0, py0, (24 + k) * g_s, 0, 2 * $pi * w, 1);
+      k += 1;
+    );
+    a = atan2(pdx, -pdy);
+    k = 0;
+    loop(3,
+      r = (34 + k * 11 + 4 * frac(g_t * 2)) * g_s;
+      gfx_set(0.6, 0.9, 1, 0.8 - k * 0.22);
+      cxp0 = px0 + sin(a) * r; cyp0 = py0 - cos(a) * r;
+      aa_tline(cxp0 - sin(a - 0.6) * 9 * g_s, cyp0 + cos(a - 0.6) * 9 * g_s, cxp0, cyp0, 2 * g_s);
+      aa_tline(cxp0 - sin(a + 0.6) * 9 * g_s, cyp0 + cos(a + 0.6) * 9 * g_s, cxp0, cyp0, 2 * g_s);
+      k += 1;
+    );
+  );
+  g_sl_state == 0 ? glow(px0 - pdx * 0.04 * g_s, py0 - pdy * 0.04 * g_s, 5 * g_s, 1, 0.8, 0.45, 1);
+  g_sl_state == 1 ? glow(sx(s_x), sy(s_y), 5 * g_s, 1, 0.85, 0.5, 1);
+
+  particles();
+
+  g_sl_state == 2 ? (
+    a = min(1, 2.5 * (1 - (g_t - g_sl_wait_t)));
+    font(20, 'b');
+    gfx_set(1, 0.7, 0.55, a);
+    txt_c(#g_sl_msg, 300, BRD_Y + 16, 300, 30);
+  );
+
+  button("< Games", 18, 14, 96, 36, 1, 0.72, 0.35) ? g_screen = 0;
+  button("New", 122, 14, 64, 36, 1, 0.72, 0.35) ? sl_start(g_sl_lv);
+  g_t - g_sl_rst_t > 3 ? g_sl_rst_t = -1000;
+  g_sl_rst_t > 0 ? (
+    button("Sure?", 194, 14, 100, 36, 1, 0.4, 0.35) ? (
+      g_sl_rst_t = -1000;
+      sv[10] = 1; sv[11] = 0; sv[12] = 0;
+      sl_start(1);
+    );
+  ) : (
+    button("Start over", 194, 14, 100, 36, 1, 0.4, 0.35) ? g_sl_rst_t = g_t;
+  );
+  font(18, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  sprintf(#g_tt, "Slingshot  -  Level %d", g_sl_lv);
+  txt_c(#g_tt, 330, 14, 260, 36);
+  i = 0;
+  loop(3,
+    stgot[i] ? gfx_set(1, 0.85, 0.4, 1) : gfx_set(0.26, 0.27, 0.3, 1);
+    star_shape(sx(668 + i * 26), sy(32), 10 * g_s, 0);
+    i += 1;
+  );
+  font(13, 0);
+  gfx_set(0.78, 0.8, 0.84, 1);
+  g_sl_shots == 1 ? strcpy(#g_tt, "1 shot") : sprintf(#g_tt, "%d shots", g_sl_shots);
+  txt_r(#g_tt, 880, 24);
+
+  hint("Press anywhere, pull back to aim and let go. Reach the portal's ring and it pulls you in. Stars are a bonus.", HINT_Y);
+
+  g_sl_state == 3 ? (
+    g_sl_shots == 1 ? sprintf(#g_l1, "Level %d cleared with 1 shot", g_sl_lv) : sprintf(#g_l1, "Level %d cleared with %d shots", g_sl_lv, g_sl_shots);
+    sprintf(#g_l2, "Stars this level: %d of 3     Total stars: %d", g_sl_got, sv[12]);
+    i = win_card(g_sl_got == 3 ? "Perfect shot!" : "On target!", g_sl_won_t, 1, 0.75, 0.4);
+    i == 1 ? sl_start(g_sl_lv + 1) : i == 2 ? g_screen = 0;
+  );
+);

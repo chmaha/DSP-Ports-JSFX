@@ -1,0 +1,153 @@
+@init
+function pv_begin(x, y, w, h, zm) local(k)
+(
+  g_pv_s0 = g_s; g_pv_ox = g_ox; g_pv_oy = g_oy; g_pv_dst = gfx_dest;
+  g_pv_pw = ceil(w * g_s); g_pv_ph = ceil(h * g_s);
+  g_pv_x = x; g_pv_y = y;
+  gfx_setimgdim(IMG_PV, g_pv_pw, g_pv_ph);
+  gfx_dest = IMG_PV;
+  gfx_mode = 0; gfx_a = 1;
+  gfx_set(0, 0, 0, 1);
+  gfx_rect(0, 0, g_pv_pw, g_pv_ph);
+  k = max(g_pv_pw / BRD_W, g_pv_ph / BRD_H) * zm;
+  g_s = k;
+  g_ox = (g_pv_pw - BRD_W * k) * 0.5 - BRD_X * k;
+  g_oy = (g_pv_ph - BRD_H * k) * 0.5 - BRD_Y * k;
+);
+
+function pv_end()
+(
+  g_s = g_pv_s0; g_ox = g_pv_ox; g_oy = g_pv_oy;
+  gfx_dest = g_pv_dst;
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_PV, 1, 0, 0, 0, g_pv_pw, g_pv_ph, floor(sx(g_pv_x)), floor(sy(g_pv_y)), g_pv_pw, g_pv_ph);
+);
+
+function pv_patch(x, y, w, h) local(e, a, b, c, i)
+(
+  g_pb_lv < 1 ? pb_start(max(1, sv[1]));
+  pv_begin(x, y, w, h, 1);
+  gfx_set(0.06, 0.062, 0.072, 1);
+  gfx_rect(0, 0, g_pv_pw, g_pv_ph);
+  tally();
+  e = 0;
+  loop(g_ne,
+    a = ea[e]; b = eb[e]; c = ecol[e];
+    cable(jx[a], jy[a], jx[b], jy[b], BRD_Y + BRD_H - 6, ccr[c], ccg[c], ccb[c], ebad[e], 0);
+    e += 1;
+  );
+  i = 0;
+  loop(g_ncx, glow(sx(cxp[i]), sy(cyp[i]), (3 + 1.2 * sin(g_t * 7 + i)) * g_s, 1, 0.3, 0.2, 0.9); i += 1; );
+  i = 0;
+  loop(g_nn, jack(sx(jx[i]), sy(jy[i]), g_pb_jr * g_s, jbad[i] ? 1 : 0, 0); i += 1; );
+  pv_end();
+);
+
+function pv_sling(x, y, w, h) local(i, k, n, a)
+(
+  g_sl_lv < 1 ? ( g_sl_ghc = gh1x; g_sl_ghp = gh2x; sl_start(max(1, sv[10])); );
+  pv_begin(x, y, w, h, 1);
+  gfx_set(0.022, 0.024, 0.036, 1);
+  gfx_rect(0, 0, g_pv_pw, g_pv_ph);
+  sl_galaxy();
+  gfx_mode = 1;
+  k = 0;
+  loop(90,
+    gfx_set(0.8, 0.85, 1, 0.15 + 0.3 * hash(g_sl_seed + k * 3.1));
+    gfx_rect(sx(BRD_X + BRD_W * hash(g_sl_seed + k)), sy(BRD_Y + BRD_H * hash(g_sl_seed + k + 0.5)), 1, 1);
+    k += 1;
+  );
+  gfx_mode = 0;
+  i = 0; loop(g_sl_np, planet(i); i += 1; );
+  portal(sx(g_sl_tx), sy(g_sl_ty), g_sl_cap * g_s);
+  i = 0;
+  loop(3, !stgot[i] ? ( gfx_set(1, 0.88, 0.4, 1); star_shape(sx(stx[i]), sy(sty[i]), 8 * g_s, g_t * 0.8 + i); ); i += 1; );
+  glow(sx(g_sl_lx), sy(g_sl_ly), 6 * g_s, 0.35, 0.75, 1, 0.8);
+  g_rpn > 2 ? (
+    n = floor(frac(g_t * 0.18) * g_rpn);
+    gfx_mode = 1;
+    k = max(0, n - 30);
+    loop(n - k,
+      a = (k - n + 30) / 30;
+      gfx_set(1, 0.7, 0.35, 0.5 * a);
+      gfx_circle(sx(rpx[k]), sy(rpy[k]), (1 + 3 * a) * g_s, 1, 1);
+      k += 1;
+    );
+    gfx_mode = 0;
+    glow(sx(rpx[n]), sy(rpy[n]), 5 * g_s, 1, 0.85, 0.5, 1);
+  );
+  pv_end();
+);
+
+function pv_koi(x, y, w, h) local(i, dim, ng)
+(
+  !g_kp_init ? kp_init();
+  i = 0; loop(g_kp_n, koi_update(i, g_dt); i += 1; );
+  ng = g_kp_night;
+  dim = ng ? 0.5 : 1;
+  ng ? ( g_tr = 0.02; g_tg = 0.05; g_tb = 0.12; g_ta = 0.38; ) : ( g_tr = 0.08; g_tg = 0.3; g_tb = 0.33; g_ta = 0.22; );
+  pv_begin(x, y, w, h, 1);
+  kp_floor(ng);
+  i = 0; loop(NPD, lily(i, 1, ng); i += 1; );
+  i = 0; loop(g_kp_n, koi_draw(i, 1, dim); i += 1; );
+  i = 0; loop(g_kp_n, koi_draw(i, 0, dim); i += 1; );
+  i = 0; loop(NPD, lily(i, 0, ng); i += 1; );
+  pond_frame(ng);
+  rock_cluster(BRD_X + 34, BRD_Y + 28, 6, 3, ng);
+  rock_cluster(BRD_X + BRD_W - 50, BRD_Y + BRD_H - 26, 7, 11, ng);
+  pv_end();
+);
+
+function pv_garden(x, y, w, h) local(k, sw, sh)
+(
+  g_gd_init < 1 ? pg_init();
+  g_now_s = time();
+  pg_light(g_gd_sky);
+  sw = 0; k = 0; loop(NT, gty[k] > 0 ? sw = 1; k += 1; );
+  !sw ? (
+    memcpy(GDT, GD, NT * 4);
+    k = 0;
+    loop(NT,
+      sh = hash(k * 3.7 + 1);
+      sh < 0.5 ? (
+        gty[k] = sh < 0.22 ? 1 : sh < 0.36 ? 2 : sh < 0.44 ? 3 : 4;
+        gva[k] = floor(hash(k * 1.9) * (gty[k] == 1 ? 9 : gty[k] == 2 ? 6 : gty[k] == 3 ? 3 : 8)) % (gty[k] == 1 ? 9 : gty[k] == 2 ? 6 : gty[k] == 3 ? 3 : 8);
+        gpr[k] = 1; gwa[k] = 0;
+      );
+      k += 1;
+    );
+  );
+  pg_canvas(g_gd_sky, -1, 0, 0);
+  !sw ? memcpy(GD, GDT, NT * 4);
+  k = max(w * g_s / PG_W, h * g_s / PG_H) * 1.35;
+  sw = w * g_s / k; sh = h * g_s / k;
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_PG, 1, 0, (PG_W - sw) * 0.5, (PG_H - sh) * 0.5 + 6, sw, sh, sx(x), sy(y), w * g_s, h * g_s);
+);
+
+function pv_rain(x, y, w, h) local(i, sc, r, px, py, bw, bh, zm, vx0, vy0, vw, vh, f)
+(
+  !g_rw_init ? rw_init();
+  sc = g_rw_sc;
+  bw = ceil(BRD_W * g_s); bh = ceil(BRD_H * g_s);
+  (g_rw_bw !== bw || g_rw_bh !== bh || g_rw_bsc !== sc) ? ( rw_build(sc); g_rw_bw = bw; g_rw_bh = bh; g_rw_bsc = sc; );
+  sc == 0 ? ( g_dk = 0.45; g_bk = 2.6; g_bo = 0.12; ) : sc == 1 ? ( g_dk = 0.5; g_bk = 1.6; g_bo = 0.08; ) : ( g_dk = 0.45; g_bk = 1.25; g_bo = 0.08; );
+  zm = 1.35;
+  pv_begin(x, y, w, h, zm);
+  gfx_blit(IMG_RWB, 1, 0, 0, 0, g_rw_bw, g_rw_bh, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  vw = g_pv_pw / g_s; vh = g_pv_ph / g_s;
+  vx0 = BRD_X + BRD_W * 0.5 - vw * 0.5; vy0 = BRD_Y + BRD_H * 0.5 - vh * 0.5;
+  sc == 0 ? gfx_set(0.35, 0.38, 0.48, 0.16) : sc == 1 ? gfx_set(0.6, 0.48, 0.52, 0.16) : gfx_set(0.7, 0.74, 0.72, 0.16);
+  gfx_rect(0, 0, g_pv_pw, g_pv_ph);
+  gfx_mode = 1;
+  i = 0;
+  loop(g_rw_in == 0 ? 12 : g_rw_in == 1 ? 30 : 64,
+    px = g_pv_pw * hash(i * 4.1 + 2) + 10;
+    py = (frac(g_t * (0.9 + 0.5 * hash(i)) + hash(i * 2.2)) * 1.3 - 0.2) * g_pv_ph;
+    gfx_set(0.8, 0.85, 0.95, (g_rw_in == 0 ? 0.1 : g_rw_in == 1 ? 0.13 : 0.16) + 0.1 * hash(i * 3.3));
+    gfx_line(px, py, px - 3, py + 12, 1);
+    i += 1;
+  );
+  gfx_mode = 0;
+  pv_end();
+);

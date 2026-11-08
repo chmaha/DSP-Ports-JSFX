@@ -1,0 +1,1671 @@
+@init
+function rw_inner()
+(
+  g_rx0 = BRD_X + 14; g_ry0 = BRD_Y + 14;
+  g_rx1 = BRD_X + BRD_W - 14; g_ry1 = BRD_Y + BRD_H - 24;
+);
+
+function rw_bokeh(x, y, r, cr, cg, cb, a)
+(
+  gfx_set(cr, cg, cb, a * 0.6);
+  gfx_circle(x, y, r, 1, 1);
+  gfx_set(cr, cg, cb, a * 0.5);
+  gfx_circle(x, y, r, 0, 1);
+  gfx_set(min(1, cr + 0.2), min(1, cg + 0.2), min(1, cb + 0.2), a * 0.25);
+  gfx_circle(x - r * 0.15, y - r * 0.15, r * 0.6, 1, 1);
+);
+
+function rw_build(sc) local(k, x, y, w, h, c, dst, j, bw, r, cr, cg, cb, a, n)
+(
+  dst = gfx_dest;
+  gfx_setimgdim(IMG_RWS, RWS_W, RWS_H);
+  gfx_dest = IMG_RWS;
+  gfx_mode = 0; gfx_a = 1;
+  sc == 0 ? (
+    gfx_gradrect(0, 0, RWS_W, RWS_H * 0.72, 0.012, 0.016, 0.045, 1, 0, 0, 0, 0, 0.22 / (RWS_H * 0.72), 0.1 / (RWS_H * 0.72), 0.08 / (RWS_H * 0.72), 0);
+  ) : sc == 1 ? (
+    gfx_gradrect(0, 0, RWS_W, RWS_H * 0.62, 0.2, 0.13, 0.28, 1, 0, 0, 0, 0, 0.7 / (RWS_H * 0.62), 0.3 / (RWS_H * 0.62), 0.02 / (RWS_H * 0.62), 0);
+    gfx_gradrect(0, RWS_H * 0.62, RWS_W, RWS_H * 0.38, 0.5, 0.25, 0.25, 1, 0, 0, 0, 0, -0.35 / (RWS_H * 0.38), -0.18 / (RWS_H * 0.38), -0.12 / (RWS_H * 0.38), 0);
+  ) : (
+    gfx_gradrect(0, 0, RWS_W, RWS_H, 0.62, 0.68, 0.66, 1, 0, 0, 0, 0, -0.32 / RWS_H, -0.3 / RWS_H, -0.34 / RWS_H, 0);
+  );
+  sc <= 1 ? (
+    k = 0;
+    x = -4;
+    loop(22,
+      bw = 8 + floor(hash(k * 3.1 + sc) * 14);
+      h = 30 + floor(hash(k * 1.7 + 4) * 60);
+      y = RWS_H * 0.72 - h;
+      sc == 0 ? gfx_set(0.02 + 0.02 * hash(k), 0.025 + 0.02 * hash(k), 0.06 + 0.03 * hash(k), 1) : gfx_set(0.16, 0.08, 0.14, 1);
+      gfx_rect(x, y, bw, h + 40);
+      j = 0;
+      loop(floor((h - 4) / 4),
+        n = 0;
+        loop(floor((bw - 2) / 3),
+          hash(k * 13.7 + j * 3.1 + n * 7.9) > (sc == 0 ? 0.62 : 0.8) ? (
+            c = hash(k * 7 + j * 1.3 + n);
+            sc == 0 ? gfx_set(1, 0.78 + 0.2 * c, 0.5 + 0.3 * c, 1) : gfx_set(1, 0.62 + 0.2 * c, 0.38, 0.75);
+            gfx_rect(x + 2 + n * 3, y + 3 + j * 4, sc == 0 ? 2 : 1, 2);
+          );
+          n += 1;
+        );
+        j += 1;
+      );
+      x += bw + floor(hash(k * 2.2) * 4) - 1;
+      k += 1;
+    );
+    sc == 0 ? gfx_set(0.06, 0.05, 0.08, 1) : gfx_set(0.22, 0.12, 0.16, 1);
+    gfx_rect(0, RWS_H * 0.72, RWS_W, RWS_H * 0.28);
+    gfx_mode = 1;
+    k = 0;
+    loop(26,
+      x = hash(k * 4.1 + sc * 9) * RWS_W;
+      c = floor(hash(k * 2.9) * 5);
+      sc == 1 ? c = c < 3 ? 0 : 2;
+      c == 0 ? gfx_set(1, 0.62, 0.25, 0.18) : c == 1 ? gfx_set(1, 0.95, 0.85, 0.14) : c == 2 ? gfx_set(1, 0.22, 0.15, 0.16) : c == 3 ? gfx_set(0.3, 1, 0.55, 0.12) : gfx_set(0.45, 0.6, 1, 0.12);
+      gfx_rect(x, RWS_H * 0.72, 2, RWS_H * 0.28);
+      k += 1;
+    );
+    gfx_mode = 0;
+  ) : (
+    gfx_gradrect(0, 0, RWS_W, RWS_H, 0.8, 0.84, 0.82, 1, 0, 0, 0, 0, -0.24 / RWS_H, -0.22 / RWS_H, -0.26 / RWS_H, 0);
+    k = 0;
+    loop(34,
+      x = hash(k * 3.7 + 0.5) * RWS_W;
+      c = 0.95 + 0.1 * hash(k);
+      gfx_set(0.56 * c, 0.61 * c, 0.57 * c, 1);
+      gfx_rect(x, RWS_H * 0.12, 1 + (hash(k * 1.3) > 0.6), RWS_H * 0.66);
+      k += 1;
+    );
+    k = 0;
+    loop(420,
+      x = hash(k * 1.37 + 3) * RWS_W; y = RWS_H * 0.45 * hash(k * 2.11 + 5) * hash(k * 0.7 + 1);
+      c = hash(k * 4.4);
+      gfx_set(0.55 + 0.08 * c, 0.64 + 0.07 * c, 0.55 + 0.04 * c, 1);
+      gfx_circle(x, y, 1 + 2 * hash(k * 3.1), 1, 0);
+      k += 1;
+    );
+    gfx_set(0.78, 0.82, 0.8, 0.35);
+    gfx_rect(0, 0, RWS_W, RWS_H);
+    k = 0;
+    loop(15,
+      x = 18 + hash(k * 5.3 + 2) * (RWS_W - 36);
+      w = 2 + floor(hash(k * 2.9) * 3);
+      c = 0.85 + 0.3 * hash(k * 1.1);
+      gfx_set(0.24 * c, 0.26 * c, 0.22 * c, 1);
+      gfx_rect(x, RWS_H * 0.06, w, RWS_H * 0.78);
+      gfx_set(0.36 * c, 0.38 * c, 0.33 * c, 1);
+      gfx_rect(x, RWS_H * 0.06, 1, RWS_H * 0.78);
+      hash(k * 8.1) > 0.5 ? ( gfx_set(0.24 * c, 0.26 * c, 0.22 * c, 1); gfx_line(x + w, RWS_H * (0.25 + 0.2 * hash(k)), x + w + 10, RWS_H * (0.15 + 0.2 * hash(k)), 0); );
+      j = 0;
+      loop(40,
+        a = hash(k * 11 + j * 1.7) * 2 * $pi;
+        r = 4 + 14 * hash(k * 5 + j * 2.3);
+        y = RWS_H * (0.02 + 0.32 * hash(k * 3 + j * 0.9));
+        n = hash(k * 7 + j * 3.3);
+        n > 0.82 ? gfx_set(0.5, 0.6, 0.28, 1) : gfx_set(0.18 + 0.12 * n, 0.3 + 0.14 * n, 0.16 + 0.06 * n, 1);
+        gfx_circle(x + cos(a) * r, y + sin(a) * r * 0.5, 1 + 2.5 * hash(k * 2 + j), 1, 0);
+        j += 1;
+      );
+      k += 1;
+    );
+    k = 0;
+    loop(12,
+      gfx_set(0.82, 0.86, 0.84, 0.75);
+      gfx_circle(hash(k * 6.3 + 1) * RWS_W, hash(k * 2.7 + 4) * RWS_H * 0.18, 1 + 2 * hash(k), 1, 0);
+      k += 1;
+    );
+    gfx_gradrect(0, RWS_H * 0.55, RWS_W, RWS_H * 0.3, 0.75, 0.8, 0.77, 0, 0, 0, 0, 0, 0, 0, 0, 0.5 / (RWS_H * 0.3));
+    gfx_set(0.27, 0.33, 0.24, 1);
+    gfx_rect(0, RWS_H * 0.8, RWS_W, RWS_H * 0.2);
+    gfx_set(0.38, 0.37, 0.3, 1);
+    gfx_triangle(RWS_W * 0.48, RWS_H * 0.8, RWS_W * 0.52, RWS_H * 0.8, RWS_W * 0.66, RWS_H, RWS_W * 0.36, RWS_H);
+    gfx_set(0.44, 0.42, 0.35, 1);
+    gfx_triangle(RWS_W * 0.49, RWS_H * 0.83, RWS_W * 0.51, RWS_H * 0.83, RWS_W * 0.57, RWS_H, RWS_W * 0.45, RWS_H);
+    k = 0;
+    loop(320,
+      x = hash(k * 2.3 + 7) * RWS_W; y = RWS_H * (0.76 + 0.24 * hash(k * 1.9 + 3));
+      (abs(x - RWS_W * (0.5 + (y / RWS_H - 0.8) * 0.3)) > (y / RWS_H - 0.78) * RWS_W * 0.6 + 2) ? (
+        n = hash(k * 5.7);
+        n > 0.85 ? gfx_set(0.42, 0.55, 0.26, 1) : gfx_set(0.1 + 0.12 * n, 0.2 + 0.16 * n, 0.09 + 0.07 * n, 1);
+        gfx_circle(x, y, 1 + 2 * hash(k * 3.3), 1, 0);
+      );
+      k += 1;
+    );
+    k = 0;
+    loop(3,
+      x = k == 0 ? 8 : k == 1 ? 26 : RWS_W - 14;
+      w = k == 1 ? 6 : 10;
+      gfx_set(0.06, 0.07, 0.06, 1);
+      gfx_rect(x - w * 0.5, 0, w, RWS_H);
+      gfx_set(0.13, 0.14, 0.11, 1);
+      gfx_rect(x - w * 0.5 + 1, 0, 2, RWS_H);
+      j = 0;
+      loop(8, gfx_set(0.04, 0.05, 0.04, 1); gfx_rect(x - w * 0.5, hash(k * 9 + j) * RWS_H, w, 1); j += 1; );
+      k += 1;
+    );
+    k = 0;
+    loop(260,
+      x = hash(k * 1.9 + 11) < 0.5 ? hash(k * 3.1) * 60 : RWS_W - hash(k * 3.1) * 60;
+      y = hash(k * 2.6 + 2) * hash(k * 1.4 + 6) * RWS_H * 0.42;
+      n = hash(k * 4.9);
+      gfx_set(0.05 + 0.08 * n, 0.12 + 0.12 * n, 0.05 + 0.05 * n, 1);
+      gfx_circle(x, y, 1.5 + 3 * hash(k * 2.2), 1, 0);
+      k += 1;
+    );
+    gfx_mode = 1;
+    k = 0;
+    loop(3,
+      x = RWS_W * (0.35 + 0.18 * k);
+      gfx_set(1, 1, 0.95, 0.045);
+      gfx_triangle(x, 0, x + 14, 0, x - 30, RWS_H * 0.85, x - 52, RWS_H * 0.85);
+      k += 1;
+    );
+    gfx_mode = 0;
+  );
+  loop(sc == 0 ? 3 : sc == 2 ? 3 : 5, gfx_x = 0; gfx_y = 0; gfx_blurto(RWS_W, RWS_H); );
+  w = ceil(BRD_W * g_s); h = ceil(BRD_H * g_s);
+  gfx_setimgdim(IMG_RWB, w, h);
+  gfx_dest = IMG_RWB;
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_RWS, 1, 0, 0, 0, RWS_W, RWS_H, 0, 0, w, h);
+  gfx_mode = 1;
+  k = 0;
+  loop(sc == 2 ? 14 : 15,
+    x = (0.04 + 0.92 * hash(k * 3.3 + 1 + sc * 7)) * w;
+    y = (sc == 2 ? 0.08 + 0.6 * hash(k * 5.1 + 2) : 0.22 + 0.55 * hash(k * 5.1 + 2)) * h;
+    r = (10 + 34 * hash(k * 1.9) * hash(k * 2.7)) * g_s;
+    c = hash(k * 6.1 + sc);
+    sc == 2 ? ( cr = 0.92; cg = 1; cb = 0.9; a = 0.06; r *= 0.6; ) :
+    c < 0.6 ? ( cr = 1; cg = 0.62; cb = 0.25; a = 0.17; ) : c < 0.88 ? ( cr = 1; cg = 0.9; cb = 0.75; a = 0.14; ) : c < 0.96 ? ( cr = 1; cg = 0.25; cb = 0.18; a = 0.16; ) : ( cr = 0.35; cg = 1; cb = 0.6; a = 0.12; );
+    sc == 1 && c >= 0.8 ? ( cr = 1; cg = 0.5; cb = 0.3; );
+    j = 0;
+    loop(7,
+      gfx_set(cr, cg, cb, a * (j == 0 ? 0.25 : 0.2));
+      gfx_circle(x, y, r * (1.12 - j * 0.045), 1, 1);
+      j += 1;
+    );
+    k += 1;
+  );
+  gfx_mode = 0;
+  loop(4, gfx_x = 0; gfx_y = 0; gfx_blurto(w, h); );
+  y = 0;
+  loop(FGH,
+    x = 0;
+    loop(FGW,
+      n = (y * FGW + x) * 3;
+      cr = 0; cg = 0; cb = 0;
+      j = -1;
+      loop(3,
+        gfx_x = max(0, min(w - 1, (x + 0.5 + j * 2) * FCELL * g_s));
+        gfx_y = max(0, min(h - 1, ((y + 0.5) * FCELL + 34) * g_s));
+        gfx_getpixel(r, a, c);
+        cr += r; cg += a; cb += c;
+        j += 1;
+      );
+      lkd[n] = cr / 3; lkd[n + 1] = cg / 3; lkd[n + 2] = cb / 3;
+      cr = 0; cg = 0; cb = 0;
+      j = -1;
+      loop(3,
+        gfx_x = max(0, min(w - 1, (x + 0.5 + j * 2) * FCELL * g_s));
+        gfx_y = max(0, min(h - 1, ((y + 0.5) * FCELL - 34) * g_s));
+        gfx_getpixel(r, a, c);
+        cr += r; cg += a; cb += c;
+        j += 1;
+      );
+      lkb[n] = cr / 3; lkb[n + 1] = cg / 3; lkb[n + 2] = cb / 3;
+      x += 1;
+    );
+    y += 1;
+  );
+  gfx_dest = dst;
+);
+
+function rw_init() local(i, n)
+(
+  g_rw_sc = sv[40];
+  g_rw_in = sv[41] >= 1 ? sv[41] - 1 : 1;
+  i = 0;
+  loop(FGW * FGH,
+    fogn[i] = 0.82 + 0.3 * rand(1) * rand(1);
+    fogd[i] = 0.85;
+    i += 1;
+  );
+  memset(smr, 0, NSM);
+  memset(bgr, 0, NBG);
+  memset(tsw, 0, NTS);
+  rw_inner();
+  i = 0;
+  loop(NSM * 0.7,
+    smx[i] = g_rx0 + rand(1) * (g_rx1 - g_rx0); smy[i] = g_ry0 + rand(1) * (g_ry1 - g_ry0);
+    smr[i] = 0.6 + rand(1) * rand(1) * 2;
+    i += 1;
+  );
+  g_rw_si = i;
+  i = 0;
+  loop(NCAR, carx[i] = rand(1) * BRD_W; carl[i] = i & 1; carv[i] = (carl[i] ? -1 : 1) * (30 + rand(1) * 40); i += 1; );
+  g_rw_init = 1;
+  g_rw_bw = -1;
+);
+
+function fog_clear(x, y, r, k) local(gx, gy, cx0, cy0, d, i)
+(
+  gx = (x - BRD_X) / FCELL; gy = (y - BRD_Y) / FCELL; r /= FCELL;
+  cy0 = max(0, floor(gy - r));
+  loop(min(FGH - 1, ceil(gy + r)) - cy0 + 1,
+    cx0 = max(0, floor(gx - r));
+    loop(min(FGW - 1, ceil(gx + r)) - cx0 + 1,
+      d = sqrt((cx0 - gx) * (cx0 - gx) + (cy0 - gy) * (cy0 - gy)) / max(0.01, r);
+      d < 1 ? ( i = cy0 * FGW + cx0; fogd[i] *= 1 - k * (1 - d * d); );
+      cx0 += 1;
+    );
+    cy0 += 1;
+  );
+);
+
+function wipe_at(x, y) local(i, r, d)
+(
+  r = 26;
+  fog_clear(x, y, r * 1.25, 1);
+  i = 0;
+  loop(NSM,
+    smr[i] > 0 ? ( d = (smx[i] - x) * (smx[i] - x) + (smy[i] - y) * (smy[i] - y); d < r * r ? smr[i] = 0; );
+    i += 1;
+  );
+  i = 0;
+  loop(NBG,
+    bgr[i] > 0 ? ( d = (bgx[i] - x) * (bgx[i] - x) + (bgy[i] - y) * (bgy[i] - y); d < (r + bgr[i]) * (r + bgr[i]) ? bgr[i] = 0; );
+    i += 1;
+  );
+);
+
+function drop_col(x, y) local(n)
+(
+  n = (max(0, min(FGH - 1, floor((y - BRD_Y) / FCELL))) * FGW + max(0, min(FGW - 1, floor((x - BRD_X) / FCELL)))) * 3;
+  g_dkr = lkd[n] * g_dk; g_dkg = lkd[n + 1] * g_dk; g_dkb = lkd[n + 2] * g_dk;
+  g_brr = min(1, lkb[n] * g_bk + g_bo); g_brg = min(1, lkb[n + 1] * g_bk + g_bo); g_brb = min(1, lkb[n + 2] * g_bk + g_bo * 1.1);
+);
+
+function drop_shape(px, py, pr2, rim)
+(
+  gfx_set(g_dkr, g_dkg, g_dkb, 0.92);
+  gfx_circle(px, py, pr2, 1, 1);
+  gfx_set(g_brr, g_brg, g_brb, 0.95);
+  gfx_circle(px, py + pr2 * 0.3, pr2 * 0.7, 1, 1);
+  rim ? (
+    gfx_set(min(1, g_brr * 1.3 + 0.1), min(1, g_brg * 1.3 + 0.1), min(1, g_brb * 1.3 + 0.12), 0.8);
+    gfx_arc(px, py + pr2 * 0.3, pr2 * 0.7, 2.2, 4.1, 1);
+    gfx_set(g_dkr * 0.6, g_dkg * 0.6, g_dkb * 0.6, 0.7);
+    gfx_arc(px, py, pr2, -1.3, 1.3, 1);
+  );
+);
+
+function rw_drop(i, sl) local(x, y, r, px, py, pr2, el, k, ux, uy, dl, a)
+(
+  x = bgx[i]; y = bgy[i]; r = bgr[i];
+  px = sx(x); py = sy(y); pr2 = r * g_s;
+  drop_col(x, y);
+  sl ? (
+    el = min(1, bgv[i] / 120);
+    ux = bglx[i] - x; uy = bgly[i] - y;
+    dl = sqrt(ux * ux + uy * uy);
+    dl > 0.01 ? ( ux /= dl; uy /= dl; ) : ( ux = 0; uy = -1; );
+    dl = r * (0.4 + 1.1 * el);
+    gfx_set((g_dkr + g_brr) * 0.5, (g_dkg + g_brg) * 0.5, (g_dkb + g_brb) * 0.5, 0.7);
+    gfx_circle(sx(x + ux * dl), sy(y + uy * dl), r * 0.78 * g_s, 1, 1);
+    gfx_rect(sx(x - r * 0.78), sy(y + uy * dl), r * 1.56 * g_s, -uy * dl * g_s);
+  ) : r > 3.5 ? (
+    a = bgsd[i];
+    drop_shape(sx(x + cos(a) * r * 0.55), sy(y + sin(a) * r * 0.2), pr2 * 0.72, 0);
+  );
+  drop_shape(px, py, pr2, 1);
+  gfx_set(1, 1, 1, 0.55);
+  gfx_circle(px - pr2 * 0.35, py - pr2 * 0.42, max(0.7, pr2 * 0.12), 1, 1);
+);
+
+function ra_px(l) ( sx(g_ra_ox + (g_ra_fc * l + g_ra_lz) * g_ra_u); );
+function ra_py(l) ( sy(g_ra_oy + l * g_ra_u); );
+
+function ra_c(r, g, b)
+(
+  gfx_set(r + (g_ra_hr - r) * g_ra_hz, g + (g_ra_hg - g) * g_ra_hz, b + (g_ra_hb - b) * g_ra_hz, 1);
+);
+
+function ra_seg(x0, y0, x1, y1, r0, r1) local(ax, ay, bx, by, dx, dy, d, ra, rb)
+(
+  ax = ra_px(x0); ay = ra_py(y0); bx = ra_px(x1); by = ra_py(y1);
+  ra = max(0.5, r0 * g_ra_u * g_s); rb = max(0.5, r1 * g_ra_u * g_s);
+  dx = bx - ax; dy = by - ay;
+  d = sqrt(dx * dx + dy * dy);
+  d > 0.01 ? (
+    dx /= d; dy /= d;
+    gfx_triangle(ax - dy * ra, ay + dx * ra, bx - dy * rb, by + dx * rb, bx + dy * rb, by - dx * rb, ax + dy * ra, ay - dx * ra);
+  );
+  gfx_circle(ax, ay, ra, 1, 1);
+  gfx_circle(bx, by, rb, 1, 1);
+);
+
+function ra_tri(x0, y0, x1, y1, x2, y2)
+(
+  gfx_triangle(ra_px(x0), ra_py(y0), ra_px(x1), ra_py(y1), ra_px(x2), ra_py(y2));
+);
+
+function ra_foot(p, st, lift, amp) local(q)
+(
+  p = frac(p);
+  p < 0.6 ? (
+    g_ra_fx = st * (0.3 - p) * amp;
+    g_ra_fy = 0;
+  ) : (
+    q = (p - 0.6) / 0.4;
+    g_ra_fx = st * (((q * q) * (3 - 2 * q)) * 0.6 - 0.3) * amp;
+    g_ra_fy = -lift * sin($pi * q) * amp;
+  );
+);
+
+function ra_ik(hx, hy, fx, fy, l1, l2, bend) local(dx, dy, d, a, h)
+(
+  dx = fx - hx; dy = fy - hy;
+  d = max(0.001, sqrt(dx * dx + dy * dy));
+  dx /= d; dy /= d;
+  d = min(d, (l1 + l2) * 0.999);
+  a = ((l1 * l1) - (l2 * l2) + (d * d)) / (2 * d);
+  h = sqrt(max(0, (l1 * l1) - (a * a)));
+  g_ra_kx = hx + dx * a - dy * h * bend;
+  g_ra_ky = hy + dy * a + dx * h * bend;
+  g_ra_ex = hx + dx * d;
+  g_ra_ey = hy + dy * d;
+);
+
+function ra_tufts(x, y, u, w, ht) local(k, n, tx, h, c, m, r, g, b, q)
+(
+  q = ht * u / 62;
+  k = floor((x - w * u) / 5);
+  n = ceil(2 * w * u / 5) + 1;
+  loop(n,
+    h = hash(k * 0.73 + 2.1);
+    tx = (k + hash(k * 1.31)) * 5;
+    c = hash(k * 2.17);
+    gfx_x = sx(tx); gfx_y = sy(y + 0.14 * u);
+    gfx_getpixel(r, g, b);
+    m = 0.68 + 0.34 * c;
+    gfx_set(r * m, g * m, b * m, 1);
+    gfx_circle(sx(tx), sy(y + 2 * q), max(0.8, (1.4 + 2.2 * h) * q * g_s), 1, 1);
+    gfx_line(sx(tx), sy(y + 3 * q), sx(tx + (c - 0.5) * 8 * q), sy(y - (5 + 12 * h) * q), 1);
+    gfx_line(sx(tx + 1.5 * q), sy(y + 3 * q), sx(tx + (h - 0.5) * 7 * q), sy(y - (3 + 9 * c) * q), 1);
+    k += 1;
+  );
+);
+
+function ra_shadow(l0, l1, r)
+(
+  gfx_set(0.03, 0.05, 0.03, 0.22);
+  ra_seg(l0, 0.01, l1, 0.01, r, r);
+);
+
+function ra_deer(i) local(p, amp, h, st, by, nx, ny, a, ha, hx, hy, mx, my, cr, cg, cb, dr, dg, db, tl, e, k, ax, ay, bx)
+(
+  g_ra_ox = ra_x[i]; g_ra_oy = ra_y[i]; g_ra_fc = ra_f[i]; g_ra_u = ra_u[i];
+  p = ra_p[i]; amp = ra_b[i]; h = ra_h[i]; st = 0.95;
+  by = 0.014 * amp * sin(4 * $pi * p);
+  cr = 0.37; cg = 0.25; cb = 0.15;
+  ra_k[i] == 2 ? ( cr = 0.45; cg = 0.3; cb = 0.16; );
+  ra_k[i] == 3 ? ( cr = 0.31; cg = 0.22; cb = 0.14; );
+  dr = cr * 0.62; dg = cg * 0.62; db = cb * 0.62;
+  ra_shadow(-0.62, 0.55, 0.05);
+
+  ra_c(dr, dg, db);
+  ra_foot(p + 0.5, st, 0.14, amp);
+  ra_ik(-0.46, -0.78 + by, -0.42 + g_ra_fx, -0.36 + g_ra_fy, 0.3, 0.27, -1);
+  ra_seg(-0.46, -0.78 + by, g_ra_kx, g_ra_ky, 0.075, 0.04);
+  ra_seg(g_ra_kx, g_ra_ky, g_ra_ex, g_ra_ey, 0.04, 0.024);
+  ra_seg(g_ra_ex, g_ra_ey, -0.38 + g_ra_fx, g_ra_fy, 0.024, 0.02);
+  ra_foot(p + 0.75, st, 0.16, amp);
+  ra_ik(0.38, -0.74 + by, 0.38 + g_ra_fx, g_ra_fy, 0.37, 0.38, -1);
+  ra_seg(0.38, -0.74 + by, g_ra_kx, g_ra_ky, 0.06, 0.028);
+  ra_seg(g_ra_kx, g_ra_ky, g_ra_ex, g_ra_ey, 0.028, 0.019);
+
+  a = (-1.25 + 2.25 * h) + 0.03 * amp * sin(4 * $pi * p + 1);
+  e = 0.43 + 0.4 * h;
+  nx = 0.43; ny = -0.93 + by;
+  hx = nx + cos(a) * e; hy = ny + sin(a) * e;
+  ha = 0.32 + 1.0 * h;
+  mx = hx + cos(ha) * 0.2; my = hy + sin(ha) * 0.2;
+  k = ra_e[i] > 0 ? 0.55 * sin(ra_e[i] * 22) : 0;
+  ra_c(dr, dg, db);
+  ra_seg(hx - cos(ha) * 0.03, hy - sin(ha) * 0.04, hx + cos(ha - 2.15) * 0.17, hy + sin(ha - 2.15) * 0.17, 0.028, 0.03);
+
+  ra_c(cr, cg, cb);
+  ra_seg(-0.5, -0.86 + by, -0.2, -0.85 + by, 0.17, 0.15);
+  ra_seg(-0.2, -0.85 + by, 0.3, -0.84 + by, 0.15, 0.195);
+  ra_seg(0.3, -0.84 + by, 0.4, -0.86 + by, 0.195, 0.165);
+  ra_seg(-0.53, -0.83 + by, -0.42, -0.83 + by, 0.2, 0.2);
+  ra_seg(0.2, -0.97 + by, 0.38, -0.98 + by, 0.055, 0.06);
+  ra_c(cr * 0.86, cg * 0.86, cb * 0.86);
+  ra_seg(-0.52, -0.995 + by, -0.2, -0.975 + by, 0.024, 0.022);
+  ra_seg(-0.2, -0.975 + by, 0.3, -1.005 + by, 0.022, 0.026);
+  ra_c(cr * 1.14, cg * 1.15, cb * 1.18);
+  ra_seg(-0.24, -0.76 + by, 0.28, -0.73 + by, 0.05, 0.085);
+  ra_c(cr * 1.3, cg * 1.32, cb * 1.4);
+  ra_seg(-0.14, -0.72 + by, 0.26, -0.68 + by, 0.024, 0.04);
+  ra_c(0.7, 0.67, 0.6);
+  ra_seg(-0.64, -0.85 + by, -0.6, -0.74 + by, 0.06, 0.05);
+  tl = ra_a[i];
+  ra_c(cr * 0.9, cg * 0.9, cb * 0.9);
+  ra_seg(-0.66, -0.92 + by, -0.74 - 0.04 * (1 - tl), -0.76 + by - tl * 0.14, 0.04, 0.03);
+  tl > 0.4 ? (
+    ra_c(0.76, 0.74, 0.68);
+    ra_seg(-0.7, -0.87 + by, -0.74, -0.76 + by - tl * 0.14, 0.022, 0.024);
+  );
+
+  ra_c(cr * 0.82, cg * 0.82, cb * 0.82);
+  ra_foot(p, st, 0.14, amp);
+  ra_ik(-0.5, -0.74 + by, -0.47 + g_ra_fx, -0.36 + g_ra_fy, 0.3, 0.27, -1);
+  ra_seg(-0.5, -0.74 + by, g_ra_kx, g_ra_ky, 0.115, 0.045);
+  ra_seg(g_ra_kx, g_ra_ky, g_ra_ex, g_ra_ey, 0.045, 0.026);
+  ra_seg(g_ra_ex, g_ra_ey, -0.43 + g_ra_fx, g_ra_fy, 0.026, 0.022);
+  ra_foot(p + 0.25, st, 0.16, amp);
+  ra_ik(0.34, -0.74 + by, 0.34 + g_ra_fx, g_ra_fy, 0.37, 0.38, -1);
+  ra_seg(0.34, -0.74 + by, g_ra_kx, g_ra_ky, 0.085, 0.032);
+  ra_seg(g_ra_kx, g_ra_ky, g_ra_ex, g_ra_ey, 0.032, 0.021);
+  ra_c(0.09, 0.07, 0.06);
+  gfx_circle(ra_px(-0.43 + g_ra_fx), ra_py(g_ra_fy - 0.012), max(0.7, 0.026 * g_ra_u * g_s), 1, 1);
+  gfx_circle(ra_px(0.34 + g_ra_fx), ra_py(g_ra_fy - 0.012), max(0.7, 0.026 * g_ra_u * g_s), 1, 1);
+
+  ra_c(cr * 0.95, cg * 0.95, cb * 0.95);
+  ra_seg(nx - 0.03, ny + 0.06, hx, hy, ra_k[i] == 3 ? 0.19 : 0.155, ra_k[i] == 3 ? 0.09 : 0.066);
+  ra_c(cr * 1.14, cg * 1.15, cb * 1.2);
+  ra_seg(nx + 0.08 + cos(a) * e * 0.3, ny + 0.08 + sin(a) * e * 0.3, hx + 0.02, hy + 0.04, 0.04, 0.024);
+  ra_c(cr, cg, cb);
+  ra_seg(hx, hy, mx, my, 0.075, 0.042);
+  ra_c(cr * 1.25, cg * 1.25, cb * 1.3);
+  ra_seg(hx + cos(ha) * 0.1 + sin(ha) * 0.018, hy + sin(ha) * 0.1 + cos(ha) * 0.018, mx, my + 0.008, 0.03, 0.03);
+  ra_c(0.05, 0.04, 0.04);
+  gfx_circle(ra_px(mx + cos(ha) * 0.025), ra_py(my + sin(ha) * 0.025), max(0.6, 0.024 * g_ra_u * g_s), 1, 1);
+  gfx_circle(ra_px(hx + cos(ha - 0.95) * 0.052), ra_py(hy + sin(ha - 0.95) * 0.052), max(0.6, 0.019 * g_ra_u * g_s), 1, 1);
+  ra_c(cr * 0.85, cg * 0.85, cb * 0.85);
+  ra_seg(hx - cos(ha) * 0.04, hy - sin(ha) * 0.04, hx + cos(ha - 2.5 + k) * 0.18, hy + sin(ha - 2.5 + k) * 0.18, 0.03, 0.036);
+
+  ra_k[i] == 3 ? (
+    ra_c(0.34, 0.29, 0.22);
+    ax = hx + cos(ha - 1.7) * 0.05; ay = hy + sin(ha - 1.7) * 0.05;
+    bx = ha - 1.95;
+    ra_seg(ax, ay, ax + cos(bx) * 0.18, ay + sin(bx) * 0.18, 0.017, 0.014);
+    ra_seg(ax + cos(bx) * 0.18, ay + sin(bx) * 0.18, ax + cos(bx - 0.28) * 0.36, ay + sin(bx - 0.28) * 0.36, 0.014, 0.011);
+    ra_seg(ax + cos(bx - 0.28) * 0.36, ay + sin(bx - 0.28) * 0.36, ax + cos(bx - 0.15) * 0.53, ay + sin(bx - 0.15) * 0.53, 0.011, 0.007);
+    ra_seg(ax + cos(bx) * 0.07, ay + sin(bx) * 0.07, ax + cos(bx + 0.75) * 0.2, ay + sin(bx + 0.75) * 0.2, 0.011, 0.006);
+    ra_seg(ax + cos(bx - 0.1) * 0.26, ay + sin(bx - 0.1) * 0.26, ax + cos(bx + 0.42) * 0.39, ay + sin(bx + 0.42) * 0.39, 0.01, 0.006);
+    ra_seg(ax + cos(bx - 0.25) * 0.4, ay + sin(bx - 0.25) * 0.4, ax + cos(bx - 0.62) * 0.5, ay + sin(bx - 0.62) * 0.5, 0.008, 0.005);
+  );
+
+  ra_k[i] == 2 ? (
+    ra_c(0.82, 0.76, 0.64);
+    k = 0;
+    loop(16,
+      gfx_circle(ra_px(-0.55 + 0.92 * hash(k * 1.7 + 3)), ra_py(-0.98 + 0.2 * hash(k * 2.3 + 1) + by), max(0.5, 0.017 * g_ra_u * g_s), 1, 1);
+      k += 1;
+    );
+  );
+);
+
+function ra_rabbit(i) local(p, s, e, lift, up, cr, cg, cb, hb, nb, ha, hx, hy, ex, k, sx0, sy0)
+(
+  g_ra_ox = ra_x[i]; g_ra_oy = ra_y[i]; g_ra_fc = ra_f[i]; g_ra_u = ra_u[i];
+  p = ra_p[i]; s = ra_s[i];
+  e = s == 0 ? sin($pi * min(1, p / 0.8)) : 0;
+  lift = -0.17 * e;
+  up = ra_a[i];
+  nb = ra_h[i];
+  cr = 0.42; cg = 0.35; cb = 0.26;
+  gfx_set(0.03, 0.05, 0.03, 0.22 * (1 - e * 0.6));
+  ra_seg(-0.22, 0.008, 0.16, 0.008, 0.028, 0.028);
+
+  ra_c(cr * 0.62, cg * 0.62, cb * 0.62);
+  ra_seg(0.07 + e * 0.1, -0.05 + lift * 0.8, 0.09 + e * 0.15 + 0.03 * (1 - e), lift * 0.7, 0.017, 0.016);
+
+  sx0 = -0.13 - up * 0.04; sy0 = -0.1 + lift - up * 0.03;
+  hb = 0.09 + 0.02 * e;
+  ra_c(cr * 0.74, cg * 0.74, cb * 0.74);
+  ra_seg(sx0 - 0.04 - e * 0.1, -0.012 + lift * (1 - e * 0.65), sx0 + 0.12 - e * 0.24, -0.012 + lift * (1 - e * 0.5), 0.022, 0.018);
+
+  ra_c(cr, cg, cb);
+  ra_seg(sx0, sy0, 0.07 + e * 0.08 - up * 0.11, -0.12 + lift + e * 0.015 - up * 0.17, hb, 0.066);
+  ra_seg(sx0 - 0.015, sy0 + 0.012, sx0 + 0.04, sy0 + 0.018, hb + 0.012, hb);
+  ra_c(cr * 0.84, cg * 0.84, cb * 0.84);
+  ra_seg(sx0 + 0.02, sy0 - hb * 0.78, 0.03 - up * 0.1, -0.165 + lift - up * 0.16, 0.024, 0.02);
+  ra_c(cr * 1.3, cg * 1.32, cb * 1.42);
+  ra_seg(sx0 + 0.07, sy0 + hb * 0.62, 0.08 + e * 0.08 - up * 0.08, -0.08 + lift - up * 0.14, 0.028, 0.026);
+  ra_c(0.72, 0.7, 0.66);
+  gfx_circle(ra_px(sx0 - hb - 0.006), ra_py(sy0 - 0.005 - e * 0.03), max(1, 0.03 * g_ra_u * g_s), 1, 1);
+
+  ra_c(cr * 0.88, cg * 0.88, cb * 0.88);
+  k = 0.09 + e * 0.13;
+  ra_seg(k - 0.035 - up * 0.06, -0.09 + lift - up * 0.12, k + 0.01 - up * 0.06 * (1 - up), 0 + lift * 0.45 - up * 0.1, 0.02, 0.017);
+
+  ha = 0.15 + 0.95 * nb - 0.2 * up - e * 0.18;
+  hx = 0.135 + e * 0.11 + 0.05 * nb - up * 0.1;
+  hy = -0.175 + lift + 0.095 * nb - up * 0.2;
+  ex = ra_e[i] > 0 ? 0.3 * sin(ra_e[i] * 26) : 0;
+  ra_c(cr * 0.68, cg * 0.68, cb * 0.68);
+  ra_seg(hx - 0.02, hy - 0.03, hx - 0.075 - e * 0.1 + 0.03, hy - 0.145 + e * 0.05, 0.013, 0.019);
+  ra_c(cr, cg, cb);
+  ra_seg(hx - 0.012, hy - 0.002, hx + cos(ha) * 0.06, hy + sin(ha) * 0.06, 0.05, 0.03);
+  ra_c(cr * 1.25, cg * 1.25, cb * 1.32);
+  ra_seg(hx + cos(ha) * 0.04, hy + sin(ha) * 0.04 + 0.012, hx + cos(ha) * 0.066, hy + sin(ha) * 0.066 + 0.006, 0.017, 0.012);
+  ra_c(0.03, 0.025, 0.025);
+  gfx_circle(ra_px(hx + 0.012), ra_py(hy - 0.012), max(0.6, 0.013 * g_ra_u * g_s), 1, 1);
+  ra_c(cr * 0.9, cg * 0.87, cb * 0.82);
+  ra_seg(hx - 0.04, hy - 0.03, hx - 0.115 - e * 0.1 - ex * 0.08, hy - 0.14 + e * 0.05 + ex * 0.04, 0.014, 0.021);
+  ra_c(0.5, 0.39, 0.33);
+  ra_seg(hx - 0.055, hy - 0.05, hx - 0.105 - e * 0.1 - ex * 0.08, hy - 0.125 + e * 0.05 + ex * 0.04, 0.005, 0.009);
+);
+
+function ra_wing(fx, lift, sp, dark) local(wy, ty, wx, tx)
+(
+  wy = -lift * sp * 0.52;
+  ty = -lift * sp * (1.0) + 0.04;
+  wx = 0.01 - abs(lift) * 0.02;
+  tx = -0.12 - 0.04 * (1 - abs(lift));
+  ra_c(dark, dark, dark * 1.05);
+  ra_tri(fx + 0.09, -0.012, fx - 0.08, 0.005, fx + wx, wy);
+  ra_tri(fx + wx + 0.05, wy, fx - 0.08, 0.005, fx + tx, ty);
+);
+
+function ra_flyer(i) local(ph, amp, sp, c)
+(
+  g_ra_ox = ra_x[i]; g_ra_oy = ra_y[i]; g_ra_fc = ra_f[i]; g_ra_u = ra_u[i];
+  ph = 2 * $pi * ra_p[i]; amp = ra_b[i];
+  sp = ra_a[i];
+  c = ra_h[i];
+  ra_wing(0.015, (sin(ph - 0.25) * amp + 0.22) * 0.92, sp, c * 0.72);
+  ra_c(c * 0.82, c * 0.82, c * 0.86);
+  ra_seg(-0.14, 0.004, -0.27, 0.02, 0.028, 0.038);
+  ra_c(c, c, c * 1.05);
+  ra_seg(-0.1, 0.002, 0.08, -0.008, 0.045, 0.05);
+  ra_seg(0.09, -0.012, 0.145, -0.022, 0.034, 0.03);
+  ra_c(c * 1.5 + 0.05, c * 1.5 + 0.05, c * 1.5 + 0.05);
+  ra_seg(-0.03, 0.02, 0.075, 0.016, 0.022, 0.024);
+  ra_c(0.72, 0.58, 0.28);
+  ra_tri(0.165, -0.034, 0.165, -0.012, 0.21, -0.02);
+  ra_wing(0, sin(ph) * amp + 0.22, sp, c * 1.1);
+);
+
+function ra_blackbird(i) local(pk, a, hx, hy, tl, up)
+(
+  g_ra_ox = ra_x[i]; g_ra_oy = ra_y[i]; g_ra_fc = ra_f[i]; g_ra_u = ra_u[i];
+  ra_s[i] == 1 ? (
+    pk = ra_h[i];
+    tl = ra_e[i] > 0 ? sin(ra_e[i] * 18) * 0.03 : 0;
+    up = ra_o[i] > 0 ? -0.075 * sin(ra_o[i] / 0.22 * $pi) : 0;
+    gfx_set(0.03, 0.05, 0.03, 0.22);
+    ra_seg(-0.09, 0.006, 0.07, 0.006, 0.014, 0.014);
+    ra_c(0.46, 0.34, 0.14);
+    ra_seg(-0.018, -0.065 + up, -0.03, up, 0.006, 0.005);
+    ra_seg(0.02, -0.065 + up, 0.02, up, 0.006, 0.005);
+    ra_c(0.05, 0.05, 0.055);
+    ra_seg(-0.09, -0.1 + up, -0.215, -0.082 + up - tl * 1.5, 0.016, 0.02);
+    ra_seg(-0.07, -0.098 + up, 0.05, -0.1 + up + 0.012 * pk, 0.04, 0.044);
+    a = -0.55 + 1.7 * pk;
+    hx = 0.075 + cos(a) * 0.05; hy = -0.115 + up + sin(a) * 0.05 + 0.03 * pk;
+    ra_seg(0.05, -0.105 + up, hx, hy, 0.034, 0.03);
+    ra_c(0.09, 0.09, 0.1);
+    ra_seg(-0.07, -0.112 + up, 0.03, -0.112 + up, 0.024, 0.026);
+    ra_c(0.92, 0.66, 0.08);
+    ra_tri(hx + 0.024 * cos(a) + 0.012 * cos(a + 1.5), hy + 0.024 * sin(a) + 0.012 * sin(a + 1.5), hx + 0.024 * cos(a) + 0.012 * cos(a - 1.5), hy + 0.024 * sin(a) + 0.012 * sin(a - 1.5), hx + 0.058 * cos(a * 0.8 + 0.1), hy + 0.058 * sin(a * 0.8 + 0.1));
+    ra_c(0.85, 0.62, 0.1);
+    gfx_circle(ra_px(hx + 0.012 * cos(a - 1.2)), ra_py(hy + 0.012 * sin(a - 1.2)), max(0.5, 0.009 * g_ra_u * g_s), 1, 1);
+  ) : (
+    ra_a[i] = 0.32;
+    ra_h[i] = 0.07;
+    ra_flyer(i);
+  );
+);
+
+function ra_leg_h(hx, hy, p, amp, r, g, b)
+(
+  ra_foot(p, 1.1, 0.1, amp);
+  g_ra_ax = g_ra_fx; g_ra_ay = g_ra_fy - g_ra_dz * g_ra_fx * g_ra_kz;
+  ra_ik(hx, hy, g_ra_ax, g_ra_ay - 0.06, 0.46, 0.46, -1);
+  ra_c(r, g, b);
+  ra_seg(hx, hy, g_ra_kx, g_ra_ky, 0.085, 0.06);
+  ra_seg(g_ra_kx, g_ra_ky, g_ra_ex, g_ra_ey, 0.06, 0.042);
+  ra_c(0.13, 0.09, 0.07);
+  ra_seg(g_ra_ex - 0.015, g_ra_ey + 0.025, g_ra_ex + 0.12, g_ra_ey + 0.04, 0.042, 0.03);
+);
+
+function ra_arm_h(x, y, sw, fa, pole, tipp, amp, r, g, b, hr, hg, hb) local(ex, ey, hx, hy)
+(
+  ex = x + sin(sw) * 0.3; ey = y + cos(sw) * 0.3;
+  hx = ex + sin(sw + fa) * 0.27; hy = ey + cos(sw + fa) * 0.27;
+  pole ? (
+    ra_foot(tipp, 1.1, 0.1, amp);
+    ra_c(0.17, 0.17, 0.19);
+    ra_seg(hx, hy, g_ra_fx + 0.14, g_ra_fy * 0.7, 0.008, 0.006);
+  );
+  ra_c(r, g, b);
+  ra_seg(x, y, ex, ey, 0.058, 0.048);
+  ra_seg(ex, ey, hx, hy, 0.048, 0.038);
+  ra_c(hr, hg, hb);
+  gfx_circle(ra_px(hx), ra_py(hy), max(0.6, 0.04 * g_ra_u * g_s), 1, 1);
+);
+
+function ra_up0(x, y) local(dx, dy)
+(
+  dx = x - g_ra_upx; dy = y - g_ra_upy;
+  g_ra_qx = g_ra_upx + dx * g_ra_ucs - dy * g_ra_usn;
+  g_ra_qy = g_ra_upy + dx * g_ra_usn + dy * g_ra_ucs;
+);
+
+function ra_uq(az, t) local(q, r)
+(
+  q = t * $pi * 0.5;
+  r = g_ra_ur * sin(q);
+  ra_up0(g_ra_ucx + r * sin(az) / g_ra_xs, (g_ra_urm - g_ra_uh) + g_ra_uh * (1 - cos(q)) - g_ra_ue * r * cos(az));
+);
+
+function ra_uquad(az0, t0, az1, t1) local(ax, ay, bx, by, cx, cy, dx, dy)
+(
+  ra_uq(az0, t0); ax = g_ra_qx; ay = g_ra_qy;
+  ra_uq(az1, t0); bx = g_ra_qx; by = g_ra_qy;
+  ra_uq(az1, t1); cx = g_ra_qx; cy = g_ra_qy;
+  ra_uq(az0, t1); dx = g_ra_qx; dy = g_ra_qy;
+  ra_tri(ax, ay, bx, by, cx, cy);
+  ra_tri(ax, ay, cx, cy, dx, dy);
+);
+
+function ra_umbrella(cx, rimy, rd, hg, e, cr, cg, cb) local(j, az0, az1, az, l, ax, ay, bx, by, x0, y0, m)
+(
+  g_ra_ucx = cx; g_ra_urm = rimy; g_ra_ur = rd; g_ra_uh = hg; g_ra_ue = e;
+  ra_c(cr * 0.3, cg * 0.3, cb * 0.3);
+  j = 0;
+  loop(6,
+    az0 = $pi * 0.5 + $pi * j / 6; az1 = az0 + $pi / 6;
+    ra_up0(cx, rimy); x0 = g_ra_qx; y0 = g_ra_qy;
+    ra_up0(cx + rd * sin(az0) / g_ra_xs, rimy + e * rd * cos(az0)); ax = g_ra_qx; ay = g_ra_qy;
+    ra_up0(cx + rd * sin(az1) / g_ra_xs, rimy + e * rd * cos(az1));
+    ra_tri(x0, y0, ax, ay, g_ra_qx, g_ra_qy);
+    az0 = -$pi * 0.5 + $pi * j / 6; az1 = az0 + $pi / 6;
+    ra_uquad(az0, 0.6, az1, 1);
+    j += 1;
+  );
+  j = 0;
+  loop(6,
+    az0 = -$pi * 0.5 + $pi * j / 6; az1 = az0 + $pi / 6; az = (az0 + az1) * 0.5;
+    m = j & 1 ? 0.26 : 0.36;
+    ra_c(cr * m, cg * m, cb * m);
+    ra_up0(cx, rimy - hg * 0.25); x0 = g_ra_qx; y0 = g_ra_qy;
+    ra_up0(cx + rd * sin(az0) / g_ra_xs, rimy + e * rd * cos(az0)); ax = g_ra_qx; ay = g_ra_qy;
+    ra_up0(cx + rd * sin(az1) / g_ra_xs, rimy + e * rd * cos(az1)); bx = g_ra_qx; by = g_ra_qy;
+    ra_up0(cx + 0.9 * rd * sin(az) / g_ra_xs, rimy + 0.9 * e * rd * cos(az));
+    ra_tri(x0, y0, ax, ay, g_ra_qx, g_ra_qy);
+    ra_tri(x0, y0, g_ra_qx, g_ra_qy, bx, by);
+    j += 1;
+  );
+  ra_up0(cx, rimy - hg); x0 = g_ra_qx; y0 = g_ra_qy;
+  m = (rimy + 0.05 - g_ra_uhy) / (y0 - g_ra_uhy);
+  g_ra_rnx = g_ra_uhx + (x0 - g_ra_uhx) * m; g_ra_rny = g_ra_uhy + (y0 - g_ra_uhy) * m;
+  ra_c(cr * 0.75 + 0.07, cg * 0.75 + 0.07, cb * 0.75 + 0.08);
+  j = 0;
+  loop(7,
+    az = -$pi * 0.5 + $pi * j / 6;
+    m = 0;
+    ra_up0(cx, rimy - hg); ax = g_ra_qx; ay = g_ra_qy;
+    loop(3,
+      m += 1 / 3;
+      l = rd * sin(m * $pi * 0.5);
+      ra_up0(cx + l * sin(az) / g_ra_xs, rimy - hg * cos(m * $pi * 0.5) + e * l * cos(az));
+      ra_seg(ax, ay, g_ra_qx, g_ra_qy, 0.0055, 0.0045);
+      ax = g_ra_qx; ay = g_ra_qy;
+    );
+    l = rd * sin(0.55 * $pi * 0.5);
+    ra_up0(cx + l * sin(az) / g_ra_xs, rimy - hg * cos(0.55 * $pi * 0.5) + e * l * cos(az));
+    ra_seg(g_ra_rnx, g_ra_rny, g_ra_qx, g_ra_qy, 0.005, 0.0045);
+    j += 1;
+  );
+  ra_c(0.07, 0.06, 0.06);
+  ra_up0(cx, rimy - hg);
+  ra_seg(g_ra_uhx, g_ra_uhy, g_ra_qx, g_ra_qy, 0.014, 0.012);
+  ra_c(0.2, 0.2, 0.22);
+  ra_seg(g_ra_rnx, g_ra_rny - 0.02, g_ra_rnx, g_ra_rny + 0.02, 0.024, 0.024);
+  j = 0;
+  loop(6,
+    az0 = -$pi * 0.5 + $pi * j / 6; az1 = az0 + $pi / 6; az = (az0 + az1) * 0.5;
+    l = (j & 1 ? 0.92 : 1.06) * (0.62 + 0.62 * cos(az));
+    m = l * 1.28 + 0.03;
+    ra_c(min(1, cr * m + 0.035), min(1, cg * m + 0.035), min(1, cb * m + 0.04));
+    ra_uquad(az0, 0.02, az1, 0.38);
+    m = l * 1.06;
+    ra_c(min(1, cr * m + 0.012), min(1, cg * m + 0.012), min(1, cb * m + 0.014));
+    ra_uquad(az0, 0.38, az1, 0.72);
+    m = l * 0.86;
+    ra_c(cr * m, cg * m, cb * m);
+    ra_uq(az0, 0.72); ax = g_ra_qx; ay = g_ra_qy;
+    ra_uq(az1, 0.72); bx = g_ra_qx; by = g_ra_qy;
+    ra_uq(az, 0.92); x0 = g_ra_qx; y0 = g_ra_qy;
+    ra_tri(ax, ay, bx, by, x0, y0);
+    ra_uq(az0, 1);
+    ra_tri(ax, ay, g_ra_qx, g_ra_qy, x0, y0);
+    ra_uq(az1, 1);
+    ra_tri(bx, by, g_ra_qx, g_ra_qy, x0, y0);
+    j += 1;
+  );
+  ra_c(cr * 0.5, cg * 0.5, cb * 0.5);
+  j = 0;
+  loop(7,
+    az = -$pi * 0.5 + $pi * j / 6;
+    ra_uq(az, 0.1); ax = g_ra_qx; ay = g_ra_qy;
+    ra_uq(az, 0.55); bx = g_ra_qx; by = g_ra_qy;
+    ra_seg(ax, ay, bx, by, 0.003, 0.003);
+    ra_uq(az, 1);
+    ra_seg(bx, by, g_ra_qx, g_ra_qy, 0.003, 0.003);
+    j += 1;
+  );
+  ra_c(0.16, 0.16, 0.17);
+  ra_uq(0, 0);
+  ra_seg(g_ra_qx, g_ra_qy, g_ra_qx, g_ra_qy - 0.055, 0.011, 0.008);
+);
+
+function ra_hcol(c)
+(
+  c == 0 ? ( g_ra_jr = 0.62; g_ra_jg = 0.13; g_ra_jb = 0.1; g_ra_br = 0.16; g_ra_bg = 0.2; g_ra_bb = 0.16; ) :
+  c == 1 ? ( g_ra_jr = 0.13; g_ra_jg = 0.28; g_ra_jb = 0.54; g_ra_br = 0.42; g_ra_bg = 0.2; g_ra_bb = 0.1; ) :
+  c == 2 ? ( g_ra_jr = 0.74; g_ra_jg = 0.58; g_ra_jb = 0.12; g_ra_br = 0.14; g_ra_bg = 0.2; g_ra_bb = 0.26; ) :
+  c == 3 ? ( g_ra_jr = 0.74; g_ra_jg = 0.35; g_ra_jb = 0.08; g_ra_br = 0.14; g_ra_bg = 0.14; g_ra_bb = 0.16; ) :
+  c == 4 ? ( g_ra_jr = 0.08; g_ra_jg = 0.42; g_ra_jb = 0.42; g_ra_br = 0.46; g_ra_bg = 0.14; g_ra_bb = 0.12; ) :
+  ( g_ra_jr = 0.38; g_ra_jg = 0.2; g_ra_jb = 0.46; g_ra_br = 0.34; g_ra_bg = 0.3; g_ra_bb = 0.16; );
+  c & 1 ? ( g_ra_tr = 0.14; g_ra_tg = 0.15; g_ra_tb = 0.18; ) : ( g_ra_tr = 0.27; g_ra_tg = 0.25; g_ra_tb = 0.19; );
+);
+
+function ra_ucol(c)
+(
+  c = (c + 3) % 4;
+  c == 0 ? ( g_ra_cr = 0.1; g_ra_cg = 0.1; g_ra_cb = 0.11; ) :
+  c == 1 ? ( g_ra_cr = 0.11; g_ra_cg = 0.15; g_ra_cb = 0.32; ) :
+  c == 2 ? ( g_ra_cr = 0.38; g_ra_cg = 0.09; g_ra_cb = 0.11; ) :
+  ( g_ra_cr = 0.11; g_ra_cg = 0.25; g_ra_cb = 0.17; );
+);
+
+function ra_hpack(by, r, g, b) local(k)
+(
+  k = 1 + 0.6 * abs(g_ra_ls);
+  ra_c(r, g, b);
+  ra_seg(-0.15, -1.41 + by, -0.17, -1.03 + by, 0.105 * k, 0.115 * k);
+  ra_c(r * 1.25, g * 1.25, b * 1.25);
+  ra_seg(-0.24, -1.16 + by, -0.24, -1.05 + by, 0.04, 0.042);
+  ra_c(0.31, 0.31, 0.27);
+  ra_seg(-0.22, -1.52 + by, -0.09, -1.52 + by, 0.05 * k, 0.05 * k);
+);
+
+function ra_hiker(i) local(p, amp, st, c, by, hy, sx1, sy1, sw, ap, jr, jg, jb, tr, tg, tb, br, bg, bb, hd, a0, j, pole, lk, ux)
+(
+  g_ra_ox = ra_x[i]; g_ra_oy = ra_y[i]; g_ra_fc = ra_f[i] * g_ra_xs; g_ra_u = ra_u[i];
+  p = ra_p[i]; amp = ra_b[i]; ap = ra_a[i]; hd = ra_h[i];
+  g_ra_ox += 0.025 * amp * ra_u[i] * sin(2 * $pi * p) * abs(g_ra_ls);
+  g_ra_kz = g_ra_u * abs(g_ra_ls) / (RAP_K * RAP_F);
+  lk = g_ra_ls / g_ra_fc;
+  st = ra_n[i] % 10; c = floor(ra_n[i] / 10) % 6;
+  ra_hcol(c);
+  jr = g_ra_jr; jg = g_ra_jg; jb = g_ra_jb; br = g_ra_br; bg = g_ra_bg; bb = g_ra_bb; tr = g_ra_tr; tg = g_ra_tg; tb = g_ra_tb;
+  pole = st != 2;
+  by = -0.018 * amp * cos(4 * $pi * (p - 0.3));
+  hy = -0.9 + by;
+  sx1 = 0.04; sy1 = -1.4 + by;
+  gfx_set(0.03, 0.05, 0.03, 0.22);
+  ra_seg(-0.42, 0.01, 0.42, 0.01, 0.035, 0.035);
+
+  sw = cos(2 * $pi * p) * amp * 0.5;
+  g_ra_lz = g_ra_ls * -0.22;
+  ra_arm_h(sx1 + 0.02, sy1 + 0.03, sw, 0.42, pole, p, amp, jr * 0.62, jg * 0.62, jb * 0.62, 0.1, 0.1, 0.11);
+
+  g_ra_lz = g_ra_ls * -0.09;
+  ra_leg_h(0.02, hy, p + 0.5, amp, tr * 0.68, tg * 0.68, tb * 0.68);
+  g_ra_lz = g_ra_ls * 0.09;
+  ra_leg_h(-0.02, hy, p, amp, tr, tg, tb);
+  g_ra_lz = 0;
+
+  (g_ra_ls === 0 || g_ra_dz < 0) ? ra_hpack(by, br, bg, bb);
+
+  ra_c(jr, jg, jb);
+  ra_seg(0, -0.9 + by, sx1, sy1, 0.125, 0.145);
+  g_ra_ls !== 0 ? (
+    ra_seg(-0.08 * lk, -0.95 + by, 0.08 * lk, -0.95 + by, 0.105, 0.105);
+    ra_seg(-0.15 * lk, -1.41 + by, 0.15 * lk, -1.41 + by, 0.07, 0.07);
+  );
+  ra_c(jr * 0.78, jg * 0.78, jb * 0.78);
+  ra_seg(-0.08, -0.95 + by, -0.065, -1.36 + by, 0.035, 0.035);
+  ra_c(min(1, jr * 1.2), min(1, jg * 1.2), min(1, jb * 1.2));
+  ra_seg(0.08, -1.0 + by, 0.12, -1.36 + by, 0.024, 0.03);
+  ra_c(br * 0.8, bg * 0.8, bb * 0.8);
+  ra_seg(-0.02, -1.5 + by, 0.05, -1.2 + by, 0.016, 0.014);
+
+  (g_ra_ls !== 0 && g_ra_dz > 0) ? ra_hpack(by, br, bg, bb);
+
+  ra_c(0.66, 0.5, 0.4);
+  ra_seg(0.05, -1.52 + by, 0.075, -1.6 + by - hd * 0.012, 0.045, 0.045);
+  gfx_circle(ra_px(0.085), ra_py(-1.625 + by - hd * 0.015), max(1, 0.095 * g_ra_u * g_s), 1, 1);
+  st == 0 ? (
+    ra_c(jr * 0.9, jg * 0.9, jb * 0.9);
+    ra_seg(0.03, -1.51 + by, 0.05, -1.64 + by - hd * 0.015, 0.075, 0.115);
+    ra_seg(0.05, -1.72 + by - hd * 0.015, 0.14, -1.72 + by - hd * 0.015, 0.03, 0.022);
+    ra_c(0.66, 0.5, 0.4);
+    gfx_circle(ra_px(0.135), ra_py(-1.625 + by - hd * 0.015), max(0.8, 0.055 * g_ra_u * g_s), 1, 1);
+  ) : st == 1 ? (
+    ra_c(0.3, 0.24, 0.15);
+    ra_seg(-0.07, -1.685 + by - hd * 0.015, 0.24, -1.685 + by - hd * 0.015 + hd * 0.012, 0.018, 0.016);
+    ra_seg(0.03, -1.72 + by - hd * 0.015, 0.13, -1.72 + by - hd * 0.015, 0.058, 0.058);
+    ra_c(0.2, 0.17, 0.13);
+    ra_seg(-0.01, -1.53 + by, 0.03, -1.6 + by, 0.05, 0.06);
+  ) : (
+    ra_c(br * 1.1, bg * 1.1, bb * 1.1);
+    ra_seg(0.03, -1.69 + by - hd * 0.015, 0.13, -1.7 + by - hd * 0.015, 0.075, 0.065);
+    ra_c(0.2, 0.17, 0.13);
+    ra_seg(-0.005, -1.55 + by, 0.01, -1.63 + by, 0.05, 0.05);
+  );
+
+  st == 2 ? (
+    ux = 0.25 + 0.1 * lk;
+    g_ra_upx = ux; g_ra_upy = -1.24 + by;
+    a0 = 0.022 * amp * sin(2 * $pi * p);
+    g_ra_usn = sin(a0); g_ra_ucs = cos(a0);
+    ra_c(0.07, 0.06, 0.06);
+    ra_up0(0.1 + 0.02 * lk, -2.1 + by);
+    ra_seg(ux, -1.24 + by, g_ra_qx, g_ra_qy, 0.014, 0.012);
+    ra_seg(ux, -1.24 + by, ux + 0.015, -1.12 + by, 0.016, 0.016);
+    ra_seg(ux + 0.015, -1.12 + by, ux - 0.035, -1.08 + by, 0.016, 0.014);
+    ra_ucol(c);
+    g_ra_uhx = ux; g_ra_uhy = -1.24 + by;
+    ra_umbrella(0.1 + 0.02 * lk, -1.85 + by, 0.52, 0.27, 0.2, g_ra_cr, g_ra_cg, g_ra_cb);
+    a0 = sx1 - 0.01 + 0.2 * lk;
+    ra_ik(a0, sy1 + 0.04, ux, -1.24 + by, 0.3, 0.27, 1);
+    ra_c(jr * 0.72, jg * 0.72, jb * 0.72);
+    ra_seg(a0, sy1 + 0.04, g_ra_kx, g_ra_ky, 0.058, 0.05);
+    ra_seg(g_ra_kx, g_ra_ky, ux, -1.24 + by, 0.05, 0.04);
+    ra_c(0.62, 0.47, 0.38);
+    gfx_circle(ra_px(ux), ra_py(-1.24 + by), max(1, 0.05 * g_ra_u * g_s), 1, 1);
+  ) : (
+    sw = -cos(2 * $pi * p) * amp * 0.5;
+    sw += (1.95 - sw) * ap;
+    g_ra_lz = g_ra_ls * 0.22;
+    ra_arm_h(sx1 - 0.01, sy1 + 0.04, sw, 0.42 * (1 - ap), pole && ap < 0.2, p + 0.5, amp, jr * 0.84, jg * 0.84, jb * 0.84, 0.1, 0.1, 0.11);
+    g_ra_lz = 0;
+  );
+);
+
+function ra_fleg(sd, hy, p, amp, r, g, b) local(x, ay, ky)
+(
+  ra_foot(p, 1.1, 0.1, amp);
+  x = sd * 0.1 + g_ra_fw * g_ra_fx;
+  ay = g_ra_fy - g_ra_dz * g_ra_fx * g_ra_kz - 0.06;
+  ky = (hy + ay) * 0.5 - 0.015;
+  ra_c(r, g, b);
+  ra_seg(sd * 0.085, hy, sd * 0.095 + 0.5 * g_ra_fw * g_ra_fx, ky, 0.09, 0.066);
+  ra_seg(sd * 0.095, ky, x, ay, 0.066, 0.045);
+  ra_c(0.13, 0.09, 0.07);
+  ra_seg(x - 0.015 * g_ra_fw, ay + 0.015, x + 0.12 * g_ra_fw, ay + 0.05, 0.05, 0.046);
+);
+
+function ra_farm(sd, y, p, amp, pole, r, g, b) local(a, ex, ey, hx, hy)
+(
+  a = -cos(2 * $pi * (p + (sd > 0 ? 0 : 0.5))) * amp * 0.5;
+  ex = sd * 0.26 + g_ra_fw * sin(a) * 0.3; ey = y + 0.29 * cos(a);
+  hx = sd * 0.275 + g_ra_fw * (sin(a) * 0.3 + sin(a + 0.42) * 0.27); hy = ey + 0.26 * cos(a * 1.5);
+  pole ? (
+    ra_foot(p + (sd > 0 ? 0.5 : 0), 1.1, 0.1, amp);
+    ra_c(0.17, 0.17, 0.19);
+    ra_seg(hx, hy, sd * 0.33 + g_ra_fw * (g_ra_fx + 0.14), g_ra_fy * 0.7 - g_ra_dz * g_ra_fx * g_ra_kz, 0.008, 0.006);
+  );
+  ra_c(r, g, b);
+  ra_seg(sd * 0.2, y, ex, ey, 0.062, 0.05);
+  ra_seg(ex, ey, hx, hy, 0.05, 0.04);
+  ra_c(0.1, 0.1, 0.11);
+  gfx_circle(ra_px(hx), ra_py(hy), max(0.6, 0.042 * g_ra_u * g_s), 1, 1);
+);
+
+function ra_hfront(i) local(p, amp, st, c, by, hy, jr, jg, jb, tr, tg, tb, br, bg, bb, pole, aw, ux)
+(
+  p = ra_p[i]; amp = ra_b[i];
+  g_ra_ox = ra_x[i] + 0.025 * amp * ra_u[i] * sin(2 * $pi * p);
+  g_ra_oy = ra_y[i]; g_ra_fc = g_ra_ps * g_ra_xs; g_ra_u = ra_u[i];
+  st = ra_n[i] % 10; c = floor(ra_n[i] / 10) % 6;
+  ra_hcol(c);
+  jr = g_ra_jr; jg = g_ra_jg; jb = g_ra_jb; br = g_ra_br; bg = g_ra_bg; bb = g_ra_bb; tr = g_ra_tr; tg = g_ra_tg; tb = g_ra_tb;
+  pole = st != 2;
+  aw = g_ra_dz > 0;
+  g_ra_kz = g_ra_u * g_ra_xs / (RAP_K * RAP_F);
+  ux = 0.1 + 0.25 * g_ra_fw;
+  by = -0.018 * amp * cos(4 * $pi * (p - 0.3));
+  hy = -0.9 + by;
+  gfx_set(0.03, 0.05, 0.03, 0.2);
+  ra_seg(-0.2 - 0.15 * abs(g_ra_fw), 0.012, 0.2 + 0.15 * abs(g_ra_fw), 0.012, 0.03, 0.03);
+  ra_fleg(-1, hy, p + 0.5, amp, tr * 0.86, tg * 0.86, tb * 0.86);
+  ra_fleg(1, hy, p, amp, tr, tg, tb);
+  ra_farm(-1, -1.39 + by, p, amp, st != 2, jr * 0.8, jg * 0.8, jb * 0.8);
+  !aw ? (
+    g_ra_lz = g_ra_ff * -0.16;
+    ra_c(br, bg, bb);
+    ra_seg(0, -1.42 + by, 0, -1.05 + by, 0.17, 0.18);
+    g_ra_lz = 0;
+    ra_c(br * 0.8, bg * 0.8, bb * 0.8);
+    ra_seg(-0.19, -1.44 + by, -0.2, -1.2 + by, 0.05, 0.05);
+    ra_seg(0.19, -1.44 + by, 0.2, -1.2 + by, 0.05, 0.05);
+  );
+  ra_c(jr, jg, jb);
+  ra_seg(-0.08, -0.95 + by, 0.08, -0.95 + by, 0.105, 0.105);
+  ra_seg(0, -0.98 + by, 0, -1.34 + by, 0.17, 0.19);
+  ra_seg(-0.15, -1.41 + by, 0.15, -1.41 + by, 0.07, 0.07);
+  ra_c(jr * 0.8, jg * 0.8, jb * 0.8);
+  ra_seg(-0.16, -1.0 + by, -0.17, -1.32 + by, 0.024, 0.03);
+  ra_seg(0.16, -1.0 + by, 0.17, -1.32 + by, 0.024, 0.03);
+  aw ? (
+    g_ra_lz = g_ra_ff * -0.16;
+    ra_c(br, bg, bb);
+    ra_seg(0, -1.42 + by, 0, -1.05 + by, 0.17, 0.18);
+    ra_c(br * 1.25, bg * 1.25, bb * 1.25);
+    ra_seg(0, -1.16 + by, 0, -1.04 + by, 0.09, 0.09);
+    ra_c(br * 0.72, bg * 0.72, bb * 0.72);
+    ra_seg(-0.12, -1.34 + by, 0.12, -1.34 + by, 0.016, 0.016);
+    ra_c(0.31, 0.31, 0.27);
+    ra_seg(-0.21, -1.56 + by, 0.21, -1.56 + by, 0.05, 0.05);
+    g_ra_lz = 0;
+  ) : (
+    ra_c(jr * 0.68, jg * 0.68, jb * 0.68);
+    ra_seg(0, -1.0 + by, 0, -1.42 + by, 0.008, 0.008);
+    ra_c(br * 0.8, bg * 0.8, bb * 0.8);
+    ra_seg(-0.1, -1.47 + by, -0.11, -1.17 + by, 0.018, 0.018);
+    ra_seg(0.1, -1.47 + by, 0.11, -1.17 + by, 0.018, 0.018);
+  );
+  st == 2 ? (
+    g_ra_upx = ux; g_ra_upy = -1.24 + by;
+    g_ra_usn = 0; g_ra_ucs = 1;
+    ra_c(0.07, 0.06, 0.06);
+    ra_seg(ux, -1.24 + by, 0.02 + 0.1 * g_ra_fw, -2.1 + by, 0.014, 0.012);
+  ) : (
+    ra_farm(1, -1.39 + by, p, amp, pole, jr * 0.88, jg * 0.88, jb * 0.88);
+  );
+  g_ra_lz = g_ra_ff * 0.085;
+  ra_c(0.66, 0.5, 0.4);
+  ra_seg(0, -1.47 + by, 0, -1.56 + by, 0.05, 0.05);
+  gfx_circle(ra_px(0), ra_py(-1.63 + by), max(1, 0.096 * g_ra_u * g_s), 1, 1);
+  st == 0 ? (
+    ra_c(jr * 0.9, jg * 0.9, jb * 0.9);
+    aw ? (
+      gfx_circle(ra_px(0), ra_py(-1.62 + by), max(1, 0.125 * g_ra_u * g_s), 1, 1);
+    ) : (
+      ra_seg(-0.1, -1.53 + by, -0.095, -1.66 + by, 0.04, 0.05);
+      ra_seg(0.1, -1.53 + by, 0.095, -1.66 + by, 0.04, 0.05);
+      ra_seg(-0.08, -1.74 + by, 0.08, -1.74 + by, 0.04, 0.04);
+    );
+  ) : st == 1 ? (
+    aw ? ( ra_c(0.2, 0.17, 0.13); gfx_circle(ra_px(0), ra_py(-1.61 + by), max(1, 0.098 * g_ra_u * g_s), 1, 1); );
+    ra_c(0.3, 0.24, 0.15);
+    ra_seg(-0.19, -1.69 + by, 0.19, -1.69 + by, 0.018, 0.018);
+    ra_seg(-0.075, -1.725 + by, 0.075, -1.725 + by, 0.05, 0.05);
+  ) : (
+    aw ? ( ra_c(0.2, 0.17, 0.13); gfx_circle(ra_px(0), ra_py(-1.61 + by), max(1, 0.098 * g_ra_u * g_s), 1, 1); );
+    ra_c(br * 1.1, bg * 1.1, bb * 1.1);
+    ra_seg(-0.065, -1.7 + by, 0.065, -1.7 + by, 0.07, 0.07);
+  );
+  g_ra_lz = 0;
+  st == 2 ? (
+    ra_ucol(c);
+    g_ra_uhx = 0.02 + 0.1 * g_ra_fw + (ux - 0.02 - 0.1 * g_ra_fw) * 0.55; g_ra_uhy = -1.75 + by;
+    ra_umbrella(0.02 + 0.1 * g_ra_fw, -1.85 + by, 0.52, 0.27, 0.2, g_ra_cr, g_ra_cg, g_ra_cb);
+    !aw ? (
+      ra_c(0.07, 0.06, 0.06);
+      ra_seg(ux, -1.24 + by, 0.02 + 0.1 * g_ra_fw + (ux - 0.02 - 0.1 * g_ra_fw) * 0.55, -1.75 + by, 0.014, 0.012);
+    );
+    ra_c(jr * 0.72, jg * 0.72, jb * 0.72);
+    aw = 0.3 + 0.1 * g_ra_fw - 0.12 * abs(g_ra_fw);
+    ra_seg(0.2 + 0.03 * g_ra_fw, -1.39 + by, aw, -1.12 + by, 0.062, 0.05);
+    ra_seg(aw, -1.12 + by, ux, -1.24 + by, 0.05, 0.04);
+    aw = g_ra_dz > 0;
+    !aw ? ( ra_c(0.62, 0.47, 0.38); gfx_circle(ra_px(ux), ra_py(-1.24 + by), max(1, 0.05 * g_ra_u * g_s), 1, 1); );
+  );
+);
+
+function ra_walker(i) local(h, c, n)
+(
+  g_ra_hz = ra_z[i];
+  g_ra_dz = g_ra_pd;
+  gfx_x = sx(ra_x[i] + 0.8 * ra_u[i] + 3); gfx_y = sy(ra_y[i] - 0.9 * ra_u[i]);
+  gfx_getpixel(g_ra_hr, g_ra_hg, g_ra_hb);
+  h = ra_vw[i];
+  c = cos(h); n = sin(h);
+  h < RAP_SW ? (
+    g_ra_xs = c;
+    g_ra_ls = g_ra_ps * n;
+    ra_hiker(i);
+  ) : (
+    g_ra_xs = n;
+    g_ra_ls = 0;
+    g_ra_ff = ra_f[i] * c;
+    g_ra_fw = g_ra_ff / (g_ra_ps * n);
+    ra_hfront(i);
+  );
+  g_ra_xs = 1; g_ra_ls = 0; g_ra_lz = 0; g_ra_kz = 0; g_ra_fw = 0; g_ra_ff = 0;
+  g_ra_hr = 0.62; g_ra_hg = 0.67; g_ra_hb = 0.64;
+);
+
+function ra_clear() local(i)
+(
+  i = 0; loop(NRA, ra_k[i] = 0; i += 1; );
+  g_ra_n = 0;
+);
+
+function ra_add(k, x, y, f, u) local(i)
+(
+  i = g_ra_n;
+  g_ra_n = i + 1;
+  ra_k[i] = k; ra_x[i] = x; ra_y[i] = y; ra_f[i] = f; ra_u[i] = u;
+  ra_p[i] = rand(1); ra_s[i] = 0; ra_w[i] = 0; ra_h[i] = 0; ra_hg[i] = 0; ra_b[i] = 0; ra_e[i] = 0; ra_a[i] = 0; ra_l[i] = -1; ra_o[i] = 0; ra_v[i] = 0; ra_n[i] = 0;
+  i;
+);
+
+function ra_depth(f0, f1) local(f)
+(
+  f = f0 + (f1 - f0) * rand(1);
+  g_ra_gy = BRD_Y + BRD_H * f;
+  g_ra_gu = 52 + 30 * (f - 0.8) / 0.08;
+  g_ra_ghz = 0.02 + 0.16 * max(0, 0.88 - f) / 0.08;
+);
+
+function ra_pcx(y) ( BRD_X + BRD_W * (0.5 + 0.01 * (y - 533) / 117); );
+
+function ra_visit(kd) local(f, x0, i, j, n, y, u, hz, a)
+(
+  ra_clear();
+  f = rand(1) < 0.5 ? 1 : -1;
+  x0 = f > 0 ? g_rx0 - 110 : g_rx1 + 110;
+  g_ra_vk = kd;
+  kd == 1 ? (
+    ra_depth(0.81, 0.875);
+    u = g_ra_gu; y = g_ra_gy;
+    a = rand(1);
+    a < 0.4 ? (
+      i = ra_add(1, x0, y, f, u); ra_v[i] = 0.82 + rand(1) * 0.16; ra_h[i] = ra_hg[i] = 0.22; ra_w[i] = 3 + rand(1) * 4; ra_b[i] = 1;
+      j = ra_add(2, x0 - f * 1.4 * u, y + 2, f, u * 0.62); ra_l[j] = i; ra_o[j] = 1.25; ra_v[j] = ra_v[i]; ra_h[j] = ra_hg[j] = 0.15; ra_b[j] = 1;
+    ) : a < 0.7 ? (
+      i = ra_add(3, x0, y, f, u * 1.1); ra_v[i] = 0.8 + rand(1) * 0.12; ra_h[i] = ra_hg[i] = 0.2; ra_w[i] = 3 + rand(1) * 5; ra_b[i] = 1;
+    ) : (
+      i = ra_add(1, x0, y, f, u); ra_v[i] = 0.82 + rand(1) * 0.14; ra_h[i] = ra_hg[i] = 0.22; ra_w[i] = 3 + rand(1) * 4; ra_b[i] = 1;
+      j = ra_add(1, x0 - f * 2.2 * u, y + 7, f, u * 1.04); ra_l[j] = i; ra_o[j] = 2.2; ra_v[j] = ra_v[i]; ra_h[j] = ra_hg[j] = 0.22; ra_b[j] = 1;
+    );
+    g_ra_hz = g_ra_ghz;
+  ) : kd == 2 ? (
+    ra_depth(0.82, 0.91);
+    n = rand(1) < 0.35 ? 2 : 1;
+    i = 0;
+    loop(n,
+      j = ra_add(4, x0 - f * i * (70 + rand(1) * 80), g_ra_gy + i * 9, f, (g_ra_gu + i * 4) * 1.2);
+      ra_n[j] = 2 + floor(rand(1) * 4);
+      i += 1;
+    );
+    g_ra_hz = g_ra_ghz;
+  ) : kd == 3 ? (
+    n = 3 + floor(rand(1) * 5);
+    y = BRD_Y + BRD_H * (0.14 + rand(1) * 0.26);
+    u = 34 + rand(1) * 18;
+    i = 0;
+    loop(n,
+      j = ra_add(5, x0 - f * (i * (28 + rand(1) * 30) + rand(1) * 20), y + (rand(1) - 0.5) * 80, f, u * (0.88 + rand(1) * 0.24));
+      ra_o[j] = ra_y[j];
+      ra_v[j] = 3.6 + rand(1) * 0.3;
+      ra_a[j] = 0.42 + rand(1) * 0.06;
+      ra_h[j] = 0.13 + rand(1) * 0.05;
+      ra_b[j] = 1;
+      ra_w[j] = rand(1) * 2;
+      i += 1;
+    );
+    g_ra_hz = 0.18;
+  ) : kd == 4 ? (
+    ra_depth(0.83, 0.9);
+    i = ra_add(6, x0, BRD_Y + BRD_H * (0.3 + rand(1) * 0.2), f, g_ra_gu * 1.3);
+    ra_s[i] = 0;
+    ra_a[i] = 0.32; ra_h[i] = 0.07;
+    ra_v[i] = g_ra_gy;
+    ra_o[i] = ra_y[i];
+    ra_l[i] = ra_x[i];
+    ra_n[i] = g_rx0 + (g_rx1 - g_rx0) * (0.25 + rand(1) * 0.5);
+    ra_w[i] = 0;
+    ra_b[i] = 1;
+    g_ra_hz = g_ra_ghz;
+  ) : kd == 5 ? (
+    ra_depth(0.8, 0.845);
+    a = rand(1);
+    n = a < 0.35 ? 1 : a < 0.8 ? 2 : 3;
+    u = floor(rand(1) * 6);
+    y = 0;
+    i = 0;
+    loop(n,
+      a = rand(1);
+      j = ra_add(7, x0 - f * y * g_ra_gu, g_ra_gy + i * 3, f, g_ra_gu * (0.93 + rand(1) * 0.1));
+      ra_n[j] = (a < 0.5 ? 0 : a < 0.78 ? 1 : 2) + 10 * ((u + i * 2 + (i > 1)) % 6);
+      ra_v[j] = 1.02 + rand(1) * 0.14;
+      ra_b[j] = 1;
+      ra_l[j] = i > 0 ? j - 1 : -1;
+      ra_o[j] = 1.7 + rand(1) * 0.9;
+      ra_w[j] = 6 + rand(1) * 6;
+      y += ra_o[j];
+      i += 1;
+    );
+    g_ra_hz = g_ra_ghz;
+  ) : (
+    g_ra_pd = rand(1) < 0.55 ? 1 : -1;
+    g_ra_ps = f;
+    g_ra_qs = (f > 0 ? ra_pcx(RAP_HY + RAP_UJ / RAP_K) - g_rx0 : g_rx1 - ra_pcx(RAP_HY + RAP_UJ / RAP_K)) / RAP_UJ + 1.3 - RAP_R;
+    a = rand(1);
+    n = a < 0.4 ? 1 : a < 0.85 ? 2 : 3;
+    u = floor(rand(1) * 6);
+    y = 0;
+    i = 0;
+    loop(n,
+      a = rand(1);
+      j = ra_add(8, 0, 0, f, RAP_UJ);
+      ra_n[j] = (a < 0.5 ? 0 : a < 0.78 ? 1 : 2) + 10 * ((u + i * 2 + (i > 1)) % 6);
+      ra_b[j] = 1;
+      ra_w[j] = 0.94 + rand(1) * 0.09;
+      ra_a[j] = 0;
+      ra_o[j] = i == 0 ? 0 : (i & 1 ? 0.32 : -0.32);
+      n == 1 ? ra_o[j] = 0;
+      ra_wd[j] = y;
+      y += 1.8 + rand(1) * 0.8;
+      i += 1;
+    );
+    i = 0;
+    loop(n,
+      ra_q[i] = g_ra_pd > 0 ? -g_ra_qs - ra_wd[i] : RAP_QM - ra_wd[n - 1 - i];
+      i += 1;
+    );
+    g_ra_hz = 0;
+  );
+);
+
+function ra_vis(i) ( ra_x[i] > g_rx0 + 40 && ra_x[i] < g_rx1 - 40; );
+
+function ra_tick(dt) local(i, k, f, u, dx, v, go, l, q, done, m)
+(
+  i = 0;
+  done = g_ra_n > 0;
+  loop(g_ra_n,
+    k = ra_k[i]; f = ra_f[i]; u = ra_u[i];
+    ra_e[i] > 0 ? ra_e[i] -= dt;
+    (k >= 1 && k <= 3) ? (
+      l = ra_l[i];
+      ra_w[i] -= dt;
+      rand(1) < dt * 0.25 ? ra_e[i] = 0.3;
+      l < 0 ? (
+        !ra_vis(i) ? ( ra_s[i] = 0; ra_w[i] = max(ra_w[i], 1); ) : ra_w[i] <= 0 ? (
+          ra_s[i] == 0 ? (
+            ra_s[i] = rand(1) < 0.45 ? 1 : 2;
+            ra_w[i] = ra_s[i] == 1 ? 2.2 + rand(1) * 3 : 3.5 + rand(1) * 6;
+          ) : (
+            ra_s[i] = 0;
+            ra_w[i] = 3.5 + rand(1) * 6;
+          );
+        );
+        go = ra_s[i] == 0;
+        ra_hg[i] = ra_s[i] == 1 ? 0 : ra_s[i] == 2 ? 1 : 0.22;
+        ra_a[i] += ((ra_s[i] == 1 ? 1 : 0) - ra_a[i]) * min(1, dt * 4);
+        v = ra_v[i];
+      ) : (
+        dx = (ra_x[l] - f * ra_o[i] * ra_u[l] - ra_x[i]) * f;
+        go = dx > 0.2 * u;
+        v = ra_v[i] * max(0.75, min(1.5, 0.75 + dx / (u * 1.2)));
+        go ? ra_hg[i] = 0.2 : ra_w[i] <= 0 ? ( ra_hg[i] = rand(1) < 0.65 ? 1 : 0; ra_w[i] = 1.2 + rand(1) * 3; );
+        ra_a[i] += ((ra_hg[i] < 0.1 ? 1 : 0) - ra_a[i]) * min(1, dt * 4);
+      );
+      ra_b[i] += ((go ? 1 : 0) - ra_b[i]) * min(1, dt * 2.6);
+      m = v * ra_b[i];
+      ra_x[i] += f * m * u * dt;
+      ra_p[i] += m * dt / 0.95;
+      ra_h[i] += (ra_hg[i] - ra_h[i]) * min(1, dt * 2.6);
+      (f > 0 ? ra_x[i] < g_rx1 + 1.8 * u : ra_x[i] > g_rx0 - 1.8 * u) ? done = 0;
+    ) : k == 4 ? (
+      ra_w[i] -= dt;
+      ra_s[i] == 0 ? (
+        ra_p[i] < 0.8 ? ra_x[i] += f * 0.58 * u * dt / (0.8 * 0.36);
+        ra_p[i] += dt / 0.36;
+        ra_h[i] += (0 - ra_h[i]) * min(1, dt * 12);
+        ra_a[i] += (0 - ra_a[i]) * min(1, dt * 12);
+        ra_p[i] >= 1 ? (
+          ra_p[i] = 0;
+          ra_n[i] -= 1;
+          ra_n[i] <= 0 && ra_vis(i) ? (
+            q = rand(1);
+            ra_s[i] = q < 0.4 ? 1 : q < 0.8 ? 2 : 3;
+            ra_w[i] = ra_s[i] == 1 ? 0.5 + rand(1) * 1.3 : ra_s[i] == 2 ? 1.6 + rand(1) * 3 : 1 + rand(1) * 1.8;
+          );
+        );
+      ) : (
+        ra_h[i] += ((ra_s[i] == 2 ? 1 + 0.08 * sin(g_t * 17) : 0) - ra_h[i]) * min(1, dt * 7);
+        ra_a[i] += ((ra_s[i] == 3 ? 1 : 0) - ra_a[i]) * min(1, dt * 6);
+        rand(1) < dt * 0.7 ? ra_e[i] = 0.24;
+        ra_w[i] <= 0 ? ( ra_s[i] = 0; ra_p[i] = 0; ra_n[i] = 2 + floor(rand(1) * 5); );
+      );
+      (f > 0 ? ra_x[i] < g_rx1 + 0.8 * u : ra_x[i] > g_rx0 - 0.8 * u) ? done = 0;
+    ) : k == 5 ? (
+      ra_w[i] -= dt;
+      ra_w[i] <= 0 ? ( ra_n[i] = !ra_n[i]; ra_w[i] = ra_n[i] ? 0.5 + rand(1) * 0.8 : 1.2 + rand(1) * 2.2; );
+      ra_b[i] += ((ra_n[i] ? 0.12 : 1) - ra_b[i]) * min(1, dt * 7);
+      ra_x[i] += f * ra_v[i] * u * dt;
+      ra_p[i] += dt * (ra_n[i] ? 1.2 : 3.6);
+      ra_y[i] = ra_o[i] + sin(ra_x[i] * 0.011 + i * 1.7) * 13;
+      (f > 0 ? ra_x[i] < g_rx1 + 0.9 * u : ra_x[i] > g_rx0 - 0.9 * u) ? done = 0;
+    ) : k == 6 ? (
+      ra_s[i] == 0 ? (
+        ra_w[i] += dt / 2.3;
+        q = min(1, ra_w[i]);
+        ra_x[i] = ra_l[i] + (ra_n[i] - ra_l[i]) * q;
+        ra_y[i] = ra_o[i] + (ra_v[i] - ra_o[i]) * (q * q * (3 - 2 * q));
+        ra_p[i] += dt * (q > 0.75 ? 6 : q > 0.3 ? 1.6 : 4);
+        ra_b[i] = q > 0.75 ? 1.1 : q > 0.3 ? 0.14 : 1;
+        q >= 1 ? ( ra_s[i] = 1; ra_h[i] = 0; ra_hg[i] = 0; ra_w[i] = 8 + rand(1) * 10; ra_n[i] = 0.3; ra_o[i] = 0; );
+      ) : ra_s[i] == 1 ? (
+        ra_w[i] -= dt;
+        ra_n[i] -= dt;
+        ra_o[i] > 0 ? ( ra_x[i] += f * 0.26 * u * dt / 0.22; ra_o[i] -= dt; );
+        ra_h[i] += (ra_hg[i] - ra_h[i]) * min(1, dt * 22);
+        ra_n[i] <= 0 ? (
+          q = rand(1);
+          ra_hg[i] = 0;
+          q < 0.45 ? ( ra_o[i] = 0.22; ra_n[i] = 0.3 + rand(1) * 0.5; ) : q < 0.8 ? ( ra_hg[i] = 1; ra_n[i] = 0.16 + rand(1) * 0.15; ) : ( ra_e[i] = 0.32; ra_n[i] = 0.5 + rand(1) * 1.1; );
+          rand(1) < 0.08 ? ra_f[i] = -f;
+        );
+        ra_w[i] <= 0 ? ( ra_s[i] = 2; ra_b[i] = 1.1; ra_w[i] = 0; ra_v[i] = 0; ra_f[i] = ra_x[i] > (g_rx0 + g_rx1) * 0.5 ? 1 : -1; );
+      ) : (
+        ra_w[i] += dt;
+        ra_v[i] = min(4.6, ra_v[i] + dt * 3.4);
+        ra_x[i] += ra_f[i] * ra_v[i] * u * dt;
+        ra_y[i] -= (0.55 + 1.1 * min(1, ra_w[i] / 0.8)) * u * dt;
+        ra_p[i] += dt * 6;
+      );
+      ra_s[i] == 2 && (ra_x[i] > g_rx1 + 30 || ra_x[i] < g_rx0 - 30 || ra_y[i] < g_ry0 - 30) ? 0 : done = 0;
+    ) : k == 7 ? (
+      l = ra_l[i];
+      ra_w[i] -= dt;
+      l < 0 ? (
+        !ra_vis(i) ? ( ra_s[i] = 0; ra_w[i] = max(ra_w[i], 1); ) : ra_w[i] <= 0 ? (
+          ra_s[i] == 0 ? (
+            ra_s[i] = rand(1) < 0.6 ? 1 : 2;
+            ra_w[i] = 2.4 + rand(1) * 2.4;
+          ) : (
+            ra_s[i] = 0;
+            ra_w[i] = 7 + rand(1) * 8;
+          );
+        );
+        go = ra_s[i] == 0;
+        v = ra_v[i];
+      ) : (
+        dx = (ra_x[l] - f * ra_o[i] * ra_u[l] - ra_x[i]) * f;
+        go = dx > 0.25 * u;
+        ra_s[i] = !go && ra_s[l] > 0 ? 1 : 0;
+        v = ra_v[i] * max(0.8, min(1.4, 0.85 + dx / (u * 2)));
+      );
+      ra_b[i] += ((go ? 1 : 0) - ra_b[i]) * min(1, dt * 3.2);
+      m = v * ra_b[i];
+      ra_x[i] += f * m * u * dt;
+      ra_p[i] += m * dt / 1.1;
+      ra_hg[i] = ra_s[i] > 0 ? 1 + 1.4 * sin(g_ra_t * 0.9 + i * 2) : 0;
+      ra_h[i] += (ra_hg[i] - ra_h[i]) * min(1, dt * 3);
+      ra_a[i] += (((ra_s[i] == 2 && ra_w[i] > 0.5) ? 1 : 0) - ra_a[i]) * min(1, dt * 5);
+      (f > 0 ? ra_x[i] < g_rx1 + 1.1 * u : ra_x[i] > g_rx0 - 1.1 * u) ? done = 0;
+    ) : k == 8 ? (
+      ra_q[i] += g_ra_pd * 1.15 * dt;
+      q = ra_q[i];
+      ra_p[i] += 1.15 * dt / 1.1;
+      q < 0 ? ( l = 0; dx = q - RAP_R; v = 0; ) :
+      q < RAP_L ? ( l = q / RAP_R; dx = RAP_R * (sin(l) - 1); v = RAP_R * (1 - cos(l)); ) :
+      ( l = $pi * 0.5; dx = 0; v = RAP_R + q - RAP_L; );
+      dx -= ra_o[i] * sin(l);
+      v += ra_o[i] * cos(l);
+      u = RAP_F / (RAP_F / RAP_UJ + v);
+      ra_y[i] = RAP_HY + u / RAP_K;
+      ra_x[i] = ra_pcx(ra_y[i]) + g_ra_ps * dx * u;
+      ra_u[i] = u * ra_w[i];
+      m = max(0, min(1, (42 - u) / 24));
+      ra_z[i] = 0.02 + 0.98 * m * sqrt(m);
+      ra_f[i] = g_ra_ps * g_ra_pd;
+      m = max(0, min(1, (q + 0.5) / (RAP_L + 1)));
+      ra_vw[i] = $pi * 0.5 * m * m * (3 - 2 * m);
+      g_ra_pd > 0 ? (q < RAP_QM ? done = 0;) : (q > -g_ra_qs ? done = 0;);
+    );
+    i += 1;
+  );
+  done ? (
+    ra_clear();
+    g_ra_next = g_ra_t + 18 + rand(1) * 42;
+  );
+);
+
+function ra_box(x0, y0, x1, y1)
+(
+  g_ra_x0 = min(g_ra_x0, x0); g_ra_y0 = min(g_ra_y0, y0);
+  g_ra_x1 = max(g_ra_x1, x1); g_ra_y1 = max(g_ra_y1, y1);
+);
+
+function ra_trunk(cx, w, sy0, sh) local(wx, x0)
+(
+  wx = w * BRD_W / RWS_W * g_s;
+  x0 = floor(sx(BRD_X + (cx - w * 0.5) * BRD_W / RWS_W));
+  gfx_blit(g_ra_src, 1, 0, x0, sy0, wx, sh, x0 - g_ra_px0, sy0 - g_ra_py0, wx, sh);
+);
+
+function ra_scene() local(i, k, u, dst, ox, oy, m, x0, y0, x1, y1, w, h, x, y, s0)
+(
+  g_ra_t += g_dt;
+  (g_now - g_ra_seen > 0.5 && g_ra_n == 0) ? ( g_ra_next = g_ra_t + 0.2 + 0.6 * rand(1); g_ra_op = 1; );
+  g_ra_seen = g_now;
+  g_ra_n == 0 && g_ra_t > g_ra_next ? (
+    k = rand(1);
+    k = k < 0.28 ? 1 : k < 0.5 ? 2 : k < 0.71 ? 3 : k < 0.86 ? 4 : k < 0.93 ? 5 : 6;
+    k == g_ra_vk ? k = k % 6 + 1;
+    (k == 6 && g_ra_op) ? k = 5;
+    g_ra_op = 0;
+    ra_visit(k);
+  );
+  g_ra_n > 0 ? ra_tick(g_dt);
+  g_ra_n > 0 ? (
+    g_ra_x0 = 100000; g_ra_y0 = 100000; g_ra_x1 = -100000; g_ra_y1 = -100000;
+    i = 0;
+    loop(g_ra_n,
+      k = ra_k[i]; u = ra_u[i]; x = ra_x[i]; y = ra_y[i];
+      k <= 3 ? ra_box(x - 1.15 * u, y - 2 * u, x + 1.3 * u, y + 0.22 * u) :
+      k == 4 ? ra_box(x - 0.6 * u, y - 0.65 * u, x + 0.6 * u, y + 0.2 * u) :
+      k == 7 ? ra_box(x - 0.95 * u, y - 2.35 * u, x + 1.05 * u, y + 0.22 * u) :
+      k == 8 ? ra_box(x - 0.95 * u - 16, y - 2.35 * u - 16, x + 1.05 * u + 16, y + 0.22 * u + 16) :
+      ra_box(x - 0.6 * u, y - 0.65 * u, x + 0.6 * u, y + 0.65 * u);
+      i += 1;
+    );
+    x0 = floor(sx(max(g_rx0, g_ra_x0))); y0 = floor(sy(max(g_ry0, g_ra_y0)));
+    x1 = ceil(sx(min(g_rx1, g_ra_x1))); y1 = ceil(sy(min(g_ry1, g_ra_y1)));
+    (x1 > x0 && y1 > y0) ? (
+      dst = gfx_dest; s0 = g_s; ox = g_ox; oy = g_oy;
+      m = ceil(6 * s0);
+      w = x1 - x0 + 2 * m; h = y1 - y0 + 2 * m;
+      g_ra_px0 = x0 - m; g_ra_py0 = y0 - m; g_ra_src = dst;
+      (g_ra_ipw < w || g_ra_iph < h) ? ( g_ra_ipw = max(g_ra_ipw, w); g_ra_iph = max(g_ra_iph, h); gfx_setimgdim(IMG_RWA, g_ra_ipw, g_ra_iph); );
+      gfx_dest = IMG_RWA;
+      gfx_mode = 2; gfx_a = 1;
+      gfx_blit(dst, 1, 0, g_ra_px0, g_ra_py0, w, h, 0, 0, w, h);
+      g_ox = ox - g_ra_px0; g_oy = oy - g_ra_py0;
+      gfx_mode = 0;
+      i = 0;
+      loop(g_ra_n,
+        k = ra_k[i];
+        k <= 3 ? ra_deer(i) : k == 4 ? ra_rabbit(i) : k == 5 ? ra_flyer(i) : k == 6 ? ra_blackbird(i) : k == 7 ? ra_hiker(i) : ra_walker(i);
+        (k <= 4 || k == 7 || (k == 6 && ra_s[i] == 1) || (k == 8 && ra_q[i] < RAP_L * 0.6)) ? ra_tufts(ra_x[i], ra_y[i], ra_u[i], k <= 3 ? 1 : k >= 7 ? 0.6 : k == 4 ? 0.45 : 0.28, k == 8 ? min(1, (RAP_L * 0.6 - ra_q[i]) / 1.2) : (k <= 3 || k == 7) ? 1 : k == 4 ? 0.42 : 0.3);
+        i += 1;
+      );
+      g_ox = ox; g_oy = oy;
+      gfx_mode = 2;
+      ra_trunk(8, 10, g_ra_py0, h);
+      ra_trunk(26, 6, g_ra_py0, h);
+      ra_trunk(RWS_W - 14, 10, g_ra_py0, h);
+      gfx_mode = 0;
+      loop(RA_BLUR,
+        gfx_x = 0; gfx_y = 0;
+        gfx_blurto(w, h);
+      );
+      gfx_dest = dst;
+      gfx_mode = 2;
+      u = ceil(3 * s0);
+      i = 0;
+      loop(4,
+        gfx_a = 1 / (4 - i);
+        k = i * u;
+        gfx_blit(IMG_RWA, 1, 0, m + k, m + k, x1 - x0 - 2 * k, y1 - y0 - 2 * k, x0 + k, y0 + k, x1 - x0 - 2 * k, y1 - y0 - 2 * k);
+        i += 1;
+      );
+      gfx_mode = 0; gfx_a = 1;
+    );
+  );
+);
+
+function draw_rain() local(i, j, k, n, d, a, r, x, y, w, h, lr, lg, lb, fr, fg, fb, sc, rate, best, steps)
+(
+  g_pgrav = 0;
+  !g_rw_init ? rw_init();
+  rw_inner();
+  sc = g_rw_sc;
+  w = ceil(BRD_W * g_s); h = ceil(BRD_H * g_s);
+  (g_rw_bw !== w || g_rw_bh !== h || g_rw_bsc !== sc) ? ( rw_build(sc); g_rw_bw = w; g_rw_bh = h; g_rw_bsc = sc; );
+  sc == 0 ? ( lr = 1; lg = 0.82; lb = 0.6; fr = 0.085; fg = 0.09; fb = 0.115; ) : sc == 1 ? ( lr = 1; lg = 0.72; lb = 0.55; fr = 0.17; fg = 0.13; fb = 0.15; ) : ( lr = 0.92; lg = 1; lb = 0.92; fr = 0.2; fg = 0.22; fb = 0.21; );
+
+  sc == 0 ? ( g_dk = 1.25; g_bk = 1.6; g_bo = 0.03; ) : sc == 1 ? ( g_dk = 0.75; g_bk = 1.25; g_bo = 0.04; ) : ( g_dk = 0.55; g_bk = 1.18; g_bo = 0.06; );
+  rate = g_rw_in == 0 ? 25 : g_rw_in == 1 ? 70 : 200;
+  g_rw_acc += rate * g_dt;
+  while (g_rw_acc >= 1 ? (
+    g_rw_acc -= 1;
+    x = g_rx0 + 6 + rand(1) * (g_rx1 - g_rx0 - 12); y = g_ry0 + 6 + rand(1) * (g_ry1 - g_ry0 - 12);
+    best = -1;
+    i = 0;
+    loop(NBG, (bgr[i] > 0 && (bgx[i] - x) * (bgx[i] - x) + (bgy[i] - y) * (bgy[i] - y) < bgr[i] * bgr[i]) ? best = i; i += 1; );
+    best >= 0 ? (
+      bgr[best] = bgr[best];
+    ) : rand(1) < (g_rw_in == 0 ? 0.07 : g_rw_in == 1 ? 0.1 : 0.12) ? (
+      i = 0; j = -1;
+      loop(NBG, bgr[i] <= 0 && j < 0 ? j = i; i += 1; );
+      j < 0 ? ( j = min(NBG - 1, floor(rand(1) * NBG)); bgv[j] > 0 ? j = -1; );
+      j >= 0 ? ( bgx[j] = x; bgy[j] = y; bgr[j] = 2.6 + rand(1) * rand(1) * 4.4; bgv[j] = 0; bgp[j] = rand(1) < (g_rw_in == 0 ? 0.08 : g_rw_in == 1 ? 0.075 : 0.12) * bgr[j] / 4.5 ? (g_rw_in == 0 ? 10 : g_rw_in == 1 ? 6 : 3) + rand(1) * (g_rw_in == 0 ? 30 : g_rw_in == 1 ? 20 : 12) : 100000; bgtr[j] = 0; bgsd[j] = rand(1) * 10; bgdx[j] = (rand(1) - 0.5) * 0.4; bglx[j] = x; bgly[j] = y; bcin[j] = 0; );
+    ) : (
+      smx[g_rw_si] = x; smy[g_rw_si] = y; smr[g_rw_si] = 0.9 + (g_rw_in == 2 ? rand(1) * sqrt(rand(1)) * 2.9 : rand(1) * rand(1) * 2.5);
+      g_rw_si = (g_rw_si + 1) % NSM;
+    );
+    1;
+  ) : 0);
+
+  i = 0;
+  loop(NBG,
+    bgr[i] > 0 ? (
+      (bgp[i] < 50000 || bgv[i] > 0) ? (
+        bgp[i] > 0 ? (
+          bgp[i] -= g_dt;
+        ) : (
+          bgv[i] = min(60 + bgr[i] * 34, max(6, bgv[i]) + g_dt * (8 + bgr[i] * 3 + bgv[i] * 0.55));
+          d = bgv[i] * g_dt;
+          bgy[i] += d;
+          bgdx[i] = max(-0.6, min(0.6, bgdx[i] * (1 - g_dt * 0.5) + (rand(1) - 0.5) * g_dt * 6));
+          bgx[i] = max(g_rx0 + bgr[i] + 2, min(g_rx1 - bgr[i] - 2, bgx[i] + bgdx[i] * d));
+          bgtr[i] += d;
+          (bgx[i] - bglx[i]) * (bgx[i] - bglx[i]) + (bgy[i] - bgly[i]) * (bgy[i] - bgly[i]) > 16 ? (
+            tsx0[g_rw_ti] = bglx[i]; tsy0[g_rw_ti] = bgly[i]; tsx1[g_rw_ti] = bgx[i]; tsy1[g_rw_ti] = bgy[i];
+            tsw[g_rw_ti] = bgr[i] * 0.7; tst[g_rw_ti] = g_t;
+            g_rw_ti = (g_rw_ti + 1) % NTS;
+            bglx[i] = bgx[i]; bgly[i] = bgy[i];
+          );
+          bgtr[i] > 7 ? (
+            bgtr[i] = 0;
+            smx[g_rw_si] = bgx[i] + (rand(1) - 0.5) * bgr[i] * 0.6; smy[g_rw_si] = bgy[i] - bgr[i] * 1.2; smr[g_rw_si] = 0.5 + rand(1) * 0.9;
+            g_rw_si = (g_rw_si + 1) % NSM;
+          );
+          fog_clear(bgx[i], bgy[i], bgr[i], 0.22);
+          j = 0;
+          loop(NSM,
+            smr[j] > 0 ? (
+              x = smx[j] - bgx[i]; y = smy[j] - bgy[i];
+              (abs(x) < bgr[i] + 2 && abs(y) < bgr[i] + 2 && x * x + y * y < (bgr[i] + smr[j]) * (bgr[i] + smr[j])) ? (
+                smr[j] = 0;
+              );
+            );
+            j += 1;
+          );
+          j = 0;
+          loop(NBG,
+            (j !== i && bgr[j] > 0) ? (
+              x = bgx[j] - bgx[i]; y = bgy[j] - bgy[i];
+              x * x + y * y < (bgr[i] + bgr[j]) * (bgr[i] + bgr[j]) ? bgr[j] = 0;
+            );
+            j += 1;
+          );
+        );
+      );
+      bgr[i] > 7.5 ? bgr[i] = 7.5;
+      bgy[i] - bgr[i] > g_ry1 ? bgr[i] = 0;
+    );
+    i += 1;
+  );
+
+  g_mdown && hit(g_rx0, g_ry0, g_rx1 - g_rx0, g_ry1 - g_ry0) ? (
+    g_rw_wl ? (
+      d = sqrt((g_mx - g_rw_lx) * (g_mx - g_rw_lx) + (g_my - g_rw_ly) * (g_my - g_rw_ly));
+      steps = max(1, ceil(d / 8));
+      k = 1;
+      loop(steps, wipe_at(g_rw_lx + (g_mx - g_rw_lx) * k / steps, g_rw_ly + (g_my - g_rw_ly) * k / steps); k += 1; );
+    ) : wipe_at(g_mx, g_my);
+    g_rw_wl = 1; g_rw_lx = g_mx; g_rw_ly = g_my;
+  ) : g_rw_wl = 0;
+
+  i = 0;
+  a = g_rw_in == 0 ? 0.022 : g_rw_in == 1 ? 0.03 : 0.05;
+  loop(FGW * FGH, fogd[i] += (0.9 - fogd[i]) * g_dt * a; i += 1; );
+
+  gfx_mode = 0; gfx_a = 1;
+  gfx_blit(IMG_RWB, 1, 0, 0, 0, w, h, floor(sx(BRD_X)), floor(sy(BRD_Y)), w, h);
+
+  sc <= 1 ? (
+    gfx_mode = 1;
+    i = 0;
+    loop(NCAR,
+      carx[i] += carv[i] * g_dt;
+      carx[i] > BRD_W - 60 ? carx[i] = 40;
+      carx[i] < 40 ? carx[i] = BRD_W - 60;
+      a = min(1, min(carx[i] - 40, BRD_W - 60 - carx[i]) / 80);
+      y = BRD_Y + BRD_H * (carl[i] ? 0.8 : 0.85);
+      x = BRD_X + carx[i];
+      carl[i] ? ( lr = 1; lg = 0.25; lb = 0.18; ) : ( lr = 1; lg = 0.95; lb = 0.85; );
+      j = 0;
+      loop(5,
+        gfx_set(lr, lg, lb, 0.045 * a);
+        gfx_circle(sx(x), sy(y), (24 - j * 4) * g_s, 1, 1);
+        j += 1;
+      );
+      j = 0;
+      loop(4,
+        gfx_set(lr, lg, lb, 0.03 * a);
+        gfx_rect(sx(x - 9 + j * 3), sy(y + 8), (18 - j * 6) * g_s, (60 - j * 10) * g_s);
+        j += 1;
+      );
+      i += 1;
+    );
+    gfx_mode = 0;
+    sc == 0 ? ( lr = 1; lg = 0.78; lb = 0.5; ) : ( lr = 1; lg = 0.66; lb = 0.48; );
+  ) : ( lr = 0.9; lg = 1; lb = 0.9; );
+
+  sc <= 1 && g_rw_in >= 1 ? (
+    g_rw_lt < 1 ? g_rw_lt = g_t + 40 + rand(1) * 80;
+    g_t > g_rw_lt ? ( g_rw_lf = g_t; g_rw_lt = g_t + 70 + rand(1) * 120; );
+    a = g_t - g_rw_lf;
+    a < 1.2 ? (
+      d = exp(-a * 9) + (a > 0.22 ? 0.7 * exp(-(a - 0.22) * 6) : 0);
+      gfx_mode = 1;
+      gfx_set(0.55, 0.6, 0.8, 0.28 * d);
+      gfx_rect(sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+      gfx_mode = 0;
+    );
+  );
+
+  sc == 2 ? ra_scene() : g_ra_n > 0 ? ra_clear();
+
+  n = g_rw_in == 0 ? 40 : g_rw_in == 1 ? 110 : NFS;
+  gfx_mode = 1;
+  i = 0;
+  loop(n,
+    fsl[i] <= 0 ? ( fsx[i] = rand(1) * (BRD_W + 120); fsy[i] = rand(1) * BRD_H; fsv[i] = 700 + rand(1) * 700; fsl[i] = 10 + rand(1) * rand(1) * 50; );
+    fsy[i] += fsv[i] * g_dt; fsx[i] -= fsv[i] * 0.16 * g_dt;
+    (fsy[i] > BRD_H || fsx[i] < -20) ? ( fsy[i] -= BRD_H + 40; fsx[i] = rand(1) * (BRD_W + 120); );
+    x = BRD_X + fsx[i]; y = BRD_Y + fsy[i];
+    (x > g_rx0 && x < g_rx1 && y > g_ry0 && y + fsl[i] < g_ry1) ? (
+      a = (fsl[i] - 8) / 28;
+      sc == 2 ? gfx_set(0.9, 0.95, 0.92, 0.07 + 0.14 * a) : gfx_set(0.78, 0.82, 0.95, 0.07 + 0.16 * a);
+      gfx_line(sx(x), sy(y), sx(x - fsl[i] * 0.16), sy(y + fsl[i]), 1);
+      a > 0.7 ? gfx_line(sx(x) + 1, sy(y), sx(x - fsl[i] * 0.16) + 1, sy(y + fsl[i]), 1);
+    );
+    i += 1;
+  );
+  gfx_mode = 0;
+
+  d = gfx_dest;
+  gfx_setimgdim(IMG_FOG, FGW, FGH);
+  gfx_dest = IMG_FOG;
+  y = 0;
+  loop(FGH,
+    i = y * FGW;
+    x = 0;
+    loop(FGW,
+      a = fogd[i] * fogn[i] * (1 + 0.35 * max(0, 1 - min(min(x, FGW - 1 - x), min(y, FGH - 1 - y)) / 10));
+      gfx_x = x; gfx_y = y;
+      gfx_setpixel(fr * a, fg * a, fb * a);
+      i += 1; x += 1;
+    );
+    y += 1;
+  );
+  gfx_dest = d;
+  gfx_mode = 1; gfx_a = 1;
+  gfx_blit(IMG_FOG, 1, 0, 0, 0, FGW, FGH, sx(BRD_X), sy(BRD_Y), BRD_W * g_s, BRD_H * g_s);
+  gfx_mode = 0;
+
+  i = 0;
+  loop(NTS,
+    a = g_t - tst[i];
+    (tsw[i] > 0 && a < 9) ? (
+      a = 1 - a / 9;
+      gfx_set(0, 0, 0, 0.018 * a);
+      tline(sx(tsx0[i]), sy(tsy0[i]), sx(tsx1[i]), sy(tsy1[i]), tsw[i] * 1.6 * g_s);
+      gfx_set(1, 1, 1, 0.035 * a);
+      tline(sx(tsx0[i] - tsw[i] * 0.4), sy(tsy0[i]), sx(tsx1[i] - tsw[i] * 0.4), sy(tsy1[i]), max(1, tsw[i] * 0.5 * g_s));
+    );
+    i += 1;
+  );
+  i = 0;
+  loop(NSM,
+    r = smr[i];
+    r > 0 ? (
+      x = sx(smx[i]); y = sy(smy[i]); r *= g_s;
+      drop_col(smx[i], smy[i]);
+      r < 1.4 ? (
+        gfx_set(g_brr, g_brg, g_brb, 0.6);
+        gfx_rect(x, y, 1, 1);
+      ) : (
+        drop_shape(x, y, r, r > 2.6);
+      );
+    );
+    i += 1;
+  );
+  i = 0;
+  loop(NBG,
+    bgr[i] > 0 ? rw_drop(i, bgv[i] > 5);
+    i += 1;
+  );
+
+  gfx_mode = 1;
+  gfx_set(1, 1, 1, 0.012);
+  gfx_triangle(sx(BRD_X + 14), sy(BRD_Y + 14), sx(BRD_X + 300), sy(BRD_Y + 14), sx(BRD_X + 14), sy(BRD_Y + 260));
+  gfx_set(1, 1, 1, 0.01);
+  gfx_triangle(sx(BRD_X + 340), sy(BRD_Y + 14), sx(BRD_X + 380), sy(BRD_Y + 14), sx(BRD_X + 14), sy(BRD_Y + 330), sx(BRD_X + 14), sy(BRD_Y + 290));
+  gfx_mode = 0;
+
+  gfx_set(0.11, 0.11, 0.12, 1);
+  gfx_rect(sx(BRD_X), sy(BRD_Y), BRD_W * g_s, 14 * g_s);
+  gfx_rect(sx(BRD_X), sy(BRD_Y), 14 * g_s, BRD_H * g_s);
+  gfx_rect(sx(BRD_X + BRD_W - 14), sy(BRD_Y), 14 * g_s + 1, BRD_H * g_s);
+  gfx_set(0.17, 0.17, 0.18, 1);
+  gfx_rect(sx(BRD_X), sy(BRD_Y + BRD_H - 24), BRD_W * g_s + 1, 24 * g_s + 1);
+  gfx_set(0.24, 0.24, 0.26, 1);
+  gfx_rect(sx(BRD_X), sy(BRD_Y + BRD_H - 24), BRD_W * g_s + 1, max(1, 2 * g_s));
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_rect(sx(BRD_X + 14), sy(BRD_Y + 14), (BRD_W - 28) * g_s, max(1, 2 * g_s));
+  gfx_rect(sx(BRD_X + 14), sy(BRD_Y + 14), max(1, 2 * g_s), (BRD_H - 38) * g_s);
+  gfx_set(0.2, 0.2, 0.22, 1);
+  gfx_rect(sx(BRD_X + BRD_W - 15), sy(BRD_Y + 14), max(1, g_s), (BRD_H - 38) * g_s);
+  gfx_set(0.3, 0.3, 0.33, 1);
+  outline_rr(BRD_X, BRD_Y, BRD_W, BRD_H, 6);
+
+  button("< Games", 18, 14, 96, 36, 0.5, 0.88, 0.95) ? g_screen = 0;
+  font(18, 'b');
+  gfx_set(0.95, 0.96, 0.98, 1);
+  txt_c("Rain Window", 300, 14, 240, 36);
+  button(sc == 0 ? "City at night" : sc == 1 ? "City at dusk" : "Forest", 600, 14, 150, 36, 0.5, 0.88, 0.95) ? ( g_rw_sc = (g_rw_sc + 1) % 3; sv[40] = g_rw_sc; );
+  button(g_rw_in == 0 ? "Light rain" : g_rw_in == 1 ? "Steady rain" : "Heavy rain", 758, 14, 122, 36, 0.5, 0.88, 0.95) ? ( g_rw_in = (g_rw_in + 1) % 3; sv[41] = g_rw_in + 1; );
+
+  hint("Drag to wipe the misted glass, or draw in it. The mist slowly comes back.", HINT_Y);
+);
