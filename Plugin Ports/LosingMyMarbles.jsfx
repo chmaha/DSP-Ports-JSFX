@@ -1,0 +1,1716 @@
+desc: Losing My Marbles Random Sampler (Mutable Instruments Marbles port) by chmaha
+tags: midi generator sequencer random melody
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  A port of Mutable Instruments Marbles, the random sampler. Three gate streams (t1, t2, t3) make rhythms and
+  three random pitch streams (X1, X2, X3) make melodies. Y is a slower random value sent as a MIDI CC.
+  Deja Vu is the heart of it: below 12 o'clock the randomness starts to repeat, at 12 o'clock it locks into a
+  loop of the set Length, and above that it scrambles the loop. T and X each have their own Deja Vu button.
+  Marbles makes MIDI only, so put an instrument after it on the same track. In Pitch mode each gate plays its
+  own X value through the chosen scale; in Drums mode each gate plays a fixed note. It follows REAPER's
+  transport, where Rate picks a multiple of the beat, or runs free at its own rate.
+  Steps below 12 o'clock glides; above it quantizes to the scale, keeping fewer of the notes as it turns up.
+  Needs Dependencies/LosingMyMarbles/marbles_tables.txt.
+  Ported from Marbles by Emilie Gillet (Mutable Instruments)
+  https://github.com/pichenettes/eurorack (MIT)
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/LosingMyMarbles/marbles_tables.txt
+
+slider1:k_dj=0.5<0,1,0.001>-Deja Vu
+slider2:k_len=0.5<0,1,0.001>-Length
+slider3:k_rate=0.5<0,1,0.001>-Rate
+slider4:k_tbias=0.5<0,1,0.001>-T Bias
+slider5:k_jit=0<0,1,0.001>-Jitter
+slider6:k_spread=0.5<0,1,0.001>-Spread
+slider7:k_xbias=0.5<0,1,0.001>-X Bias
+slider8:k_steps=0.75<0,1,0.001>-Steps
+slider9:k_tdeja=0<0,2,1{Off,On,Locked}>-T Deja Vu
+slider10:k_xdeja=0<0,2,1{Off,On,Locked}>-X Deja Vu
+slider11:k_model=0<0,6,1{Complementary Bernoulli,Clusters,Drums,Independent Bernoulli,Divider,Three States,Markov}>-T Model
+slider12:k_trange=1<0,2,1{/4,x1,x4}>-T Range
+slider13:k_xctrl=0<0,2,1{Identical,Bump,Tilt}>-X Control
+slider14:k_xrange=0<0,2,1{+2V,+5V,+/-5V}>-X Range
+slider15:k_scale=0<0,5,1{Major,Minor,Pentatonic,Pelog,Bhairav,Shri}>-Scale
+slider16:k_xclk=0<0,3,1{t1 t2 t3,t1,t2,t3}>-X Clock
+slider17:k_pwm=128<0,255,1>-Gate Length
+slider18:k_pws=0<0,255,1>-Gate Random
+slider19:k_ysp=128<0,255,1>-Y Spread
+slider20:k_yb=128<0,255,1>-Y Bias
+slider21:k_yst=0<0,255,1>-Y Steps
+slider22:k_ydiv=128<0,255,1>-Y Divider
+slider23:k_yr=2<0,2,1{+2V,+5V,+/-5V}>-Y Range
+slider24:k_clock=0<0,1,1{Follow Transport,Free}>-Clock
+slider25:k_run=0<0,1,1{Stopped,Running}>-Free Run
+slider26:k_voice=0<0,1,1{Pitch,Drums}>-Voice Mode
+slider27:k_root=48<0,127,1>-Root Note
+slider28:k_chan=1<1,16,1>-MIDI Channel
+slider29:k_vel=100<1,127,1>-Velocity
+slider30:k_n1=36<0,127,1>-Drum Note 1
+slider31:k_n2=38<0,127,1>-Drum Note 2
+slider32:k_n3=42<0,127,1>-Drum Note 3
+slider33:k_ycc=1<0,127,1>-Y CC
+slider34:k_yon=1<0,1,1{Off,On}>-Y Output
+slider35:k_reg=0<0,1,1{Random,MIDI In}>-X Source
+slider36:k_thru=1<0,1,1{Off,On}>-MIDI Thru
+slider37:k_seed=1<1,9999,1>-Seed
+
+in_pin:none
+out_pin:none
+
+options:no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+alloc.mp = 0;
+
+TRAW = alloc(26000);
+TBL = alloc(26000);
+TOFF = alloc(8);
+tables_ok = 0;
+
+function tables_load() local(h, n, nt, i, p, q, len) (
+  h = file_open("LosingMyMarbles/marbles_tables.txt");
+  h < 0 ? h = file_open("Dependencies/LosingMyMarbles/marbles_tables.txt");
+  h >= 0 ? (
+    n = file_mem(h, TRAW, 26000);
+    file_close(h);
+    nt = TRAW[0];
+    (n > 100 && nt == 6) ? (
+      q = 1; p = 0; i = 0;
+      loop(nt,
+        len = TRAW[q];
+        TOFF[i] = TBL + p;
+        memcpy(TBL + p, TRAW + q + 1, len);
+        p += len;
+        q += len + 1;
+        i += 1;
+      );
+      tables_ok = q == n;
+    );
+  );
+);
+tables_load();
+T_PRH = TOFF[0]; T_PRL = TOFF[1]; T_RC = TOFF[2]; T_LOGIT = TOFF[3]; T_I43 = TOFF[4]; T_DIST = TOFF[5];
+
+T_DIVP = alloc(85);
+mem_set_values(T_DIVP + 0, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 2, 1);
+mem_set_values(T_DIVP + 16, 1, 4, 1, 1, 1, 2, 2, 1, 2, 1, 1, 3, 2, 2, 1, 4);
+mem_set_values(T_DIVP + 32, 4, 1, 4, 1, 4, 2, 1, 4, 1, 2, 3, 2, 2, 1, 1, 8);
+mem_set_values(T_DIVP + 48, 1, 1, 1, 1, 3, 1, 1, 1, 3, 1, 1, 3, 1, 1, 5, 4);
+mem_set_values(T_DIVP + 64, 4, 1, 2, 5, 4, 4, 1, 1, 6, 1, 1, 1, 3, 2, 1, 3);
+mem_set_values(T_DIVP + 80, 1, 1, 16, 1, 1);
+T_FIXP = alloc(85);
+mem_set_values(T_FIXP + 0, 8, 1, 1, 8, 8, 6, 1, 1, 6, 6, 4, 1, 1, 4, 4, 3);
+mem_set_values(T_FIXP + 16, 1, 1, 3, 3, 2, 1, 1, 2, 2, 3, 2, 2, 3, 6, 4, 3);
+mem_set_values(T_FIXP + 32, 3, 4, 12, 5, 4, 4, 5, 20, 1, 1, 1, 1, 1, 4, 5, 5);
+mem_set_values(T_FIXP + 48, 4, 20, 3, 4, 4, 3, 12, 2, 2, 3, 2, 6, 1, 2, 2, 1);
+mem_set_values(T_FIXP + 64, 2, 1, 3, 3, 1, 3, 1, 4, 4, 1, 4, 1, 6, 6, 1, 6);
+mem_set_values(T_FIXP + 80, 1, 8, 8, 1, 8);
+T_INR = alloc(18);
+mem_set_values(T_INR + 0, 1, 4, 1, 3, 1, 2, 2, 3, 1, 1, 3, 2, 2, 1, 3, 1);
+mem_set_values(T_INR + 16, 4, 1);
+T_DRUM = alloc(144);
+mem_set_values(T_DRUM + 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 0, 2, 0, 0, 0);
+mem_set_values(T_DRUM + 16, 1, 0, 1, 0, 2, 0, 0, 0, 0, 0, 1, 0, 2, 0, 0, 2);
+mem_set_values(T_DRUM + 32, 1, 0, 1, 0, 2, 0, 1, 0, 0, 2, 1, 0, 2, 0, 0, 2);
+mem_set_values(T_DRUM + 48, 1, 0, 0, 0, 2, 0, 1, 0, 0, 2, 1, 0, 2, 0, 1, 2);
+mem_set_values(T_DRUM + 64, 1, 0, 0, 1, 2, 0, 0, 0, 0, 2, 1, 1, 2, 0, 1, 2);
+mem_set_values(T_DRUM + 80, 1, 0, 0, 1, 2, 0, 1, 0, 0, 2, 1, 1, 2, 2, 1, 2);
+mem_set_values(T_DRUM + 96, 1, 0, 0, 1, 2, 0, 1, 2, 0, 2, 0, 1, 2, 0, 1, 2);
+mem_set_values(T_DRUM + 112, 1, 0, 1, 1, 2, 0, 1, 2, 2, 0, 1, 2, 0, 1, 2, 0);
+mem_set_values(T_DRUM + 128, 1, 2, 1, 1, 2, 0, 1, 2, 2, 0, 1, 2, 0, 1, 2, 2);
+T_YDIV = alloc(24);
+mem_set_values(T_YDIV + 0, 1, 64, 1, 48, 1, 32, 1, 24, 1, 16, 1, 12, 1, 8, 1, 6);
+mem_set_values(T_YDIV + 16, 1, 4, 1, 3, 1, 2, 1, 1);
+T_LOOPL = alloc(75);
+mem_set_values(T_LOOPL + 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3);
+mem_set_values(T_LOOPL + 16, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4);
+mem_set_values(T_LOOPL + 32, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6);
+mem_set_values(T_LOOPL + 48, 6, 6, 6, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8, 10, 10);
+mem_set_values(T_LOOPL + 64, 10, 12, 12, 12, 12, 12, 12, 12, 14, 14, 16);
+NLL = 75;
+SCL = alloc(238);
+SCL[204] = 1; SCL[205] = 1; SCL[206] = 0; SCL[207] = 0;
+SCL[0] = 1.0; SCL[1] = 12;
+SCL[2] = 0.0000; SCL[3] = 255;
+SCL[4] = 0.0833; SCL[5] = 16;
+SCL[6] = 0.1667; SCL[7] = 96;
+SCL[8] = 0.2500; SCL[9] = 24;
+SCL[10] = 0.3333; SCL[11] = 128;
+SCL[12] = 0.4167; SCL[13] = 64;
+SCL[14] = 0.5000; SCL[15] = 8;
+SCL[16] = 0.5833; SCL[17] = 192;
+SCL[18] = 0.6667; SCL[19] = 16;
+SCL[20] = 0.7500; SCL[21] = 96;
+SCL[22] = 0.8333; SCL[23] = 24;
+SCL[24] = 0.9167; SCL[25] = 128;
+SCL[34] = 1.0; SCL[35] = 12;
+SCL[36] = 0.0000; SCL[37] = 255;
+SCL[38] = 0.0833; SCL[39] = 16;
+SCL[40] = 0.1667; SCL[41] = 96;
+SCL[42] = 0.2500; SCL[43] = 128;
+SCL[44] = 0.3333; SCL[45] = 8;
+SCL[46] = 0.4167; SCL[47] = 64;
+SCL[48] = 0.5000; SCL[49] = 4;
+SCL[50] = 0.5833; SCL[51] = 192;
+SCL[52] = 0.6667; SCL[53] = 96;
+SCL[54] = 0.7500; SCL[55] = 16;
+SCL[56] = 0.8333; SCL[57] = 128;
+SCL[58] = 0.9167; SCL[59] = 16;
+SCL[68] = 1.0; SCL[69] = 12;
+SCL[70] = 0.0000; SCL[71] = 255;
+SCL[72] = 0.0833; SCL[73] = 4;
+SCL[74] = 0.1667; SCL[75] = 96;
+SCL[76] = 0.2500; SCL[77] = 4;
+SCL[78] = 0.3333; SCL[79] = 4;
+SCL[80] = 0.4167; SCL[81] = 140;
+SCL[82] = 0.5000; SCL[83] = 4;
+SCL[84] = 0.5833; SCL[85] = 192;
+SCL[86] = 0.6667; SCL[87] = 4;
+SCL[88] = 0.7500; SCL[89] = 96;
+SCL[90] = 0.8333; SCL[91] = 4;
+SCL[92] = 0.9167; SCL[93] = 4;
+SCL[102] = 1.0; SCL[103] = 7;
+SCL[104] = 0.0000; SCL[105] = 255;
+SCL[106] = 0.1275; SCL[107] = 128;
+SCL[108] = 0.2625; SCL[109] = 32;
+SCL[110] = 0.4600; SCL[111] = 8;
+SCL[112] = 0.5883; SCL[113] = 192;
+SCL[114] = 0.7067; SCL[115] = 64;
+SCL[116] = 0.8817; SCL[117] = 16;
+SCL[136] = 1.0; SCL[137] = 12;
+SCL[138] = 0.0000; SCL[139] = 255;
+SCL[140] = 0.0752; SCL[141] = 128;
+SCL[142] = 0.1699; SCL[143] = 4;
+SCL[144] = 0.2630; SCL[145] = 4;
+SCL[146] = 0.3219; SCL[147] = 128;
+SCL[148] = 0.4150; SCL[149] = 64;
+SCL[150] = 0.4918; SCL[151] = 4;
+SCL[152] = 0.5850; SCL[153] = 192;
+SCL[154] = 0.6601; SCL[155] = 64;
+SCL[156] = 0.7549; SCL[157] = 4;
+SCL[158] = 0.8479; SCL[159] = 4;
+SCL[160] = 0.9069; SCL[161] = 64;
+SCL[170] = 1.0; SCL[171] = 12;
+SCL[172] = 0.0000; SCL[173] = 255;
+SCL[174] = 0.0752; SCL[175] = 4;
+SCL[176] = 0.1699; SCL[177] = 128;
+SCL[178] = 0.2630; SCL[179] = 64;
+SCL[180] = 0.3219; SCL[181] = 4;
+SCL[182] = 0.4150; SCL[183] = 128;
+SCL[184] = 0.4918; SCL[185] = 4;
+SCL[186] = 0.5850; SCL[187] = 192;
+SCL[188] = 0.6601; SCL[189] = 4;
+SCL[190] = 0.7549; SCL[191] = 64;
+SCL[192] = 0.8479; SCL[193] = 128;
+SCL[194] = 0.9069; SCL[195] = 4;
+function semi(x) local(p, i) ( p = x + 128; i = p | 0; T_PRH[i] * T_PRL[((p - i) * 256) | 0]; );
+
+function interp(t, index, size) local(x, i, a) (
+  x = index * size;
+  i = x | 0;
+  a = t[i];
+  a + (t[i + 1] - a) * (x - i);
+);
+
+function xor32(a, b) ( ((floor(a / 65536) ~ floor(b / 65536)) * 65536) + ((a & 65535) ~ (b & 65535)); );
+
+function rng_word() (
+  rng = rng * 1664525 + 1013904223;
+  rng -= 4294967296 * floor(rng / 4294967296);
+  rng;
+);
+function rng_float() ( rng_word() / 4294967296; );
+
+function beta_sample(un, spr, bia) local(flip, bi, si, bf, sf, cell, ofs, x1y1, x2y1, x1y2, x2y2, y1, y2, y) (
+  flip = bia > 0.5;
+  flip ? ( un = 1 - un; bia = 1 - bia; );
+  bia *= (5 - 1) * 2;
+  spr *= 9 - 1;
+  bi = bia | 0; bf = bia - bi;
+  si = spr | 0; sf = spr - si;
+  cell = bi * 10 + si;
+  ofs = 0;
+  un <= 0.05 ? (
+    ofs = 129;
+    un *= 20;
+  ) : un >= 0.95 ? (
+    ofs = 258;
+    un = (un - 0.95) * 20;
+  );
+  x1y1 = interp(T_DIST + cell * 387 + ofs, un, 128);
+  x2y1 = interp(T_DIST + (cell + 1) * 387 + ofs, un, 128);
+  x1y2 = interp(T_DIST + (cell + 10) * 387 + ofs, un, 128);
+  x2y2 = interp(T_DIST + (cell + 11) * 387 + ofs, un, 128);
+  y1 = x1y1 + (x2y1 - x1y1) * sf;
+  y2 = x1y2 + (x2y2 - x1y2) * sf;
+  y = y1 + (y2 - y1) * bf;
+  flip ? y = 1 - y;
+  y;
+);
+
+// ---------------------------------------------------------------------- random sequences
+RS_LOOP = 0; RS_HIST = 16; RS_WH = 32; RS_LEN = 33; RS_STEP = 34; RS_REC = 35; RS_REP = 36; RS_RST = 37; RS_HASH = 38; RS_SHIFT = 39; RS_DEJA = 40; RS_RD = 41; RS_WR = 42; RS_HWR = 43;
+RS_SIZE = 44;
+SEQ_T = alloc(RS_SIZE);
+SEQ_X = alloc(RS_SIZE * 4);
+
+function rs_init(s) local(i) (
+  i = 0;
+  loop(16, s[i] = rng_float(); i += 1;);
+  memset(s + RS_HIST, 0, 16);
+  s[RS_WH] = 0; s[RS_LEN] = 8; s[RS_STEP] = 0;
+  s[RS_REC] = 0; s[RS_REP] = -1; s[RS_RST] = 0; s[RS_DEJA] = 0;
+  s[RS_HASH] = 0; s[RS_SHIFT] = 0;
+  s[RS_RD] = s;
+  s[RS_WR] = -1;
+  s[RS_HWR] = -1;
+);
+
+function rs_clone(s, src) (
+  memcpy(s, src, RS_RD);
+  s[RS_RD] = src[RS_RD] >= 0 ? s + (src[RS_RD] - src) : -1;
+  s[RS_WR] = src[RS_WR] >= 0 ? s + (src[RS_WR] - src) : -1;
+  s[RS_HWR] = src[RS_HWR] >= 0 ? s + (src[RS_HWR] - src) : -1;
+);
+
+function rs_replay_value(s) local(h, w) (
+  h = (s[RS_REP] - 1 - s[RS_SHIFT] + 32) % 16;
+  s[RS_HASH] === 0 ? (
+    s[RS_HIST + h];
+  ) : (
+    w = floor(s[RS_HIST + h] * 4294967296);
+    w = xor32(w, s[RS_HASH]) * 1664525 + 1013904223;
+    w -= 4294967296 * floor(w / 4294967296);
+    w / 4294967296;
+  );
+);
+
+function rs_rewrite(s, value) local(p, res) (
+  s[RS_REP] >= 0 ? (
+    rs_replay_value(s);
+  ) : (
+    s[RS_WR] >= 0 ? ( p = s[RS_WR]; p[0] = 1 + value; );
+    p = s[RS_RD];
+    res = p[0];
+    res >= 1 ? res -= 1 : res = 0.5;
+    s[RS_HWR] >= 0 ? ( p = s[RS_HWR]; p[0] = res; );
+    res;
+  );
+);
+
+function rs_next(s, det, value) local(ps, pr, mut, i, p, res) (
+  s[RS_REP] >= 0 ? (
+    s[RS_REP] = (s[RS_REP] + 1) % 16;
+    rs_replay_value(s);
+  ) : (
+    ps = 2 * s[RS_DEJA] - 1;
+    pr = ps * ps;
+    mut = rng_float() < pr;
+    (mut && s[RS_DEJA] <= 0.5) ? (
+      p = s + RS_LOOP + s[RS_WH];
+      s[RS_WR] = p;
+      p[0] = det ? 1 + value : rng_float();
+      s[RS_WH] = (s[RS_WH] + 1) % 16;
+      s[RS_STEP] = s[RS_LEN] - 1;
+    ) : (
+      s[RS_WR] = -1;
+      mut ? (
+        s[RS_STEP] = (rng_float() * s[RS_LEN]) | 0;
+      ) : (
+        s[RS_STEP] += 1;
+        s[RS_STEP] >= s[RS_LEN] ? s[RS_STEP] = 0;
+      );
+    );
+    i = s[RS_WH] + 16 - s[RS_LEN] + s[RS_STEP];
+    p = s + RS_LOOP + (i % 16);
+    s[RS_RD] = p;
+    res = p[0];
+    res >= 1 ? res -= 1 : det ? res = 0.5;
+    p = s + RS_HIST + s[RS_REC];
+    s[RS_HWR] = p;
+    p[0] = res;
+    s[RS_REC] = (s[RS_REC] + 1) % 16;
+    res;
+  );
+);
+
+RV = alloc(6);
+
+function rs_vector(s) local(seed, w, i) (
+  seed = rs_next(s, 0, 0);
+  w = floor(seed * 4294967296);
+  i = 0;
+  loop(6,
+    RV[i] = w / 4294967296;
+    w = w * 1664525 + 1013904223;
+    w -= 4294967296 * floor(w / 4294967296);
+    i += 1;
+  );
+);
+
+function rs_set_length(s, ln) (
+  (ln >= 1 && ln <= 16) ? (
+    s[RS_LEN] = ln;
+    s[RS_STEP] = s[RS_STEP] % ln;
+  );
+);
+
+// ---------------------------------------------------------------------- slave ramps
+SR_PH = alloc(2); SR_MAX = alloc(2); SR_RAT = alloc(2); SR_PW = alloc(2); SR_TG = alloc(2); SR_PL = alloc(2); SR_BER = alloc(2); SR_MC = alloc(2);
+
+function sr_init(i) (
+  SR_PH[i] = 0; SR_MAX[i] = KMAXR; SR_RAT[i] = 1; SR_PW[i] = 0; SR_TG[i] = 1; SR_PL[i] = 0; SR_BER[i] = 0; SR_MC[i] = 0;
+);
+function sr_reset(i) ( sr_init(i); SR_PH[i] = 1; );
+function sr_pattern(i, patlen, p, q, pw) (
+  SR_BER[i] = 0;
+  SR_PH[i] = 0;
+  SR_MAX[i] = patlen * KMAXR;
+  SR_RAT[i] = p / q;
+  SR_PW[i] = pw;
+  SR_TG[i] = 1;
+  SR_PL[i] = 0;
+);
+function sr_bern(i, must, pw, ev) (
+  SR_BER[i] = 1;
+  SR_MC[i] ? (
+    SR_PH[i] = 0;
+    SR_PW[i] = pw;
+    SR_RAT[i] = 1;
+    SR_PL[i] = 0;
+  );
+  !must ? SR_RAT[i] = (1 - SR_PH[i]) * ev : SR_RAT[i] = 1 - SR_PH[i];
+  SR_MC[i] = must;
+);
+function sr_proc(i, fr) local(op) (
+  SR_BER[i] ? (
+    SR_PH[i] += fr * SR_RAT[i];
+    op = SR_PH[i];
+    op >= 1 ? op = 1;
+  ) : (
+    SR_PH[i] += fr;
+    SR_PH[i] >= SR_MAX[i] ? SR_PH[i] = SR_MAX[i];
+    op = SR_PH[i] * SR_RAT[i];
+    op > SR_TG[i] ? (
+      SR_PL[i] = 0;
+      SR_TG[i] += 1;
+    );
+    op -= op | 0;
+  );
+  sr_out = op;
+  sr_gate = SR_PW[i] === 0 ? (SR_PL[i] < 32 && op <= 0.5) : op < SR_PW[i];
+  SR_PL[i] += 1;
+);
+
+// ---------------------------------------------------------------------- T generator
+ST_CNT = alloc(16); MK_HIST = alloc(16);
+RM_MAST = alloc(5); RM_EXT = alloc(5); RM_S0 = alloc(5); RM_S1 = alloc(5);
+GATE0 = alloc(5); GATE1 = alloc(5);
+HQ2_V = alloc(4);
+
+function hq2(id, nst, hy, val) local(v, q, sg) (
+  v = val * nst;
+  v += -0.5;
+  sg = v > HQ2_V[id] ? -1 : 1;
+  q = (v + sg * hy + 0.5) | 0;
+  q < 0 ? q = 0;
+  q > nst - 1 ? q = nst - 1;
+  HQ2_V[id] = q;
+  q;
+);
+
+function t_init() local(i) (
+  one_hz = 1 / 32000;
+  tm_model = 0; tm_range = 1; tm_rate = 0; tm_bias = 0.5; tm_jit = 0; tm_pwm = 0; tm_pws = 0;
+  master_ph = 0; jit_mul = 1; ph_diff = 0; prev_ext = 0;
+  div_len = 0;
+  memset(ST_CNT, 0, 16); memset(MK_HIST, 0, 16);
+  mk_ptr = 0; dr_step = 0; dr_idx = 0;
+  rs_init(SEQ_T);
+  i = 0;
+  loop(2, sr_init(i); i += 1;);
+  HQ2_V[0] = 0; HQ2_V[1] = 0;
+  use_ext = 0;
+);
+
+function rnd_pw(i, u) (
+  tm_pws === 0 ? 0.05 + 0.9 * tm_pwm : 0.05 + 0.9 * beta_sample(u, tm_pws, tm_pwm);
+);
+
+function gen_compl() local(i, b) (
+  b = 0; i = 0;
+  loop(2,
+    ((RV[2 + (i >> 1)] > tm_bias) != (i & 1)) ? b |= 1 << i;
+    i += 1;
+  );
+  b;
+);
+function gen_indep() local(i, b) (
+  b = 0; i = 0;
+  loop(2,
+    ((RV[2 + i] > tm_bias) != (i & 1)) ? b |= 1 << i;
+    i += 1;
+  );
+  b;
+);
+function gen_three() local(i, b, pn, th, u) (
+  b = 0;
+  pn = 0.75 - abs(tm_bias - 0.5);
+  th = pn + (1 - pn) * (0.25 + (tm_bias * 0.5));
+  i = 0;
+  loop(2,
+    u = RV[2 + (i >> 1)];
+    (u > pn && ((u > th) != (i & 1))) ? b |= 1 << i;
+    i += 1;
+  );
+  b;
+);
+function gen_drums() local(u) (
+  dr_step += 1;
+  dr_step >= 8 ? (
+    dr_step = 0;
+    u = (RV[2] * 2) * abs(tm_bias - 0.5);
+    dr_idx = (18 * u) | 0;
+    tm_bias <= 0.5 ? dr_idx -= dr_idx % 2;
+  );
+  T_DRUM[dr_idx * 8 + dr_step];
+);
+function gen_markov() local(b, bb, pp, i, mask, per, sim, den, alt, logit, pr, st) (
+  b = 0;
+  bb = 1.5 * tm_bias - 0.5;
+  MK_HIST[mk_ptr] = 0;
+  pp = mk_ptr;
+  i = 0;
+  loop(2,
+    mask = 1 << i;
+    per = MK_HIST[(pp + 8) % 16] & mask;
+    sim = MK_HIST[(pp + 8) % 16] & (3 - mask);
+    den = MK_HIST[(pp + 1) % 16] & mask;
+    alt = MK_HIST[(pp + 4) % 16] & (3 - mask);
+    logit = -1.5;
+    logit += ST_CNT[i] > 24 ? 10 : 0;
+    logit += (8 * abs(bb)) * (per ? bb : -bb);
+    logit -= 2 * (sim ? bb : -bb);
+    logit -= 1 * (den ? bb : 0);
+    logit += 1 * (alt ? bb : 0);
+    logit = max(-10, min(10, logit));
+    pr = T_LOGIT[(logit * 12.8 + 128) | 0];
+    st = RV[2 + i] < pr;
+    SEQ_T[RS_DEJA] >= RV[4] ? (
+      st = MK_HIST[(pp + SEQ_T[RS_LEN]) % 16] & mask;
+    );
+    st ? (
+      b |= mask;
+      ST_CNT[i] = 0;
+    ) : (
+      ST_CNT[i] += 1;
+    );
+    i += 1;
+  );
+  MK_HIST[pp] |= b;
+  mk_ptr = (pp + 16 - 1) % 16;
+  b;
+);
+
+function sched(bm) local(i) (
+  i = 0;
+  loop(2,
+    sr_bern(i, bm & 1, rnd_pw(i, RV[i]), 0.5);
+    bm = bm >> 1;
+    i += 1;
+  );
+);
+
+function config_slave() local(md, pat, p1, q1, p2, q2, ln, st, u, idx, i) (
+  md = tm_model;
+  md === 0 ? sched(gen_compl()) :
+  md === 3 ? sched(gen_indep()) :
+  md === 5 ? sched(gen_three()) :
+  md === 2 ? sched(gen_drums()) :
+  md === 6 ? sched(gen_markov()) :
+  (
+    div_len -= 1;
+    div_len <= 0 ? (
+      md === 4 ? (
+        idx = hq2(0, 17, 0.1, tm_bias);
+        pat = T_FIXP + idx * 5;
+        p1 = pat[0]; q1 = pat[1]; p2 = pat[2]; q2 = pat[3]; ln = pat[4];
+      ) : (
+        st = abs(tm_bias - 0.5) * 2;
+        u = RV[2];
+        u *= (u + (st * st) * (1 - u));
+        u *= st;
+        idx = (u * 17) | 0;
+        pat = T_DIVP + idx * 5;
+        p1 = pat[0]; q1 = pat[1]; p2 = pat[2]; q2 = pat[3]; ln = pat[4];
+        tm_bias < 0.5 ? (
+          i = p1; p1 = p2; p2 = i;
+          i = q1; q1 = q2; q2 = i;
+        );
+      );
+      sr_pattern(0, ln, p1, q1, rnd_pw(0, RV[0]));
+      sr_pattern(1, ln, p2, q2, rnd_pw(1, RV[1]));
+      div_len = ln;
+    );
+  );
+);
+
+function t_process(ext, reset, sz) local(ifr, rt, k, fr, jf, ja, xv, mu) (
+  ifr = 0;
+  !ext ? (
+    rt = 2;
+    tm_range === 2 ? rt = 8 : tm_range === 0 ? rt = 0.5;
+    ifr = (rt * one_hz) * semi(tm_rate);
+  );
+  use_ext = ext;
+  reset ? (
+    sr_reset(0); sr_reset(1);
+    SEQ_T[RS_STEP] = SEQ_T[RS_LEN] - 1;
+    div_len = 0;
+    dr_step = 8;
+    tm_model !== 4 ? (
+      rs_vector(SEQ_T);
+      config_slave();
+    );
+  );
+  k = 0;
+  loop(sz,
+    fr = ext ? RM_EXT[k] - prev_ext : ifr;
+    fr += fr < 0 ? 1 : 0;
+    jf = fr * jit_mul;
+    master_ph += jf;
+    ph_diff += fr - jf;
+    master_ph > 1 ? (
+      master_ph -= 1;
+      rs_vector(SEQ_T);
+      ja = (((tm_jit * tm_jit) * tm_jit) * tm_jit) * 36;
+      xv = interp(T_I43, RV[5], 128);
+      mu = semi((xv * 2 - 1) * ja);
+      mu *= ph_diff > 0 ? 1 + ph_diff : 1 / (1 - ph_diff);
+      jit_mul = mu;
+      config_slave();
+    );
+    ifr !== 0 ? RM_EXT[k] = master_ph;
+    prev_ext = RM_EXT[k];
+    RM_MAST[k] = master_ph;
+    sr_proc(0, fr * jit_mul);
+    RM_S0[k] = sr_out;
+    GATE0[k] = sr_gate;
+    sr_proc(1, fr * jit_mul);
+    RM_S1[k] = sr_out;
+    GATE1[k] = sr_gate;
+    k += 1;
+  );
+);
+
+// ---------------------------------------------------------------------- quantizer, lag, output channels
+NCH = 4;
+QZ_V = alloc(4 * 6 * 16); QZ_MASK = alloc(4 * 6 * 7); QZ_FIRST = alloc(4 * 6 * 7); QZ_LAST = alloc(4 * 6 * 7);
+QZ_BI = alloc(24); QZ_BIR = alloc(24); QZ_N = alloc(24); QZ_LQ = alloc(24);
+THR = alloc(7);
+
+function qz_init(id, sc) local(n, sec, i, t, b, f, l, w) (
+  n = SCL[sc * 34 + 1];
+  QZ_N[id] = n;
+  QZ_BI[id] = SCL[sc * 34];
+  QZ_BIR[id] = 1 / QZ_BI[id];
+  sec = 0;
+  i = 0;
+  loop(n,
+    QZ_V[id * 16 + i] = SCL[sc * 34 + 2 + i * 2];
+    w = SCL[sc * 34 + 3 + i * 2];
+    (w !== 255 && w >= sec) ? sec = w;
+    i += 1;
+  );
+  THR[0] = 0; THR[1] = 16; THR[2] = 32; THR[3] = 64; THR[4] = 128; THR[5] = 192; THR[6] = 255;
+  sec > 192 ? THR[5] = sec;
+  t = 0;
+  loop(7,
+    b = 0; f = 255; l = 0; i = 0;
+    loop(n,
+      SCL[sc * 34 + 3 + i * 2] >= THR[t] ? (
+        b |= 1 << i;
+        f === 255 ? f = i;
+        l = i;
+      );
+      i += 1;
+    );
+    QZ_MASK[id * 7 + t] = b; QZ_FIRST[id * 7 + t] = f; QZ_LAST[id * 7 + t] = l;
+    t += 1;
+  );
+  QZ_LQ[id] = 0;
+);
+
+function qz_level(id, amount) local(v, hf, q) (
+  v = amount * (8 - 1);
+  hf = v > QZ_LQ[id] ? -0.25 : 0.25;
+  q = (v + hf + 0.5) | 0;
+  q = max(0, min(7, q));
+  QZ_LQ[id] = q;
+  q;
+);
+
+function qz_proc(id, value, amount) local(lv, qv, nt, ni, nf, a, b, bm, f, l, i, v, go) (
+  lv = qz_level(id, amount);
+  qv = value;
+  lv > 0 ? (
+    lv -= 1;
+    nt = value * QZ_BIR[id];
+    ni = nt | 0;
+    nf = nt - ni;
+    value < 0 ? (
+      ni -= 1;
+      nf += 1;
+    );
+    nf *= QZ_BI[id];
+    bm = QZ_MASK[id * 7 + lv];
+    f = QZ_FIRST[id * 7 + lv];
+    l = QZ_LAST[id * 7 + lv];
+    a = QZ_V[id * 16 + l] - QZ_BI[id];
+    b = QZ_V[id * 16 + (f === 255 ? 0 : f)] + QZ_BI[id];
+    i = 0;
+    go = 1;
+    while (go && i < QZ_N[id]) (
+      bm & 1 ? (
+        v = QZ_V[id * 16 + i];
+        nf > v ? a = v : ( b = v; go = 0; );
+      );
+      bm = bm >> 1;
+      i += 1;
+    );
+    qv = nf < (a + b) * 0.5 ? a : b;
+    qv += ni * QZ_BI[id];
+  );
+  qv;
+);
+
+LG_RS = alloc(4); LG_RV = alloc(4); LG_LP = alloc(4); LG_PP = alloc(4);
+
+function lag_proc(c, value, sm, phase) local(fr, ia, il, wp, ip, it) (
+  fr = phase - LG_PP[c];
+  fr < 0 ? fr += 1;
+  LG_PP[c] = phase;
+  fr *= 0.25;
+  fr *= semi(84 * (1 - sm));
+  fr >= 1 ? fr = 1;
+  sm <= 0.05 ? fr += (20 * (0.05 - sm)) * (1 - fr);
+  LG_LP[c] += fr * (value - LG_LP[c]);
+  ia = (sm - 0.6) * 5;
+  ia = max(0, min(1, ia));
+  il = (1 - sm) * 5;
+  il = max(0, min(1, il));
+  wp = interp(T_RC, phase, 256);
+  ip = wp + (phase - wp) * il;
+  it = LG_RS[c] + (value - LG_RS[c]) * ip;
+  LG_RV[c] = it;
+  LG_LP[c] + (it - LG_LP[c]) * ia;
+);
+
+OC_SPR = alloc(4); OC_BIAS = alloc(4); OC_STEPS = alloc(4); OC_SCI = alloc(4); OC_RM = alloc(4); OC_RVAL = alloc(4); OC_RTR = alloc(4);
+OC_PST = alloc(4); OC_PPH = alloc(4); OC_RQ = alloc(4); OC_PV = alloc(4); OC_V = alloc(4); OC_QV = alloc(4); OC_SS = alloc(4); OC_SO = alloc(4);
+VOUT = alloc(20);
+
+function oc_init(c) local(i) (
+  OC_SPR[c] = 0.5; OC_BIAS[c] = 0.5; OC_STEPS[c] = 0.5; OC_SCI[c] = 0;
+  OC_RM[c] = 0; OC_RVAL[c] = 0; OC_RTR[c] = 0;
+  OC_PST[c] = 0; OC_PPH[c] = 0; OC_RQ[c] = 0;
+  OC_PV[c] = 0; OC_V[c] = 0; OC_QV[c] = 0;
+  OC_SS[c] = 10; OC_SO[c] = -5;
+  LG_RS[c] = 0; LG_RV[c] = 0; LG_LP[c] = 0; LG_PP[c] = 0;
+  i = 0;
+  loop(6, qz_init(c * 6 + i, c === 3 ? 6 : i); i += 1;);
+);
+
+function oc_gen(c, seq) local(u, da, ba, val, bv) (
+  u = rs_next(seq, OC_RM[c], OC_RVAL[c]);
+  OC_RM[c] ? (
+    10 * (u - 0.5) + OC_RTR[c];
+  ) : (
+    da = 1.25 - OC_SPR[c] * 25;
+    ba = OC_SPR[c] * 25 - 23.75;
+    da = max(0, min(1, da));
+    ba = max(0, min(1, ba));
+    val = beta_sample(u, OC_SPR[c], OC_BIAS[c]);
+    bv = u >= (1 - OC_BIAS[c]) ? 0.999999 : 0;
+    val += da * (OC_BIAS[c] - val);
+    val += ba * (bv - val);
+    val * OC_SS[c] + OC_SO[c];
+  );
+);
+
+function oc_proc(c, seq, phase, sz) local(st, si, stv, k, ph, sm, u, out) (
+  st = OC_PST[c];
+  si = (OC_STEPS[c] - st) / sz;
+  OC_RQ[c] ? (
+    OC_RQ[c] -= 1;
+    u = rs_rewrite(seq, OC_RVAL[c]);
+    OC_V[c] = 10 * (u - 0.5) + OC_RTR[c];
+    OC_QV[c] = qz_proc(c * 6 + OC_SCI[c], OC_V[c], 2 * OC_STEPS[c] - 1);
+  );
+  stv = st;
+  k = 0;
+  out = VOUT + c;
+  loop(sz,
+    stv += si;
+    ph = phase[k];
+    ph < OC_PPH[c] ? (
+      OC_PV[c] = OC_V[c];
+      OC_V[c] = oc_gen(c, seq);
+      LG_RS[c] = LG_RV[c];
+      OC_QV[c] = qz_proc(c * 6 + OC_SCI[c], OC_V[c], 2 * stv - 1);
+      OC_RM[c] ? OC_RQ[c] = 20;
+    );
+    stv >= 0.5 ? (
+      out[k * 4] = OC_QV[c];
+    ) : (
+      sm = 1 - 2 * stv;
+      out[k * 4] = lag_proc(c, OC_V[c], sm, ph);
+    );
+    OC_PPH[c] = ph;
+    k += 1;
+  );
+  OC_PST[c] = stv;
+);
+
+XSFT = alloc(4);
+
+function rd_init() ( rd_phase = 0; rd_train = 0; rd_max = 1; rd_fr = 0.99999; rd_cnt = 1; rd_rst = 0; );
+
+function rd_proc(p, q, in, out, sz) local(k, np, fr, op) (
+  k = 0;
+  loop(sz,
+    np = in[k];
+    fr = np - rd_phase;
+    fr < 0 ? (
+      rd_rst ? ( rd_rst = 0; rd_cnt = 1; );
+      fr += 1;
+      rd_cnt -= 1;
+      rd_cnt === 0 ? (
+        rd_train = np;
+        rd_cnt = q;
+        rd_fr = (p / q) * KMAXR;
+        fr = 0;
+        rd_max = q;
+      );
+    );
+    rd_train += fr;
+    rd_train >= rd_max ? rd_train = rd_max;
+    op = rd_train * rd_fr;
+    op -= op | 0;
+    out[k] = op;
+    rd_phase = np;
+    k += 1;
+  );
+);
+
+function xy_init() local(i) (
+  i = 0;
+  loop(4,
+    rs_init(SEQ_X + i * RS_SIZE);
+    oc_init(i);
+    XSFT[i] = 0;
+    i += 1;
+  );
+  rd_init();
+);
+
+function xy_process(src, reset, sz) local(rp0, rp1, rp2, i, gc, gv, gb, gs, gd, gl, gsc, gm, gv2, amt, seq, sh, ph) (
+  src === 1 ? ( rp0 = rp1 = rp2 = RM_S0; ) :
+  src === 2 ? ( rp0 = rp1 = rp2 = RM_MAST; ) :
+  src === 3 ? ( rp0 = rp1 = rp2 = RM_S1; ) :
+  ( rp0 = RM_S0; rp1 = RM_MAST; rp2 = RM_S1; );
+  reset ? rd_rst = 1;
+  rd_proc(y_p, y_q, rp1, RM_EXT, sz);
+  i = 0;
+  loop(4,
+    gv = i < 3 ? x_range : y_range;
+    gv === 0 ? ( OC_SS[i] = 2; OC_SO[i] = 0; ) :
+    gv === 1 ? ( OC_SS[i] = 5; OC_SO[i] = 0; ) :
+    ( OC_SS[i] = 10; OC_SO[i] = -5; );
+    gc = i < 3 ? x_ctrl : 0;
+    amt = 1;
+    gc === 1 ? amt = (i === 1) ? 1 : -1 : gc === 2 ? amt = (2 * i) / (3 - 1) - 1;
+    gs = i < 3 ? x_spread : y_spread;
+    gb = i < 3 ? x_bias : y_bias;
+    gm = i < 3 ? x_steps : y_steps;
+    gd = i < 3 ? x_deja : 0;
+    gl = i < 3 ? x_len : 1;
+    gsc = x_scale;
+    gv2 = i < 3 ? x_reg : 0;
+    OC_SPR[i] = 0.5 + (gs - 0.5) * amt;
+    OC_BIAS[i] = 0.5 + (gb - 0.5) * amt;
+    OC_STEPS[i] = 0.5 + (gm - 0.5) * (gv2 ? 1 : amt);
+    OC_SCI[i] = gsc;
+    OC_RM[i] = gv2;
+    OC_RVAL[i] = i < 3 ? x_regval : 0;
+    OC_RTR[i] = ((4 * gs) * (gb - 0.5)) * amt;
+    seq = SEQ_X + i * RS_SIZE;
+    seq[RS_RST] = seq[RS_REC];
+    seq[RS_REP] = -1;
+    rs_set_length(seq, gl);
+    seq[RS_DEJA] = gd;
+    reset ? seq[RS_STEP] = seq[RS_LEN] - 1;
+    sh = 0;
+    (src !== 0 && i > 0 && i < 3) ? (
+      seq = SEQ_X;
+      gv2 ? (
+        sh = 1;
+        gc === 0 ? (
+          seq[RS_REP] = seq[RS_RST]; seq[RS_HASH] = 0; seq[RS_SHIFT] = i;
+        ) : gc === 1 ? (
+          seq[RS_REP] = seq[RS_RST]; seq[RS_HASH] = 0; seq[RS_SHIFT] = i === 2 ? 1 : 0;
+        ) : (
+          seq[RS_REP] = seq[RS_RST]; seq[RS_HASH] = 0; seq[RS_SHIFT] = 0;
+        );
+      ) : (
+        seq[RS_REP] = seq[RS_RST];
+        seq[RS_HASH] = i === 1 ? 3200931301 : 4039822362;
+        seq[RS_SHIFT] = 0;
+      );
+    );
+    (!sh && XSFT[i]) ? rs_clone(seq, SEQ_X);
+    XSFT[i] = sh;
+    ph = i === 0 ? rp0 : i === 1 ? rp1 : i === 2 ? rp2 : RM_EXT;
+    oc_proc(i, seq, ph, sz);
+    i += 1;
+  );
+);
+
+// ---------------------------------------------------------------------- pots and glue
+KMAXR = 0.9999;
+PV_S = alloc(8); PV_V = alloc(8); PV_H = alloc(8); PV_M = alloc(8); PV_X = alloc(8); PV_SC = alloc(8); PV_OF = alloc(8); PV_TH = alloc(8);
+HF_LEN_V = alloc(1);
+PAR = alloc(8);
+HQ_LEN = alloc(1);
+
+function pot_setup(i, sc, of, mn, mx, hy) (
+  PV_SC[i] = sc + 2 * hy; PV_OF[i] = of - hy; PV_M[i] = mn; PV_X[i] = mx; PV_TH[i] = hy; PV_S[i] = 0; PV_V[i] = 0; PV_H[i] = 0;
+);
+
+function pots_init() (
+  pot_setup(0, 1, 0, 0, 1, 0);
+  pot_setup(1, 1, 0, 0, 1, 0);
+  pot_setup(2, 120, -60, -120, 120, 0.001);
+  pot_setup(3, 1.05, -0.025, 0, 1, 0);
+  pot_setup(4, 1, 0, 0, 1, 0);
+  pot_setup(5, 1, 0, 0, 1, 0.01);
+  pot_setup(6, 1, 0, 0, 1, 0.02);
+  pot_setup(7, 1, 0, 0, 1, 0.02);
+  HQ_LEN[0] = 0;
+);
+
+function pot_proc(i, pot) local(v, e, th) (
+  PV_V[i] += 0.01 * (pot - PV_V[i]);
+  v = PV_V[i] * PV_SC[i] + PV_OF[i];
+  th = PV_TH[i];
+  th === 0 ? PV_H[i] = v : (
+    e = v - PV_H[i];
+    e > th ? PV_H[i] = v - th : e < -th ? PV_H[i] = v + th;
+  );
+  PAR[i] = max(PV_M[i], min(PV_X[i], PV_H[i]));
+);
+
+function hq2_len(val) local(v, sg, q) (
+  v = val * NLL;
+  v += -0.5;
+  sg = v > HQ_LEN[0] ? -1 : 1;
+  q = (v + sg * 0.25 + 0.5) | 0;
+  q = max(0, min(NLL - 1, q));
+  HQ_LEN[0] = q;
+  q;
+);
+
+function t_ramp(sz) local(idx, p, q, r, k) (
+  idx = hq2(1, 9, 0.05, (1.05 * tm_rate) / 96 + 0.5);
+  p = T_INR[idx * 2];
+  q = T_INR[idx * 2 + 1];
+  tm_range === 0 ? q *= 4 : tm_range === 2 ? p *= 4;
+  while ((p % 2) === 0 && (q % 2) === 0) ( p /= 2; q /= 2; );
+  r = p / q;
+  k = 0;
+  loop(sz,
+    RM_EXT[k] = ebeat * r - floor(ebeat * r);
+    ebeat += ebinc;
+    k += 1;
+  );
+);
+
+function eng_block(ext, reset, xreset, sz) local(dj, dl) (
+  pot_proc(0, k_dj); pot_proc(1, k_len); pot_proc(2, k_rate); pot_proc(3, k_tbias); pot_proc(4, k_jit); pot_proc(5, k_spread); pot_proc(6, k_xbias); pot_proc(7, k_steps);
+  dj = PAR[0];
+  dj < 0.47 ? (
+    dj *= 1.06382978723;
+  ) : dj > 0.53 ? (
+    dj = 0.5 + (dj - 0.53) * 1.06382978723;
+  ) : (
+    dj = 0.5;
+  );
+  dl = T_LOOPL[hq2_len(PAR[1])];
+  tm_model = k_model | 0;
+  tm_range = k_trange | 0;
+  tm_rate = PAR[2];
+  tm_bias = PAR[3];
+  tm_jit = PAR[4];
+  SEQ_T[RS_DEJA] = k_tdeja >= 1.5 ? 0.5 : (k_tdeja >= 0.5 ? dj : 0);
+  rs_set_length(SEQ_T, dl);
+  tm_pwm = (k_pwm | 0) / 256;
+  tm_pws = (k_pws | 0) / 256;
+  ext ? t_ramp(sz);
+  t_process(ext, reset, sz);
+  x_ctrl = k_xctrl | 0;
+  x_range = k_xrange | 0;
+  x_reg = k_reg >= 0.5;
+  x_regval = g_regval;
+  x_spread = PAR[5];
+  x_bias = PAR[6];
+  x_steps = PAR[7];
+  x_deja = k_xdeja >= 1.5 ? 0.5 : (k_xdeja >= 0.5 ? dj : 0);
+  x_len = dl;
+  y_range = k_yr | 0;
+  y_spread = (k_ysp | 0) / 256;
+  y_bias = (k_yb | 0) / 256;
+  y_steps = (k_yst | 0) / 256;
+  y_p = T_YDIV[(((k_ydiv | 0) * 12) >> 8) * 2];
+  y_q = T_YDIV[(((k_ydiv | 0) * 12) >> 8) * 2 + 1];
+  x_scale = k_scale | 0;
+  xy_process(k_xclk | 0, reset || xreset, sz);
+);
+
+function eng_reset() (
+  rng = k_seed | 0;
+  t_init();
+  xy_init();
+  pots_init();
+  eacc = 0;
+  g_regval = 0.5;
+);
+
+OQ = alloc(4 * 512);
+OQ_MAX = 512;
+TGP = alloc(3);
+VACT = alloc(3);
+VNOTE = alloc(3);
+NCNT = alloc(128);
+LEDV = alloc(8);
+
+function q_out(o, a, b, c) local(p) (
+  oq_n < OQ_MAX ? (
+    p = OQ + oq_n * 4;
+    p[0] = o; p[1] = a; p[2] = b; p[3] = c;
+    oq_n += 1;
+  );
+);
+
+function q_flush() local(i, j, p, o, a, b, c) (
+  i = 1;
+  while (i < oq_n) (
+    p = OQ + i * 4;
+    o = p[0]; a = p[1]; b = p[2]; c = p[3];
+    j = i - 1;
+    while (j >= 0 && OQ[j * 4] > o) (
+      memcpy(OQ + (j + 1) * 4, OQ + j * 4, 4);
+      j -= 1;
+    );
+    p = OQ + (j + 1) * 4;
+    p[0] = o; p[1] = a; p[2] = b; p[3] = c;
+    i += 1;
+  );
+  i = 0;
+  loop(oq_n,
+    p = OQ + i * 4;
+    midisend(p[0], p[1], p[2], p[3]);
+    i += 1;
+  );
+  oq_n = 0;
+);
+
+function v_off(v, ofs) local(n) (
+  VACT[v] ? (
+    n = VNOTE[v];
+    NCNT[n] -= 1;
+    NCNT[n] <= 0 ? ( NCNT[n] = 0; q_out(ofs, 128 | a_chan, n, 0); );
+    VACT[v] = 0;
+  );
+);
+
+function v_on(v, ofs, n) (
+  v_off(v, ofs);
+  n = max(0, min(127, n | 0));
+  NCNT[n] === 0 ? q_out(ofs, 144 | a_chan, n, k_vel | 0);
+  NCNT[n] += 1;
+  VNOTE[v] = n;
+  VACT[v] = 1;
+  LEDV[v] = 1;
+);
+
+function emit_block(hofs) local(s, v, g, ofs, vv, n) (
+  s = 0;
+  loop(5,
+    ofs = max(0, min(samplesblock - 1, floor(hofs + s * a_hstep)));
+    v = 0;
+    loop(3,
+      g = v === 0 ? GATE0[s] : v === 1 ? RM_MAST[s] < 0.5 : GATE1[s];
+      g && !TGP[v] ? (
+        k_voice >= 0.5 ? (
+          n = v === 0 ? k_n1 : v === 1 ? k_n2 : k_n3;
+        ) : (
+          vv = VOUT[s * 4 + v];
+          n = k_root + floor(vv * 12 + 0.5);
+        );
+        v_on(v, ofs, n);
+      ) : (!g && TGP[v]) ? (
+        v_off(v, ofs);
+      );
+      TGP[v] = g;
+      v += 1;
+    );
+    (k_yon >= 0.5 && (y_tick & 15) === 0) ? (
+      vv = VOUT[s * 4 + 3];
+      vv = k_yr < 0.5 ? vv / 2 : k_yr < 1.5 ? vv / 5 : (vv + 5) / 10;
+      n = max(0, min(127, floor(vv * 127 + 0.5)));
+      n !== y_last ? ( y_last = n; q_out(ofs, 176 | a_chan, k_ycc | 0, n); );
+    );
+    y_tick += 1;
+    s += 1;
+  );
+);
+
+function all_off(ofs) local(v) (
+  v = 0;
+  loop(3, v_off(v, ofs); TGP[v] = 0; v += 1;);
+);
+
+last_srate = 0;
+y_last = -1;
+was_run = 0;
+g_note = -1;
+
+@slider
+
+last_srate != srate ? (
+  last_srate = srate;
+  tables_ok ? eng_reset();
+);
+last_seed != k_seed ? (
+  last_seed = k_seed;
+  tables_ok ? eng_reset();
+);
+
+@block
+
+oq_n = 0;
+while (midirecv(mofs, mm1, mm2, mm3)) (
+  k_thru >= 0.5 ? q_out(mofs, mm1, mm2, mm3);
+  ((mm1 & 240) === 144 && mm3 > 0 && k_reg >= 0.5) ? (
+    g_note = mm2;
+    g_regval = 0.5 * ((mm2 - k_root) / 60 + 1);
+  );
+);
+
+tables_ok ? (
+  a_chan = (k_chan - 1) | 0;
+  a_free = k_clock >= 0.5;
+  a_run = a_free ? k_run >= 0.5 : (play_state & 1);
+  a_run ? (
+    a_hstep = srate / 32000;
+    ebinc = tempo / 60 / 32000;
+    a_jump = 0;
+    !a_free ? (
+      a_expect = (beat_position - ebexp);
+      (!was_run || abs(a_expect) > 0.02) ? a_jump = 1;
+    ) : (
+      !was_run ? a_jump = 1;
+    );
+    a_pre = eacc;
+    ebeat = beat_position - (a_pre / 32000) * (tempo / 60);
+    eacc += samplesblock * 32000 / srate;
+    a_jump ? (
+      eng_jump = 1;
+      sr_init(0); sr_init(1);
+      SEQ_T[RS_STEP] = SEQ_T[RS_LEN] - 1;
+      div_len = 0;
+      dr_step = 8;
+      jit_mul = 1;
+      ph_diff = 0;
+    );
+    a_h = -a_pre * a_hstep;
+    while (eacc >= 5) (
+      a_rv = ebeat;
+      eng_jump ? (
+        a_ramp0 = a_free ? 0 : ebeat - floor(ebeat);
+        master_ph = a_free ? 1 : (a_ramp0 < 0.001 || a_ramp0 > 0.999 ? 1 : 0);
+        prev_ext = a_free ? 0 : ebeat - floor(ebeat);
+      );
+      eng_block(!a_free, 0, eng_jump, 5);
+      eng_jump = 0;
+      emit_block(a_h);
+      a_h += 5 * a_hstep;
+      eacc -= 5;
+    );
+    ebexp = beat_position + samplesblock * (tempo / 60) / srate;
+    was_run = 1;
+  ) : (
+    was_run ? all_off(0);
+    was_run = 0;
+  );
+);
+q_flush();
+
+@gfx 980 636
+
+UDW = 980;
+UDH = 636;
+uscale = max(0.5, min(gfx_w / UDW, gfx_h / UDH));
+uox = floor((gfx_w - UDW * uscale) * 0.5);
+uoy = 0;
+
+function s_min(s) ( s == 28 ? 1 : s == 29 ? 1 : s == 37 ? 1 : 0; );
+function s_max(s) (
+  s <= 8 ? 1 : s == 9 || s == 10 || s == 12 || s == 13 || s == 14 || s == 23 ? 2 : s == 11 ? 6 : s == 15 ? 5 : s == 16 ? 3 :
+  (s >= 17 && s <= 22) ? 255 : s == 28 ? 16 : s == 37 ? 9999 : (s == 24 || s == 25 || s == 26 || s == 34 || s == 35 || s == 36) ? 1 : 127;
+);
+function s_step(s) ( s <= 8 ? 0 : 1; );
+function def_val(s) (
+  s == 1 || s == 2 || s == 3 || s == 4 || s == 6 || s == 7 ? 0.5 : s == 5 ? 0 : s == 8 ? 0.75 :
+  s == 12 ? 1 : (s == 17 || s == 19 || s == 20 || s == 22) ? 128 : s == 23 ? 2 : s == 27 ? 48 : s == 28 ? 1 : s == 29 ? 100 :
+  s == 30 ? 36 : s == 31 ? 38 : s == 32 ? 42 : s == 33 ? 1 : (s == 34 || s == 36 || s == 37) ? 1 : 0;
+);
+function knob_name(s) (
+  s == 1 ? "DEJA VU" : s == 2 ? "LENGTH" : s == 3 ? "RATE" : s == 4 ? "BIAS" : s == 5 ? "JITTER" : s == 6 ? "SPREAD" : s == 7 ? "BIAS" : "STEPS";
+);
+function note_str(n) local(pc) (
+  pc = n % 12;
+  sprintf(#unote, "%s%d", pc == 0 ? "C" : pc == 1 ? "C#" : pc == 2 ? "D" : pc == 3 ? "D#" : pc == 4 ? "E" : pc == 5 ? "F" : pc == 6 ? "F#" : pc == 7 ? "G" : pc == 8 ? "G#" : pc == 9 ? "A" : pc == 10 ? "A#" : "B", floor(n / 12) - 1);
+  #unote;
+);
+function ptext(s) local(v) (
+  v = slider(s);
+  s <= 8 ? sprintf(#upt, "%d%%", floor(v * 100 + 0.5)) :
+  (s == 9 || s == 10) ? strcpy(#upt, v == 0 ? "off" : v == 1 ? "on" : "locked") :
+  s == 11 ? strcpy(#upt, v == 0 ? "Compl. Bernoulli" : v == 1 ? "Clusters" : v == 2 ? "Drums" : v == 3 ? "Indep. Bernoulli" : v == 4 ? "Divider" : v == 5 ? "Three States" : "Markov") :
+  s == 12 ? strcpy(#upt, v == 0 ? "/4" : v == 1 ? "x1" : "x4") :
+  s == 13 ? strcpy(#upt, v == 0 ? "Identical" : v == 1 ? "Bump" : "Tilt") :
+  (s == 14 || s == 23) ? strcpy(#upt, v == 0 ? "+2V" : v == 1 ? "+5V" : "+/-5V") :
+  s == 15 ? strcpy(#upt, v == 0 ? "Major" : v == 1 ? "Minor" : v == 2 ? "Pentatonic" : v == 3 ? "Pelog" : v == 4 ? "Bhairav" : "Shri") :
+  s == 16 ? strcpy(#upt, v == 0 ? "t1 t2 t3" : v == 1 ? "t1" : v == 2 ? "t2" : "t3") :
+  s == 24 ? strcpy(#upt, v == 0 ? "Follow" : "Free") :
+  s == 26 ? strcpy(#upt, v == 0 ? "Pitch" : "Drums") :
+  (s == 27 || (s >= 30 && s <= 32)) ? strcpy(#upt, note_str(v)) :
+  s == 34 ? strcpy(#upt, v == 0 ? "Off" : "On") :
+  s == 35 ? strcpy(#upt, v == 0 ? "Random" : "MIDI In") :
+  s == 36 ? strcpy(#upt, v == 0 ? "Off" : "On") :
+  sprintf(#upt, "%d", v);
+  #upt;
+);
+function seg_label(s, i) ( ""; );
+function hint_text(s) (
+  s == 1 ? "Deja Vu: at left all new randomness; at 12 o'clock a locked loop; to the right the loop is scrambled. Enable it with the t and X buttons." :
+  s == 2 ? "Length: how many steps the Deja Vu loop repeats over." :
+  s == 3 ? (k_clock < 0.5 ? "Rate: multiple of the beat, from /4 to x4 in steps (Follow mode)." : "Rate: speed of the t gates (Free mode).") :
+  s == 4 ? "t Bias: how gates divide between t1 and t3, or how sparse the pattern is, depending on the model." :
+  s == 5 ? "Jitter: humanises the timing of the gates." :
+  s == 6 ? "Spread: how far X values vary, from a fixed value to wide randomness." :
+  s == 7 ? "X Bias: pushes the random values toward low or high." :
+  s == 8 ? "Steps: below 12 o'clock smooths X; above it quantizes to the scale, keeping fewer notes further round." :
+  s == 9 ? "t Deja Vu: applies the Deja Vu loop to the gates. Click to cycle Off, On, Locked." :
+  s == 10 ? "X Deja Vu: applies the Deja Vu loop to the pitches. Click to cycle Off, On, Locked." :
+  s == 11 ? "T Model: how t1 and t3 share the clock: coin toss, clusters, drums, independent, dividers, three states, or Markov." :
+  s == 12 ? "T Range: multiplies the clock (/4, x1, x4)." :
+  s == 13 ? "X Control: how Spread, Bias and Steps spread across X1-X3 (identical, bump or tilt)." :
+  s == 14 ? "X Range: 2 octaves, 5 octaves, or 5 up and down." :
+  s == 15 ? "Scale: the module's six scales. MIDI pitches are rounded to the nearest semitone (Pelog is approximated)." :
+  s == 16 ? "X Clock: X1-X3 each follow their gate, or all share t1, t2 or t3." :
+  s == 17 ? "Gate Length: the module's pulse-width mean." :
+  s == 18 ? "Gate Random: the module's pulse-width randomisation." :
+  s == 19 ? "Y Spread." : s == 20 ? "Y Bias." : s == 21 ? "Y Steps." : s == 22 ? "Y Divider: how slowly Y changes." : s == 23 ? "Y Range." :
+  s == 24 ? "Clock: Follow locks to REAPER's transport, Free runs on the Rate knob." :
+  s == 25 ? "Run or stop the Free clock." :
+  s == 26 ? "Voice: Pitch plays X1-X3 through the scale on each gate. Drums plays a fixed note per gate." :
+  s == 27 ? "Root note: X = 0 V plays this note." :
+  s == 28 ? "MIDI channel." : s == 29 ? "Velocity." : (s >= 30 && s <= 32) ? "Drum note for each gate." :
+  s == 33 ? "Y CC number." : s == 34 ? "Send Y as a MIDI CC." :
+  s == 35 ? "X Source: Random, or MIDI In to shift incoming notes through the Deja Vu register." :
+  s == 36 ? "MIDI Thru." : s == 37 ? "Seed for the random generator. Same seed, same sequence." :
+  "Drag or scroll a knob to adjust  ·  Ctrl for fine control  ·  double-click to reset";
+);
+
+function automate(s, e)
+(
+<?
+  max_sliders > 37 ? printf("slider_automate(2^(s-1), e);") :
+    loop(i = 1; 37,
+      printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function set_slider(s, x) ( slider(s) = x; automate(s, 0); automate(s, 1); );
+function hit_circle(mx, my, cx, cy, rad) ( sqr(mx - cx) + sqr(my - cy) <= sqr(rad); );
+function hit_rect(mx, my, x, y, w, h) ( mx >= x && mx <= x + w && my >= y && my <= y + h; );
+function px(x) ( uox + x * uscale; );
+function py(y) ( uoy + y * uscale; );
+
+function norm_of(s) ( (slider(s) - s_min(s)) / (s_max(s) - s_min(s)); );
+function set_norm(s, x) local(old, st) (
+  old = slider(s);
+  st = s_step(s);
+  slider(s) = st > 0 ? s_min(s) + floor(x * (s_max(s) - s_min(s)) / st + 0.5) * st : s_min(s) + x * (s_max(s) - s_min(s));
+  slider(s) !== old ? ( automate(s, 0); );
+);
+
+function ctext(str, cx, y, fs, fl) local(tw, th)
+(
+  gfx_setfont(1, "Arial", fs * uscale, fl);
+  gfx_measurestr(str, tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function ltext(str, x, y, fs, fl)
+(
+  gfx_setfont(1, "Arial", fs * uscale, fl);
+  gfx_x = x; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function rk_draw(cx, cy, rad, pos, cr, cg, cb) local(ang0, ang1, ang, i, a, rr, ca, sa, n)
+(
+  ang0 = -2.35619;
+  ang1 = 2.35619;
+  gfx_set(0, 0, 0, 0.18);
+  gfx_circle(cx + rad * 0.06, cy + rad * 0.10, rad * 1.02, 1, 1);
+  gfx_set(0.07, 0.07, 0.08, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  i = 0;
+  loop(36,
+    a = i * 2 * $pi / 36;
+    gfx_set(0.20, 0.20, 0.22, 1);
+    gfx_line(cx + sin(a) * rad * 0.80, cy - cos(a) * rad * 0.80, cx + sin(a) * rad * 0.97, cy - cos(a) * rad * 0.97, 1);
+    i += 1;
+  );
+  gfx_set(0.13, 0.13, 0.14, 1);
+  gfx_circle(cx, cy, rad * 0.76, 1, 1);
+  ang = ang0 + (ang1 - ang0) * pos;
+  sa = sin(ang); ca = cos(ang);
+  rr = rad * 0.08;
+  n = max(7, 2 * floor(rad * 0.16) + 1);
+  i = 0;
+  loop(n,
+    a = (i - (n - 1) / 2) / ((n - 1) / 2) * rr;
+    gfx_set(cr, cg, cb, 1);
+    gfx_line(cx + sa * rad * 0.50 + ca * a, cy - ca * rad * 0.50 + sa * a, cx + sa * rad * 0.96 + ca * a, cy - ca * rad * 0.96 + sa * a, 1);
+    i += 1;
+  );
+  gfx_set(cr * 0.64, cg * 0.64, cb * 0.64, 1);
+  gfx_circle(cx, cy, rad * 0.56, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rad * 0.53, 1, 1);
+  gfx_set(1, 1, 1, 0.45);
+  gfx_circle(cx - rad * 0.10, cy - rad * 0.12, rad * 0.30, 1, 1);
+  gfx_set(cr * 0.78, cg * 0.78, cb * 0.78, 1);
+  gfx_line(cx + sa * rad * 0.20, cy - ca * rad * 0.20, cx + sa * rad * 0.50, cy - ca * rad * 0.50, 1);
+);
+
+function pill_col(kind)
+(
+  kind == 1 ? gfx_set(0.91, 0.18, 0.42, 1) :
+  kind == 2 ? gfx_set(0.10, 0.72, 0.78, 1) :
+  kind == 3 ? gfx_set(0.70, 0.08, 0.42, 1) :
+  gfx_set(0.95, 0.55, 0.15, 1);
+);
+
+function label_pill(str, cx, y, kind, big) local(tw, th, fs)
+(
+  fs = big ? 15 : 14;
+  gfx_setfont(1, "Arial", fs * uscale, 'b');
+  gfx_measurestr(str, tw, th);
+  kind > 0 ? (
+    pill_col(kind);
+    gfx_rect(cx - tw * 0.5 - 5 * uscale, y - 1 * uscale, tw + 10 * uscale, th + 2 * uscale, 1);
+    gfx_set(1, 1, 1, 1);
+  ) : gfx_set(0.12, 0.12, 0.13, 1);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function rosette(cx, cy, r0) local(i, a, r1)
+(
+  i = 0;
+  loop(60,
+    a = i * 2 * $pi / 60;
+    r1 = r0 * ((i & 1) ? 1.20 : 1.12);
+    gfx_set(0.45, 0.46, 0.48, (i & 1) ? 0.30 : 0.18);
+    gfx_line(cx + sin(a) * r0 * 1.04, cy - cos(a) * r0 * 1.04, cx + sin(a) * r1, cy - cos(a) * r1, 1);
+    gfx_circle(cx + sin(a + 0.05) * r0 * 1.26, cy - cos(a + 0.05) * r0 * 1.26, max(1, 1.2 * uscale), 0, 1);
+    i += 1;
+  );
+);
+
+function knob_core(s, cx, cy, rad, kind) local(hov, x, cr, cg, cb)
+(
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, rad + 4 * uscale);
+  hov ? u_hov = s;
+  (u_click && hov) ? (
+    (u_ctarget == s && time_precise() - u_ctime < 0.3) ? (
+      set_slider(s, def_val(s));
+      u_drag = 0;
+    ) : (
+      u_drag = s; u_dy0 = mouse_y; u_dv0 = norm_of(s); u_dfine = mouse_cap & 4;
+      automate(s, 0);
+    );
+    u_ctarget = s; u_ctime = time_precise();
+    u_click = 0;
+  );
+  (hov && u_wheel != 0 && u_drag == 0) ? (
+    x = norm_of(s) + (u_wheel / 120) * ((mouse_cap & 4) ? 0.002 : 0.02);
+    set_norm(s, max(0, min(1, x)));
+    automate(s, 1);
+    u_wheel = 0;
+  );
+  kind == 1 ? ( cr = 0.93; cg = 0.27; cb = 0.47; ) :
+  kind == 2 ? ( cr = 0.20; cg = 0.78; cb = 0.84; ) :
+  kind == 3 ? ( cr = 0.72; cg = 0.10; cb = 0.45; ) :
+  ( cr = 0.97; cg = 0.97; cb = 0.96; );
+  rk_draw(cx, cy, rad, norm_of(s), cr, cg, cb);
+  hov;
+);
+
+function knob_at(s, cx, cy, rad, big, kind) local(hov, ly)
+(
+  big ? rosette(cx, cy, rad);
+  hov = knob_core(s, cx, cy, rad, kind);
+  ly = cy + rad * (big ? 1.30 : 1.12) + 4 * uscale;
+  label_pill(knob_name(s), cx, ly, kind, big);
+  gfx_set((hov || u_drag == s) ? 0.78 : 0.36, (hov || u_drag == s) ? 0.42 : 0.37, (hov || u_drag == s) ? 0.10 : 0.40, 1);
+  ctext(ptext(s), cx, ly + 18 * uscale, 12, 0);
+);
+
+function led(cx, cy, r, g, b, lv)
+(
+  gfx_set(0.55, 0.55, 0.56, 1);
+  gfx_circle(cx, cy, 8 * uscale, 1, 1);
+  gfx_set(0.93, 0.93, 0.92, 1);
+  gfx_circle(cx, cy, 6.5 * uscale, 1, 1);
+  lv > 0.01 ? (
+    gfx_set(r, g, b, 0.35 * lv); gfx_circle(cx, cy, 11 * uscale, 1, 1);
+    gfx_set(r, g, b, 0.25 + 0.75 * lv); gfx_circle(cx, cy, 6.5 * uscale, 1, 1);
+  );
+  gfx_set(1, 1, 1, 0.6);
+  gfx_circle(cx - 2 * uscale, cy - 2 * uscale, 2 * uscale, 1, 1);
+);
+
+function dark_btn(s, x, y, w, h, label, act, fs) local(tw, th, hov)
+(
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? u_hov = s;
+  gfx_set(0.10, 0.10, 0.11, 1);
+  gfx_rect(x - uscale, y - uscale, w + 2 * uscale, h + 2 * uscale, 1);
+  act ? gfx_set(0.93, 0.50, 0.16, 1) : gfx_set(hov ? 0.30 : 0.24, hov ? 0.30 : 0.24, hov ? 0.32 : 0.26, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(1, 1, 1, act ? 0.20 : 0.07);
+  gfx_rect(x, y, w, h * 0.45, 1);
+  gfx_setfont(1, "Arial", fs * uscale, 'b');
+  act ? gfx_set(0.10, 0.07, 0.04, 1) : gfx_set(0.90, 0.90, 0.91, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = x + (w - tw) * 0.5; gfx_y = y + (h - th) * 0.5;
+  gfx_drawstr(label);
+  u_click && hov;
+);
+
+function seg(s, x, y, w, h, n, base) local(i, sw)
+(
+  sw = w / n;
+  i = 0;
+  loop(n,
+    dark_btn(s, x + i * sw, y, sw - 2 * uscale, h, seg_label(s, i), (slider(s) | 0) == i + base, 12) ? ( set_slider(s, i + base); u_click = 0; );
+    i += 1;
+  );
+);
+
+function cap(str, x, y)
+(
+  gfx_set(0.12, 0.12, 0.13, 1);
+  ltext(str, x, y, 12, 'b');
+);
+
+function field(s, x, y, w, h) local(hov, v)
+(
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? u_hov = s;
+  gfx_set(0.10, 0.10, 0.11, 1);
+  gfx_rect(x - uscale, y - uscale, w + 2 * uscale, h + 2 * uscale, 1);
+  gfx_set(hov || u_drag == s ? 0.30 : 0.24, hov || u_drag == s ? 0.30 : 0.24, hov || u_drag == s ? 0.32 : 0.26, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.90, 0.90, 0.91, 1);
+  ctext(ptext(s), x + w * 0.5, y + (h - 14 * uscale) * 0.5, 12, 'b');
+  (u_click && hov) ? (
+    (u_ctarget == s && time_precise() - u_ctime < 0.3) ? ( set_slider(s, def_val(s)); u_drag = 0; ) :
+    ( u_drag = s; u_dy0 = mouse_y; u_dv0 = norm_of(s); u_dfine = mouse_cap & 4; automate(s, 0); );
+    u_ctarget = s; u_ctime = time_precise();
+    u_click = 0;
+  );
+  (hov && u_wheel != 0 && u_drag == 0) ? (
+    v = slider(s) + (u_wheel > 0 ? 1 : -1) * s_step(s);
+    slider(s) = max(s_min(s), min(s_max(s), v));
+    automate(s, 0); automate(s, 1);
+    u_wheel = 0;
+  );
+);
+
+function dots_h(x0, x1, y) local(x)
+(
+  gfx_set(0.16, 0.16, 0.18, 0.75);
+  x = x0;
+  while (x < x1) ( gfx_rect(x, y - uscale, max(1, 2 * uscale), max(1, 2 * uscale), 1); x += 6 * uscale; );
+);
+function dots_v(x, y0, y1) local(y)
+(
+  gfx_set(0.16, 0.16, 0.18, 0.75);
+  y = y0;
+  while (y < y1) ( gfx_rect(x - uscale, y, max(1, 2 * uscale), max(1, 2 * uscale), 1); y += 6 * uscale; );
+);
+
+function screw(cx, cy)
+(
+  gfx_set(0.62, 0.62, 0.63, 1); gfx_circle(cx, cy, 6 * uscale, 1, 1);
+  gfx_set(0.93, 0.93, 0.93, 1); gfx_circle(cx, cy, 4.5 * uscale, 1, 1);
+  gfx_set(0.55, 0.55, 0.57, 1);
+  gfx_line(cx - 3 * uscale, cy - 3 * uscale, cx + 3 * uscale, cy + 3 * uscale, 1);
+);
+
+function panel_bg() local(useed)
+(
+  gfx_set(0.86, 0.865, 0.875, 1);
+  gfx_rect(0, 0, gfx_w, gfx_h, 1);
+  useed = 7;
+  loop(140,
+    useed = (useed * 1103 + 12345) % 65536;
+    gfx_set(useed & 1 ? 1 : 0, useed & 1 ? 1 : 0, useed & 1 ? 1 : 0, 0.028);
+    gfx_rect(px(0), py(useed / 65536 * UDH), UDW * uscale, max(1, uscale), 1);
+  );
+  screw(px(14), py(12)); screw(px(UDW - 14), py(12));
+);
+
+function panel_band(y) local(uby, i)
+(
+  uby = py(y);
+  gfx_set(0.70, 0.71, 0.73, 1);
+  gfx_rect(px(0), uby, UDW * uscale, 9 * uscale, 1);
+  i = 0;
+  loop(UDW / 4,
+    gfx_set(0.52, 0.53, 0.56, 1);
+    gfx_line(px(i * 4), uby + 8 * uscale, px(i * 4 + 6), uby + uscale, 1);
+    i += 1;
+  );
+  gfx_set(0.97, 0.97, 0.97, 1);
+  gfx_rect(px(0), uby + 9 * uscale, UDW * uscale, max(1, uscale), 1);
+);
+
+function panel_title(tt, sub, origin) local(tw, th)
+(
+  gfx_set(0.14, 0.14, 0.15, 1);
+  gfx_setfont(1, "Arial", 30 * uscale);
+  gfx_x = px(70); gfx_y = py(8);
+  gfx_drawstr(tt);
+  gfx_measurestr(tt, tw, th);
+  gfx_setfont(1, "Arial", 17 * uscale);
+  gfx_x = px(70) + tw + 16 * uscale; gfx_y = py(17);
+  gfx_drawstr(sub);
+  gfx_setfont(1, "Arial", 12 * uscale);
+  gfx_set(0.36, 0.37, 0.40, 1);
+  gfx_x = px(71); gfx_y = py(41);
+  gfx_drawstr(origin);
+);
+
+function hint_bar(y) local(uhs, tw, th)
+(
+  gfx_set(0.20, 0.20, 0.21, 1);
+  gfx_rect(px(0), py(y), UDW * uscale, 36 * uscale, 1);
+  uhs = u_drag > 0 ? u_drag : u_hov;
+  gfx_setfont(1, "Arial", 13 * uscale);
+  gfx_set(0.80, 0.80, 0.82, 1);
+  strcpy(#uhint, hint_text(uhs));
+  gfx_measurestr(#uhint, tw, th);
+  tw > (UDW - 20) * uscale ? ( gfx_setfont(1, "Arial", 13 * uscale * (UDW - 20) * uscale / tw); gfx_measurestr(#uhint, tw, th); );
+  gfx_x = uox + (UDW * uscale - tw) * 0.5; gfx_y = py(y) + (36 * uscale - th) * 0.5;
+  gfx_drawstr(#uhint);
+);
+
+function frame_begin()
+(
+  u_down = mouse_cap & 1;
+  u_click = u_down && !u_pstate;
+  u_wheel = mouse_wheel;
+  mouse_wheel = 0;
+  u_hov = 0;
+);
+
+function frame_end() local(ufine)
+(
+  u_drag > 0 ? (
+    u_down ? (
+      mouse_cap |= 65536;
+      ufine = mouse_cap & 4;
+      ufine != u_dfine ? ( u_dy0 = mouse_y; u_dv0 = norm_of(u_drag); u_dfine = ufine; );
+      set_norm(u_drag, max(0, min(1, u_dv0 + (u_dy0 - mouse_y) / (150 * uscale) * (ufine ? 0.1 : 1))));
+    ) : ( automate(u_drag, 1); u_drag = 0; );
+  );
+  u_pstate = u_down;
+);
+
+function sel(s, x, y, w, h, lab) local(hov, v) (
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? u_hov = s;
+  gfx_set(0.12, 0.12, 0.13, 1);
+  ltext(lab, x - 72 * uscale, y + 4 * uscale, 12, 'b');
+  gfx_set(0.10, 0.10, 0.11, 1);
+  gfx_rect(x - uscale, y - uscale, w + 2 * uscale, h + 2 * uscale, 1);
+  gfx_set(hov ? 0.30 : 0.24, hov ? 0.30 : 0.24, hov ? 0.32 : 0.26, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.90, 0.90, 0.91, 1);
+  ctext(ptext(s), x + w * 0.5, y + (h - 14 * uscale) * 0.5, 12, 'b');
+  (u_click && hov) ? (
+    v = slider(s) + 1;
+    v > s_max(s) ? v = s_min(s);
+    set_slider(s, v);
+    u_click = 0;
+  );
+  (mouse_cap & 2) && !u_rp && hov ? (
+    v = slider(s) - 1;
+    v < s_min(s) ? v = s_max(s);
+    set_slider(s, v);
+  );
+  (hov && u_wheel != 0) ? (
+    v = slider(s) + (u_wheel > 0 ? 1 : -1);
+    set_slider(s, max(s_min(s), min(s_max(s), v)));
+    u_wheel = 0;
+  );
+);
+
+function fld(s, x, y, w, h, lab) (
+  gfx_set(0.12, 0.12, 0.13, 1);
+  ltext(lab, x - 72 * uscale, y + 4 * uscale, 12, 'b');
+  field(s, x, y, w, h);
+);
+
+function deja_btn(s, cx, cy, lab) local(hov, st, cr, cg, cb) (
+  st = slider(s);
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, 20 * uscale);
+  hov ? u_hov = s;
+  (u_click && hov) ? ( set_slider(s, ((st | 0) + 1) % 3); u_click = 0; );
+  cr = st >= 1.5 ? 0.98 : 0.30; cg = st >= 1.5 ? 0.55 : 0.86; cb = st >= 1.5 ? 0.10 : 0.45;
+  st >= 0.5 ? ( gfx_set(cr, cg, cb, 0.45); gfx_circle(cx, cy, 27 * uscale, 1, 1); );
+  gfx_set(0.62, 0.62, 0.64, 1); gfx_circle(cx, cy, 20 * uscale, 1, 1);
+  st >= 0.5 ? gfx_set(cr, cg, cb, 1) : gfx_set(0.93, 0.93, 0.92, 1);
+  gfx_circle(cx, cy, 17 * uscale, 1, 1);
+  gfx_set(1, 1, 1, 0.8); gfx_circle(cx - 5 * uscale, cy - 5 * uscale, 6 * uscale, 1, 1);
+  gfx_set(0.12, 0.12, 0.13, 1);
+  gfx_setfont(1, "Georgia", 20 * uscale, 'i');
+  gfx_measurestr(lab, g_tw, g_th);
+  gfx_x = cx - g_tw * 0.5 + (cx < px(490) ? -42 * uscale : 42 * uscale); gfx_y = cy - g_th * 0.5;
+  gfx_drawstr(lab);
+);
+
+frame_begin();
+panel_bg();
+
+gfx_set(0.14, 0.14, 0.15, 1);
+gfx_rect(px(30), py(10), 30 * uscale, 30 * uscale, 0);
+gfx_circle(px(38), py(18), 3 * uscale, 1, 1); gfx_circle(px(52), py(18), 3 * uscale, 1, 1); gfx_circle(px(45), py(25), 3 * uscale, 1, 1);
+gfx_circle(px(38), py(32), 3 * uscale, 1, 1); gfx_circle(px(52), py(32), 3 * uscale, 1, 1);
+panel_title("Losing My Marbles", "random sampler", "by chmaha  ·  based on Mutable Instruments Marbles");
+panel_band(60);
+
+dots_h(px(380), px(446), py(112));
+dots_h(px(534), px(600), py(112));
+deja_btn(9, px(350), py(110), "t");
+deja_btn(10, px(630), py(110), "X");
+knob_at(1, px(490), py(122), 34 * uscale, 0, 0);
+
+knob_at(3, px(200), py(170), 52 * uscale, 1, 0);
+knob_at(6, px(780), py(170), 52 * uscale, 1, 0);
+knob_at(4, px(84), py(290), 34 * uscale, 0, 0);
+knob_at(7, px(896), py(290), 34 * uscale, 0, 0);
+knob_at(2, px(490), py(240), 32 * uscale, 0, 0);
+knob_at(5, px(330), py(316), 32 * uscale, 0, 0);
+knob_at(8, px(650), py(316), 32 * uscale, 0, 0);
+
+gfx_set(0.37, 0.40, 0.46, 1);
+gfx_rect(px(60), py(388), 860 * uscale, 36 * uscale, 1);
+gi = 0;
+loop(7,
+  gcx = 104 + gi * 122;
+  gidx = gi == 0 ? 0 : gi == 1 ? 1 : gi == 2 ? 2 : -1;
+  gidx >= 0 ? ( LEDV[gidx] *= 0.82; led(px(gcx - 26), py(406), 1, 0.75, 0.25, LEDV[gidx]); );
+  gfx_set(1, 1, 1, 1);
+  ltext(gi == 0 ? "t1" : gi == 1 ? "t2" : gi == 2 ? "t3" : gi == 3 ? "Y" : gi == 4 ? "X1" : gi == 5 ? "X2" : "X3", px(gcx - 12), py(398), 15, 'i');
+  gi >= 4 ? (
+    gfx_set(0.68, 0.92, 0.70, 1);
+    k_voice >= 0.5 ? strcpy(#gn, "-") : VACT[gi - 4] ? strcpy(#gn, note_str(VNOTE[gi - 4])) : strcpy(#gn, "·");
+    ltext(#gn, px(gcx + 14), py(398), 14, 'b');
+  ) : gi == 3 ? (
+    gfx_set(0.68, 0.92, 0.70, 1);
+    sprintf(#gyv, "%d", max(0, y_last));
+    ltext(#gyv, px(gcx + 14), py(398), 14, 'b');
+  );
+  gi += 1;
+);
+
+gfx_set(0.62, 0.63, 0.65, 1);
+gfx_rect(px(20), py(432), (UDW - 40) * uscale, max(1, uscale), 1);
+gfx_set(0.97, 0.97, 0.97, 1);
+gfx_rect(px(20), py(433), (UDW - 40) * uscale, max(1, uscale), 1);
+
+gh = 22 * uscale;
+gcw = 110;
+sel(11, px(92), py(442), 136 * uscale, gh, "T MODEL");
+sel(12, px(310), py(442), gcw * uscale, gh, "T RANGE");
+sel(24, px(506), py(442), gcw * uscale, gh, "CLOCK");
+sel(26, px(702), py(442), gcw * uscale, gh, "VOICE");
+fld(27, px(888), py(442), 72 * uscale, gh, "ROOT");
+sel(13, px(92), py(474), 136 * uscale, gh, "X CTRL");
+sel(14, px(310), py(474), gcw * uscale, gh, "X RANGE");
+sel(15, px(506), py(474), gcw * uscale, gh, "SCALE");
+sel(16, px(702), py(474), gcw * uscale, gh, "X CLOCK");
+sel(35, px(888), py(474), 72 * uscale, gh, "X INPUT");
+fld(17, px(92), py(506), 136 * uscale, gh, "GATE LEN");
+fld(18, px(310), py(506), gcw * uscale, gh, "GATE RND");
+fld(19, px(506), py(506), gcw * uscale, gh, "Y SPREAD");
+fld(20, px(702), py(506), gcw * uscale, gh, "Y BIAS");
+fld(21, px(888), py(506), 72 * uscale, gh, "Y STEPS");
+fld(22, px(92), py(538), 136 * uscale, gh, "Y DIVIDE");
+sel(23, px(310), py(538), gcw * uscale, gh, "Y RANGE");
+fld(33, px(506), py(538), 70 * uscale, gh, "Y CC");
+sel(34, px(580), py(538), 40 * uscale, gh, "");
+fld(28, px(702), py(538), gcw * uscale, gh, "CHANNEL");
+fld(29, px(888), py(538), 72 * uscale, gh, "VELOCITY");
+k_voice >= 0.5 ? (
+  fld(30, px(92), py(570), 56 * uscale, gh, "DRUMS");
+  field(31, px(152), py(570), 56 * uscale, gh);
+  field(32, px(212), py(570), 56 * uscale, gh);
+);
+fld(37, px(506), py(570), gcw * uscale, gh, "SEED");
+sel(36, px(702), py(570), gcw * uscale, gh, "THRU");
+k_clock >= 0.5 ? (
+  dark_btn(25, px(816), py(570), 144 * uscale, gh, k_run >= 0.5 ? "STOP" : "RUN", k_run >= 0.5, 12) ? ( set_slider(25, k_run >= 0.5 ? 0 : 1); u_click = 0; );
+);
+
+!tables_ok ? (
+  gfx_set(0.10, 0.13, 0.20, 0.92);
+  gfx_rect(px(200), py(240), 580 * uscale, 50 * uscale, 1);
+  gfx_set(1, 0.8, 0.5, 1);
+  ctext("Missing or unreadable Dependencies/LosingMyMarbles/marbles_tables.txt", px(490), py(256), 14, 'b');
+);
+
+hint_bar(600);
+u_rp = mouse_cap & 2;
+frame_end();

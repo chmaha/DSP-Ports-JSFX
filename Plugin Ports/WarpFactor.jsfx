@@ -1,0 +1,2395 @@
+desc: Warp Factor Meta-Modulator (Mutable Instruments Warps port) by chmaha
+tags: effect modulation ring-modulator vocoder crossmod frequency-shifter
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  A port of Mutable Instruments Warps, the meta-modulator: two signals go in and one comes out, combined through
+  a continuously morphing set of algorithms. Algorithm sweeps from crossfade through wavefolding, analog and
+  digital ring modulation, XOR and comparator to a 20-band vocoder with release and freeze. Timbre changes the
+  character of the current algorithm, and in the vocoder it shifts the formants.
+  Input 1 (carrier) comes from channels 1+2 and input 2 (modulator) from channels 3+4; the Input selector can use
+  L/R instead. Send a second track into channels 3/4 for sidechained modulation. INT OSC replaces input 1 with
+  the internal oscillator (sine, triangle or saw; saw, pulse or noise in the vocoder), and Level 1 then sets its
+  pitch, or play it from MIDI. The Easter egg turns the module into a frequency shifter.
+  Levels and timbres are the module's own, so very hot signals saturate as they would on the real thing.
+  Needs Dependencies/WarpFactor/warps_tables.txt.
+  Ported from Warps by Emilie Gillet (Mutable Instruments)
+  https://github.com/pichenettes/eurorack (MIT)
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/WarpFactor/warps_tables.txt
+
+slider1:k_l1=0.5<0,1,0.001>-Level 1
+slider2:k_l2=0.5<0,1,0.001>-Level 2
+slider3:k_alg=0<0,1,0.001>-Algorithm
+slider4:k_tim=0.5<0,1,0.001>-Timbre
+slider5:k_osc=0<0,3,1{Off,Sine,Triangle,Saw}>-Int Osc
+slider6:k_egg=0<0,1,1{Off,On}>-Easter Egg
+slider7:k_route=0<0,1,1{Inputs 1+2 and 3+4,L and R}>-Inputs
+slider8:k_outm=0<0,1,1{Main,Main L Aux R}>-Outputs
+
+in_pin:Input 1 L
+in_pin:Input 1 R
+in_pin:Input 2 L
+in_pin:Input 2 R
+out_pin:Main L
+out_pin:Main R
+
+options:no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+
+SR = 96000;
+BS = 60;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+alloc.mp = 0;
+
+TRAW = alloc(18000);
+TBL = alloc(18000);
+TOFF = alloc(32);
+TLEN = alloc(32);
+tables_ok = 0;
+
+function tables_load() local(h, n, nt, i, p, q, len) (
+  h = file_open("WarpFactor/warps_tables.txt");
+  h < 0 ? h = file_open("Dependencies/WarpFactor/warps_tables.txt");
+  h >= 0 ? (
+    n = file_mem(h, TRAW, 18000);
+    file_close(h);
+    nt = TRAW[0];
+    (n > 100 && nt == 23) ? (
+      q = 1;
+      p = 0;
+      i = 0;
+      loop(nt,
+        len = TRAW[q];
+        TOFF[i] = TBL + p;
+        TLEN[i] = len;
+        memcpy(TBL + p, TRAW + q + 1, len);
+        p += len;
+        q += len + 1;
+        i += 1;
+      );
+      tables_ok = q == n;
+    );
+  );
+);
+tables_load();
+T_PRH = TOFF[0]; T_PRL = TOFF[1]; T_FB = TOFF[2]; T_SIN = TOFF[3]; T_XIN = TOFF[4]; T_XOUT = TOFF[5];
+T_FOLD = TOFF[6]; T_MH = TOFF[7]; T_ML = TOFF[8]; T_POT = TOFF[9]; T_POLES = TOFF[10];
+T_W0 = 11;
+T_U6 = TOFF[17]; T_D6 = TOFF[18]; T_U4 = TOFF[19]; T_D4 = TOFF[20]; T_U3 = TOFF[21]; T_D3 = TOFF[22];
+
+INL = alloc(BS); INR = alloc(BS); OUTL = alloc(BS); OUTR = alloc(BS);
+BUF0 = alloc(96); BUF1 = alloc(96); BUF2 = alloc(96); INTM = alloc(96);
+SRC0 = alloc(576); SRC1 = alloc(576);
+ENVT = alloc(96);
+
+function semi(x) local(p, i) (
+  p = x + 128;
+  i = p | 0;
+  T_PRH[i] * T_PRL[((p - i) * 256) | 0];
+);
+
+function interp(t, index, size) local(x, i, a) (
+  x = index * size;
+  i = x | 0;
+  a = t[i];
+  a + (t[i + 1] - a) * (x - i);
+);
+
+function slimit(x) ( (x * (27 + x * x)) / (27 + 9 * x * x); );
+function sclip(x) ( x < -3 ? -1 : x > 3 ? 1 : (x * (27 + x * x)) / (27 + 9 * x * x); );
+
+// ---------------------------------------------------------------------- sample rate converters
+H_U6 = alloc(48); H_D6 = alloc(48); H_U4 = alloc(48); H_D4 = alloc(48); H_U3 = alloc(36); H_D3 = alloc(36);
+
+function src_up_make(hfull, h, ka, ln) local(n, r, i, idx) (
+  n = ln / ka;
+  r = 0;
+  loop(ka,
+    i = 0;
+    loop(n,
+      idx = r + i * ka;
+      hfull[r * n + i] = h[idx >= ln / 2 ? ln - 1 - idx : idx];
+      i += 1;
+    );
+    r += 1;
+  );
+);
+function src_dn_make(hfull, h, ln) local(i) (
+  i = 0;
+  loop(ln, hfull[i] = h[i >= ln / 2 ? ln - 1 - i : i]; i += 1;);
+);
+tables_ok ? (
+  src_up_make(H_U6, T_U6, 6, 48); src_dn_make(H_D6, T_D6, 48);
+  src_up_make(H_U4, T_U4, 4, 48); src_dn_make(H_D4, T_D4, 48);
+  src_up_make(H_U3, T_U3, 3, 36); src_dn_make(H_D3, T_D3, 36);
+);
+
+function src_up(st, hfull, n, ka, in, out, sz) local(r, s, j, h) (
+  loop(sz,
+    memcpy(st + 1, st, n - 1);
+    st[0] = in[0];
+    in += 1;
+    r = 0;
+    loop(ka,
+      s = 0;
+      j = n - 1;
+      h = hfull + r * n + n - 1;
+      loop(n, s = st[j] * h[0] + s; j -= 1; h -= 1;);
+      out[0] = s;
+      out += 1;
+      r += 1;
+    );
+  );
+);
+
+function src_dn(st, pid, hf, n, ka, in, out, sz) local(s, j, p, b) (
+  while (sz > 0) (
+    loop(ka,
+      p = pid[0];
+      st[p] = in[0];
+      st[p + n] = in[0];
+      in += 1;
+      p -= 1;
+      p < 0 ? p += n;
+      pid[0] = p;
+    );
+    sz -= ka;
+    s = 0;
+    j = n - 1;
+    b = st + pid[0] + 1;
+    loop(n, s = b[j] * hf[j] + s; j -= 1;);
+    out[0] = s;
+    out += 1;
+  );
+);
+
+function su_load() (
+  hu00 = H_U6[0];
+  hu01 = H_U6[1];
+  hu02 = H_U6[2];
+  hu03 = H_U6[3];
+  hu04 = H_U6[4];
+  hu05 = H_U6[5];
+  hu06 = H_U6[6];
+  hu07 = H_U6[7];
+  hu10 = H_U6[8];
+  hu11 = H_U6[9];
+  hu12 = H_U6[10];
+  hu13 = H_U6[11];
+  hu14 = H_U6[12];
+  hu15 = H_U6[13];
+  hu16 = H_U6[14];
+  hu17 = H_U6[15];
+  hu20 = H_U6[16];
+  hu21 = H_U6[17];
+  hu22 = H_U6[18];
+  hu23 = H_U6[19];
+  hu24 = H_U6[20];
+  hu25 = H_U6[21];
+  hu26 = H_U6[22];
+  hu27 = H_U6[23];
+  hu30 = H_U6[24];
+  hu31 = H_U6[25];
+  hu32 = H_U6[26];
+  hu33 = H_U6[27];
+  hu34 = H_U6[28];
+  hu35 = H_U6[29];
+  hu36 = H_U6[30];
+  hu37 = H_U6[31];
+  hu40 = H_U6[32];
+  hu41 = H_U6[33];
+  hu42 = H_U6[34];
+  hu43 = H_U6[35];
+  hu44 = H_U6[36];
+  hu45 = H_U6[37];
+  hu46 = H_U6[38];
+  hu47 = H_U6[39];
+  hu50 = H_U6[40];
+  hu51 = H_U6[41];
+  hu52 = H_U6[42];
+  hu53 = H_U6[43];
+  hu54 = H_U6[44];
+  hu55 = H_U6[45];
+  hu56 = H_U6[46];
+  hu57 = H_U6[47];
+);
+function su0(in, out) local(x0, x1, x2, x3, x4, x5, x6, x7, v) (
+  x0 = sv0_0; x1 = sv0_1; x2 = sv0_2; x3 = sv0_3; x4 = sv0_4; x5 = sv0_5; x6 = sv0_6; x7 = sv0_7;
+  v = 0;
+  loop(60,
+    x7 = x6; x6 = x5; x5 = x4; x4 = x3; x3 = x2; x2 = x1; x1 = x0; x0 = in[v];
+    out[v * 6 + 0] = x0 * hu00 + (x1 * hu01 + (x2 * hu02 + (x3 * hu03 + (x4 * hu04 + (x5 * hu05 + (x6 * hu06 + (x7 * hu07)))))));
+    out[v * 6 + 1] = x0 * hu10 + (x1 * hu11 + (x2 * hu12 + (x3 * hu13 + (x4 * hu14 + (x5 * hu15 + (x6 * hu16 + (x7 * hu17)))))));
+    out[v * 6 + 2] = x0 * hu20 + (x1 * hu21 + (x2 * hu22 + (x3 * hu23 + (x4 * hu24 + (x5 * hu25 + (x6 * hu26 + (x7 * hu27)))))));
+    out[v * 6 + 3] = x0 * hu30 + (x1 * hu31 + (x2 * hu32 + (x3 * hu33 + (x4 * hu34 + (x5 * hu35 + (x6 * hu36 + (x7 * hu37)))))));
+    out[v * 6 + 4] = x0 * hu40 + (x1 * hu41 + (x2 * hu42 + (x3 * hu43 + (x4 * hu44 + (x5 * hu45 + (x6 * hu46 + (x7 * hu47)))))));
+    out[v * 6 + 5] = x0 * hu50 + (x1 * hu51 + (x2 * hu52 + (x3 * hu53 + (x4 * hu54 + (x5 * hu55 + (x6 * hu56 + (x7 * hu57)))))));
+    v += 1;
+  );
+  sv0_0 = x0; sv0_1 = x1; sv0_2 = x2; sv0_3 = x3; sv0_4 = x4; sv0_5 = x5; sv0_6 = x6; sv0_7 = x7;
+);
+function su1(in, out) local(x0, x1, x2, x3, x4, x5, x6, x7, v) (
+  x0 = sv1_0; x1 = sv1_1; x2 = sv1_2; x3 = sv1_3; x4 = sv1_4; x5 = sv1_5; x6 = sv1_6; x7 = sv1_7;
+  v = 0;
+  loop(60,
+    x7 = x6; x6 = x5; x5 = x4; x4 = x3; x3 = x2; x2 = x1; x1 = x0; x0 = in[v];
+    out[v * 6 + 0] = x0 * hu00 + (x1 * hu01 + (x2 * hu02 + (x3 * hu03 + (x4 * hu04 + (x5 * hu05 + (x6 * hu06 + (x7 * hu07)))))));
+    out[v * 6 + 1] = x0 * hu10 + (x1 * hu11 + (x2 * hu12 + (x3 * hu13 + (x4 * hu14 + (x5 * hu15 + (x6 * hu16 + (x7 * hu17)))))));
+    out[v * 6 + 2] = x0 * hu20 + (x1 * hu21 + (x2 * hu22 + (x3 * hu23 + (x4 * hu24 + (x5 * hu25 + (x6 * hu26 + (x7 * hu27)))))));
+    out[v * 6 + 3] = x0 * hu30 + (x1 * hu31 + (x2 * hu32 + (x3 * hu33 + (x4 * hu34 + (x5 * hu35 + (x6 * hu36 + (x7 * hu37)))))));
+    out[v * 6 + 4] = x0 * hu40 + (x1 * hu41 + (x2 * hu42 + (x3 * hu43 + (x4 * hu44 + (x5 * hu45 + (x6 * hu46 + (x7 * hu47)))))));
+    out[v * 6 + 5] = x0 * hu50 + (x1 * hu51 + (x2 * hu52 + (x3 * hu53 + (x4 * hu54 + (x5 * hu55 + (x6 * hu56 + (x7 * hu57)))))));
+    v += 1;
+  );
+  sv1_0 = x0; sv1_1 = x1; sv1_2 = x2; sv1_3 = x3; sv1_4 = x4; sv1_5 = x5; sv1_6 = x6; sv1_7 = x7;
+);
+function dn6(st, pid, in, out, sz) local(s, p, b) (
+  while (sz > 0) (
+    loop(6,
+      p = pid[0];
+      st[p] = in[0];
+      st[p + 48] = in[0];
+      in += 1;
+      p -= 1;
+      p < 0 ? p += 48;
+      pid[0] = p;
+    );
+    sz -= 6;
+    b = st + pid[0] + 1;
+    s = 0;
+    s = b[47] * zd647 + s;
+    s = b[46] * zd646 + s;
+    s = b[45] * zd645 + s;
+    s = b[44] * zd644 + s;
+    s = b[43] * zd643 + s;
+    s = b[42] * zd642 + s;
+    s = b[41] * zd641 + s;
+    s = b[40] * zd640 + s;
+    s = b[39] * zd639 + s;
+    s = b[38] * zd638 + s;
+    s = b[37] * zd637 + s;
+    s = b[36] * zd636 + s;
+    s = b[35] * zd635 + s;
+    s = b[34] * zd634 + s;
+    s = b[33] * zd633 + s;
+    s = b[32] * zd632 + s;
+    s = b[31] * zd631 + s;
+    s = b[30] * zd630 + s;
+    s = b[29] * zd629 + s;
+    s = b[28] * zd628 + s;
+    s = b[27] * zd627 + s;
+    s = b[26] * zd626 + s;
+    s = b[25] * zd625 + s;
+    s = b[24] * zd624 + s;
+    s = b[23] * zd623 + s;
+    s = b[22] * zd622 + s;
+    s = b[21] * zd621 + s;
+    s = b[20] * zd620 + s;
+    s = b[19] * zd619 + s;
+    s = b[18] * zd618 + s;
+    s = b[17] * zd617 + s;
+    s = b[16] * zd616 + s;
+    s = b[15] * zd615 + s;
+    s = b[14] * zd614 + s;
+    s = b[13] * zd613 + s;
+    s = b[12] * zd612 + s;
+    s = b[11] * zd611 + s;
+    s = b[10] * zd610 + s;
+    s = b[9] * zd69 + s;
+    s = b[8] * zd68 + s;
+    s = b[7] * zd67 + s;
+    s = b[6] * zd66 + s;
+    s = b[5] * zd65 + s;
+    s = b[4] * zd64 + s;
+    s = b[3] * zd63 + s;
+    s = b[2] * zd62 + s;
+    s = b[1] * zd61 + s;
+    s = b[0] * zd60 + s;
+    out[0] = s;
+    out += 1;
+  );
+);
+function dn4(st, pid, in, out, sz) local(s, p, b) (
+  while (sz > 0) (
+    loop(4,
+      p = pid[0];
+      st[p] = in[0];
+      st[p + 48] = in[0];
+      in += 1;
+      p -= 1;
+      p < 0 ? p += 48;
+      pid[0] = p;
+    );
+    sz -= 4;
+    b = st + pid[0] + 1;
+    s = 0;
+    s = b[47] * zd447 + s;
+    s = b[46] * zd446 + s;
+    s = b[45] * zd445 + s;
+    s = b[44] * zd444 + s;
+    s = b[43] * zd443 + s;
+    s = b[42] * zd442 + s;
+    s = b[41] * zd441 + s;
+    s = b[40] * zd440 + s;
+    s = b[39] * zd439 + s;
+    s = b[38] * zd438 + s;
+    s = b[37] * zd437 + s;
+    s = b[36] * zd436 + s;
+    s = b[35] * zd435 + s;
+    s = b[34] * zd434 + s;
+    s = b[33] * zd433 + s;
+    s = b[32] * zd432 + s;
+    s = b[31] * zd431 + s;
+    s = b[30] * zd430 + s;
+    s = b[29] * zd429 + s;
+    s = b[28] * zd428 + s;
+    s = b[27] * zd427 + s;
+    s = b[26] * zd426 + s;
+    s = b[25] * zd425 + s;
+    s = b[24] * zd424 + s;
+    s = b[23] * zd423 + s;
+    s = b[22] * zd422 + s;
+    s = b[21] * zd421 + s;
+    s = b[20] * zd420 + s;
+    s = b[19] * zd419 + s;
+    s = b[18] * zd418 + s;
+    s = b[17] * zd417 + s;
+    s = b[16] * zd416 + s;
+    s = b[15] * zd415 + s;
+    s = b[14] * zd414 + s;
+    s = b[13] * zd413 + s;
+    s = b[12] * zd412 + s;
+    s = b[11] * zd411 + s;
+    s = b[10] * zd410 + s;
+    s = b[9] * zd49 + s;
+    s = b[8] * zd48 + s;
+    s = b[7] * zd47 + s;
+    s = b[6] * zd46 + s;
+    s = b[5] * zd45 + s;
+    s = b[4] * zd44 + s;
+    s = b[3] * zd43 + s;
+    s = b[2] * zd42 + s;
+    s = b[1] * zd41 + s;
+    s = b[0] * zd40 + s;
+    out[0] = s;
+    out += 1;
+  );
+);
+function dn3(st, pid, in, out, sz) local(s, p, b) (
+  while (sz > 0) (
+    loop(3,
+      p = pid[0];
+      st[p] = in[0];
+      st[p + 36] = in[0];
+      in += 1;
+      p -= 1;
+      p < 0 ? p += 36;
+      pid[0] = p;
+    );
+    sz -= 3;
+    b = st + pid[0] + 1;
+    s = 0;
+    s = b[35] * zd335 + s;
+    s = b[34] * zd334 + s;
+    s = b[33] * zd333 + s;
+    s = b[32] * zd332 + s;
+    s = b[31] * zd331 + s;
+    s = b[30] * zd330 + s;
+    s = b[29] * zd329 + s;
+    s = b[28] * zd328 + s;
+    s = b[27] * zd327 + s;
+    s = b[26] * zd326 + s;
+    s = b[25] * zd325 + s;
+    s = b[24] * zd324 + s;
+    s = b[23] * zd323 + s;
+    s = b[22] * zd322 + s;
+    s = b[21] * zd321 + s;
+    s = b[20] * zd320 + s;
+    s = b[19] * zd319 + s;
+    s = b[18] * zd318 + s;
+    s = b[17] * zd317 + s;
+    s = b[16] * zd316 + s;
+    s = b[15] * zd315 + s;
+    s = b[14] * zd314 + s;
+    s = b[13] * zd313 + s;
+    s = b[12] * zd312 + s;
+    s = b[11] * zd311 + s;
+    s = b[10] * zd310 + s;
+    s = b[9] * zd39 + s;
+    s = b[8] * zd38 + s;
+    s = b[7] * zd37 + s;
+    s = b[6] * zd36 + s;
+    s = b[5] * zd35 + s;
+    s = b[4] * zd34 + s;
+    s = b[3] * zd33 + s;
+    s = b[2] * zd32 + s;
+    s = b[1] * zd31 + s;
+    s = b[0] * zd30 + s;
+    out[0] = s;
+    out += 1;
+  );
+);
+function uf4(st, in, out, sz) local(x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, r, s) (
+  x0 = st[0]; x1 = st[1]; x2 = st[2]; x3 = st[3]; x4 = st[4]; x5 = st[5]; x6 = st[6]; x7 = st[7]; x8 = st[8]; x9 = st[9]; x10 = st[10]; x11 = st[11];
+  loop(sz,
+    x11 = x10; x10 = x9; x9 = x8; x8 = x7; x7 = x6; x6 = x5; x5 = x4; x4 = x3; x3 = x2; x2 = x1; x1 = x0; x0 = in[0];
+    in += 1;
+    s = 0;
+    s = x11 * zu4_0_11 + s;
+    s = x10 * zu4_0_10 + s;
+    s = x9 * zu4_0_9 + s;
+    s = x8 * zu4_0_8 + s;
+    s = x7 * zu4_0_7 + s;
+    s = x6 * zu4_0_6 + s;
+    s = x5 * zu4_0_5 + s;
+    s = x4 * zu4_0_4 + s;
+    s = x3 * zu4_0_3 + s;
+    s = x2 * zu4_0_2 + s;
+    s = x1 * zu4_0_1 + s;
+    s = x0 * zu4_0_0 + s;
+    out[0] = s;
+    out += 1;
+    s = 0;
+    s = x11 * zu4_1_11 + s;
+    s = x10 * zu4_1_10 + s;
+    s = x9 * zu4_1_9 + s;
+    s = x8 * zu4_1_8 + s;
+    s = x7 * zu4_1_7 + s;
+    s = x6 * zu4_1_6 + s;
+    s = x5 * zu4_1_5 + s;
+    s = x4 * zu4_1_4 + s;
+    s = x3 * zu4_1_3 + s;
+    s = x2 * zu4_1_2 + s;
+    s = x1 * zu4_1_1 + s;
+    s = x0 * zu4_1_0 + s;
+    out[0] = s;
+    out += 1;
+    s = 0;
+    s = x11 * zu4_2_11 + s;
+    s = x10 * zu4_2_10 + s;
+    s = x9 * zu4_2_9 + s;
+    s = x8 * zu4_2_8 + s;
+    s = x7 * zu4_2_7 + s;
+    s = x6 * zu4_2_6 + s;
+    s = x5 * zu4_2_5 + s;
+    s = x4 * zu4_2_4 + s;
+    s = x3 * zu4_2_3 + s;
+    s = x2 * zu4_2_2 + s;
+    s = x1 * zu4_2_1 + s;
+    s = x0 * zu4_2_0 + s;
+    out[0] = s;
+    out += 1;
+    s = 0;
+    s = x11 * zu4_3_11 + s;
+    s = x10 * zu4_3_10 + s;
+    s = x9 * zu4_3_9 + s;
+    s = x8 * zu4_3_8 + s;
+    s = x7 * zu4_3_7 + s;
+    s = x6 * zu4_3_6 + s;
+    s = x5 * zu4_3_5 + s;
+    s = x4 * zu4_3_4 + s;
+    s = x3 * zu4_3_3 + s;
+    s = x2 * zu4_3_2 + s;
+    s = x1 * zu4_3_1 + s;
+    s = x0 * zu4_3_0 + s;
+    out[0] = s;
+    out += 1;
+  );
+  st[0] = x0; st[1] = x1; st[2] = x2; st[3] = x3; st[4] = x4; st[5] = x5; st[6] = x6; st[7] = x7; st[8] = x8; st[9] = x9; st[10] = x10; st[11] = x11;
+);
+function uf3(st, in, out, sz) local(x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, r, s) (
+  x0 = st[0]; x1 = st[1]; x2 = st[2]; x3 = st[3]; x4 = st[4]; x5 = st[5]; x6 = st[6]; x7 = st[7]; x8 = st[8]; x9 = st[9]; x10 = st[10]; x11 = st[11];
+  loop(sz,
+    x11 = x10; x10 = x9; x9 = x8; x8 = x7; x7 = x6; x6 = x5; x5 = x4; x4 = x3; x3 = x2; x2 = x1; x1 = x0; x0 = in[0];
+    in += 1;
+    s = 0;
+    s = x11 * zu3_0_11 + s;
+    s = x10 * zu3_0_10 + s;
+    s = x9 * zu3_0_9 + s;
+    s = x8 * zu3_0_8 + s;
+    s = x7 * zu3_0_7 + s;
+    s = x6 * zu3_0_6 + s;
+    s = x5 * zu3_0_5 + s;
+    s = x4 * zu3_0_4 + s;
+    s = x3 * zu3_0_3 + s;
+    s = x2 * zu3_0_2 + s;
+    s = x1 * zu3_0_1 + s;
+    s = x0 * zu3_0_0 + s;
+    out[0] = s;
+    out += 1;
+    s = 0;
+    s = x11 * zu3_1_11 + s;
+    s = x10 * zu3_1_10 + s;
+    s = x9 * zu3_1_9 + s;
+    s = x8 * zu3_1_8 + s;
+    s = x7 * zu3_1_7 + s;
+    s = x6 * zu3_1_6 + s;
+    s = x5 * zu3_1_5 + s;
+    s = x4 * zu3_1_4 + s;
+    s = x3 * zu3_1_3 + s;
+    s = x2 * zu3_1_2 + s;
+    s = x1 * zu3_1_1 + s;
+    s = x0 * zu3_1_0 + s;
+    out[0] = s;
+    out += 1;
+    s = 0;
+    s = x11 * zu3_2_11 + s;
+    s = x10 * zu3_2_10 + s;
+    s = x9 * zu3_2_9 + s;
+    s = x8 * zu3_2_8 + s;
+    s = x7 * zu3_2_7 + s;
+    s = x6 * zu3_2_6 + s;
+    s = x5 * zu3_2_5 + s;
+    s = x4 * zu3_2_4 + s;
+    s = x3 * zu3_2_3 + s;
+    s = x2 * zu3_2_2 + s;
+    s = x1 * zu3_2_1 + s;
+    s = x0 * zu3_2_0 + s;
+    out[0] = s;
+    out += 1;
+  );
+  st[0] = x0; st[1] = x1; st[2] = x2; st[3] = x3; st[4] = x4; st[5] = x5; st[6] = x6; st[7] = x7; st[8] = x8; st[9] = x9; st[10] = x10; st[11] = x11;
+);
+function su2_load() (
+  zd60 = H_D6[0]; zd40 = H_D4[0];
+  zd61 = H_D6[1]; zd41 = H_D4[1];
+  zd62 = H_D6[2]; zd42 = H_D4[2];
+  zd63 = H_D6[3]; zd43 = H_D4[3];
+  zd64 = H_D6[4]; zd44 = H_D4[4];
+  zd65 = H_D6[5]; zd45 = H_D4[5];
+  zd66 = H_D6[6]; zd46 = H_D4[6];
+  zd67 = H_D6[7]; zd47 = H_D4[7];
+  zd68 = H_D6[8]; zd48 = H_D4[8];
+  zd69 = H_D6[9]; zd49 = H_D4[9];
+  zd610 = H_D6[10]; zd410 = H_D4[10];
+  zd611 = H_D6[11]; zd411 = H_D4[11];
+  zd612 = H_D6[12]; zd412 = H_D4[12];
+  zd613 = H_D6[13]; zd413 = H_D4[13];
+  zd614 = H_D6[14]; zd414 = H_D4[14];
+  zd615 = H_D6[15]; zd415 = H_D4[15];
+  zd616 = H_D6[16]; zd416 = H_D4[16];
+  zd617 = H_D6[17]; zd417 = H_D4[17];
+  zd618 = H_D6[18]; zd418 = H_D4[18];
+  zd619 = H_D6[19]; zd419 = H_D4[19];
+  zd620 = H_D6[20]; zd420 = H_D4[20];
+  zd621 = H_D6[21]; zd421 = H_D4[21];
+  zd622 = H_D6[22]; zd422 = H_D4[22];
+  zd623 = H_D6[23]; zd423 = H_D4[23];
+  zd624 = H_D6[24]; zd424 = H_D4[24];
+  zd625 = H_D6[25]; zd425 = H_D4[25];
+  zd626 = H_D6[26]; zd426 = H_D4[26];
+  zd627 = H_D6[27]; zd427 = H_D4[27];
+  zd628 = H_D6[28]; zd428 = H_D4[28];
+  zd629 = H_D6[29]; zd429 = H_D4[29];
+  zd630 = H_D6[30]; zd430 = H_D4[30];
+  zd631 = H_D6[31]; zd431 = H_D4[31];
+  zd632 = H_D6[32]; zd432 = H_D4[32];
+  zd633 = H_D6[33]; zd433 = H_D4[33];
+  zd634 = H_D6[34]; zd434 = H_D4[34];
+  zd635 = H_D6[35]; zd435 = H_D4[35];
+  zd636 = H_D6[36]; zd436 = H_D4[36];
+  zd637 = H_D6[37]; zd437 = H_D4[37];
+  zd638 = H_D6[38]; zd438 = H_D4[38];
+  zd639 = H_D6[39]; zd439 = H_D4[39];
+  zd640 = H_D6[40]; zd440 = H_D4[40];
+  zd641 = H_D6[41]; zd441 = H_D4[41];
+  zd642 = H_D6[42]; zd442 = H_D4[42];
+  zd643 = H_D6[43]; zd443 = H_D4[43];
+  zd644 = H_D6[44]; zd444 = H_D4[44];
+  zd645 = H_D6[45]; zd445 = H_D4[45];
+  zd646 = H_D6[46]; zd446 = H_D4[46];
+  zd647 = H_D6[47]; zd447 = H_D4[47];
+  zd30 = H_D3[0];
+  zd31 = H_D3[1];
+  zd32 = H_D3[2];
+  zd33 = H_D3[3];
+  zd34 = H_D3[4];
+  zd35 = H_D3[5];
+  zd36 = H_D3[6];
+  zd37 = H_D3[7];
+  zd38 = H_D3[8];
+  zd39 = H_D3[9];
+  zd310 = H_D3[10];
+  zd311 = H_D3[11];
+  zd312 = H_D3[12];
+  zd313 = H_D3[13];
+  zd314 = H_D3[14];
+  zd315 = H_D3[15];
+  zd316 = H_D3[16];
+  zd317 = H_D3[17];
+  zd318 = H_D3[18];
+  zd319 = H_D3[19];
+  zd320 = H_D3[20];
+  zd321 = H_D3[21];
+  zd322 = H_D3[22];
+  zd323 = H_D3[23];
+  zd324 = H_D3[24];
+  zd325 = H_D3[25];
+  zd326 = H_D3[26];
+  zd327 = H_D3[27];
+  zd328 = H_D3[28];
+  zd329 = H_D3[29];
+  zd330 = H_D3[30];
+  zd331 = H_D3[31];
+  zd332 = H_D3[32];
+  zd333 = H_D3[33];
+  zd334 = H_D3[34];
+  zd335 = H_D3[35];
+  zu4_0_0 = H_U4[0];
+  zu4_0_1 = H_U4[1];
+  zu4_0_2 = H_U4[2];
+  zu4_0_3 = H_U4[3];
+  zu4_0_4 = H_U4[4];
+  zu4_0_5 = H_U4[5];
+  zu4_0_6 = H_U4[6];
+  zu4_0_7 = H_U4[7];
+  zu4_0_8 = H_U4[8];
+  zu4_0_9 = H_U4[9];
+  zu4_0_10 = H_U4[10];
+  zu4_0_11 = H_U4[11];
+  zu4_1_0 = H_U4[12];
+  zu4_1_1 = H_U4[13];
+  zu4_1_2 = H_U4[14];
+  zu4_1_3 = H_U4[15];
+  zu4_1_4 = H_U4[16];
+  zu4_1_5 = H_U4[17];
+  zu4_1_6 = H_U4[18];
+  zu4_1_7 = H_U4[19];
+  zu4_1_8 = H_U4[20];
+  zu4_1_9 = H_U4[21];
+  zu4_1_10 = H_U4[22];
+  zu4_1_11 = H_U4[23];
+  zu4_2_0 = H_U4[24];
+  zu4_2_1 = H_U4[25];
+  zu4_2_2 = H_U4[26];
+  zu4_2_3 = H_U4[27];
+  zu4_2_4 = H_U4[28];
+  zu4_2_5 = H_U4[29];
+  zu4_2_6 = H_U4[30];
+  zu4_2_7 = H_U4[31];
+  zu4_2_8 = H_U4[32];
+  zu4_2_9 = H_U4[33];
+  zu4_2_10 = H_U4[34];
+  zu4_2_11 = H_U4[35];
+  zu4_3_0 = H_U4[36];
+  zu4_3_1 = H_U4[37];
+  zu4_3_2 = H_U4[38];
+  zu4_3_3 = H_U4[39];
+  zu4_3_4 = H_U4[40];
+  zu4_3_5 = H_U4[41];
+  zu4_3_6 = H_U4[42];
+  zu4_3_7 = H_U4[43];
+  zu4_3_8 = H_U4[44];
+  zu4_3_9 = H_U4[45];
+  zu4_3_10 = H_U4[46];
+  zu4_3_11 = H_U4[47];
+  zu3_0_0 = H_U3[0];
+  zu3_0_1 = H_U3[1];
+  zu3_0_2 = H_U3[2];
+  zu3_0_3 = H_U3[3];
+  zu3_0_4 = H_U3[4];
+  zu3_0_5 = H_U3[5];
+  zu3_0_6 = H_U3[6];
+  zu3_0_7 = H_U3[7];
+  zu3_0_8 = H_U3[8];
+  zu3_0_9 = H_U3[9];
+  zu3_0_10 = H_U3[10];
+  zu3_0_11 = H_U3[11];
+  zu3_1_0 = H_U3[12];
+  zu3_1_1 = H_U3[13];
+  zu3_1_2 = H_U3[14];
+  zu3_1_3 = H_U3[15];
+  zu3_1_4 = H_U3[16];
+  zu3_1_5 = H_U3[17];
+  zu3_1_6 = H_U3[18];
+  zu3_1_7 = H_U3[19];
+  zu3_1_8 = H_U3[20];
+  zu3_1_9 = H_U3[21];
+  zu3_1_10 = H_U3[22];
+  zu3_1_11 = H_U3[23];
+  zu3_2_0 = H_U3[24];
+  zu3_2_1 = H_U3[25];
+  zu3_2_2 = H_U3[26];
+  zu3_2_3 = H_U3[27];
+  zu3_2_4 = H_U3[28];
+  zu3_2_5 = H_U3[29];
+  zu3_2_6 = H_U3[30];
+  zu3_2_7 = H_U3[31];
+  zu3_2_8 = H_U3[32];
+  zu3_2_9 = H_U3[33];
+  zu3_2_10 = H_U3[34];
+  zu3_2_11 = H_U3[35];
+);
+// ---------------------------------------------------------------------- filter bank and vocoder
+NB = 20;
+B_GROUP = alloc(21); B_DEC = alloc(20); B_DELAY = alloc(20); B_POST = alloc(20); B_F = alloc(40); B_FQ = alloc(40);
+B_OFS = alloc(20); B_DLO = alloc(20); B_DLS = alloc(20);
+FB_T0 = alloc(2); FB_T1 = alloc(2); FB_SMP = alloc(2); FB_SVF = alloc(2); FB_MD = alloc(2); FB_MDP = alloc(2);
+FB_LD = alloc(2); FB_LDP = alloc(2); FB_MU = alloc(2); FB_LU = alloc(2); FB_DL = alloc(2); FB_HEAD = alloc(2);
+
+function fb_alloc(b) (
+  FB_T0[b] = alloc(96); FB_T1[b] = alloc(96); FB_SMP[b] = alloc(960); FB_SVF[b] = alloc(240);
+  FB_MD[b] = alloc(72); FB_LD[b] = alloc(96); FB_MU[b] = alloc(12); FB_LU[b] = alloc(12);
+  FB_DL[b] = alloc(6144); FB_HEAD[b] = alloc(20);
+);
+fb_alloc(0); fb_alloc(1);
+
+function fb_init() local(i, b, dec, grp, ofs, mx, co, c, comp) (
+  mx = 0; ofs = 0; grp = -1; dec = -1;
+  i = 0;
+  loop(NB,
+    co = T_FB + i * 7;
+    B_DEC[i] = co[0] | 0;
+    B_DEC[i] != dec ? ( dec = B_DEC[i]; grp += 1; );
+    B_GROUP[i] = grp;
+    B_OFS[i] = ofs;
+    ofs += floor(96 / B_DEC[i]);
+    B_DELAY[i] = (co[1] | 0) * B_DEC[i];
+    B_POST[i] = co[2];
+    B_F[i * 2] = co[3]; B_FQ[i * 2] = co[4];
+    B_F[i * 2 + 1] = co[5]; B_FQ[i * 2 + 1] = co[6];
+    mx = max(mx, B_DELAY[i]);
+    i += 1;
+  );
+  B_GROUP[NB] = B_GROUP[NB - 1] + 1;
+  mx = min(mx, 256);
+  ofs = 0;
+  i = 0;
+  loop(NB,
+    comp = mx - B_DELAY[i];
+    B_GROUP[i] === 0 ? (
+      comp -= 4 * (24 + 6);
+      comp -= 18;
+      comp -= 6;
+    ) : B_GROUP[i] === 1 ? (
+      comp -= 18;
+      comp -= 6;
+    );
+    comp = max(comp - floor(B_DEC[i] / 2), 0);
+    c = floor(comp / B_DEC[i]);
+    B_DLO[i] = ofs;
+    B_DLS[i] = c + 1;
+    ofs += c + 1;
+    i += 1;
+  );
+  b = 0;
+  loop(2,
+    memset(FB_SVF[b], 0, 240);
+    memset(FB_MD[b], 0, 72); memset(FB_LD[b], 0, 96);
+    memset(FB_MU[b], 0, 12); memset(FB_LU[b], 0, 12);
+    memset(FB_DL[b], 0, 6144); memset(FB_HEAD[b], 0, 20);
+    FB_MDP[b] = 35; FB_LDP[b] = 47;
+    b += 1;
+  );
+);
+
+function sv_lp(st, in, out, n, f, fq) local(lp1, bp1, lp2, bp2, v, y) (
+  lp1 = st[0]; bp1 = st[1]; lp2 = st[2]; bp2 = st[3];
+  loop(n,
+    v = in[0]; in += 1;
+    lp1 += f * bp1;
+    bp1 += ((-fq * bp1) - (f * lp1)) + v;
+    y = lp1 * f;
+    lp2 += f * bp2;
+    bp2 += ((-fq * bp2) - (f * lp2)) + y;
+    out[0] = lp2 * f; out += 1;
+  );
+  st[0] = lp1; st[1] = bp1; st[2] = lp2; st[3] = bp2;
+);
+
+function sv_bp(st, in, out, n, f, fq) local(lp1, bp1, lp2, bp2, x1, x2, v, y) (
+  lp1 = st[0]; bp1 = st[1]; lp2 = st[2]; bp2 = st[3]; x1 = st[4]; x2 = st[5];
+  loop(n,
+    v = in[0]; in += 1;
+    lp1 += f * bp1;
+    bp1 += ((-fq * bp1) - (f * lp1)) + v;
+    bp1 += x1;
+    x1 = v;
+    y = bp1 * fq;
+    lp2 += f * bp2;
+    bp2 += ((-fq * bp2) - (f * lp2)) + y;
+    bp2 += x2;
+    x2 = y;
+    out[0] = bp2 * fq; out += 1;
+  );
+  st[0] = lp1; st[1] = bp1; st[2] = lp2; st[3] = bp2; st[4] = x1; st[5] = x2;
+);
+
+function sv_hp(st, in, out, n, f, fq) local(lp1, bp1, lp2, bp2, x1, x2, v, y) (
+  lp1 = st[0]; bp1 = st[1]; lp2 = st[2]; bp2 = st[3]; x1 = st[4]; x2 = st[5];
+  loop(n,
+    v = in[0]; in += 1;
+    lp1 += f * bp1;
+    bp1 += ((-fq * bp1) - (f * lp1)) + v;
+    x1 = v;
+    y = (x1 - (lp1 * f)) - (bp1 * fq);
+    lp2 += f * bp2;
+    bp2 += ((-fq * bp2) - (f * lp2)) + y;
+    x2 = y;
+    out[0] = (x2 - (lp2 * f)) - (bp2 * fq); out += 1;
+  );
+  st[0] = lp1; st[1] = bp1; st[2] = lp2; st[3] = bp2; st[4] = x1; st[5] = x2;
+);
+
+function fb_analyze(b, in, sz) local(i, pass, bsz, src, dst, st, t0, t1, g, k) (
+  t0 = FB_T0[b]; t1 = FB_T1[b];
+  dn3(FB_MD[b], FB_MDP + b, in, t0, sz);
+  dn4(FB_LD[b], FB_LDP + b, t0, t1, floor(sz / 3));
+  i = 0;
+  loop(NB,
+    bsz = floor(sz / B_DEC[i]);
+    dst = FB_SMP[b] + B_OFS[i];
+    pass = 0;
+    loop(2,
+      src = pass === 0 ? (B_GROUP[i] === 0 ? t1 : B_GROUP[i] === 1 ? t0 : in) : dst;
+      st = FB_SVF[b] + (i * 2 + pass) * 6;
+      i === 0 ? sv_lp(st, src, dst, bsz, B_F[i * 2 + pass], B_FQ[i * 2 + pass]) :
+      i === NB - 1 ? sv_hp(st, src, dst, bsz, B_F[i * 2 + pass], B_FQ[i * 2 + pass]) :
+      sv_bp(st, src, dst, bsz, B_F[i * 2 + pass], B_FQ[i * 2 + pass]);
+      pass += 1;
+    );
+    g = B_POST[i];
+    k = 0;
+    loop(bsz, dst[k] *= g; k += 1;);
+    i += 1;
+  );
+);
+
+function fb_synth(b, out, sz) local(i, bsz, s, smp, dl, hd, dsz, j, t0, t1, gh, k) (
+  t0 = FB_T0[b]; t1 = FB_T1[b];
+  memset(t1, 0, floor(sz / B_DEC[0]));
+  i = 0;
+  loop(NB,
+    bsz = floor(sz / B_DEC[i]);
+    s = B_GROUP[i] === 0 ? t1 : B_GROUP[i] === 1 ? t0 : out;
+    smp = FB_SMP[b] + B_OFS[i];
+    dl = FB_DL[b] + B_DLO[i];
+    dsz = B_DLS[i];
+    gh = FB_HEAD[b];
+    hd = gh[i];
+    j = 0;
+    loop(bsz,
+      dl[hd] = smp[j];
+      hd = (hd + 1) % dsz;
+      s[j] += dl[hd];
+      j += 1;
+    );
+    gh[i] = hd;
+    B_GROUP[i + 1] !== B_GROUP[i] ? (
+      B_GROUP[i] === 0 ? (
+        uf4(FB_LU[b], t1, t0, bsz);
+      ) : B_GROUP[i] === 1 ? (
+        uf3(FB_MU[b], t0, out, bsz);
+      );
+    );
+    i += 1;
+  );
+);
+
+V_ENV = alloc(20); V_ATK = alloc(20); V_DEC = alloc(20); V_PEAK = alloc(20); V_FRZ = alloc(20);
+V_GC = alloc(20); V_GV = alloc(20); V_PGC = alloc(20); V_PGV = alloc(20);
+
+function voc_init() local(i) (
+  fb_init();
+  lim_peak = 0.5;
+  voc_rel = 0.5; voc_fs = 0.5;
+  memset(V_GC, 0, 20); memset(V_GV, 0, 20); memset(V_PGC, 0, 20); memset(V_PGV, 0, 20);
+  i = 0;
+  loop(20, V_ENV[i] = 0; V_FRZ[i] = 0; V_ATK[i] = 0.1; V_DEC[i] = 0.1; V_PEAK[i] = 0; i += 1;);
+);
+
+function foll_proc(i, in, out, n) local(env, atk, dec, pk, e, gf) (
+  env = V_ENV[i];
+  atk = V_FRZ[i] ? 0 : V_ATK[i];
+  dec = V_FRZ[i] ? 0 : V_DEC[i];
+  pk = 0;
+  gf = FOLLOW_G;
+  loop(n,
+    e = abs(in[0] * gf) - env;
+    in += 1;
+    env += (e > 0 ? atk : dec) * e;
+    env > pk ? pk = env;
+    out[0] = env;
+    out += 1;
+  );
+  V_ENV[i] = env;
+  e = pk - V_PEAK[i];
+  V_PEAK[i] += (e > 0 ? 0.5 : 0.1) * e;
+);
+FOLLOW_G = sqrt(20);
+
+function voc_proc(modu, carr, out, sz) local(f, i, dec, fsa, einc, env, sb, si, sf, a, b, bg, att, kl, bsz, step, cp, mp, ep, vg, vi, cg, ci, j, s) (
+  fb_analyze(0, modu, sz);
+  fb_analyze(1, carr, sz);
+  f = 80 * semi(-72 * voc_rel);
+  i = 0;
+  loop(NB,
+    dec = f / (SR / B_DEC[i]);
+    V_ATK[i] = dec * 2;
+    V_DEC[i] = dec * 0.5;
+    V_FRZ[i] = voc_rel > 0.995;
+    f *= 1.2599;
+    i += 1;
+  );
+  fsa = 2 * abs(voc_fs - 0.5);
+  fsa *= 2 - fsa;
+  fsa *= 2 - fsa;
+  einc = 4 * semi(-48 * voc_fs);
+  env = 0;
+  kl = NB - 1.0001;
+  i = 0;
+  loop(NB,
+    sb = max(0, min(kl, env));
+    si = sb | 0;
+    sf = sb - si;
+    a = V_PEAK[si];
+    b = V_PEAK[si + 1];
+    bg = a + (b - a) * sf;
+    att = env - kl;
+    att >= 0 ? bg *= 1 / (1 + 1 * att);
+    env += einc;
+    V_GC[i] = bg * fsa;
+    V_GV[i] = 1 - fsa;
+    i += 1;
+  );
+  i = 0;
+  loop(NB,
+    bsz = floor(sz / B_DEC[i]);
+    step = 1 / bsz;
+    cp = FB_SMP[1] + B_OFS[i];
+    mp = FB_SMP[0] + B_OFS[i];
+    ep = ENVT;
+    foll_proc(i, mp, ep, bsz);
+    vg = V_PGV[i];
+    vi = (V_GV[i] - vg) * step;
+    cg = V_PGC[i];
+    ci = (V_GC[i] - cg) * step;
+    j = 0;
+    loop(bsz,
+      cp[j] *= cg + vg * ep[j];
+      vg += vi;
+      cg += ci;
+      j += 1;
+    );
+    V_PGC[i] = V_GC[i];
+    V_PGV[i] = V_GV[i];
+    i += 1;
+  );
+  fb_synth(1, out, sz);
+  i = 0;
+  loop(sz,
+    s = out[i] * 1.4;
+    a = abs(s) - lim_peak;
+    lim_peak += (a > 0 ? 0.05 : 0.00002) * a;
+    b = lim_peak <= 1 ? 1 : 1 / lim_peak;
+    out[i] = slimit((s * b) * 0.8);
+    i += 1;
+  );
+);
+
+// ---------------------------------------------------------------------- oscillators
+O_PH = alloc(2); O_PI = alloc(2); O_NS = alloc(2); O_LP = alloc(2); O_HP = alloc(2); O_HI = alloc(2); O_EXT = alloc(2); O_S1 = alloc(2); O_S2 = alloc(2);
+
+function osc_init() local(i) (
+  i = 0;
+  loop(2,
+    O_NS[i] = 0; O_PH[i] = 0; O_PI[i] = 100 * (1 / SR);
+    O_HP[i] = 0; O_LP[i] = 0; O_HI[i] = 0; O_EXT[i] = 0; O_S1[i] = 0; O_S2[i] = 0;
+    i += 1;
+  );
+  nrng = 33;
+);
+
+function midi_inc(note) local(p, c) (
+  p = (note * 256) | 0;
+  c = p - 20480;
+  c < -32768 ? c = -32768 : c > 32767 ? c = 32767;
+  p = 32768 + c;
+  T_MH[p >> 8] * T_ML[p & 255];
+);
+
+function osc_sine(o, note, mod, out, sz) local(ph, pi, st, mp, mi, ii, fr, a) (
+  ph = O_PH[o];
+  pi = O_PI[o];
+  st = (midi_inc(note) - pi) / sz;
+  loop(sz,
+    pi += st;
+    ph += pi;
+    ph >= 1 ? ph -= 1;
+    mp = floor(ph * 4294967296);
+    mi = (mod[0] * 0.5 * 4294967296) | 0;
+    mod += 1;
+    mp += mi;
+    mp < 0 ? mp += 4294967296 : mp >= 4294967296 ? mp -= 4294967296;
+    ii = floor(mp / 4194304);
+    fr = (mp - ii * 4194304) * 1024 / 4294967296;
+    a = T_SIN[ii];
+    out[0] = a + (T_SIN[ii + 1] - a) * fr;
+    out += 1;
+  );
+  O_PH[o] = ph;
+  O_PI[o] = pi;
+  1;
+);
+
+function osc_tri(o, note, mod, out, sz) local(ph, pi, st, ns, hi, lp, ts, mi, t, c) (
+  ph = O_PH[o]; pi = O_PI[o];
+  st = (midi_inc(note) - pi) / sz;
+  ns = O_NS[o]; hi = O_HI[o]; lp = O_LP[o];
+  loop(sz,
+    ts = ns;
+    ns = 0;
+    pi += st;
+    mi = pi * (1 + mod[0]);
+    mod += 1;
+    mi <= 0 ? mi = 0.0000001;
+    ph += mi;
+    (!hi && ph >= 0.5) ? (
+      t = (ph - 0.5) / mi;
+      ts += 0.5 * t * t;
+      t = 1 - t;
+      ns += -0.5 * t * t;
+      hi = 1;
+    );
+    ph >= 1 ? (
+      ph -= 1;
+      t = ph / mi;
+      ts -= 0.5 * t * t;
+      t = 1 - t;
+      ns -= -0.5 * t * t;
+      hi = 0;
+    );
+    c = mi * 0.0625;
+    ns += ph < 0.5 ? 0 : 1;
+    ts = 128 * (ts - 0.5);
+    lp += c * (ts - lp);
+    out[0] = lp;
+    out += 1;
+  );
+  O_HI[o] = hi; O_PH[o] = ph; O_NS[o] = ns; O_LP[o] = lp; O_PI[o] = pi;
+  1;
+);
+
+function osc_saw(o, note, mod, out, sz) local(ph, pi, st, ns, lp, ts, mi, t) (
+  ph = O_PH[o]; pi = O_PI[o];
+  st = (midi_inc(note) - pi) / sz;
+  ns = O_NS[o]; lp = O_LP[o];
+  loop(sz,
+    ts = ns;
+    ns = 0;
+    pi += st;
+    mi = pi * (1 + mod[0]);
+    mod += 1;
+    mi <= 0 ? mi = 0.0000001;
+    ph += mi;
+    ph >= 1 ? (
+      ph -= 1;
+      t = ph / mi;
+      ts -= 0.5 * t * t;
+      t = 1 - t;
+      ns -= -0.5 * t * t;
+    );
+    ns += ph;
+    ts = ts * 2 - 1;
+    lp += 0.3 * (ts - lp);
+    out[0] = lp;
+    out += 1;
+  );
+  O_PH[o] = ph; O_NS[o] = ns; O_LP[o] = lp; O_PI[o] = pi;
+  1;
+);
+
+function osc_pulse(o, note, mod, out, sz) local(ph, pi, st, ns, lp, hp, ts, mi, t, pold) (
+  ph = O_PH[o]; pi = O_PI[o];
+  pold = pi;
+  st = (midi_inc(note) - pi) / sz;
+  ns = O_NS[o]; lp = O_LP[o]; hp = O_HP[o];
+  loop(sz,
+    ts = ns;
+    ns = 0;
+    pi += st;
+    mi = pi * (1 + mod[0]);
+    mod += 1;
+    mi <= 0 ? mi = 0.0000001;
+    ph += mi;
+    ph >= 1 ? (
+      ph -= 1;
+      t = ph / mi;
+      ts -= 0.5 * t * t;
+      t = 1 - t;
+      ns -= -0.5 * t * t;
+    );
+    ns += ph;
+    lp += 0.25 * ((hp - ts) - lp);
+    out[0] = 4 * lp;
+    hp = ts;
+    out += 1;
+  );
+  O_PH[o] = ph; O_NS[o] = ns; O_LP[o] = lp; O_HP[o] = hp; O_PI[o] = pi;
+  0.025 / (0.0002 + pold);
+);
+
+function osc_noise(o, note, mod, out, sz) local(i, lv, e, ig, x, inc, f2, g, r, h, s1, s2, hp, bp, lp) (
+  i = 0;
+  loop(sz,
+    nrng = (nrng * 1664525 + 1013904223);
+    nrng -= 4294967296 * floor(nrng / 4294967296);
+    x = nrng * (1 / 4294967296);
+    out[i] = 2 * x - 1;
+    i += 1;
+  );
+  lv = O_EXT[o];
+  i = 0;
+  loop(sz,
+    x = mod[i];
+    e = x * x - lv;
+    lv += (e > 0 ? 0.01 : 0.0001) * e;
+    ig = 1 - 32 * lv;
+    ig <= 0 ? ig = 0;
+    out[i] = x + ig * (out[i] - x);
+    i += 1;
+  );
+  O_EXT[o] = lv;
+  inc = midi_inc(note) * 4;
+  f2 = inc * inc;
+  g = inc * (M_PI + f2 * (TA + f2 * (TB + f2 * (TC + f2 * (TD + f2 * TE)))));
+  r = 1 / 1;
+  h = 1 / ((1 + r * g) + g * g);
+  s1 = O_S1[o]; s2 = O_S2[o];
+  i = 0;
+  loop(sz,
+    hp = (((out[i] - r * s1) - g * s1) - s2) * h;
+    bp = g * hp + s1;
+    s1 = g * hp + bp;
+    lp = g * bp + s2;
+    s2 = g * bp + lp;
+    out[i] = lp;
+    i += 1;
+  );
+  O_S1[o] = s1; O_S2[o] = s2;
+  1;
+);
+M_PI = $pi;
+TA = ((0.3333314036 * M_PI) * M_PI) * M_PI;
+TB = ((((0.1333923995 * M_PI) * M_PI) * M_PI) * M_PI) * M_PI;
+TC = ((((((0.0533740603 * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI;
+TD = ((((((((0.002900525 * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI;
+TE = ((((((((((0.0095168091 * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI) * M_PI;
+
+function osc_render(o, shape, note, mod, out, sz) (
+  shape === 0 ? osc_sine(o, note, mod, out, sz) :
+  shape === 1 ? osc_tri(o, note, mod, out, sz) :
+  shape === 2 ? osc_saw(o, note, mod, out, sz) :
+  shape === 3 ? osc_pulse(o, note, mod, out, sz) :
+  osc_noise(o, note, mod, out, sz);
+);
+
+// ---------------------------------------------------------------------- amplifiers, quadrature, modulator
+A_LEVEL = alloc(2); A_DRIVE = alloc(2); A_POST = alloc(2); A_PRE = alloc(2);
+Q_X = alloc(34); Q_Y = alloc(34); Q_C = alloc(34);
+
+function amp_proc(ch, drive, limit, in, out, raw, sz) local(lv, d, di, i, s, e, d2, ga, gb, g, squ, pg, prev, prei, postv, posti, pr, po) (
+  d = A_DRIVE[ch];
+  di = (drive - d) / sz;
+  lv = A_LEVEL[ch];
+  i = 0;
+  loop(sz,
+    s = in[i] / 32768;
+    e = s * s - lv;
+    lv += e * (e > 0 ? 0.1 : 0.0001);
+    s *= lv <= 0.0001 ? (1 / 0.0001) * lv : 1;
+    out[i] = s;
+    d += di;
+    raw[i] += s * d;
+    i += 1;
+  );
+  A_LEVEL[ch] = lv;
+  A_DRIVE[ch] = d;
+  d2 = drive * drive;
+  ga = drive * 0.5;
+  gb = (d2 * d2 * drive) * 24;
+  g = ga + (gb - ga) * d2;
+  squ = drive * (2 - drive);
+  pg = 1 / sclip(0.33 + squ * (g - 0.33));
+  prev = A_PRE[ch]; prei = (g - prev) / sz;
+  postv = A_POST[ch]; posti = (pg - postv) / sz;
+  i = 0;
+  loop(sz,
+    prev += prei;
+    pr = prev * out[i];
+    postv += posti;
+    po = sclip(pr) * postv;
+    out[i] = pr + (po - pr) * limit;
+    i += 1;
+  );
+  A_PRE[ch] = prev;
+  A_POST[ch] = postv;
+);
+
+function diode(x) local(sg, dz) (
+  sg = x > 0 ? 1 : -1;
+  dz = abs(x) - 0.667;
+  dz += abs(dz);
+  dz *= dz;
+  (0.04324765822726063 * dz) * sg;
+);
+
+function clip16i(x) local(i) (
+  i = x | 0;
+  i < -32768 ? -32768 : i > 32767 ? 32767 : i;
+);
+
+function x_comp(mo, ca, par) local(x, xi, xf, d, w, w2, th, a, b) (
+  x = par * 2.995;
+  xi = x | 0;
+  xf = x - xi;
+  d = mo < ca ? mo : ca;
+  w = abs(mo) > abs(ca) ? mo : ca;
+  w2 = abs(mo) > abs(ca) ? abs(mo) : -abs(ca);
+  th = ca > 0.05 ? ca : mo;
+  xi === 0 ? ( a = d; b = th; ) : xi === 1 ? ( a = th; b = w; ) : ( a = w; b = w2; );
+  a + (b - a) * xf;
+);
+
+function xmod(alg, x1, x2, par) local(r, s, fi, fo, a, b, m) (
+  alg === 0 ? (
+    fi = interp(T_XIN, par, 256);
+    fo = interp(T_XOUT, par, 256);
+    x1 * fi + x2 * fo;
+  ) : alg === 1 ? (
+    s = 0;
+    s += x1;
+    s += x2;
+    s += (x1 * x2) * 0.25;
+    s *= 0.02 + par;
+    interp(T_FOLD + 2048, s, KFOLD);
+  ) : alg === 2 ? (
+    x2 *= 2;
+    r = diode(x1 + x2) + diode(x1 - x2);
+    r *= (4 + par * 24);
+    slimit(r);
+  ) : alg === 3 ? (
+    r = ((4 * x1) * x2) * (1 + par * 8);
+    r / (1 + abs(r));
+  ) : alg === 4 ? (
+    a = clip16i(x1 * 32768) & 65535;
+    b = clip16i(x2 * 32768) & 65535;
+    m = a ~ b;
+    m >= 32768 ? m -= 65536;
+    m /= 32768;
+    s = (x1 + x2) * 0.7;
+    s + (m - s) * par;
+  ) : alg === 5 ? (
+    x_comp(x1, x2, par);
+  ) : x1;
+);
+KFOLD = 2048 / ((1 + 1 + 0.25) * 1.02);
+
+function skew_par(al, par) local(sk) (
+  sk = 0;
+  al <= 1 ? sk = al : al >= 5 ? sk = 1 : al >= 4 ? sk = 5 - al;
+  par * (1 + sk * (par - 1));
+);
+
+function qt_init() local(k, i) (
+  k = 0;
+  loop(2,
+    i = 0;
+    loop(17, Q_X[k * 17 + i] = 0; Q_Y[k * 17 + i] = 0; Q_C[k * 17 + i] = -T_POLES[i]; i += 1;);
+    k += 1;
+  );
+  q_i = q_q = 0;
+);
+
+function qt_sample(k, in) local(i, base, src, y, c) (
+  base = k * 17;
+  i = 0;
+  loop(17,
+    src = i <= 1 ? in : ((i & 1) ? q_q : q_i);
+    c = Q_C[base + i];
+    y = c * (src - Q_Y[base + i]) + Q_X[base + i];
+    Q_X[base + i] = src;
+    Q_Y[base + i] = y;
+    (i & 1) ? q_q = y : q_i = y;
+    i += 1;
+  );
+);
+
+function qo_render(shape, freq, iout, qout, sz) local(nf, fi, si, ph, comp, a, b, t0, t1, srv, sf, v, dp) (
+  nf = max(-0.25, min(0.25, freq * (1 / SR)));
+  fi = (nf - qo_f) / sz;
+  si = (shape - qo_s) / sz;
+  ph = qo_p;
+  loop(sz,
+    qo_f += fi;
+    ph += qo_f;
+    ph <= 0 ? ph += 1 : ph >= 1 ? ph -= 1;
+    qo_s += si;
+    srv = qo_s * 1.9999;
+    v = srv | 0;
+    sf = srv - v;
+    comp = 0;
+    loop(2,
+      t0 = TOFF[T_W0 + 2 * v + comp];
+      t1 = TOFF[T_W0 + 2 * v + 2 + comp];
+      a = interp(t0, ph, 1024);
+      b = interp(t1, ph, 1024);
+      dp = comp === 0 ? iout : qout;
+      dp[0] = a + (b - a) * sf;
+      comp += 1;
+    );
+    iout += 1; qout += 1;
+  );
+  qo_p = ph;
+);
+
+function mod_init() (
+  A_DRIVE[0] = 0; A_DRIVE[1] = 0; A_LEVEL[0] = 0; A_LEVEL[1] = 0; A_POST[0] = 0; A_POST[1] = 0; A_PRE[0] = 0; A_PRE[1] = 0;
+  sv0_0=sv0_1=sv0_2=sv0_3=sv0_4=sv0_5=sv0_6=sv0_7=sv1_0=sv1_1=sv1_2=sv1_3=sv1_4=sv1_5=sv1_6=sv1_7=0;
+  memset(SD, 0, 96);
+  osc_init();
+  voc_init();
+  qt_init();
+  qo_f = qo_s = qo_p = 0;
+  pv_d0 = pv_d1 = pv_alg = pv_par = pv_ps = 0;
+  pv_note = 48;
+  SD_P[0] = 47;
+  fbs = 0;
+);
+SU0 = alloc(8); SU1 = alloc(8); SD = alloc(96); SD_P = alloc(1);
+tables_ok ? ( su_load(); su2_load(); );
+sv0_0=sv0_1=sv0_2=sv0_3=sv0_4=sv0_5=sv0_6=sv0_7=sv1_0=sv1_1=sv1_2=sv1_3=sv1_4=sv1_5=sv1_6=sv1_7=0;
+
+function clipd(x) ( x < -32768 ? -1 : x > 32767 ? 32767 / 32768 : x / 32768; );
+
+function egg_proc() local(ci, cq, i, d, lin, fr, dir, sh, ang, xi, xq, rs, rc, sm, smi, fv, fvi, dv, dvi, tm, inp, mo, am, mf, a, b, up, dn, fin, fou, mn, ax, w, ps, psi) (
+  ci = SRC0; cq = SRC0 + BS;
+  p_shape ? (
+    d = p_fsp - 0.5;
+    lin = 1 - (14 * d) * d;
+    lin < 0 ? lin = 0;
+    fr = p_fsp;
+    fr += lin * p_fsc;
+    dir = fr >= 0.5 ? 1 : -1;
+    fr = 2 * abs(fr - 0.5);
+    fr = fr <= 0.4 ? ((fr * fr) * fr) * 62.5 : 4 * semi(180 * (fr - 0.4));
+    fr *= semi(((p_fsc * 60) * (1 - lin)) * dir);
+    fr *= dir;
+    sh = (p_shape - 1) * 0.5;
+    qo_render(sh, fr, ci, cq, BS);
+  ) : (
+    i = 0;
+    loop(BS,
+      qt_sample(0, INL[i] / 32768);
+      ci[i] = q_i;
+      cq[i] = q_q;
+      i += 1;
+    );
+    ps = pv_ps; psi = (p_ps - ps) / BS;
+    i = 0;
+    loop(BS,
+      xi = ci[i]; xq = cq[i];
+      ps += psi;
+      ang = ps;
+      rs = interp(T_SIN, ang, 1024);
+      rc = interp(T_SIN + 256, ang, 1024);
+      ci[i] = rs * xi + rc * xq;
+      cq[i] = rs * xq - rc * xi;
+      i += 1;
+    );
+  );
+  sm = pv_par; smi = (p_par - sm) / BS;
+  fv = pv_d0; fvi = (p_d0 - fv) / BS;
+  dv = pv_d1; dvi = (p_d1 - dv) / BS;
+  i = 0;
+  loop(BS,
+    sm += smi;
+    tm = sm;
+    inp = INR[i] / 32768;
+    p_shape ? inp += INL[i] / 32768;
+    mo = inp;
+    fv += fvi;
+    am = fv;
+    am *= 2 - am;
+    am *= 2 - am;
+    mf = 1 + (2 * (tm - 0.5)) * (tm - 0.5);
+    mo += am * (sclip(mo + (mf * fbs) * am) - mo);
+    qt_sample(1, mo);
+    a = ci[i] * q_i;
+    b = cq[i] * q_q;
+    up = a - b;
+    dn = a + b;
+    fin = interp(T_XIN, tm, 256);
+    fou = interp(T_XOUT, tm, 256);
+    mn = up * fin + dn * fou;
+    ax = dn * fin + up * fou;
+    fbs += 0.2 * (mn - fbs);
+    dv += dvi;
+    w = 1 - dv;
+    mn += w * (inp - mn);
+    ax += w * (inp - ax);
+    OUTL[i] = clipd(mn * 32768);
+    OUTR[i] = clipd(ax * 32768);
+    i += 1;
+  );
+);
+
+function xmod_block(ai, par, pinc, bal, binc) local(pa, pm, x1, x2, a, b, xv, xi, xu, fi, fo, s, c2, d1, d2, dz, r, fdt) (
+  pa = SRC0; pm = SRC1; fdt = T_FOLD + 2048;
+  ai === 0 ? (
+    loop(360,
+      x1 = pm[0]; x2 = pa[0];
+      xv = par * 256; xi = xv | 0; xu = T_XIN[xi]; fi = xu + (T_XIN[xi + 1] - xu) * (xv - xi);
+      xu = T_XOUT[xi]; fo = xu + (T_XOUT[xi + 1] - xu) * (xv - xi);
+      a = x1 * fi + x2 * fo;
+      s = 0; s += x1; s += x2; s += (x1 * x2) * 0.25; s *= 0.02 + par;
+      xv = s * KFOLD; xi = xv | 0; xu = fdt[xi]; b = xu + (fdt[xi + 1] - xu) * (xv - xi);
+      pa[0] = a + (b - a) * bal;
+      par += pinc;
+      bal += binc;
+      pa += 1; pm += 1;
+    );
+  );
+  ai === 1 ? (
+    loop(360,
+      x1 = pm[0]; x2 = pa[0];
+      s = 0; s += x1; s += x2; s += (x1 * x2) * 0.25; s *= 0.02 + par;
+      xv = s * KFOLD; xi = xv | 0; xu = fdt[xi]; a = xu + (fdt[xi + 1] - xu) * (xv - xi);
+      c2 = x2 * 2; d1 = x1 + c2; d2 = x1 - c2;
+      dz = abs(d1) - 0.667; dz += abs(dz); dz *= dz; d1 = (0.04324765822726063 * dz) * (d1 > 0 ? 1 : -1);
+      dz = abs(d2) - 0.667; dz += abs(dz); dz *= dz; d2 = (0.04324765822726063 * dz) * (d2 > 0 ? 1 : -1);
+      r = d1 + d2; r *= (4 + par * 24);
+      b = (r * (27 + r * r)) / (27 + 9 * r * r);
+      pa[0] = a + (b - a) * bal;
+      par += pinc;
+      bal += binc;
+      pa += 1; pm += 1;
+    );
+  );
+  ai === 2 ? (
+    loop(360,
+      x1 = pm[0]; x2 = pa[0];
+      c2 = x2 * 2; d1 = x1 + c2; d2 = x1 - c2;
+      dz = abs(d1) - 0.667; dz += abs(dz); dz *= dz; d1 = (0.04324765822726063 * dz) * (d1 > 0 ? 1 : -1);
+      dz = abs(d2) - 0.667; dz += abs(dz); dz *= dz; d2 = (0.04324765822726063 * dz) * (d2 > 0 ? 1 : -1);
+      r = d1 + d2; r *= (4 + par * 24);
+      a = (r * (27 + r * r)) / (27 + 9 * r * r);
+      r = ((4 * x1) * x2) * (1 + par * 8);
+      b = r / (1 + abs(r));
+      pa[0] = a + (b - a) * bal;
+      par += pinc;
+      bal += binc;
+      pa += 1; pm += 1;
+    );
+  );
+  ai === 3 ? (
+    loop(360,
+      x1 = pm[0]; x2 = pa[0];
+      r = ((4 * x1) * x2) * (1 + par * 8);
+      a = r / (1 + abs(r));
+      b = xmod(4, x1, x2, par);
+      pa[0] = a + (b - a) * bal;
+      par += pinc;
+      bal += binc;
+      pa += 1; pm += 1;
+    );
+  );
+  ai === 4 ? (
+    loop(360,
+      x1 = pm[0]; x2 = pa[0];
+      a = xmod(4, x1, x2, par);
+      b = x_comp(x1, x2, par);
+      pa[0] = a + (b - a) * bal;
+      par += pinc;
+      bal += binc;
+      pa += 1; pm += 1;
+    );
+  );
+  ai === 5 ? (
+    loop(360,
+      x1 = pm[0]; x2 = pa[0];
+      a = x_comp(x1, x2, par);
+      b = x1;
+      pa[0] = a + (b - a) * bal;
+      par += pinc;
+      bal += binc;
+      pa += 1; pm += 1;
+    );
+  );
+);
+
+function mod_proc() local(va, i, xs, vs, cg, ba, a, b, al, pa, ai, pi, af, pf, p0, p1, pinc, bal, binc, n, x1, x2, ra, rl, tg, ag) (
+  va = (p_alg - 0.7) * 20 + 0.5;
+  va = max(0, min(1, va));
+  !p_shape ? memset(BUF2, 0, BS);
+  !p_shape ? amp_proc(0, p_d0, 1 - va, INL, BUF0, BUF2, BS);
+  amp_proc(1, p_d1, 1 - va, INR, BUF1, BUF2, BS);
+  p_shape ? (
+    i = 0;
+    loop(BS, INTM[i] = INL[i] / 32768; i += 1;);
+    xs = p_shape - 1;
+    vs = p_shape + 1;
+    va === 0 ? (
+      osc_render(0, xs, p_note, INTM, BUF2, BS);
+      i = 0;
+      loop(BS, BUF0[i] = BUF2[i] * 0.5; i += 1;);
+    ) : va >= 0.5 ? (
+      cg = osc_render(1, vs, p_note, INTM, BUF2, BS);
+      i = 0;
+      loop(BS, BUF0[i] = BUF2[i] * cg; i += 1;);
+    ) : (
+      ba = va * 2;
+      osc_render(0, xs, p_note, INTM, BUF0, BS);
+      cg = osc_render(1, vs, p_note, INTM, BUF2, BS);
+      i = 0;
+      loop(BS,
+        a = BUF0[i];
+        b = BUF2[i];
+        BUF2[i] = a + (b - a) * ba;
+        a *= 0.5;
+        b *= cg;
+        BUF0[i] = a + (b - a) * ba;
+        i += 1;
+      );
+    );
+  );
+  va < 0.5 ? (
+    su0(BUF0, SRC0);
+    su1(BUF1, SRC1);
+    al = min(p_alg * 8, 5.999);
+    pa = min(pv_alg * 8, 5.999);
+    ai = al | 0; af = al - ai;
+    pi = pa | 0; pf = pa - pi;
+    ai !== pi ? pf = af;
+    p0 = skew_par(pv_alg, pv_par);
+    p1 = skew_par(p_alg, p_par);
+    pinc = (p1 - p0) * (1 / 360);
+    bal = pf;
+    binc = (af - pf) * (1 / 360);
+    xmod_block(ai, p0, pinc, bal, binc);
+    dn6(SD, SD_P, SRC0, BUF0, 360);
+  ) : (
+    rl = 4 * (p_alg - 0.75);
+    rl = max(0, min(1, rl));
+    voc_rel = rl * (2 - rl);
+    voc_fs = p_par;
+    voc_proc(BUF1, BUF0, BUF0, BS);
+  );
+  tg = 2 * (va < 0.5 ? va : 1 - va);
+  tg !== 0 ? (
+    i = 0;
+    loop(BS, BUF0[i] += tg * (BUF1[i] - BUF0[i]); i += 1;);
+  );
+  i = 0;
+  loop(BS,
+    OUTL[i] = clipd(BUF0[i] * 32768);
+    OUTR[i] = clipd(BUF2[i] * 16384);
+    i += 1;
+  );
+);
+
+function glue_init() (
+  lp_l1 = k_l1; lp_l2 = k_l2; lp_alg = k_alg; lp_tim = k_tim;
+  note_pot = 60 * k_l1 + 12;
+  note_cv = 0;
+);
+
+function glue_read() local(pot, n, iv) (
+  lp_l1 += (0.33 * 0.08) * (k_l1 - lp_l1);
+  lp_l2 += (0.33 * 0.08) * (k_l2 - lp_l2);
+  lp_alg += (0.33 * 0.08) * (k_alg - lp_alg);
+  lp_tim += (0.33 * 0.08) * (k_tim - lp_tim);
+  p_d0 = lp_l1 * lp_l1;
+  p_d1 = lp_l2 * lp_l2;
+  pot = interp(T_POT, lp_alg, 512);
+  p_alg = max(0, min(1, pot));
+  p_par = max(0, min(1, lp_tim));
+  p_alg <= 0.125 ? (
+    p_alg = p_alg * 1.08 - 0.01;
+    p_alg = max(0, min(1, p_alg));
+  );
+  p_fsp = lp_alg;
+  p_fsc = 0;
+  p_ps = max(0, min(1, lp_alg));
+  n = 60 * k_l1 + 12;
+  note_pot += 0.1 * (n - note_pot);
+  midi_held > 0 ? (
+    iv = midi_note - note_cv;
+    (iv < -0.4 || iv > 0.4) ? note_cv = midi_note : note_cv += 0.1 * iv;
+    p_note = note_cv;
+  ) : (
+    p_note = note_pot + 24;
+  );
+  p_shape = k_osc | 0;
+);
+
+function engine_block() local(k, ipk, opk) (
+  ipk = 0; k = 0;
+  loop(BS, ipk = max(ipk, max(abs(INL[k]), abs(INR[k]))); k += 1;);
+  (ipk > 0.3 || (k_osc >= 0.5) || midi_held > 0) ? ( idle = 0; idle_cnt = 0; );
+  idle ? (
+    memset(OUTL, 0, BS); memset(OUTR, 0, BS);
+    idle_blk += 1;
+  ) : (
+    idle_blk = 0;
+    glue_read();
+    k_egg >= 0.5 ? egg_proc() : mod_proc();
+    pv_d0 = p_d0; pv_d1 = p_d1; pv_alg = p_alg; pv_par = p_par; pv_ps = p_ps; pv_note = p_note;
+    opk = 0; k = 0;
+    loop(BS, opk = max(opk, max(abs(OUTL[k]), abs(OUTR[k]))); k += 1;);
+    (opk < 0.000001 && ipk <= 0.3 && k_osc < 0.5) ? (
+      idle_cnt += 1;
+      idle_cnt >= 3200 ? idle = 1;
+    ) : idle_cnt = 0;
+  );
+);
+
+function engine_reset() (
+  mod_init();
+  glue_init();
+  idle = 0; idle_cnt = 0; idle_blk = 0;
+  midi_held = 0;
+);
+
+// ---------------------------------------------------------------------- host bridge (windowed-sinc resampling to and from 96 kHz)
+
+KT = alloc(4100);
+BDCO = alloc(65536); BUCO = alloc(65536);
+BDST = alloc(4096); BDCN = alloc(4096); BUST = alloc(4096); BUCN = alloc(4096);
+HDIN = alloc(4 * 8192);
+EOR = alloc(4 * 8192);
+
+function bessel_i0(x) local(s, t, k) (
+  s = 1; t = 1; k = 1;
+  loop(30, t *= (x / (2 * k)) * (x / (2 * k)); s += t; k += 1; );
+  s;
+);
+
+function kern(u) local(x, i) (
+  x = (u + KW) * 256;
+  i = floor(x);
+  (i < 0 || i >= KW * 512) ? 0 : KT[i] + (KT[i + 1] - KT[i]) * (x - i);
+);
+
+function kern_build() local(i, u, w, beta) (
+  KW = 8;
+  beta = 7.5;
+  i = 0;
+  loop(KW * 512 + 1,
+    u = i / 256 - KW;
+    w = 1 - (u / KW) * (u / KW);
+    KT[i] = (abs(u) < 0.000000001 ? 0.9 : sin($pi * 0.9 * u) / ($pi * u)) * (w > 0 ? bessel_i0(beta * sqrt(w)) / bessel_i0(beta) : 0);
+    i += 1;
+  );
+);
+kern_build();
+
+function gcd(a, b) local(t) ( while (b > 0) ( t = a % b; a = b; b = t; ); a; );
+
+function host_setup() local(fl, gg, ri, st, en, j, tq) (
+  bypass = srate == SR;
+  fl = min(srate, SR);
+  dn_scale = fl / srate;
+  dn_half = KW * srate / fl;
+  dn_step = srate / SR;
+  up_scale = fl / SR;
+  up_half = KW * SR / fl;
+  up_step = SR / srate;
+  host_lat = bypass ? BS : ceil((BS + 3 + dn_half / dn_step + up_half) * dn_step);
+  poly = 0;
+  (!bypass && srate === floor(srate)) ? (
+    gg = gcd(srate, SR);
+    rta = srate / gg; rtb = SR / gg;
+    tdn = floor(2 * dn_half) + 2; tup = floor(2 * up_half) + 2;
+    (rta <= 4096 && rtb <= 4096 && rtb * tdn <= 65536 && rta * tup <= 65536) ? (
+      poly = 1;
+      ri = 0;
+      loop(rtb,
+        st = ceil(ri / rtb - dn_half); en = floor(ri / rtb + dn_half);
+        BDST[ri] = st; BDCN[ri] = en - st + 1;
+        j = 0;
+        loop(en - st + 1, BDCO[ri * tdn + j] = kern((st + j - ri / rtb) * dn_scale) * dn_scale; j += 1; );
+        ri += 1;
+      );
+      ri = 0;
+      loop(rta,
+        st = ceil(ri / rta - up_half); en = floor(ri / rta + up_half);
+        BUST[ri] = st; BUCN[ri] = en - st + 1;
+        j = 0;
+        loop(en - st + 1, BUCO[ri * tup + j] = kern((st + j - ri / rta) * up_scale) * up_scale; j += 1; );
+        ri += 1;
+      );
+      dnq = 0; dnr = 0;
+      tq = -host_lat * rtb;
+      upq = floor(tq / rta); upr = tq - upq * rta;
+    );
+  );
+  hbase = hin;
+  dn_t = hin;
+  ein_n = 0;
+  eo_n = 0;
+  memset(HDIN, 0, 4 * 8192);
+  memset(EOR, 0, 4 * 8192);
+  memset(OUTL, 0, BS); memset(OUTR, 0, BS);
+  bpos = 0;
+);
+
+function push_engine_in(l, r) local(k) (
+  INL[ein_n] = l; INR[ein_n] = r;
+  ein_n += 1;
+  ein_n >= BS ? (
+    ein_n = 0;
+    engine_block();
+    k = 0;
+    loop(BS,
+      eix = (eo_n & 8191) * 2;
+      EOR[eix] = EOR[eix + 16384] = OUTL[k];
+      EOR[eix + 1] = EOR[eix + 16385] = OUTR[k];
+      eo_n += 1;
+      k += 1;
+    );
+  );
+);
+last_srate = 0;
+cur_engine = -1;
+MIDN = alloc(16);
+last_srate = 0;
+
+@slider
+
+last_srate != srate ? (
+  last_srate = srate;
+  tables_ok ? engine_reset();
+  host_setup();
+);
+
+@block
+
+while (midirecv(mofs, mm1, mm2, mm3)) (
+  mst = mm1 & 240;
+  (mst === 144 && mm3 > 0) ? (
+    midi_note = mm2;
+    midi_held < 16 ? ( MIDN[midi_held] = mm2; midi_held += 1; );
+  ) : (mst === 128 || mst === 144) ? (
+    mi = 0;
+    while (mi < midi_held) (
+      MIDN[mi] === mm2 ? (
+        memcpy(MIDN + mi, MIDN + mi + 1, midi_held - mi - 1);
+        midi_held -= 1;
+        mi -= 1;
+      );
+      mi += 1;
+    );
+    midi_held > 0 ? midi_note = MIDN[midi_held - 1];
+  );
+  midisend(mofs, mm1, mm2, mm3);
+);
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+pdc_delay = host_lat;
+
+@sample
+
+k_route >= 0.5 ? (
+  xl = spl0; xr = spl1;
+) : (
+  xl = 0.5 * (spl0 + spl1); xr = 0.5 * (spl2 + spl3);
+);
+xl *= 32768; xr *= 32768;
+tables_ok ? (
+  (xl === 0 && xr === 0) ? in_zero += 1 : in_zero = 0;
+  bsl = idle && idle_blk >= 4 && in_zero > 256;
+  bypass ? (
+    INL[bpos] = xl; INR[bpos] = xr;
+    gl = OUTL[bpos]; gr = OUTR[bpos];
+    bpos += 1;
+    bpos >= BS ? ( bpos = 0; engine_block(); );
+  ) : (
+    eix = (hin & 8191) * 2;
+    HDIN[eix] = HDIN[eix + 16384] = xl;
+    HDIN[eix + 1] = HDIN[eix + 16385] = xr;
+    poly ? (
+      lastn = hbase + dnq + BDST[dnr] + BDCN[dnr] - 1;
+      while (lastn < hin) (
+        bsl ? push_engine_in(0, 0) : (
+          nn = hbase + dnq + BDST[dnr];
+          cop = BDCO + dnr * tdn;
+          al = 0; ar = 0;
+          ep = HDIN + (nn & 8191) * 2;
+          loop(BDCN[dnr],
+            kv = cop[0];
+            al += ep[0] * kv;
+            ar += ep[1] * kv;
+            ep += 2; cop += 1;
+          );
+          push_engine_in(al, ar);
+        );
+        dnr += rta;
+        while (dnr >= rtb) ( dnr -= rtb; dnq += 1; );
+        lastn = hbase + dnq + BDST[dnr] + BDCN[dnr] - 1;
+      );
+      gl = gr = 0;
+      mm = upq + BUST[upr];
+      (mm >= 0 && !bsl) ? (
+        cop = BUCO + upr * tup;
+        (mm + BUCN[upr]) <= eo_n ? (
+          ep = EOR + (mm & 8191) * 2;
+          k_outm < 0.5 ? (
+            loop(BUCN[upr],
+              gl += ep[0] * cop[0];
+              ep += 2; cop += 1;
+            );
+          ) : (
+            loop(BUCN[upr],
+              kv = cop[0];
+              gl += ep[0] * kv;
+              gr += ep[1] * kv;
+              ep += 2; cop += 1;
+            );
+          );
+        ) : (
+          loop(BUCN[upr],
+            mm < eo_n ? (
+              kv = cop[0];
+              ix = (mm & 8191) * 2;
+              gl += EOR[ix] * kv;
+              gr += EOR[ix + 1] * kv;
+            );
+            mm += 1; cop += 1;
+          );
+        );
+      );
+      upr += rtb;
+      while (upr >= rta) ( upr -= rta; upq += 1; );
+    ) : (
+      while (dn_t + dn_half < hin) (
+        n0 = ceil(dn_t - dn_half);
+        n1 = floor(dn_t + dn_half);
+        al = 0; ar = 0;
+        nn = n0;
+        while (nn <= n1) (
+          kv = kern((nn - dn_t) * dn_scale);
+          al += HDIN[(nn & 8191) * 2] * kv;
+          ar += HDIN[(nn & 8191) * 2 + 1] * kv;
+          nn += 1;
+        );
+        push_engine_in(al * dn_scale, ar * dn_scale);
+        dn_t += dn_step;
+      );
+      ut = (hin - hbase - host_lat) * up_step;
+      gl = gr = 0;
+      ut - up_half >= 0 ? (
+        m0 = ceil(ut - up_half);
+        m1 = floor(ut + up_half);
+        mm = m0;
+        while (mm <= m1) (
+          mm < eo_n ? (
+            kv = kern((mm - ut) * up_scale) * up_scale;
+            gl += EOR[(mm & 8191) * 2] * kv;
+            gr += EOR[(mm & 8191) * 2 + 1] * kv;
+          );
+          mm += 1;
+        );
+      );
+    );
+  );
+  hin += 1;
+  spl0 = gl;
+  spl1 = k_outm >= 0.5 ? gr : gl;
+  k_outm < 0.5 ? spl1 = gl;
+) : (
+  spl0 = spl1 = 0;
+);
+ui_lev = max(ui_lev * 0.9995, abs(spl0));
+
+@gfx 860 430
+
+UDW = 860;
+UDH = 430;
+uscale = max(0.5, min(gfx_w / UDW, gfx_h / UDH));
+uox = floor((gfx_w - UDW * uscale) * 0.5);
+uoy = 0;
+
+function s_min(s) ( 0; );
+function s_max(s) ( s == 5 ? 3 : s > 5 ? 1 : 1; );
+function s_step(s) ( s >= 5 ? 1 : 0; );
+function def_val(s) ( s == 1 || s == 2 || s == 4 ? 0.5 : 0; );
+function knob_name(s) (
+  k_egg >= 0.5 ? (
+    s == 1 ? "FEEDBACK" : s == 2 ? "DRY / WET" : s == 3 ? (k_osc >= 0.5 ? "FREQ SHIFT" : "PHASE") : "UP / DOWN";
+  ) : (
+    s == 1 ? (k_osc >= 0.5 ? "PITCH" : "LEVEL 1") : s == 2 ? "LEVEL 2" : s == 3 ? "ALGORITHM" : "TIMBRE";
+  );
+);
+function ptext(s) (
+  sprintf(#upt, "%d%%", floor(slider(s) * 100 + 0.5));
+  #upt;
+);
+function seg_label(s, i) (
+  s == 7 ? (i ? "L / R" : "1+2 / 3+4") :
+  s == 8 ? (i ? "MAIN + AUX" : "MAIN") : "";
+);
+function hint_text(s) (
+  k_egg >= 0.5 && s <= 4 && s > 0 ? (
+    s == 1 ? "Feedback: routes the shifted signal back into the input." :
+    s == 2 ? "Dry / wet: how much of the shifted signal you hear." :
+    s == 3 ? (k_osc >= 0.5 ? "Frequency shift: centre is no shift, left down, right up. The oscillator shape sets the character." : "Phase rotation between the two inputs (input 1 is the carrier).") :
+    "Blends the up-shifted and down-shifted signals. Hard left or right gives a single-sideband shift.";
+  ) :
+  s == 1 ? (k_osc >= 0.5 ? "Pitch of the internal oscillator (MIDI notes override it)." : "Level and drive of input 1, the carrier.") :
+  s == 2 ? "Level and drive of input 2, the modulator." :
+  s == 3 ? "Algorithm: crossfade, fold, analog ring, digital ring, XOR, comparator, then the vocoder (release grows until it freezes)." :
+  s == 4 ? "Timbre: the character of the current algorithm, or the formant shift in the vocoder." :
+  s == 5 ? "INT OSC replaces input 1 with an oscillator. Sine, triangle or saw in the cross-mods; saw, pulse or noise in the vocoder." :
+  s == 6 ? "Easter egg: the module's hidden frequency shifter." :
+  s == 7 ? "Where the inputs come from: channels 1+2 and 3+4 (sidechain), or just left and right." :
+  s == 8 ? "Outputs: main on both, or main left and aux right (the aux out is the sum of the inputs, or the oscillator)." :
+  "Drag or scroll a knob to adjust  ·  Ctrl for fine control  ·  double-click to reset";
+);
+
+function automate(s, e)
+(
+<?
+  max_sliders > 8 ? printf("slider_automate(2^(s-1), e);") :
+    loop(i = 1; 8,
+      printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function set_slider(s, x) ( slider(s) = x; automate(s, 0); automate(s, 1); );
+function hit_circle(mx, my, cx, cy, rad) ( sqr(mx - cx) + sqr(my - cy) <= sqr(rad); );
+function hit_rect(mx, my, x, y, w, h) ( mx >= x && mx <= x + w && my >= y && my <= y + h; );
+function px(x) ( uox + x * uscale; );
+function py(y) ( uoy + y * uscale; );
+
+function norm_of(s) ( (slider(s) - s_min(s)) / (s_max(s) - s_min(s)); );
+function set_norm(s, x) local(old, st) (
+  old = slider(s);
+  st = s_step(s);
+  slider(s) = st > 0 ? s_min(s) + floor(x * (s_max(s) - s_min(s)) / st + 0.5) * st : s_min(s) + x * (s_max(s) - s_min(s));
+  slider(s) !== old ? ( automate(s, 0); );
+);
+
+function ctext(str, cx, y, fs, fl) local(tw, th)
+(
+  gfx_setfont(1, "Arial", fs * uscale, fl);
+  gfx_measurestr(str, tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function ltext(str, x, y, fs, fl)
+(
+  gfx_setfont(1, "Arial", fs * uscale, fl);
+  gfx_x = x; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function rk_draw(cx, cy, rad, pos, cr, cg, cb) local(ang0, ang1, ang, i, a, rr, ca, sa, n)
+(
+  ang0 = -2.35619;
+  ang1 = 2.35619;
+  gfx_set(0, 0, 0, 0.18);
+  gfx_circle(cx + rad * 0.06, cy + rad * 0.10, rad * 1.02, 1, 1);
+  gfx_set(0.07, 0.07, 0.08, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  i = 0;
+  loop(36,
+    a = i * 2 * $pi / 36;
+    gfx_set(0.20, 0.20, 0.22, 1);
+    gfx_line(cx + sin(a) * rad * 0.80, cy - cos(a) * rad * 0.80, cx + sin(a) * rad * 0.97, cy - cos(a) * rad * 0.97, 1);
+    i += 1;
+  );
+  gfx_set(0.13, 0.13, 0.14, 1);
+  gfx_circle(cx, cy, rad * 0.76, 1, 1);
+  ang = ang0 + (ang1 - ang0) * pos;
+  sa = sin(ang); ca = cos(ang);
+  rr = rad * 0.08;
+  n = max(7, 2 * floor(rad * 0.16) + 1);
+  i = 0;
+  loop(n,
+    a = (i - (n - 1) / 2) / ((n - 1) / 2) * rr;
+    gfx_set(cr, cg, cb, 1);
+    gfx_line(cx + sa * rad * 0.50 + ca * a, cy - ca * rad * 0.50 + sa * a, cx + sa * rad * 0.96 + ca * a, cy - ca * rad * 0.96 + sa * a, 1);
+    i += 1;
+  );
+  gfx_set(cr * 0.64, cg * 0.64, cb * 0.64, 1);
+  gfx_circle(cx, cy, rad * 0.56, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rad * 0.53, 1, 1);
+  gfx_set(1, 1, 1, 0.45);
+  gfx_circle(cx - rad * 0.10, cy - rad * 0.12, rad * 0.30, 1, 1);
+  gfx_set(cr * 0.78, cg * 0.78, cb * 0.78, 1);
+  gfx_line(cx + sa * rad * 0.20, cy - ca * rad * 0.20, cx + sa * rad * 0.50, cy - ca * rad * 0.50, 1);
+);
+
+function pill_col(kind)
+(
+  kind == 1 ? gfx_set(0.91, 0.18, 0.42, 1) :
+  kind == 2 ? gfx_set(0.10, 0.72, 0.78, 1) :
+  kind == 3 ? gfx_set(0.70, 0.08, 0.42, 1) :
+  gfx_set(0.95, 0.55, 0.15, 1);
+);
+
+function label_pill(str, cx, y, kind, big) local(tw, th, fs)
+(
+  fs = big ? 15 : 14;
+  gfx_setfont(1, "Arial", fs * uscale, 'b');
+  gfx_measurestr(str, tw, th);
+  kind > 0 ? (
+    pill_col(kind);
+    gfx_rect(cx - tw * 0.5 - 5 * uscale, y - 1 * uscale, tw + 10 * uscale, th + 2 * uscale, 1);
+    gfx_set(1, 1, 1, 1);
+  ) : gfx_set(0.12, 0.12, 0.13, 1);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function rosette(cx, cy, r0) local(i, a, r1)
+(
+  i = 0;
+  loop(60,
+    a = i * 2 * $pi / 60;
+    r1 = r0 * ((i & 1) ? 1.20 : 1.12);
+    gfx_set(0.45, 0.46, 0.48, (i & 1) ? 0.30 : 0.18);
+    gfx_line(cx + sin(a) * r0 * 1.04, cy - cos(a) * r0 * 1.04, cx + sin(a) * r1, cy - cos(a) * r1, 1);
+    gfx_circle(cx + sin(a + 0.05) * r0 * 1.26, cy - cos(a + 0.05) * r0 * 1.26, max(1, 1.2 * uscale), 0, 1);
+    i += 1;
+  );
+);
+
+function knob_core(s, cx, cy, rad, kind) local(hov, x, cr, cg, cb)
+(
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, rad + 4 * uscale);
+  hov ? u_hov = s;
+  (u_click && hov) ? (
+    (u_ctarget == s && time_precise() - u_ctime < 0.3) ? (
+      set_slider(s, def_val(s));
+      u_drag = 0;
+    ) : (
+      u_drag = s; u_dy0 = mouse_y; u_dv0 = norm_of(s); u_dfine = mouse_cap & 4;
+      automate(s, 0);
+    );
+    u_ctarget = s; u_ctime = time_precise();
+    u_click = 0;
+  );
+  (hov && u_wheel != 0 && u_drag == 0) ? (
+    x = norm_of(s) + (u_wheel / 120) * ((mouse_cap & 4) ? 0.002 : 0.02);
+    set_norm(s, max(0, min(1, x)));
+    automate(s, 1);
+    u_wheel = 0;
+  );
+  kind == 1 ? ( cr = 0.93; cg = 0.27; cb = 0.47; ) :
+  kind == 2 ? ( cr = 0.20; cg = 0.78; cb = 0.84; ) :
+  kind == 3 ? ( cr = 0.72; cg = 0.10; cb = 0.45; ) :
+  ( cr = 0.97; cg = 0.97; cb = 0.96; );
+  rk_draw(cx, cy, rad, norm_of(s), cr, cg, cb);
+  hov;
+);
+
+function knob_at(s, cx, cy, rad, big, kind) local(hov, ly)
+(
+  big ? rosette(cx, cy, rad);
+  hov = knob_core(s, cx, cy, rad, kind);
+  ly = cy + rad * (big ? 1.30 : 1.12) + 4 * uscale;
+  label_pill(knob_name(s), cx, ly, kind, big);
+  gfx_set((hov || u_drag == s) ? 0.78 : 0.36, (hov || u_drag == s) ? 0.42 : 0.37, (hov || u_drag == s) ? 0.10 : 0.40, 1);
+  ctext(ptext(s), cx, ly + 18 * uscale, 12, 0);
+);
+
+function led(cx, cy, r, g, b, lv)
+(
+  gfx_set(0.55, 0.55, 0.56, 1);
+  gfx_circle(cx, cy, 8 * uscale, 1, 1);
+  gfx_set(0.93, 0.93, 0.92, 1);
+  gfx_circle(cx, cy, 6.5 * uscale, 1, 1);
+  lv > 0.01 ? (
+    gfx_set(r, g, b, 0.35 * lv); gfx_circle(cx, cy, 11 * uscale, 1, 1);
+    gfx_set(r, g, b, 0.25 + 0.75 * lv); gfx_circle(cx, cy, 6.5 * uscale, 1, 1);
+  );
+  gfx_set(1, 1, 1, 0.6);
+  gfx_circle(cx - 2 * uscale, cy - 2 * uscale, 2 * uscale, 1, 1);
+);
+
+function dark_btn(s, x, y, w, h, label, act, fs) local(tw, th, hov)
+(
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? u_hov = s;
+  gfx_set(0.10, 0.10, 0.11, 1);
+  gfx_rect(x - uscale, y - uscale, w + 2 * uscale, h + 2 * uscale, 1);
+  act ? gfx_set(0.93, 0.50, 0.16, 1) : gfx_set(hov ? 0.30 : 0.24, hov ? 0.30 : 0.24, hov ? 0.32 : 0.26, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(1, 1, 1, act ? 0.20 : 0.07);
+  gfx_rect(x, y, w, h * 0.45, 1);
+  gfx_setfont(1, "Arial", fs * uscale, 'b');
+  act ? gfx_set(0.10, 0.07, 0.04, 1) : gfx_set(0.90, 0.90, 0.91, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = x + (w - tw) * 0.5; gfx_y = y + (h - th) * 0.5;
+  gfx_drawstr(label);
+  u_click && hov;
+);
+
+function seg(s, x, y, w, h, n, base) local(i, sw)
+(
+  sw = w / n;
+  i = 0;
+  loop(n,
+    dark_btn(s, x + i * sw, y, sw - 2 * uscale, h, seg_label(s, i), (slider(s) | 0) == i + base, 12) ? ( set_slider(s, i + base); u_click = 0; );
+    i += 1;
+  );
+);
+
+function cap(str, x, y)
+(
+  gfx_set(0.12, 0.12, 0.13, 1);
+  ltext(str, x, y, 12, 'b');
+);
+
+function field(s, x, y, w, h) local(hov, v)
+(
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? u_hov = s;
+  gfx_set(0.10, 0.10, 0.11, 1);
+  gfx_rect(x - uscale, y - uscale, w + 2 * uscale, h + 2 * uscale, 1);
+  gfx_set(hov || u_drag == s ? 0.30 : 0.24, hov || u_drag == s ? 0.30 : 0.24, hov || u_drag == s ? 0.32 : 0.26, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.90, 0.90, 0.91, 1);
+  ctext(ptext(s), x + w * 0.5, y + (h - 14 * uscale) * 0.5, 12, 'b');
+  (u_click && hov) ? (
+    (u_ctarget == s && time_precise() - u_ctime < 0.3) ? ( set_slider(s, def_val(s)); u_drag = 0; ) :
+    ( u_drag = s; u_dy0 = mouse_y; u_dv0 = norm_of(s); u_dfine = mouse_cap & 4; automate(s, 0); );
+    u_ctarget = s; u_ctime = time_precise();
+    u_click = 0;
+  );
+  (hov && u_wheel != 0 && u_drag == 0) ? (
+    v = slider(s) + (u_wheel > 0 ? 1 : -1) * s_step(s);
+    slider(s) = max(s_min(s), min(s_max(s), v));
+    automate(s, 0); automate(s, 1);
+    u_wheel = 0;
+  );
+);
+
+function dots_h(x0, x1, y) local(x)
+(
+  gfx_set(0.16, 0.16, 0.18, 0.75);
+  x = x0;
+  while (x < x1) ( gfx_rect(x, y - uscale, max(1, 2 * uscale), max(1, 2 * uscale), 1); x += 6 * uscale; );
+);
+function dots_v(x, y0, y1) local(y)
+(
+  gfx_set(0.16, 0.16, 0.18, 0.75);
+  y = y0;
+  while (y < y1) ( gfx_rect(x - uscale, y, max(1, 2 * uscale), max(1, 2 * uscale), 1); y += 6 * uscale; );
+);
+
+function screw(cx, cy)
+(
+  gfx_set(0.62, 0.62, 0.63, 1); gfx_circle(cx, cy, 6 * uscale, 1, 1);
+  gfx_set(0.93, 0.93, 0.93, 1); gfx_circle(cx, cy, 4.5 * uscale, 1, 1);
+  gfx_set(0.55, 0.55, 0.57, 1);
+  gfx_line(cx - 3 * uscale, cy - 3 * uscale, cx + 3 * uscale, cy + 3 * uscale, 1);
+);
+
+function panel_bg() local(useed)
+(
+  gfx_set(0.86, 0.865, 0.875, 1);
+  gfx_rect(0, 0, gfx_w, gfx_h, 1);
+  useed = 7;
+  loop(140,
+    useed = (useed * 1103 + 12345) % 65536;
+    gfx_set(useed & 1 ? 1 : 0, useed & 1 ? 1 : 0, useed & 1 ? 1 : 0, 0.028);
+    gfx_rect(px(0), py(useed / 65536 * UDH), UDW * uscale, max(1, uscale), 1);
+  );
+  screw(px(14), py(12)); screw(px(UDW - 14), py(12));
+);
+
+function panel_band(y) local(uby, i)
+(
+  uby = py(y);
+  gfx_set(0.70, 0.71, 0.73, 1);
+  gfx_rect(px(0), uby, UDW * uscale, 9 * uscale, 1);
+  i = 0;
+  loop(UDW / 4,
+    gfx_set(0.52, 0.53, 0.56, 1);
+    gfx_line(px(i * 4), uby + 8 * uscale, px(i * 4 + 6), uby + uscale, 1);
+    i += 1;
+  );
+  gfx_set(0.97, 0.97, 0.97, 1);
+  gfx_rect(px(0), uby + 9 * uscale, UDW * uscale, max(1, uscale), 1);
+);
+
+function panel_title(tt, sub, origin) local(tw, th)
+(
+  gfx_set(0.14, 0.14, 0.15, 1);
+  gfx_setfont(1, "Arial", 30 * uscale);
+  gfx_x = px(70); gfx_y = py(8);
+  gfx_drawstr(tt);
+  gfx_measurestr(tt, tw, th);
+  gfx_setfont(1, "Arial", 17 * uscale);
+  gfx_x = px(70) + tw + 16 * uscale; gfx_y = py(17);
+  gfx_drawstr(sub);
+  gfx_setfont(1, "Arial", 12 * uscale);
+  gfx_set(0.36, 0.37, 0.40, 1);
+  gfx_x = px(71); gfx_y = py(41);
+  gfx_drawstr(origin);
+);
+
+function hint_bar(y) local(uhs, tw, th)
+(
+  gfx_set(0.20, 0.20, 0.21, 1);
+  gfx_rect(px(0), py(y), UDW * uscale, 36 * uscale, 1);
+  uhs = u_drag > 0 ? u_drag : u_hov;
+  gfx_setfont(1, "Arial", 13 * uscale);
+  gfx_set(0.80, 0.80, 0.82, 1);
+  strcpy(#uhint, hint_text(uhs));
+  gfx_measurestr(#uhint, tw, th);
+  tw > (UDW - 20) * uscale ? ( gfx_setfont(1, "Arial", 13 * uscale * (UDW - 20) * uscale / tw); gfx_measurestr(#uhint, tw, th); );
+  gfx_x = uox + (UDW * uscale - tw) * 0.5; gfx_y = py(y) + (36 * uscale - th) * 0.5;
+  gfx_drawstr(#uhint);
+);
+
+function frame_begin()
+(
+  u_down = mouse_cap & 1;
+  u_click = u_down && !u_pstate;
+  u_wheel = mouse_wheel;
+  mouse_wheel = 0;
+  u_hov = 0;
+);
+
+function frame_end() local(ufine)
+(
+  u_drag > 0 ? (
+    u_down ? (
+      mouse_cap |= 65536;
+      ufine = mouse_cap & 4;
+      ufine != u_dfine ? ( u_dy0 = mouse_y; u_dv0 = norm_of(u_drag); u_dfine = ufine; );
+      set_norm(u_drag, max(0, min(1, u_dv0 + (u_dy0 - mouse_y) / (150 * uscale) * (ufine ? 0.1 : 1))));
+    ) : ( automate(u_drag, 1); u_drag = 0; );
+  );
+  u_pstate = u_down;
+);
+
+function pal(i, c) (
+  c == 0 ? (i == 0 ? 0 : i == 1 ? 64 : i == 2 ? 255 : i == 3 ? 255 : i == 4 ? 255 : i == 5 ? 255 : i == 6 ? 255 : i == 7 ? 0 : 0) :
+  c == 1 ? (i == 0 ? 192 : i == 1 ? 255 : i == 2 ? 255 : i == 3 ? 64 : i == 4 ? 0 : i == 5 ? 0 : i == 6 ? 0 : i == 7 ? 0 : 255) :
+  (i == 0 ? 64 : i == 1 ? 0 : i == 2 ? 0 : i == 3 ? 0 : i == 4 ? 0 : i == 5 ? 64 : i == 6 ? 255 : i == 7 ? 255 : 192);
+);
+
+function palc(z, c) local(i, f, a, b) (
+  i = min(8, floor(z));
+  f = z - i;
+  a = pal(i, c); b = pal(min(8, i + 1), c);
+  (a + (b - a) * f) / 255;
+);
+
+function alg_label(i) (
+  i == 0 ? "XFADE" : i == 1 ? "FOLD" : i == 2 ? "ANALOG" : i == 3 ? "DIGITAL" : i == 4 ? "XOR" :
+  i == 5 ? "COMP" : i == 6 ? "VOCODER" : i == 7 ? "RELEASE" : "FREEZE";
+);
+
+function arc_col(cx, cy, r, a0, a1, cr, cg, cb) local(i, a) (
+  gfx_set(cr, cg, cb, 1);
+  i = 0;
+  loop(3, gfx_arc(cx, cy, r + i * 0.5, a0, a1, 1); i += 1;);
+);
+
+frame_begin();
+panel_bg();
+
+gfx_set(0.14, 0.14, 0.15, 1);
+gfx_rect(px(30), py(10), 30 * uscale, 30 * uscale, 0);
+gfx_rect(px(31), py(11), 28 * uscale, 28 * uscale, 0);
+gfx_line(px(36), py(32), px(45), py(16), 1); gfx_line(px(45), py(16), px(54), py(32), 1); gfx_line(px(40), py(25), px(50), py(25), 1);
+panel_title("Warp Factor", "meta modulator", "by chmaha  ·  based on Mutable Instruments Warps");
+panel_band(60);
+
+gsz = k_egg >= 0.5 ? p_ps * 8 : p_alg * 8;
+gcr = palc(gsz, 0); gcg = palc(gsz, 1); gcb = palc(gsz, 2);
+
+gi = 0;
+loop(9,
+  gang = -2.35619 + gi / 8 * 4.71239;
+  gfx_set(0.55, 0.55, 0.57, 1);
+  gfx_circle(px(220) + sin(gang) * 108 * uscale, py(208) - cos(gang) * 108 * uscale, 2 * uscale, 1, 1);
+  gfx_set(0.12, 0.12, 0.13, k_egg >= 0.5 ? 0.3 : 1);
+  ctext(alg_label(gi), px(220) + sin(gang) * 142 * uscale, py(208) - cos(gang) * 124 * uscale - 7 * uscale, 11, 'b');
+  gi += 1;
+);
+gfx_set(0.55, 0.55, 0.57, 1);
+gfx_arc(px(220), py(208), 108 * uscale, -2.35619, 2.35619, 1);
+
+knob_core(3, px(220), py(208), 84 * uscale, 0);
+gfx_set(gcr, gcg, gcb, 0.34); gfx_circle(px(220), py(208), 84 * uscale * 0.53, 1, 1);
+label_pill(knob_name(3), px(220), py(324), 0, 1);
+
+gfx_set(0.16, 0.16, 0.18, 0.75);
+dots_v(px(390), py(78), py(340));
+
+knob_core(1, px(462), py(146), 34 * uscale, 3);
+arc_col(px(462), py(146), 44 * uscale, -2.35619, 2.35619, 0.70, 0.08, 0.42);
+label_pill(knob_name(1), px(462), py(196), 3, 0);
+gfx_set(0.36, 0.37, 0.40, 1); ctext(ptext(1), px(462), py(214), 12, 0);
+
+knob_core(2, px(596), py(146), 34 * uscale, 2);
+arc_col(px(596), py(146), 44 * uscale, -2.35619, 2.35619, 0.10, 0.72, 0.78);
+label_pill(knob_name(2), px(596), py(196), 2, 0);
+gfx_set(0.36, 0.37, 0.40, 1); ctext(ptext(2), px(596), py(214), 12, 0);
+
+knob_at(4, px(736), py(146), 42 * uscale, 1, 0);
+
+g_ohov = hit_circle(mouse_x, mouse_y, px(440), py(268), 16 * uscale);
+g_ohov ? u_hov = 5;
+(u_click && g_ohov) ? ( set_slider(5, ((k_osc | 0) + 1) & 3); u_click = 0; );
+gfx_set(0.07, 0.07, 0.08, 1); gfx_circle(px(440), py(268), 14 * uscale, 1, 1);
+gfx_set(0.20, 0.20, 0.22, 1); gfx_circle(px(440), py(268), 10 * uscale, 1, 1);
+gfx_set(1, 1, 1, 0.30); gfx_circle(px(437), py(265), 3 * uscale, 1, 1);
+gos = k_osc | 0;
+led(px(440), py(240), gos >= 2 ? 0.98 : 0.10, (gos > 0 && gos <= 2) ? 0.85 : 0.10, 0.12, gos > 0);
+label_pill("INT. OSC", px(516), py(258), 3, 0);
+gfx_set(0.36, 0.37, 0.40, 1);
+ctext(gos == 0 ? "off" : gos == 1 ? "sine / saw" : gos == 2 ? "triangle / pulse" : "saw / noise", px(516), py(278), 12, 0);
+
+dark_btn(6, px(620), py(250), 90 * uscale, 26 * uscale, "EASTER EGG", k_egg >= 0.5, 12) ? ( set_slider(6, k_egg >= 0.5 ? 0 : 1); u_click = 0; );
+
+gfx_set(0.37, 0.40, 0.46, 1);
+gfx_rect(px(420), py(298), 420 * uscale, 42 * uscale, 1);
+gfx_set(1, 1, 1, 1);
+k_egg >= 0.5 ? (
+  ltext(k_osc >= 0.5 ? "FREQUENCY SHIFTER" : "PHASE SHIFTER", px(434), py(310), 15, 'b');
+) : (
+  gza = floor(min(8, p_alg * 8));
+  sprintf(#galg, "%s", alg_label(gza));
+  ltext(#galg, px(434), py(310), 15, 'b');
+  gza < 8 ? ( sprintf(#galg2, ">  %s", alg_label(gza + 1)); gfx_set(1, 1, 1, 0.6); ltext(#galg2, px(560), py(310), 15, 'b'); );
+);
+
+gfx_set(0.62, 0.63, 0.65, 1);
+gfx_rect(px(20), py(350), (UDW - 40) * uscale, max(1, uscale), 1);
+gfx_set(0.97, 0.97, 0.97, 1);
+gfx_rect(px(20), py(351), (UDW - 40) * uscale, max(1, uscale), 1);
+
+cap("INPUTS", px(30), py(366));
+seg(7, px(90), py(361), 190 * uscale, 24 * uscale, 2, 0);
+cap("OUTPUTS", px(320), py(366));
+seg(8, px(392), py(361), 190 * uscale, 24 * uscale, 2, 0);
+
+!tables_ok ? (
+  gfx_set(0.10, 0.13, 0.20, 0.92);
+  gfx_rect(px(180), py(180), 500 * uscale, 50 * uscale, 1);
+  gfx_set(1, 0.8, 0.5, 1);
+  ctext("Missing or unreadable Dependencies/WarpFactor/warps_tables.txt", px(430), py(196), 14, 'b');
+);
+
+hint_bar(394);
+frame_end();

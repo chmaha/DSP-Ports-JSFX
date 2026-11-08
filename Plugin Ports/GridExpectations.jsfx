@@ -1,0 +1,978 @@
+desc: Grid Expectations Drum Sequencer (Mutable Instruments Grids port) by chmaha
+tags: midi generator sequencer drum pattern euclidean
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  A port of Mutable Instruments Grids, the topographic drum sequencer. Map X and Map Y move around a 5 x 5 map
+  of drum patterns, blending between the nearest four. The three Fill knobs set how busy each part is, and Chaos
+  shakes the pattern a little more each time round. Euclidean mode swaps the map for three euclidean rhythms:
+  the X, Y and Chaos knobs set each part's length, the Fill knobs its number of hits.
+  Grids makes MIDI only, so put a drum instrument after it on the same track (Dr Nine, Captain's Kit, or any
+  drum sampler). It follows REAPER's transport, or runs free at its own tempo, and locks to the bar.
+  Accented hits play at the Accent velocity. The module's three extra outputs (accents, or clock and bar) can
+  go out as extra notes through the Aux selector.
+  Ported from Grids by Emilie Gillet (Mutable Instruments)
+  https://github.com/pichenettes/eurorack (GPLv3+)
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+
+slider1:k_x=128<0,255,1>-Map X
+slider2:k_y=128<0,255,1>-Map Y
+slider3:k_chaos=0<0,255,1>-Chaos
+slider4:k_f1=128<0,255,1>-Fill 1
+slider5:k_f2=128<0,255,1>-Fill 2
+slider6:k_f3=128<0,255,1>-Fill 3
+slider7:k_bpm=120<20,239,1>-Free Tempo
+slider8:k_mode=0<0,1,1{Drums,Euclidean}>-Mode
+slider9:k_swing=0<0,1,1{Off,On}>-Swing
+slider10:k_gate=0<0,1,1{Trigger,Gate}>-Note Output
+slider11:k_res=2<0,2,1{4 PPQN,8 PPQN,24 PPQN}>-Resolution
+slider12:k_aux=0<0,2,1{Off,Accents,Clock}>-Aux Outputs
+slider13:k_clock=0<0,1,1{Follow Transport,Free}>-Clock
+slider14:k_run=0<0,1,1{Stopped,Running}>-Free Run
+slider15:k_n1=36<0,127,1>-Note 1
+slider16:k_n2=38<0,127,1>-Note 2
+slider17:k_n3=42<0,127,1>-Note 3
+slider18:k_a1=35<0,127,1>-Aux Note 1
+slider19:k_a2=40<0,127,1>-Aux Note 2
+slider20:k_a3=46<0,127,1>-Aux Note 3
+slider21:k_chan=10<1,16,1>-MIDI Channel
+slider22:k_vel=100<1,127,1>-Velocity
+slider23:k_acc=127<1,127,1>-Accent Velocity
+slider24:k_len=10<1,100,1>-Trigger Length (ms)
+slider25:k_thru=1<0,1,1{Off,On}>-MIDI Thru
+
+in_pin:none
+out_pin:none
+
+options:no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+
+NODES = 0;
+EUCL = 2400;
+DMAP = 3424;
+PERT = 3456;
+ECNT = 3460;
+NACT = 3464;
+OFFT = 3472;
+ONOTE = 3480;
+LEDV = 3488;
+OQ = 3600;
+OQ_MAX = 1024;
+
+function hex_nib(c) ( c >= 97 ? c - 87 : c >= 65 ? c - 55 : c - 48; );
+function hex8(str, dst, n) local(i) (
+  i = 0;
+  loop(n, dst[i] = hex_nib(str_getchar(str, 2 * i)) * 16 + hex_nib(str_getchar(str, 2 * i + 1)); i += 1;);
+);
+function hex32(str, dst, n) local(i, j, v) (
+  i = 0;
+  loop(n,
+    v = 0; j = 0;
+    loop(8, v = v * 16 + hex_nib(str_getchar(str, 8 * i + j)); j += 1;);
+    dst[i] = v;
+    i += 1;
+  );
+);
+hex8("ff0000000000910000000000da00000048002400b60000006d0000004800000024006d0000000800ff000000000048000000b60000002400da00000091000000aa007100ff003800aa008d00c6003800aa007100e2001c00aa007100c6005500", NODES + 0, 96);
+hex8("e500190066001900cc0019004c000800ff00080033001900b200190099007f001c00c60038003800e2001c008d001c001c00aa001c001c00ff007100550055009f009f00ff003f009f009f00bf001f009f007f00ff001f009f007f00df005f00", NODES + 96, 96);
+hex8("ff0000007f000000000066000000e5000000b200cc0000004c0033009900190000007f0000000000ff00bf001f003f0000005f0000000000df0000001f009f00ff005500940055007f0055006a003f00d400aa00bf00aa0055002a00e9001500", NODES + 192, 96);
+hex8("ff00d4003f0000006a00940055007f00bf001500e90000001500aa0000002a00000000008d007100ff00c600000038000000550038001c00e2001c00aa003800ff00e700ff00d0008b005c0073005c00b90045002e002e00a2001700d0002e00", NODES + 288, 96);
+hex8("ff001f003f003f007f005f00bf003f00df001f009f003f001f003f005f001f00080000005f003f00ff0000007f000000080000009f003f00ff00df00bf001f004c001900ff007f0099003300cc0066004c003300e5007f0099003300b2006600", NODES + 384, 96);
+hex8("ff00330019004c000000000066000000cc00e5000000b200000099007f000800b2007f009900cc00ff00000019004c006600330000000000e50019001900cc00b2006600ff004c007f004c00e5004c0099006600ff0019007f003300cc003300", NODES + 480, 96);
+hex8("ff000000df0000001f0008007f0000005f0000009f0000005f003f00bf0000003300cc0000006600ff007f000800b2001900e50000004c00cc00990033001900ff00e200ff00ff00c6001c008d003800aa00380055001c00aa001c0071003800", NODES + 576, 96);
+hex8("df0000003f0000005f000000df001f00ff0000009f0000007f001f00bf001f00000000006d000000da000000b60048000800240091002400ff000800b6004800ff004800da002400da00000091000000ff002400b6002400b60000006d000000", NODES + 672, 96);
+hex8("ff000000da00000024000000da000000b6006d00ff00000000000000910048009f0000001f007f00ff001f0000005f0008000000bf001f00ff001f00df003f00ff001f003f001f005f001f003f007f009f001f003f001f00df00df00bf00bf00", NODES + 768, 96);
+hex8("e2001c001c008d0008000800ff00080071001c00c60055003800c600aa001c0008005f0008000800ff003f001f00df0008001f00bf000800ff007f007f009f0073002e00ff00b9008b001700d0007300e7004500ff00a2008b007300e7005c00", NODES + 864, 96);
+hex8("9100000000006d0000000000ff006d004800da000000000024000000b600000000007f009f007f009f00bf00df003f00ff005f001f005f001f0008003f000800ff00000091000000b6006d006d006d00da00000048000000b6004800b6002400", NODES + 960, 96);
+hex8("ff000000000000000000000000000000ff000000da0048240000b6000000916d00007f0000002a00d40000d40000d400000000002a000000ff000000aaaa7f5591006d6dda6d480091004800da006d00b6006d00ff004800b66d246dff6d6d00", NODES + 1056, 96);
+hex8("ff000000ff00bf00000000005f003f001f000000df00df00000008009f007f000000550038001c00ff001c000000e2000000aa0038007100c600000071008d00ff002a00e9003f00d4005500bf006a00bf001500aa000800aa007f0094009400", NODES + 1152, 96);
+hex8("ff00000000003f00bf005f001f00df00ff003f005f003f009f00000000007f004800000000000000ff000000000000004800480024000800da00b60091006d00ff00a200e700a200e7007300d0008b00b9005c00b9002e00a2004500a2001700", NODES + 1248, 96);
+hex8("ff000000330000000000000066000000cc0000009900000000000000330000000000000008002400ff000000b60008000000000048006d0091000000ff00da00d4000800aa0000007f00000055000800ff000800aa0000007f0000002a000800", NODES + 1344, 96);
+hex8("ff0000000000000024000000b6000000da000000000000004800000091006d002400240000000000ff000000b6000000000000000000006dda00000091004848ff001c00e2003800c600000000001c1caa0000008d0000007100000055555555", NODES + 1440, 96);
+hex8("ff00000000005f0000007f0000000000df005f003f001f00bf0000009f00000000001f00ff00000000005f00df00000000003f00bf000000000000009f007f008d001c001c001c007100080008000800ff000000e2000000c6003800aa005500", NODES + 1536, 96);
+hex8("ff00000008000000b600000048000000da00000024000000910000006d000000000033194c191900990000007f66b200cc0000000000ff0000006600e5004c00710000008d00550000000000aa000000381cff0000000000c6000000e2000000", NODES + 1632, 96);
+hex8("ff0008001c001c00c600380038005500ff00550071007100e2008d00aa008d000000000000000000ff0000007f00000000000000000000003f000000bf000000ff000000ff007f00000055000000d4000000d4002a00aa0000007f0000000000", NODES + 1728, 96);
+hex8("ff0000000000da00b6000000000091009100240000006d006d00000048002400000000006d00080048000000ff00b600000000009100080024000800da00b600ff0000000000e200550000008d00000000000000aa003800c600000071001c00", NODES + 1824, 96);
+hex8("ff00000071000000c600380055001c00ff000000e2000000aa0000008d0000000000000000000000ff0091006d00da002400b60048004800ff00000000006d00240024009100000048004800b600000048004800da0000006d006d00ff000000", NODES + 1920, 96);
+hex8("ff000000da0000009100000024000000da00000024000000b600480000006d000000000008000000ff005500d4002a0000000000080000005500aa007f002a006d006d00ff00000048004800da0000009100b600ff00000024002400da000800", NODES + 2016, 96);
+hex8("ff0000002a000000d40000000800d400aa00000055000000d40008007f000800ff00550000000000e20055000000c60000008d0038000000aa001c000000710071003800ff00000055003800e20000000000aa0000008d001c001c00c6001c00", NODES + 2112, 96);
+hex8("ff000000e5000000cc00cc0000004c00b20099003300b200b2007f0066333319000000000000001f00000000ff00001f000008000000bf9f7f5f5f00df003f00ff00ff00cccccccc0000333333330000cc00cc00999999999900000066666666", NODES + 2208, 96);
+hex8("aa00000000ff0000c6000000001c00008d00000000e200003800007100550000ff000000007100005500000000e200008d00000800aa3838c6000038008d1c00ff00000000bf00009f00000000df00005f000000003f00007f000000001f0000", NODES + 2304, 96);
+hex32("0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001", EUCL + 0, 32);
+hex32("0000000000000000000000000000000000000000000000000000000000000000000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000010000000300000003000000030000000300000003000000030000000300000003", EUCL + 32, 32);
+hex32("0000000000000000000000000000000000000000000000000000000100000001000000010000000100000001000000010000000100000001000000010000000100000005000000050000000500000005000000050000000500000005000000050000000500000005000000070000000700000007000000070000000700000007", EUCL + 64, 32);
+hex32("00000000000000000000000000000000000000010000000100000001000000010000000100000001000000010000000100000005000000050000000500000005000000050000000500000005000000050000000d0000000d0000000d0000000d0000000d0000000d0000000d0000000d0000000f0000000f0000000f0000000f", EUCL + 96, 32);
+hex32("000000000000000000000000000000000000000100000001000000010000000100000001000000010000000900000009000000090000000900000009000000090000000d0000000d0000000d0000000d0000000d0000000d0000001d0000001d0000001d0000001d0000001d0000001d0000001f0000001f0000001f0000001f", EUCL + 128, 32);
+hex32("000000000000000000000000000000010000000100000001000000010000000100000009000000090000000900000009000000090000001500000015000000150000001500000015000000150000002d0000002d0000002d0000002d0000002d0000003d0000003d0000003d0000003d0000003d0000003f0000003f0000003f", EUCL + 160, 32);
+hex32("000000000000000000000000000000010000000100000001000000010000001100000011000000110000001100000011000000290000002900000029000000290000002d0000002d0000002d0000002d0000005d0000005d0000005d0000005d0000005d0000007d0000007d0000007d0000007d0000007f0000007f0000007f", EUCL + 192, 32);
+hex32("000000000000000000000001000000010000000100000001000000110000001100000011000000110000002900000029000000290000002900000055000000550000005500000055000000ad000000ad000000ad000000ad000000dd000000dd000000dd000000dd000000fd000000fd000000fd000000fd000000ff000000ff", EUCL + 224, 32);
+hex32("00000000000000000000000100000001000000010000000100000021000000210000002100000049000000490000004900000049000000a9000000a9000000a9000000ad000000ad000000ad0000016d0000016d0000016d0000016d000001bd000001bd000001bd000001fd000001fd000001fd000001fd000001ff000001ff", EUCL + 256, 32);
+hex32("000000000000000000000001000000010000000100000021000000210000002100000091000000910000009100000129000001290000012900000155000001550000015500000155000001ad000001ad000001ad000002dd000002dd000002dd000003bd000003bd000003bd000003fd000003fd000003fd000003ff000003ff", EUCL + 288, 32);
+hex32("00000000000000000000000100000001000000010000004100000041000000410000009100000091000001290000012900000129000002a9000002a9000002a9000002ad000002ad000002ad000005ad000005ad000005ad000006dd000006dd0000077d0000077d0000077d000007fd000007fd000007fd000007ff000007ff", EUCL + 320, 32);
+hex32("000000000000000000000001000000010000004100000041000000410000011100000111000001110000024900000249000004a9000004a9000004a90000055500000555000006ad000006ad000006ad00000b6d00000b6d00000ddd00000ddd00000ddd00000f7d00000f7d00000f7d00000ffd00000ffd00000fff00000fff", EUCL + 352, 32);
+hex32("000000000000000000000001000000010000008100000081000002210000022100000221000004910000049100000929000009290000092900000aa900000aa900000aad00000aad00000dad00000dad00000dad000016dd000016dd00001bbd00001bbd00001bbd00001efd00001efd00001ffd00001ffd00001fff00001fff", EUCL + 384, 32);
+hex32("00000000000000000000000100000001000000810000008100000221000002210000089100000891000009290000092900000929000014a9000014a90000155500001555000016ad000016ad00002dad00002dad00002dad00002edd00002edd00003bbd00003bbd00003efd00003efd00003ffd00003ffd00003fff00003fff", EUCL + 416, 32);
+hex32("000000000000000000000001000000010000010100000101000004210000042100000891000008910000124900001249000025290000252900002aa900002aa900002aad00002aad000035ad000035ad00005b6d00005b6d00006edd00006edd000077bd000077bd00007dfd00007dfd00007ffd00007ffd00007fff00007fff", EUCL + 448, 32);
+hex32("00000000000000010000000100000101000001010000084100000841000011110000111100002491000024910000292900002929000052a9000052a9000055550000555500005aad00005aad0000adad0000adad0000b6dd0000b6dd0000dddd0000dddd0000ef7d0000ef7d0000fdfd0000fdfd0000fffd0000fffd0000ffff", EUCL + 480, 32);
+hex32("000000000000000100000001000002010000020100000841000008410000222100002221000044910000449100004929000094a9000094a90000aaa90000aaa90000aaad0000aaad0000d6ad0000d6ad00016dad000176dd000176dd0001bbbd0001bbbd0001ef7d0001ef7d0001fbfd0001fbfd0001fffd0001fffd0001ffff", EUCL + 512, 32);
+hex32("00000000000000010000000100000201000002010000104100001041000042210000889100008891000092490000924900012929000152a9000152a9000155550001555500015aad00015aad0001adad0002db6d0002db6d0002eedd0002eedd00037bbd0003df7d0003df7d0003fbfd0003fbfd0003fffd0003fffd0003ffff", EUCL + 544, 32);
+hex32("00000000000000010000000100000401000004010000208100004221000042210000889100012491000124910001492900014929000294a90002aaa90002aaa90002aaad0002aaad0002d6ad00056dad00056dad0005b6dd0005b6dd0006eedd00077bbd00077bbd0007befd0007f7fd0007f7fd0007fffd0007fffd0007ffff", EUCL + 576, 32);
+hex32("0000000000000001000000010000040100002081000020810000842100011111000111110002449100024491000249290004a5290004a52900054aa9000555550005555500056aad0006b5ad0006b5ad000b6dad000b76dd000b76dd000ddddd000ddddd000ef7bd000fbefd000fbefd000ff7fd000ffffd000ffffd000fffff", EUCL + 608, 32);
+hex32("00000000000000010000000100000801000040810000408100010841000222210002222100044891000492490004924900052929000a54a9000a54a9000aaaa9000aaaad000b56ad000b56ad0015adad0016db6d0016db6d00176edd001bbbbd001bbbbd001def7d001f7efd001f7efd001feffd001ffffd001ffffd001fffff", EUCL + 640, 32);
+hex32("000000000000000100000001000008010000810100020841000208410004222100048891000488910009249100094929001294a9001294a900154aa9001555550015555500156aad001ad6ad001ad6ad002d6dad002db6dd0036eedd0036eedd0037bbbd003bef7d003bef7d003efdfd003feffd003ffffd003ffffd003fffff", EUCL + 672, 32);
+hex32("00000000000000010000000100001001000081010002084100020841000842210008889100122491001224910012492900252929002952a9002952a9002aaaa9002aaaad002d5aad002d5aad0035adad005b6dad005bb6dd005bb6dd006eeedd006f7bbd007bef7d007bef7d007efdfd007fdffd007ffffd007ffffd007fffff", EUCL + 704, 32);
+hex32("00000000000000010000100100001001000101010004104100084221000842210011111100224491002492490029292900292929004a94a900552aa900555555005555550055aaad006ad6ad00adadad00adadad00b6db6d00bb76dd00dddddd00ef7bbd00ef7bbd00f7df7d00fdfdfd00ffdffd00ffdffd00fffffd00ffffff", EUCL + 736, 32);
+hex32("0000000000000001000020010000200100020201000820810010842100222221002222210044889100492491004a49290094a5290094a52900a952a900aaaaa900aaaaad00ad5aad00d6b5ad00d6b5ad016b6dad016db6dd0176eedd01bbbbbd01bbbbbd01def7bd01efbefd01fbfbfd01ffbffd01ffbffd01fffffd01ffffff", EUCL + 768, 32);
+hex32("00000000000000010000200100020201000202010010208100210841004422210048889100922491009224910092492901252929014a94a901552aa901555555015555550155aaad016ad6ad01b5adad02db6dad02dbb6dd02dbb6dd036eeedd0377bbbd03bdef7d03dfbefd03fbfbfd03fbfbfd03ffbffd03fffffd03ffffff", EUCL + 800, 32);
+hex32("00000000000000010000400100040201000402010010208100410841008442210088889101224491012492490149492901494929025294a902a552a902aaaaa902aaaaad02b55aad035ad6ad056d6dad056d6dad05b6db6d05bb76dd06eeeedd06f77bbd077def7d07dfbefd07f7fbfd07f7fbfd07ff7ffd07fffffd07ffffff", EUCL + 832, 32);
+hex32("0000000000000001000040010008040100204081008208410082084100884221011111110224489102492491024a492904a52929052a54a90554aaa905555555055555550556aaad05ab56ad06b5adad0b6b6dad0b6db6dd0bb76edd0ddddddd0eef7bbd0efbef7d0efbef7d0fbf7efd0feff7fd0fff7ffd0ffffffd0fffffff", EUCL + 864, 32);
+hex32("00000000000000010000800100080401004081010082084101084221022222210222222102448891049124910492492905252929095294a90a954aa90aaaaaa90aaaaaad0ad56aad0d5ad6ad15b5adad16db6dad16ddb6dd1b76eedd1bbbbbbd1bbbbbbd1def7bbd1efbef7d1f7efdfd1feff7fd1ffefffd1ffffffd1fffffff", EUCL + 896, 32);
+hex32("0000000000000001000080010010040100808101010410410210842104422221044888910912449109249249094949291294a52914a952a91554aaa915555555155555551556aaad16ad5aad1ad6b5ad2d6d6dad2db6db6d2ddb76dd376eeedd377bbbbd3bdef7bd3df7df7d3efefdfd3fdff7fd3ffefffd3ffffffd3fffffff", EUCL + 928, 32);
+hex32("00000000000000010001000100200801008081010208208104210841084422210888889111224491124924911252492924a52929254a94a92a954aa92aaaaaa92aaaaaad2ad56aad356ad6ad36b5adad5b5b6dad5b6db6dd5dbb76dd6eeeeedd6f77bbbd77bdef7d7befbefd7efefdfd7fbfeffd7ffdfffd7ffffffd7fffffff", EUCL + 960, 32);
+hex32("000000000000000100010001002008010101010104082081084108411088422111111111224488912491249124924929292929294a5294a952a952a95552aaa9555aaaad5aad5aad6b5ad6adadadadadb6db6dadb6ddb6ddbb76eedddddddddddeef7bbdef7def7df7efbefdfdfdfdfdffbfeffdfffdfffdfffffffdffffffff", EUCL + 992, 32);
+
+function dmap_set(i, a, b, c, d, e) ( DMAP[i * 5] = a; DMAP[i * 5 + 1] = b; DMAP[i * 5 + 2] = c; DMAP[i * 5 + 3] = d; DMAP[i * 5 + 4] = e; );
+dmap_set(0, 10, 8, 0, 9, 11);
+dmap_set(1, 15, 7, 13, 12, 6);
+dmap_set(2, 18, 14, 4, 5, 3);
+dmap_set(3, 23, 16, 21, 1, 2);
+dmap_set(4, 24, 19, 17, 20, 22);
+
+rng = 33;
+pulse = 0;
+stp = 0;
+state = 0;
+n_next = 0;
+was_run = 0;
+g_step = -1;
+
+function q_out(o, a, b, c) local(p) (
+  oq_n < OQ_MAX ? (
+    p = OQ + oq_n * 4;
+    p[0] = o; p[1] = a; p[2] = b; p[3] = c;
+    oq_n += 1;
+  );
+);
+
+function q_flush() local(i, j, p, o, a, b, c) (
+  i = 1;
+  while (i < oq_n) (
+    p = OQ + i * 4;
+    o = p[0]; a = p[1]; b = p[2]; c = p[3];
+    j = i - 1;
+    while (j >= 0 && OQ[j * 4] > o) (
+      memcpy(OQ + (j + 1) * 4, OQ + j * 4, 4);
+      j -= 1;
+    );
+    p = OQ + (j + 1) * 4;
+    p[0] = o; p[1] = a; p[2] = b; p[3] = c;
+    i += 1;
+  );
+  i = 0;
+  loop(oq_n,
+    p = OQ + i * 4;
+    midisend(p[0], p[1], p[2], p[3]);
+    i += 1;
+  );
+  oq_n = 0;
+);
+
+function rng_step() ( rng = (rng >> 1) ~ ((rng & 1) ? 46080 : 0); );
+
+function ge_mix(a, b, bal) ( (a * (255 - bal) + b * bal) >> 8; );
+
+function ge_read(st, ins, x, y) local(i, j, o, a, b, c, d, m) (
+  i = x >> 6; j = y >> 6;
+  o = ins * 32 + st;
+  a = NODES[DMAP[i * 5 + j] * 96 + o];
+  b = NODES[DMAP[(i + 1) * 5 + j] * 96 + o];
+  c = NODES[DMAP[i * 5 + j + 1] * 96 + o];
+  d = NODES[DMAP[(i + 1) * 5 + j + 1] * 96 + o];
+  m = (x << 2) & 255;
+  ge_mix(ge_mix(a, b, m), ge_mix(c, d, m), (y << 2) & 255);
+);
+
+function ge_drums() local(i, m, lvl, acc) (
+  stp === 0 ? (
+    i = 0;
+    loop(3,
+      rng_step();
+      PERT[i] = ((rng >> 8) * (a_swing ? 0 : (a_chaos >> 2))) >> 8;
+      i += 1;
+    );
+  );
+  m = 1; acc = 0; i = 0;
+  loop(3,
+    lvl = ge_read(stp, i, a_x, a_y);
+    lvl < 255 - PERT[i] ? lvl += PERT[i] : lvl = 255;
+    lvl > 255 - a_fill[i] ? (
+      lvl > 192 ? acc |= m;
+      state |= m;
+    );
+    m *= 2;
+    i += 1;
+  );
+  a_clko ? (
+    state |= acc ? 8 : 0;
+    state |= stp === 0 ? 32 : 0;
+  ) : (
+    state |= acc << 3;
+  );
+);
+
+function ge_euclid() local(i, m, len, dens, rst, bits) (
+  !(stp & 1) ? (
+    m = 1; rst = 0; i = 0;
+    loop(3,
+      len = (a_elen[i] >> 3) + 1;
+      dens = a_fill[i] >> 3;
+      while (ECNT[i] >= len) ( ECNT[i] -= len; );
+      bits = EUCL[(len - 1) * 32 + dens];
+      ((bits >> ECNT[i]) & 1) ? state |= m;
+      ECNT[i] === 0 ? rst |= m;
+      m *= 2;
+      i += 1;
+    );
+    a_clko ? (
+      state |= rst ? 8 : 0;
+      state |= rst === 7 ? 32 : 0;
+    ) : (
+      state |= rst << 3;
+    );
+  );
+);
+
+function ge_eval() (
+  state = 0;
+  rng_step();
+  state |= 64;
+  state |= rng & 128;
+  a_clko ? state |= 16;
+  pulse === 0 ? (
+    g_step = stp;
+    a_mode ? ge_euclid() : ge_drums();
+  );
+);
+
+function ge_tick(num) local(i) (
+  ge_eval();
+  pulse += num;
+  while (pulse >= 3) (
+    pulse -= 3;
+    !(stp & 1) ? (
+      i = 0;
+      loop(3, ECNT[i] += 1; i += 1;);
+    );
+    stp += 1;
+  );
+  stp >= 32 ? stp -= 32;
+);
+
+function sw_t(n) local(cell, r) (
+  cell = floor(n / 12);
+  r = n - 12 * cell;
+  12 * cell + (r <= 6 ? r * (1 + a_sw) : 6 * (1 + a_sw) + (r - 6) * (1 - a_sw));
+);
+
+function ge_resync(p) local(n, sa, i, len) (
+  n = a_inc * floor((p - 12) / a_inc);
+  while (sw_t(n) < p - 0.00001) ( n += a_inc; );
+  n_next = n;
+  sa = floor(n / 3);
+  pulse = n - 3 * sa;
+  stp = sa - 32 * floor(sa / 32);
+  i = 0;
+  loop(3,
+    len = (a_elen[i] >> 3) + 1;
+    ECNT[i] = sa > 0 ? ceil(sa / 2) % len : 0;
+    i += 1;
+  );
+);
+
+function ge_note(i) ( i === 0 ? k_n1 : i === 1 ? k_n2 : i === 2 ? k_n3 : i === 3 ? k_a1 : i === 4 ? k_a2 : k_a3; );
+
+function ge_emit(ofs, gdur) local(i, b, acc, n) (
+  i = 0;
+  loop(6,
+    b = (state >> i) & 1;
+    (b && (i < 3 || a_aux)) ? (
+      NACT[i] ? q_out(ofs, 128 | a_chan, ONOTE[i], 0);
+      acc = i >= 3 ? 0 : a_mode ? 0 : a_clko ? (state & 8) : (state & (8 << i));
+      n = ge_note(i) | 0;
+      q_out(ofs, 144 | a_chan, n, (acc ? k_acc : k_vel) | 0);
+      ONOTE[i] = n;
+      NACT[i] = 1;
+      OFFT[i] = ofs + (a_gate ? gdur : a_lensmp);
+      i < 3 ? LEDV[i] = 1;
+    );
+    i += 1;
+  );
+);
+
+function all_off() local(i) (
+  i = 0;
+  loop(6,
+    NACT[i] ? ( q_out(0, 128 | a_chan, ONOTE[i], 0); NACT[i] = 0; );
+    i += 1;
+  );
+);
+
+@block
+oq_n = 0;
+while (midirecv(mofs, mm1, mm2, mm3)) ( k_thru >= 0.5 ? q_out(mofs, mm1, mm2, mm3); );
+
+a_x = k_x | 0;
+a_y = k_y | 0;
+a_chaos = k_chaos | 0;
+a_fill = 3560;
+a_fill[0] = k_f1 | 0; a_fill[1] = k_f2 | 0; a_fill[2] = k_f3 | 0;
+a_elen = 3564;
+a_elen[0] = a_x; a_elen[1] = a_y; a_elen[2] = a_chaos;
+a_mode = k_mode >= 0.5;
+a_swing = k_swing >= 0.5;
+a_gate = k_gate >= 0.5;
+a_aux = k_aux >= 0.5;
+a_clko = k_aux >= 1.5;
+a_free = k_clock >= 0.5;
+a_chan = (k_chan - 1) | 0;
+a_inc = k_res < 0.5 ? 6 : k_res < 1.5 ? 3 : 1;
+a_lensmp = k_len * 0.001 * srate;
+a_sw = (a_swing && !a_mode) ? ((a_chaos * 43) >> 8) / 128 : 0;
+
+a_run = a_free ? k_run >= 0.5 : (play_state & 1);
+a_run ? (
+  a_tps = (a_free ? k_bpm : tempo) / 60 * 24 / srate;
+  a_p0 = a_free ? fpos : beat_position * 24;
+  a_jump = (!was_run || abs(a_p0 - a_pexp) > 0.1 || a_inc !== a_pinc);
+  (a_free && (!was_run || ui_reset)) ? ( fpos = 0; a_p0 = 0; a_jump = 1; );
+  ui_reset = 0;
+  a_jump ? ge_resync(a_p0);
+  a_p1 = a_p0 + samplesblock * a_tps;
+  a_done = 0;
+  while (!a_done) (
+    a_tn = sw_t(n_next);
+    a_tick = a_tn < a_p1 ? max(0, floor((a_tn - a_p0) / a_tps + 0.001)) : samplesblock * 2;
+    a_oi = -1;
+    a_om = a_tick;
+    a_i = 0;
+    loop(6,
+      (NACT[a_i] && OFFT[a_i] < samplesblock && OFFT[a_i] <= a_om) ? ( a_om = OFFT[a_i]; a_oi = a_i; );
+      a_i += 1;
+    );
+    a_oi >= 0 ? (
+      q_out(floor(a_om), 128 | a_chan, ONOTE[a_oi], 0);
+      NACT[a_oi] = 0;
+    ) : a_tick < samplesblock ? (
+      a_gd = (sw_t(n_next + a_inc) - a_tn) * 0.5 / a_tps;
+      ge_tick(a_inc);
+      ge_emit(a_tick, a_gd);
+      n_next += a_inc;
+    ) : (
+      a_done = 1;
+    );
+  );
+  a_i = 0;
+  loop(6, NACT[a_i] ? OFFT[a_i] -= samplesblock; a_i += 1;);
+  a_pexp = a_p1;
+  a_pinc = a_inc;
+  a_free ? fpos = a_p1;
+  was_run = 1;
+) : (
+  was_run ? all_off();
+  ui_reset = 0;
+  was_run = 0;
+  g_step = -1;
+);
+q_flush();
+
+@gfx 920 476
+
+UDW = 920;
+UDH = 476;
+uscale = max(0.5, min(gfx_w / UDW, gfx_h / UDH));
+uox = floor((gfx_w - UDW * uscale) * 0.5);
+uoy = 0;
+
+function s_min(s) ( s == 7 ? 20 : (s >= 21 && s <= 24) ? 1 : 0; );
+function s_max(s) ( s <= 6 ? 255 : s == 7 ? 239 : s == 21 ? 16 : s == 24 ? 100 : 127; );
+function s_step(s) ( 1; );
+function def_val(s) (
+  s <= 2 || s == 4 || s == 5 || s == 6 ? 128 : s == 3 ? 0 : s == 7 ? 120 :
+  s == 15 ? 36 : s == 16 ? 38 : s == 17 ? 42 : s == 18 ? 35 : s == 19 ? 40 : s == 20 ? 46 :
+  s == 21 ? 10 : s == 22 ? 100 : s == 23 ? 127 : s == 24 ? 10 : 0;
+);
+function knob_name(s) (
+  s == 1 ? (k_mode >= 0.5 ? "LENGTH 1" : "MAP X") :
+  s == 2 ? (k_mode >= 0.5 ? "LENGTH 2" : "MAP Y") :
+  s == 3 ? (k_mode >= 0.5 ? "LENGTH 3" : k_swing >= 0.5 ? "SWING" : "CHAOS") :
+  s == 4 ? "FILL 1" : s == 5 ? "FILL 2" : s == 6 ? "FILL 3" : "CLOCK";
+);
+function ptext(s) (
+  s == 7 ? sprintf(#upt, "%d BPM", slider(s)) :
+  s == 24 ? sprintf(#upt, "%d ms", slider(s)) :
+  (s <= 3 && k_mode >= 0.5) ? sprintf(#upt, "%d steps", (slider(s) >> 3) + 1) :
+  (s >= 4 && s <= 6 && k_mode >= 0.5) ? sprintf(#upt, "%d", (slider(s) >> 3)) :
+  s <= 6 ? sprintf(#upt, "%d%%", floor(slider(s) / 255 * 100 + 0.5)) :
+  sprintf(#upt, "%d", slider(s));
+  #upt;
+);
+function seg_label(s, i) (
+  s == 8 ? (i ? "EUCLID" : "DRUMS") :
+  s == 9 ? (i ? "ON" : "OFF") :
+  s == 10 ? (i ? "GATE" : "TRIG") :
+  s == 11 ? (i == 0 ? "4" : i == 1 ? "8" : "24") :
+  s == 12 ? (i == 0 ? "OFF" : i == 1 ? "ACCENT" : "CLOCK") :
+  (i ? "FREE" : "FOLLOW");
+);
+function hint_text(s) (
+  s == 1 ? (k_mode >= 0.5 ? "Length of part 1, in sixteenth notes." : "Map X: moves left and right across the 5 x 5 map of drum patterns.") :
+  s == 2 ? (k_mode >= 0.5 ? "Length of part 2, in sixteenth notes." : "Map Y: moves up and down the map of drum patterns.") :
+  s == 3 ? (k_mode >= 0.5 ? "Length of part 3, in sixteenth notes." : k_swing >= 0.5 ? "Swing amount (Chaos becomes swing when Swing is on), up to triplet feel." : "Chaos: adds random hits. It rolls the dice once per bar for each part.") :
+  s == 4 ? "Fill 1: how busy part 1 is (bass drum). In Euclidean mode, its number of hits." :
+  s == 5 ? "Fill 2: how busy part 2 is (snare). In Euclidean mode, its number of hits." :
+  s == 6 ? "Fill 3: how busy part 3 is (hi-hat). In Euclidean mode, its number of hits." :
+  s == 7 ? (k_clock >= 0.5 ? "Clock: the tempo when running free." : "Clock: only used when Clock is set to Free. Otherwise Grids follows REAPER's tempo.") :
+  s == 8 ? "Drums reads the topographic map. Euclidean plays three euclidean rhythms." :
+  s == 9 ? "Swing: Chaos sets the swing amount instead of adding random hits (Drums mode only)." :
+  s == 10 ? "Trig plays short notes (see Length). Gate holds each note for half a clock pulse, which depends on Resolution." :
+  s == 11 ? "Resolution: at 4 PPQN Grids only reads every second step. 8 and 24 PPQN read all 32 steps; they differ in Gate length." :
+  s == 12 ? "Aux: Off. Accent: three extra notes on accented hits (or part resets in Euclidean mode). Clock: extra notes for accent, clock and bar." :
+  s == 13 ? "Follow locks to REAPER's transport, including looping. Free runs on its own tempo." :
+  s == 14 ? "Start or stop the free-running clock." :
+  (s >= 15 && s <= 17) ? "MIDI note for each part. Scroll or drag to change." :
+  (s >= 18 && s <= 20) ? "MIDI note for each Aux output. Scroll or drag to change." :
+  s == 21 ? "MIDI channel for the generated notes." :
+  s == 22 ? "Velocity of normal hits." :
+  s == 23 ? "Velocity of accented hits (map value above 75 %)." :
+  s == 24 ? "Note length in Trig mode. The module's trigger is 1 ms; a longer note suits MIDI instruments better." :
+  s == 25 ? "MIDI Thru: pass incoming MIDI to the next plug-in." :
+  s == 26 ? "Reset: back to step 1 (Free clock only). Under Follow the bar comes from REAPER." :
+  s == 27 ? "Click or drag on the map to set Map X and Map Y." :
+  "Drag or scroll a knob to adjust  ·  Ctrl for fine control  ·  double-click to reset";
+);
+
+function automate(s, e)
+(
+<?
+  max_sliders > 25 ? printf("slider_automate(2^(s-1), e);") :
+    loop(i = 1; 25,
+      printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function set_slider(s, x) ( slider(s) = x; automate(s, 0); automate(s, 1); );
+function hit_circle(mx, my, cx, cy, rad) ( sqr(mx - cx) + sqr(my - cy) <= sqr(rad); );
+function hit_rect(mx, my, x, y, w, h) ( mx >= x && mx <= x + w && my >= y && my <= y + h; );
+function px(x) ( uox + x * uscale; );
+function py(y) ( uoy + y * uscale; );
+
+function norm_of(s) ( (slider(s) - s_min(s)) / (s_max(s) - s_min(s)); );
+function set_norm(s, x) local(old, st) (
+  old = slider(s);
+  st = s_step(s);
+  slider(s) = st > 0 ? s_min(s) + floor(x * (s_max(s) - s_min(s)) / st + 0.5) * st : s_min(s) + x * (s_max(s) - s_min(s));
+  slider(s) !== old ? ( automate(s, 0); );
+);
+
+function ctext(str, cx, y, fs, fl) local(tw, th)
+(
+  gfx_setfont(1, "Arial", fs * uscale, fl);
+  gfx_measurestr(str, tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function ltext(str, x, y, fs, fl)
+(
+  gfx_setfont(1, "Arial", fs * uscale, fl);
+  gfx_x = x; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function rk_draw(cx, cy, rad, pos, cr, cg, cb) local(ang0, ang1, ang, i, a, rr, ca, sa, n)
+(
+  ang0 = -2.35619;
+  ang1 = 2.35619;
+  gfx_set(0, 0, 0, 0.18);
+  gfx_circle(cx + rad * 0.06, cy + rad * 0.10, rad * 1.02, 1, 1);
+  gfx_set(0.07, 0.07, 0.08, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  i = 0;
+  loop(36,
+    a = i * 2 * $pi / 36;
+    gfx_set(0.20, 0.20, 0.22, 1);
+    gfx_line(cx + sin(a) * rad * 0.80, cy - cos(a) * rad * 0.80, cx + sin(a) * rad * 0.97, cy - cos(a) * rad * 0.97, 1);
+    i += 1;
+  );
+  gfx_set(0.13, 0.13, 0.14, 1);
+  gfx_circle(cx, cy, rad * 0.76, 1, 1);
+  ang = ang0 + (ang1 - ang0) * pos;
+  sa = sin(ang); ca = cos(ang);
+  rr = rad * 0.08;
+  n = max(7, 2 * floor(rad * 0.16) + 1);
+  i = 0;
+  loop(n,
+    a = (i - (n - 1) / 2) / ((n - 1) / 2) * rr;
+    gfx_set(cr, cg, cb, 1);
+    gfx_line(cx + sa * rad * 0.50 + ca * a, cy - ca * rad * 0.50 + sa * a, cx + sa * rad * 0.96 + ca * a, cy - ca * rad * 0.96 + sa * a, 1);
+    i += 1;
+  );
+  gfx_set(cr * 0.64, cg * 0.64, cb * 0.64, 1);
+  gfx_circle(cx, cy, rad * 0.56, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rad * 0.53, 1, 1);
+  gfx_set(1, 1, 1, 0.45);
+  gfx_circle(cx - rad * 0.10, cy - rad * 0.12, rad * 0.30, 1, 1);
+  gfx_set(cr * 0.78, cg * 0.78, cb * 0.78, 1);
+  gfx_line(cx + sa * rad * 0.20, cy - ca * rad * 0.20, cx + sa * rad * 0.50, cy - ca * rad * 0.50, 1);
+);
+
+function pill_col(kind)
+(
+  kind == 1 ? gfx_set(0.91, 0.18, 0.42, 1) :
+  kind == 2 ? gfx_set(0.10, 0.72, 0.78, 1) :
+  kind == 3 ? gfx_set(0.70, 0.08, 0.42, 1) :
+  gfx_set(0.95, 0.55, 0.15, 1);
+);
+
+function label_pill(str, cx, y, kind, big) local(tw, th, fs)
+(
+  fs = big ? 15 : 14;
+  gfx_setfont(1, "Arial", fs * uscale, 'b');
+  gfx_measurestr(str, tw, th);
+  kind > 0 ? (
+    pill_col(kind);
+    gfx_rect(cx - tw * 0.5 - 5 * uscale, y - 1 * uscale, tw + 10 * uscale, th + 2 * uscale, 1);
+    gfx_set(1, 1, 1, 1);
+  ) : gfx_set(0.12, 0.12, 0.13, 1);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function rosette(cx, cy, r0) local(i, a, r1)
+(
+  i = 0;
+  loop(60,
+    a = i * 2 * $pi / 60;
+    r1 = r0 * ((i & 1) ? 1.20 : 1.12);
+    gfx_set(0.45, 0.46, 0.48, (i & 1) ? 0.30 : 0.18);
+    gfx_line(cx + sin(a) * r0 * 1.04, cy - cos(a) * r0 * 1.04, cx + sin(a) * r1, cy - cos(a) * r1, 1);
+    gfx_circle(cx + sin(a + 0.05) * r0 * 1.26, cy - cos(a + 0.05) * r0 * 1.26, max(1, 1.2 * uscale), 0, 1);
+    i += 1;
+  );
+);
+
+function knob_core(s, cx, cy, rad, kind) local(hov, x, cr, cg, cb)
+(
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, rad + 4 * uscale);
+  hov ? u_hov = s;
+  (u_click && hov) ? (
+    (u_ctarget == s && time_precise() - u_ctime < 0.3) ? (
+      set_slider(s, def_val(s));
+      u_drag = 0;
+    ) : (
+      u_drag = s; u_dy0 = mouse_y; u_dv0 = norm_of(s); u_dfine = mouse_cap & 4;
+      automate(s, 0);
+    );
+    u_ctarget = s; u_ctime = time_precise();
+    u_click = 0;
+  );
+  (hov && u_wheel != 0 && u_drag == 0) ? (
+    x = norm_of(s) + (u_wheel / 120) * ((mouse_cap & 4) ? 0.002 : 0.02);
+    set_norm(s, max(0, min(1, x)));
+    automate(s, 1);
+    u_wheel = 0;
+  );
+  kind == 1 ? ( cr = 0.93; cg = 0.27; cb = 0.47; ) :
+  kind == 2 ? ( cr = 0.20; cg = 0.78; cb = 0.84; ) :
+  kind == 3 ? ( cr = 0.72; cg = 0.10; cb = 0.45; ) :
+  ( cr = 0.97; cg = 0.97; cb = 0.96; );
+  rk_draw(cx, cy, rad, norm_of(s), cr, cg, cb);
+  hov;
+);
+
+function knob_at(s, cx, cy, rad, big, kind) local(hov, ly)
+(
+  big ? rosette(cx, cy, rad);
+  hov = knob_core(s, cx, cy, rad, kind);
+  ly = cy + rad * (big ? 1.30 : 1.12) + 4 * uscale;
+  label_pill(knob_name(s), cx, ly, kind, big);
+  gfx_set((hov || u_drag == s) ? 0.78 : 0.36, (hov || u_drag == s) ? 0.42 : 0.37, (hov || u_drag == s) ? 0.10 : 0.40, 1);
+  ctext(ptext(s), cx, ly + 18 * uscale, 12, 0);
+);
+
+function led(cx, cy, r, g, b, lv)
+(
+  gfx_set(0.55, 0.55, 0.56, 1);
+  gfx_circle(cx, cy, 8 * uscale, 1, 1);
+  gfx_set(0.93, 0.93, 0.92, 1);
+  gfx_circle(cx, cy, 6.5 * uscale, 1, 1);
+  lv > 0.01 ? (
+    gfx_set(r, g, b, 0.35 * lv); gfx_circle(cx, cy, 11 * uscale, 1, 1);
+    gfx_set(r, g, b, 0.25 + 0.75 * lv); gfx_circle(cx, cy, 6.5 * uscale, 1, 1);
+  );
+  gfx_set(1, 1, 1, 0.6);
+  gfx_circle(cx - 2 * uscale, cy - 2 * uscale, 2 * uscale, 1, 1);
+);
+
+function dark_btn(s, x, y, w, h, label, act, fs) local(tw, th, hov)
+(
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? u_hov = s;
+  gfx_set(0.10, 0.10, 0.11, 1);
+  gfx_rect(x - uscale, y - uscale, w + 2 * uscale, h + 2 * uscale, 1);
+  act ? gfx_set(0.93, 0.50, 0.16, 1) : gfx_set(hov ? 0.30 : 0.24, hov ? 0.30 : 0.24, hov ? 0.32 : 0.26, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(1, 1, 1, act ? 0.20 : 0.07);
+  gfx_rect(x, y, w, h * 0.45, 1);
+  gfx_setfont(1, "Arial", fs * uscale, 'b');
+  act ? gfx_set(0.10, 0.07, 0.04, 1) : gfx_set(0.90, 0.90, 0.91, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = x + (w - tw) * 0.5; gfx_y = y + (h - th) * 0.5;
+  gfx_drawstr(label);
+  u_click && hov;
+);
+
+function seg(s, x, y, w, h, n, base) local(i, sw)
+(
+  sw = w / n;
+  i = 0;
+  loop(n,
+    dark_btn(s, x + i * sw, y, sw - 2 * uscale, h, seg_label(s, i), (slider(s) | 0) == i + base, 12) ? ( set_slider(s, i + base); u_click = 0; );
+    i += 1;
+  );
+);
+
+function cap(str, x, y)
+(
+  gfx_set(0.12, 0.12, 0.13, 1);
+  ltext(str, x, y, 12, 'b');
+);
+
+function field(s, x, y, w, h) local(hov, v)
+(
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? u_hov = s;
+  gfx_set(0.10, 0.10, 0.11, 1);
+  gfx_rect(x - uscale, y - uscale, w + 2 * uscale, h + 2 * uscale, 1);
+  gfx_set(hov || u_drag == s ? 0.30 : 0.24, hov || u_drag == s ? 0.30 : 0.24, hov || u_drag == s ? 0.32 : 0.26, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(0.90, 0.90, 0.91, 1);
+  ctext(ptext(s), x + w * 0.5, y + (h - 14 * uscale) * 0.5, 12, 'b');
+  (u_click && hov) ? (
+    (u_ctarget == s && time_precise() - u_ctime < 0.3) ? ( set_slider(s, def_val(s)); u_drag = 0; ) :
+    ( u_drag = s; u_dy0 = mouse_y; u_dv0 = norm_of(s); u_dfine = mouse_cap & 4; automate(s, 0); );
+    u_ctarget = s; u_ctime = time_precise();
+    u_click = 0;
+  );
+  (hov && u_wheel != 0 && u_drag == 0) ? (
+    v = slider(s) + (u_wheel > 0 ? 1 : -1) * s_step(s);
+    slider(s) = max(s_min(s), min(s_max(s), v));
+    automate(s, 0); automate(s, 1);
+    u_wheel = 0;
+  );
+);
+
+function dots_h(x0, x1, y) local(x)
+(
+  gfx_set(0.16, 0.16, 0.18, 0.75);
+  x = x0;
+  while (x < x1) ( gfx_rect(x, y - uscale, max(1, 2 * uscale), max(1, 2 * uscale), 1); x += 6 * uscale; );
+);
+function dots_v(x, y0, y1) local(y)
+(
+  gfx_set(0.16, 0.16, 0.18, 0.75);
+  y = y0;
+  while (y < y1) ( gfx_rect(x - uscale, y, max(1, 2 * uscale), max(1, 2 * uscale), 1); y += 6 * uscale; );
+);
+
+function screw(cx, cy)
+(
+  gfx_set(0.62, 0.62, 0.63, 1); gfx_circle(cx, cy, 6 * uscale, 1, 1);
+  gfx_set(0.93, 0.93, 0.93, 1); gfx_circle(cx, cy, 4.5 * uscale, 1, 1);
+  gfx_set(0.55, 0.55, 0.57, 1);
+  gfx_line(cx - 3 * uscale, cy - 3 * uscale, cx + 3 * uscale, cy + 3 * uscale, 1);
+);
+
+function panel_bg() local(useed)
+(
+  gfx_set(0.86, 0.865, 0.875, 1);
+  gfx_rect(0, 0, gfx_w, gfx_h, 1);
+  useed = 7;
+  loop(140,
+    useed = (useed * 1103 + 12345) % 65536;
+    gfx_set(useed & 1 ? 1 : 0, useed & 1 ? 1 : 0, useed & 1 ? 1 : 0, 0.028);
+    gfx_rect(px(0), py(useed / 65536 * UDH), UDW * uscale, max(1, uscale), 1);
+  );
+  screw(px(14), py(12)); screw(px(UDW - 14), py(12));
+);
+
+function panel_band(y) local(uby, i)
+(
+  uby = py(y);
+  gfx_set(0.70, 0.71, 0.73, 1);
+  gfx_rect(px(0), uby, UDW * uscale, 9 * uscale, 1);
+  i = 0;
+  loop(UDW / 4,
+    gfx_set(0.52, 0.53, 0.56, 1);
+    gfx_line(px(i * 4), uby + 8 * uscale, px(i * 4 + 6), uby + uscale, 1);
+    i += 1;
+  );
+  gfx_set(0.97, 0.97, 0.97, 1);
+  gfx_rect(px(0), uby + 9 * uscale, UDW * uscale, max(1, uscale), 1);
+);
+
+function panel_title(tt, sub, origin) local(tw, th)
+(
+  gfx_set(0.14, 0.14, 0.15, 1);
+  gfx_setfont(1, "Arial", 30 * uscale);
+  gfx_x = px(70); gfx_y = py(8);
+  gfx_drawstr(tt);
+  gfx_measurestr(tt, tw, th);
+  gfx_setfont(1, "Arial", 17 * uscale);
+  gfx_x = px(70) + tw + 16 * uscale; gfx_y = py(17);
+  gfx_drawstr(sub);
+  gfx_setfont(1, "Arial", 12 * uscale);
+  gfx_set(0.36, 0.37, 0.40, 1);
+  gfx_x = px(71); gfx_y = py(41);
+  gfx_drawstr(origin);
+);
+
+function hint_bar(y) local(uhs, tw, th)
+(
+  gfx_set(0.20, 0.20, 0.21, 1);
+  gfx_rect(px(0), py(y), UDW * uscale, 36 * uscale, 1);
+  uhs = u_drag > 0 ? u_drag : u_hov;
+  gfx_setfont(1, "Arial", 13 * uscale);
+  gfx_set(0.80, 0.80, 0.82, 1);
+  strcpy(#uhint, hint_text(uhs));
+  gfx_measurestr(#uhint, tw, th);
+  tw > (UDW - 20) * uscale ? ( gfx_setfont(1, "Arial", 13 * uscale * (UDW - 20) * uscale / tw); gfx_measurestr(#uhint, tw, th); );
+  gfx_x = uox + (UDW * uscale - tw) * 0.5; gfx_y = py(y) + (36 * uscale - th) * 0.5;
+  gfx_drawstr(#uhint);
+);
+
+function frame_begin()
+(
+  u_down = mouse_cap & 1;
+  u_click = u_down && !u_pstate;
+  u_wheel = mouse_wheel;
+  mouse_wheel = 0;
+  u_hov = 0;
+);
+
+function frame_end() local(ufine)
+(
+  u_drag > 0 ? (
+    u_down ? (
+      mouse_cap |= 65536;
+      ufine = mouse_cap & 4;
+      ufine != u_dfine ? ( u_dy0 = mouse_y; u_dv0 = norm_of(u_drag); u_dfine = ufine; );
+      set_norm(u_drag, max(0, min(1, u_dv0 + (u_dy0 - mouse_y) / (150 * uscale) * (ufine ? 0.1 : 1))));
+    ) : ( automate(u_drag, 1); u_drag = 0; );
+  );
+  u_pstate = u_down;
+);
+
+function gmix(a, b, bal) ( (a * (255 - bal) + b * bal) >> 8; );
+function gread(st, ins, x, y) local(i, j, o, a, b, c, d, m) (
+  i = x >> 6; j = y >> 6;
+  o = ins * 32 + st;
+  a = NODES[DMAP[i * 5 + j] * 96 + o];
+  b = NODES[DMAP[(i + 1) * 5 + j] * 96 + o];
+  c = NODES[DMAP[i * 5 + j + 1] * 96 + o];
+  d = NODES[DMAP[(i + 1) * 5 + j + 1] * 96 + o];
+  m = (x << 2) & 255;
+  gmix(gmix(a, b, m), gmix(c, d, m), (y << 2) & 255);
+);
+
+function draw_lanes(x, y, w, h) local(i, s, lh, sw, lvl, thr, cx, cy, on, ac, len, dens, bits, inlen)
+(
+  gfx_set(0.37, 0.40, 0.46, 1);
+  gfx_rect(x, y, w, h, 1);
+  gfx_set(1, 1, 1, 1);
+  ltext("TRIG", x + 8 * uscale, y + 6 * uscale, 13, 'b');
+  ltext(k_mode >= 0.5 ? "EUCLIDEAN" : "ACC", x + 54 * uscale, y + 6 * uscale, 13, 'b');
+  sw = (w - 16 * uscale) / 32;
+  lh = (h - 32 * uscale) / 3;
+  i = 0;
+  loop(3,
+    cy = y + 26 * uscale + i * lh;
+    len = ((k_mode >= 0.5 ? (i == 0 ? k_x : i == 1 ? k_y : k_chaos) : 0) >> 3) + 1;
+    dens = (i == 0 ? k_f1 : i == 1 ? k_f2 : k_f3) >> 3;
+    bits = k_mode >= 0.5 ? EUCL[(len - 1) * 32 + dens] : 0;
+    thr = 255 - (i == 0 ? k_f1 : i == 1 ? k_f2 : k_f3);
+    s = 0;
+    loop(32,
+      cx = x + 8 * uscale + s * sw;
+      k_mode >= 0.5 ? (
+        inlen = s < len;
+        on = inlen && ((bits >> s) & 1);
+        ac = 0;
+        lvl = 0;
+      ) : (
+        inlen = 1;
+        lvl = gread(s, i, k_x | 0, k_y | 0);
+        on = lvl > thr;
+        ac = on && lvl > 192;
+      );
+      on ? (
+        ac ? gfx_set(0.97, 0.86, 0.34, 1) : gfx_set(0.20, 0.78, 0.84, 1);
+      ) : inlen ? (
+        gfx_set(1, 1, 1, 0.14);
+      ) : (
+        gfx_set(1, 1, 1, 0.05);
+      );
+      gfx_rect(cx + uscale, cy + uscale, sw - 2 * uscale, lh - 3 * uscale, 1);
+      (k_mode < 0.5 ? g_step == s : (g_step >= 0 && ECNT[i] == s)) ? (
+        gfx_set(1, 0.42, 0.55, 0.75);
+        gfx_rect(cx + uscale, cy + uscale, sw - 2 * uscale, lh - 3 * uscale, 0);
+        gfx_rect(cx, cy, sw, lh - uscale, 0);
+      );
+      s += 1;
+    );
+    i += 1;
+  );
+);
+
+function draw_pad(x, y, w, h) local(hov, i, j, a, c, dx, dy)
+(
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? u_hov = 27;
+  gfx_set(0.37, 0.40, 0.46, 1);
+  gfx_rect(x, y, w, h, 1);
+  i = 0;
+  loop(5,
+    j = 0;
+    loop(5,
+      a = 0; c = 0;
+      loop(32, a += NODES[DMAP[i * 5 + j] * 96 + c] + NODES[DMAP[i * 5 + j] * 96 + 32 + c] + NODES[DMAP[i * 5 + j] * 96 + 64 + c]; c += 1;);
+      gfx_set(1, 1, 1, 0.08 + 0.5 * (a / (96 * 255)));
+      gfx_rect(x + 6 * uscale + i * (w - 12 * uscale) / 5 + uscale, y + 6 * uscale + j * (h - 12 * uscale) / 5 + uscale, (w - 12 * uscale) / 5 - 2 * uscale, (h - 12 * uscale) / 5 - 2 * uscale, 1);
+      j += 1;
+    );
+    i += 1;
+  );
+  dx = x + 6 * uscale + ((k_x + 32) / 256 * 4 + 0) * (w - 12 * uscale) / 5;
+  dy = y + 6 * uscale + ((k_y + 32) / 256 * 4 + 0) * (h - 12 * uscale) / 5;
+  k_mode < 0.5 ? (
+    gfx_set(0.93, 0.27, 0.47, 1);
+    gfx_circle(dx, dy, 6 * uscale, 1, 1);
+    gfx_set(1, 1, 1, 1);
+    gfx_circle(dx, dy, 6 * uscale, 0, 1);
+    (u_click && hov) ? ( u_paddrag = 1; u_click = 0; automate(1, 0); automate(2, 0); );
+  ) : (
+    gfx_set(0.37, 0.40, 0.46, 0.72);
+    gfx_rect(x, y, w, h, 1);
+    gfx_set(1, 1, 1, 0.9);
+    ctext("map off in Euclidean", x + w * 0.5, y + h * 0.5 - 8 * uscale, 12, 0);
+  );
+  u_paddrag ? (
+    u_down ? (
+      k_x = max(0, min(255, floor(((mouse_x - x - 6 * uscale) * 5 / (w - 12 * uscale)) / 4 * 256 - 32)));
+      k_y = max(0, min(255, floor(((mouse_y - y - 6 * uscale) * 5 / (h - 12 * uscale)) / 4 * 256 - 32)));
+      automate(1, 0); automate(2, 0);
+    ) : ( u_paddrag = 0; automate(1, 1); automate(2, 1); );
+  );
+);
+
+frame_begin();
+panel_bg();
+
+gi = 0;
+loop(3,
+  gj = 0;
+  loop(3,
+    gfx_set(0.14, 0.14, 0.15, 1);
+    gfx_rect(px(32 + gi * 9) + (gi == 2 && gj == 1 ? 2 * uscale : 0), py(11 + gj * 9), 7 * uscale, 7 * uscale, (gi + gj) & 1 ? 0 : 1);
+    gj += 1;
+  );
+  gi += 1;
+);
+panel_title("Grid Expectations", "topographic drum sequencer", "by chmaha  ·  based on Mutable Instruments Grids");
+panel_band(60);
+
+knob_at(7, px(70), py(134), 32 * uscale, 0, 1);
+
+g_thov = hit_circle(mouse_x, mouse_y, px(162), py(128), 18 * uscale);
+g_thov ? u_hov = 26;
+(u_click && g_thov) ? ( ui_reset = 1; u_click = 0; g_tfl = 1; );
+gfx_set(0.62, 0.62, 0.64, 1); gfx_circle(px(162), py(128), 18 * uscale, 1, 1);
+g_tfl > 0.02 ? ( gfx_set(0.93, 0.27, 0.47, 0.45 * g_tfl); gfx_circle(px(162), py(128), 26 * uscale, 1, 1); );
+gfx_set(0.88 + 0.05 * g_tfl, 0.88 - 0.61 * g_tfl, 0.89 - 0.42 * g_tfl, 1); gfx_circle(px(162), py(128), 15 * uscale, 1, 1);
+gfx_set(1, 1, 1, 0.8); gfx_circle(px(158), py(124), 6 * uscale, 1, 1);
+g_tfl *= 0.86;
+gfx_set(0.12, 0.12, 0.13, 1);
+ctext("RESET", px(162), py(153), 13, 'b');
+k_clock >= 0.5 ? (
+  dark_btn(14, px(132), py(176), 60 * uscale, 22 * uscale, k_run >= 0.5 ? "STOP" : "RUN", k_run >= 0.5, 12) ? ( set_slider(14, k_run >= 0.5 ? 0 : 1); u_click = 0; );
+);
+
+knob_at(1, px(266), py(134), 34 * uscale, 0, 0);
+knob_at(2, px(374), py(134), 34 * uscale, 0, 0);
+knob_at(3, px(482), py(134), 34 * uscale, 0, 0);
+
+dots_v(px(110), py(332), py(361));
+dots_v(px(266), py(346), py(361));
+dots_v(px(422), py(332), py(361));
+knob_at(4, px(110), py(250), 34 * uscale, 1, 2);
+knob_at(5, px(266), py(264), 34 * uscale, 1, 2);
+knob_at(6, px(422), py(250), 34 * uscale, 1, 2);
+gi = 0;
+loop(3,
+  LEDV[gi] *= 0.82;
+  led(px(gi == 0 ? 110 : gi == 1 ? 266 : 422), py(370), 0.30, 0.86, 0.45, LEDV[gi]);
+  gfx_set(0.12, 0.12, 0.13, 1);
+  ctext(gi == 0 ? "1" : gi == 1 ? "2" : "3", px((gi == 0 ? 110 : gi == 1 ? 266 : 422) - 24), py(362), 15, 'b');
+  gi += 1;
+);
+label_pill("FILL", px(38), py(362), 2, 1);
+
+dots_v(px(545), py(78), py(390));
+draw_lanes(px(560), py(78), 340 * uscale, 112 * uscale);
+draw_pad(px(560), py(204), 124 * uscale, 124 * uscale);
+
+gy = 200;
+gi = 8;
+loop(6,
+  (gi == 12 || gi == 13) ? gw = 3 : gw = 2;
+  gsr = gi == 8 ? 8 : gi == 9 ? 9 : gi == 10 ? 10 : gi == 11 ? 11 : gi == 12 ? 12 : 13;
+  gfx_set(0.12, 0.12, 0.13, 1);
+  ltext(gi == 8 ? "MODE" : gi == 9 ? "SWING" : gi == 10 ? "OUTPUT" : gi == 11 ? "PPQN" : gi == 12 ? "AUX" : "CLOCK", px(696), py(gy + 4), 12, 'b');
+  seg(gsr, px(756), py(gy), 144 * uscale, 22 * uscale, gsr == 11 || gsr == 12 ? 3 : 2, 0);
+  gy += 26;
+  gi += 1;
+);
+
+gfx_set(0.62, 0.63, 0.65, 1);
+gfx_rect(px(20), py(396), (UDW - 40) * uscale, max(1, uscale), 1);
+gfx_set(0.97, 0.97, 0.97, 1);
+gfx_rect(px(20), py(397), (UDW - 40) * uscale, max(1, uscale), 1);
+
+cap("NOTES", px(20), py(410));
+field(15, px(72), py(406), 40 * uscale, 22 * uscale);
+field(16, px(116), py(406), 40 * uscale, 22 * uscale);
+field(17, px(160), py(406), 40 * uscale, 22 * uscale);
+cap("AUX", px(216), py(410));
+field(18, px(250), py(406), 40 * uscale, 22 * uscale);
+field(19, px(294), py(406), 40 * uscale, 22 * uscale);
+field(20, px(338), py(406), 40 * uscale, 22 * uscale);
+cap("CH", px(396), py(410));
+field(21, px(422), py(406), 36 * uscale, 22 * uscale);
+cap("VEL", px(474), py(410));
+field(22, px(506), py(406), 40 * uscale, 22 * uscale);
+cap("ACC", px(556), py(410));
+field(23, px(590), py(406), 40 * uscale, 22 * uscale);
+cap("LEN", px(646), py(410));
+field(24, px(678), py(406), 60 * uscale, 22 * uscale);
+dark_btn(25, px(760), py(406), 60 * uscale, 22 * uscale, "THRU", k_thru >= 0.5, 12) ? ( set_slider(25, k_thru >= 0.5 ? 0 : 1); u_click = 0; );
+
+hint_bar(440);
+frame_end();
