@@ -69,6 +69,8 @@ See the [Break Room manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/BreakR
 
 See [CONTROLS.html](https://htmlpreview.github.io/?https://github.com/chmaha/DSP-Ports-JSFX/blob/main/CONTROLS.html) for the chmaha DSP to JSFX user guide, a quick start for each plugin's controls.
 
+The same guide is available with screenshots of every plugin in the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-to-JSFX-Manual.pdf).
+
 ## Install
 
 1. In REAPER, open **Extensions → ReaPack → Import repositories…** and paste:
