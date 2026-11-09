@@ -2,6 +2,10 @@
 
 Open-source DSP ported to JSFX for REAPER. Every plugin's header names the original it was ported from and its license.
 
+## User guide
+
+See the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-to-JSFX-Manual.pdf) for a quick start to each plugin's controls, with screenshots of every plugin.
+
 ## Instruments
 
 - **Synthy McSynthface**: four instruments in one (ePiano, JX10, DX10 and Piano), ported from the mda plugins via [mda-lv2](https://gitlab.com/drobilla/mda-lv2).
@@ -64,10 +68,6 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 **Break Room** (original design) is a collection of 15 little games to play when you need a breather, grouped into Zen and Games on the home screen. They range from calm pieces such as Koi Pond, Rain Window and Pixel Garden to Peggy, Krypton Gigablast, Flop House (Texas Hold'em against twelve rogues) and Hold Your Horses (the whole British racing year). Progress is saved with the project. Audio passes through untouched, and game sound only plays while the transport is stopped or paused, so it never ends up in a render or recording.
 
 See the [Break Room manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/BreakRoom-Manual.pdf) for a guide to every game.
-
-## User guide
-
-See the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-to-JSFX-Manual.pdf) for a quick start to each plugin's controls, with screenshots of every plugin.
 
 ## Install
 
