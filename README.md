@@ -59,6 +59,12 @@ Open-source DSP ported to JSFX for REAPER. Every plugin's header names the origi
 
 - **Beep Show** (original design, after the feature set of Voxengo Beeper): preview watermarker that puts beeps, low-passed noise bursts or dips in level into audio at a set interval, to protect demos, previews and stems. The material dips during each insertion so the output stays below its peak, and Variation randomises timing, duration, frequency and gain so the marks are hard to remove. The pattern follows the project position, so every render is identical. Zero latency, any number of channels.
 
+## Break Room
+
+**Break Room** (original design) is a collection of 15 little games to play when you need a breather, grouped into Zen and Games on the home screen. They range from calm pieces such as Koi Pond, Rain Window and Pixel Garden to Peggy, Krypton Gigablast, Flop House (Texas Hold'em against twelve rogues) and Hold Your Horses (the whole British racing year). Progress is saved with the project. Audio passes through untouched, and game sound only plays while the transport is stopped or paused, so it never ends up in a render or recording.
+
+See the [Break Room manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/BreakRoom-Manual.pdf) for a guide to every game.
+
 ## User guide
 
 See [CONTROLS.html](https://htmlpreview.github.io/?https://github.com/chmaha/DSP-Ports-JSFX/blob/main/CONTROLS.html) for the chmaha DSP to JSFX user guide, a quick start for each plugin's controls.
