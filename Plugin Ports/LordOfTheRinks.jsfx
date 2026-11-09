@@ -1,15 +1,16 @@
-Version: 1.1
+Version: 1.2
 desc: Lord of the Rinks Tonewheel Organ (setBfree port) by chmaha
 tags: instrument
 author: chmaha
 changelog:
-  Fix drawbar numbering order
+  Add INIT option to the program menu (suggested by Ryan McAlister)
 about:
   Tonewheel organ with upper and lower manuals, pedals, percussion,
   vibrato/chorus scanner, overdrive, reverb and a rotary speaker,
   ported from setBfree by Fredrik Kilander, Robin Gareus, Ken Restivo and Will Panther
   https://github.com/pantherb/setBfree (GPLv2+)
   JSFX version released under GPLv3+ license
+  INIT program suggested by Ryan McAlister
   Claude generated some of this code
 
 slider1:8<0,8,1>-Upper 16'
@@ -1946,6 +1947,13 @@ function sync_sliders() local(i) (
   sliderchange(-1);
 );
 
+function reset_patch() local(k) (
+  k = 1; loop(41, slider(k) = slDef[k]; k += 1; );
+  k = 107; loop(5, slider(k) = slDef[k]; k += 1; );
+  curProg = 0;
+  sliderchange(-1);
+);
+
 function slch(i) ( slider(i) !== slLast[i]; );
 
 function apply_sliders() local(i, other, tg, vb, pc, keys, rot, geo, s) (
@@ -2063,6 +2071,7 @@ map_user ? (
 
 @block
 ui_dirty ? ( sync_sliders(); ui_dirty = 0; );
+init_req ? ( init_req = 0; reset_patch(); );
 apply_sliders();
 eq_n = 0; written = 0;
 while (gq_r != gq_w) (
@@ -2706,7 +2715,7 @@ function reg9(str, i) (
     slider(i + 5), slider(i + 6), slider(i + 7), slider(i + 8));
 );
 function lcd_menu() local(p, k, g, cnt) (
-  strcpy(#m, ""); cnt = 0;
+  strcpy(#m, slider(41) > 0 ? "INIT|" : "!INIT|"); cnt = 0;
   p = 1;
   loop(110,
     pg_flags[p] & 1 ? (
@@ -2727,11 +2736,17 @@ function lcd_menu() local(p, k, g, cnt) (
   );
   strcat(#m, "|<");
   k = gfx_showmenu(#m);
-  k > cnt ? g = 110 + k - cnt : (
-    cnt = 0; p = 1; g = 0;
-    loop(110, pg_flags[p] & 1 ? ( cnt += 1; cnt == k ? g = p; ); p += 1; );
+  k == 1 ? (
+    slider(41) = 0; automate(41, 0); automate(41, 1);
+    init_req = 1;
+  ) : (
+    k -= 1;
+    k > cnt ? g = 110 + k - cnt : (
+      cnt = 0; p = 1; g = 0;
+      loop(110, pg_flags[p] & 1 ? ( cnt += 1; cnt == k ? g = p; ); p += 1; );
+    );
+    g > 0 && (pg_flags[g] & 1) ? ( slider(41) = g; automate(41, 0); automate(41, 1); );
   );
-  g > 0 && (pg_flags[g] & 1) ? ( slider(41) = g; automate(41, 0); automate(41, 1); );
 );
 
 function step_prog(d) local(p, n) (
