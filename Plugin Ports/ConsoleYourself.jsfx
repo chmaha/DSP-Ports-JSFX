@@ -1,9 +1,10 @@
-Version: 0.1.0
+Version: 1.1
 desc: Console Yourself (Nes_Snd_Emu, MAME, ymfm, snes_spc port) by chmaha
 tags: instrument
 author: chmaha
 changelog:
-  First version: NES (with the Famicom VRC6 and VRC7 expansion chips), Game Boy, Master System / Game Gear, Mega Drive, PC Engine and Super NES.
+  Layer can play a single channel: Pulse 2, Triangle or Noise on the NES, Pulse 2, Wave or Noise on the Game Boy, Tone 2, Tone 3 or Noise on the Master System.
+  Game Boy and PC Engine: draw your own wave (Custom shape, saved with the project). Right-click the wave view for the preset shapes.
 about:
   Chip-synth instrument with the sound hardware of classic game consoles.
   NES (2A03): two pulse channels, triangle, noise and DPCM drums, emulated with
@@ -26,6 +27,8 @@ about:
   with four drum kits; each MIDI channel picks its own sound. Unlike real hardware, all samples stay available at once.
   Layer mode plays every note on the same set of channels; the Chips setting stacks copies of the
   chip so chords can be played, and MIDI channel 10 plays a drum kit.
+  Layer can also play one NES, Game Boy or Master System channel on its own (the triangle alone for bass,
+  say), and the Game Boy and PC Engine have a custom wave you draw with the mouse, saved with the project.
   Tracker mode maps MIDI channels to the hardware channels of one chip, as game music drivers did.
   JSFX version released under GPLv3+ license
   Claude generated some of this code
@@ -45,7 +48,7 @@ slider8:1<0,1,1{Off,On}>-Velocity
 slider9:0<0,60,1>-Vibrato Delay (frames)
 slider10:0<0,7,1{Pulse 1,Pulse 2,Triangle / Wave,Noise,Drums,Expansion 1,Expansion 2,Expansion 3}>-Keyboard Channel
 slider11:0<0,2,1{Famicom,NES,Clean}>-NES Output
-slider12:1<0,3,1{Pulse 1,Pulse 1 + 2,Pulse 1 + 2 + Triangle,None}>-NES Layer
+slider12:1<0,6,1{Pulse 1,Pulse 1 + 2,Pulse 1 + 2 + Triangle,None,Pulse 2,Triangle,Noise}>-NES Layer
 slider13:2<0,3,1{12.5%,25%,50%,75%}>-NES Pulse 1 Duty
 slider14:0<0,60,1>-NES Pulse 1 Attack (frames)
 slider15:12<0,60,1>-NES Pulse 1 Decay (frames)
@@ -73,7 +76,7 @@ slider36:0<0,60,1>-NES Noise Attack (frames)
 slider37:12<0,60,1>-NES Noise Decay (frames)
 slider38:0<0,15,1>-NES Noise Sustain
 slider39:8<0,60,1>-NES Noise Release (frames)
-slider40:1<0,2,1{Pulse 1,Pulse 1 + 2,Pulse 1 + 2 + Wave}>-Game Boy Layer
+slider40:1<0,5,1{Pulse 1,Pulse 1 + 2,Pulse 1 + 2 + Wave,Pulse 2,Wave,Noise}>-Game Boy Layer
 slider41:2<0,3,1{12.5%,25%,50%,75%}>-Game Boy Pulse 1 Duty
 slider42:15<0,15,1>-Game Boy Pulse 1 Volume
 slider43:-3<-7,7,1>-Game Boy Pulse 1 Envelope
@@ -91,7 +94,7 @@ slider54:0<0,100,1>-Game Boy Pulse 2 Vibrato Depth (cents)
 slider55:6<0.5,15,0.1>-Game Boy Pulse 2 Vibrato Rate (Hz)
 slider56:1<0,2,1{Left,Centre,Right}>-Game Boy Pulse 2 Pan
 slider57:0<-50,50,1>-Game Boy Pulse 2 Detune (cents)
-slider58:0<0,7,1{Sine,Triangle,Saw,Square,Pulse 25%,Pulse 12.5%,Organ,Buzz}>-Game Boy Wave Shape
+slider58:0<0,8,1{Sine,Triangle,Saw,Square,Pulse 25%,Pulse 12.5%,Organ,Buzz,Custom}>-Game Boy Wave Shape
 slider59:0<0,2,1{100%,50%,25%}>-Game Boy Wave Level
 slider60:6<0,60,1>-Game Boy Wave Release (frames)
 slider61:0<0,100,1>-Game Boy Wave Vibrato Depth (cents)
@@ -104,7 +107,7 @@ slider67:-2<-7,7,1>-Game Boy Noise Envelope
 slider68:2<0,7,1>-Game Boy Noise Release
 slider69:1<0,2,1{Left,Centre,Right}>-Game Boy Noise Pan
 slider70:0<0,1,1{Master System,Game Gear}>-Master System Model
-slider71:0<0,2,1{Tone 1,Tone 1 + 2,Tone 1 + 2 + 3}>-Master System Layer
+slider71:0<0,5,1{Tone 1,Tone 1 + 2,Tone 1 + 2 + 3,Tone 2,Tone 3,Noise}>-Master System Layer
 slider72:0<0,60,1>-Master System Tone 1 Attack (frames)
 slider73:12<0,60,1>-Master System Tone 1 Decay (frames)
 slider74:8<0,15,1>-Master System Tone 1 Sustain
@@ -189,7 +192,7 @@ slider152:0<-3,3,1>-Mega Drive Operator 4 Detune
 slider153:1<0,3,1>-Mega Drive Operator 4 Key Scale
 slider154:0<0,1,1{Off,On}>-Mega Drive Operator 4 AM
 slider155:0<0,8,1{Off,Repeat,Once,Alternate,Once Hold,Inverted Repeat,Inverted Once,Inverted Alternate,Inverted Once Hold}>-Mega Drive Operator 4 SSG-EG
-slider156:0<0,7,1{Sine,Triangle,Saw,Square,Pulse 25%,Pulse 12.5%,Organ,Buzz}>-PC Engine Wave
+slider156:0<0,8,1{Sine,Triangle,Saw,Square,Pulse 25%,Pulse 12.5%,Organ,Buzz,Custom}>-PC Engine Wave
 slider157:0<0,60,1>-PC Engine Attack (frames)
 slider158:12<0,60,1>-PC Engine Decay (frames)
 slider159:8<0,15,1>-PC Engine Sustain
@@ -2435,16 +2438,16 @@ function gb_pulse(t, c, trig) local(v, pb, o, x, lo, hi, sw, du) (
   v[46] = c ? ( q2.on ? q2.ev : 0 ) : ( q1.on ? q1.ev : 0 ); v[47] = c ? q2.freq : q1.freq;
 );
 
-function gb_wav(t, trig) local(v, x, lo, hi, i, w, lc) (
+function gb_wav(t, trig) local(v, x, lo, hi, i, w, wk, lc) (
   v = vv(2);
   x = max(0, min(2047, floor(2048.5 - 65536 / fold(nfreq(pitch(v, slider61, slider64)), 32.01))));
   lo = x & 255; hi = x >> 8;
   trig ? (
-    w = slider58;
-    w != v[44] ? (
+    w = floor(slider58 + 0.5); wk = w == 8 ? 8 + cy_wv * 16 : w;
+    wk != v[44] ? (
       hw(t, 10, 0);
       i = 0; loop(16, hw(t, 32 + i, waves[w * 32 + i * 2] * 16 + waves[w * 32 + i * 2 + 1]); i += 1; );
-      hw(t, 10, 128); v[44] = w;
+      hw(t, 10, 128); v[44] = wk;
     );
     lc = slider59 + 1;
     slider8 ? lc = min(3, lc + (v[3] < 0.34 ? 2 : v[3] < 0.67 ? 1 : 0));
@@ -2543,7 +2546,7 @@ function md_fm(t, c, trig) local(v, f, bl, fn, x, b, o) (
   v[46] = md_est[o] == 3 && md_env[o] >= 896 ? 0 : max(0, 15 - md_env[o] / 48); v[47] = x;
 );
 
-function pce_voice(t, c, trig) local(v, p, al, w, i, n) (
+function pce_voice(t, c, trig) local(v, p, al, w, wk, i, n) (
   v = vv(c); n = c == 5;
   al = floor(31 * v[4] / 15 + 0.5);
   hw(t, 0, c);
@@ -2552,11 +2555,11 @@ function pce_voice(t, c, trig) local(v, p, al, w, i, n) (
   ) : (
     p = max(1, min(4095, floor(3579545 / (32 * fold(nfreq(pitch(v, slider161, 0)), 27.33)) + 0.5)));
     trig ? (
-      w = slider156;
-      w != v[44] ? (
+      w = floor(slider156 + 0.5); wk = w == 8 ? 8 + cy_pv * 16 : w;
+      wk != v[44] ? (
         hw(t, 4, 64); hw(t, 4, 0);
         i = 0; loop(32, hw(t, 6, pce_waves[w * 32 + i]); i += 1; );
-        v[44] = w;
+        v[44] = wk;
       );
       hw(t, 5, slider163 == 0 ? 240 : slider163 == 2 ? 15 : 255);
     );
@@ -2850,18 +2853,23 @@ function drum_on(t, n, vel) local(k, v, c) (
   );
 );
 
+function lay_s() local(l) (
+  l = floor((con == 0 ? slider12 : con == 1 ? slider40 : slider71) + 0.5);
+  con == 0 ? ( l >= 4 ? l - 3 : -1 ) : con < 3 && l >= 3 ? l - 2 : -1;
+);
 function lay_n0() local(l) (
   l = 1 + floor((con == 0 ? slider12 : con == 1 ? slider40 : slider71) + 0.5);
-  con == 0 && l > 3 ? l = nexp && slider201 >= 0.5 ? 0 : 1;
+  lay_s() >= 0 ? l = 1 : con == 0 && l > 3 ? l = nexp && slider201 >= 0.5 ? 0 : 1;
   con == 2 && slider97 == 3 ? min(l, 2) : l;
 );
 function layer_n() ( lay_n0() + (con == 0 && nexp ? floor(slider201 + 0.5) : 0); );
 function lay_c(i) local(n0) (
   n0 = lay_n0();
-  con == 0 && i >= n0 ? ( i -= n0; nexp == 1 ? ( i == 0 ? 7 : i == 1 ? 5 : 6 ) : 5 + i; ) : i;
+  i == 0 && lay_s() >= 0 ? lay_s() : con == 0 && i >= n0 ? ( i -= n0; nexp == 1 ? ( i == 0 ? 7 : i == 1 ? 5 : 6 ) : 5 + i; ) : i;
 );
 function lay_off(t, n) local(c) (
   c = 0; loop(3, mono_off(t, c, n); c += 1; );
+  lay_s() == 3 ? mono_off(t, 3, n);
   con == 0 ? ( c = 5; loop(nvc - 5, mono_off(t, c, n); c += 1; ); );
 );
 
@@ -2936,7 +2944,7 @@ function note_off(t, ch, n) local(c, k, v, l, v0) (
       k = 0; v0 = lay_c(0) * 64;
       loop(nchips,
         v = vb + k * 1024 + v0;
-        v[0] && v[40] == n && v[17] == ch ? ( sel(k); c = 0; loop(nvc, (c < 3 || c >= 5) ? ( v = vv(c); v[0] ? v_release(t, c); ); c += 1; ); );
+        v[0] && v[40] == n && v[17] == ch ? ( sel(k); c = 0; loop(nvc, (c < 3 || c >= 5 || (c == 3 && lay_s() == 3)) ? ( v = vv(c); v[0] ? v_release(t, c); ); c += 1; ); );
         k += 1;
       );
     );
@@ -2995,7 +3003,7 @@ function run_all(e) local(k, c0) (
 function meta() (
   mem_set_values(pmin + 1, 0, 0, 1, -24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, -50, 0, 0, 0, 0, 0, 0, 0.5, 0, -50, 0, 0.5, 0, -50, 0, 0, 0, 0, 0, 0, 0, 0, -7, 0, 0, 0.5, 0, 0, -50, 0, 0, -7, 0, 0, 0.5, 0, -50, 0, 0, 0, 0, 0.5, 0, -50, 0, 0, -7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, -50, 0, 0, 0, 0, 0, 0.5, 0, -50, 0, 0, 0, 0, 0, 0.5, 0, -50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, -3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -100, 0, 0.5, 0, 1, -100, 0, 0);
   mem_set_values(pmin + 183, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-  mem_set_values(pmax + 1, 5, 1, 16, 12, 12, 30, 8, 1, 60, 4, 2, 2, 3, 60, 60, 15, 60, 100, 15, 14, 50, 3, 60, 60, 15, 60, 100, 15, 14, 50, 100, 15, 60, 50, 1, 60, 60, 15, 60, 2, 3, 15, 7, 7, 100, 15, 2, 14, 50, 3, 15, 7, 7, 100, 15, 2, 50, 7, 2, 60, 100, 15, 2, 50, 1, 15, 7, 7, 2, 1, 2, 60, 60, 15, 60, 100, 15, 2, 50, 60, 60, 15, 60, 100, 15, 2, 50, 60, 60, 15, 60, 100, 15, 2, 50, 1, 3, 60, 60, 15, 60, 2, 1, 7, 7, 8, 3, 7, 100, 15, 2, 31, 31, 15, 31, 15, 127, 15, 3, 3, 1, 8, 31, 31, 15, 31, 15, 127, 15, 3, 3, 1, 8, 31, 31, 15, 31, 15, 127, 15, 3, 3, 1, 8, 31, 31, 15, 31, 15, 127, 15, 3, 3, 1, 8, 7, 60, 60, 15, 60, 100, 15, 2, 60, 60, 15, 60, 203, 1, 15, 7, 7, 31, 31, 100, 100, 15, 1, 15, 100, 100, 3);
+  mem_set_values(pmax + 1, 5, 1, 16, 12, 12, 30, 8, 1, 60, 4, 2, 2, 3, 60, 60, 15, 60, 100, 15, 14, 50, 3, 60, 60, 15, 60, 100, 15, 14, 50, 100, 15, 60, 50, 1, 60, 60, 15, 60, 5, 3, 15, 7, 7, 100, 15, 2, 14, 50, 3, 15, 7, 7, 100, 15, 2, 50, 8, 2, 60, 100, 15, 2, 50, 1, 15, 7, 7, 2, 1, 5, 60, 60, 15, 60, 100, 15, 2, 50, 60, 60, 15, 60, 100, 15, 2, 50, 60, 60, 15, 60, 100, 15, 2, 50, 1, 3, 60, 60, 15, 60, 2, 1, 7, 7, 8, 3, 7, 100, 15, 2, 31, 31, 15, 31, 15, 127, 15, 3, 3, 1, 8, 31, 31, 15, 31, 15, 127, 15, 3, 3, 1, 8, 31, 31, 15, 31, 15, 127, 15, 3, 3, 1, 8, 31, 31, 15, 31, 15, 127, 15, 3, 3, 1, 8, 8, 60, 60, 15, 60, 100, 15, 2, 60, 60, 15, 60, 203, 1, 15, 7, 7, 31, 31, 100, 100, 15, 1, 15, 100, 100, 3);
   mem_set_values(pmax + 183, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 3);
   mem_set_values(pstep + 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0.1, 1, 1, 1, 1, 1);
   mem_set_values(pstep + 183, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1);
@@ -3014,7 +3022,7 @@ function meta() (
   pname[9] = "VIBRATO DELAY";
   pname[10] = "KEYBOARD CHANNEL"; penum[10] = "Pulse 1|Pulse 2|Triangle / Wave|Noise|Drums|Expansion 1|Expansion 2|Expansion 3";
   pname[11] = "OUTPUT"; penum[11] = "Famicom|NES|Clean";
-  pname[12] = "LAYER"; penum[12] = "Pulse 1|Pulse 1 + 2|Pulse 1 + 2 + Triangle|None";
+  pname[12] = "LAYER"; penum[12] = "Pulse 1|Pulse 1 + 2|Pulse 1 + 2 + Triangle|None|Pulse 2|Triangle|Noise";
   pname[13] = "PULSE 1 DUTY"; penum[13] = "12.5%|25%|50%|75%";
   pname[14] = "PULSE 1 ATTACK";
   pname[15] = "PULSE 1 DECAY";
@@ -3042,7 +3050,7 @@ function meta() (
   pname[37] = "NOISE DECAY";
   pname[38] = "NOISE SUSTAIN";
   pname[39] = "NOISE RELEASE";
-  pname[40] = "LAYER"; penum[40] = "Pulse 1|Pulse 1 + 2|Pulse 1 + 2 + Wave";
+  pname[40] = "LAYER"; penum[40] = "Pulse 1|Pulse 1 + 2|Pulse 1 + 2 + Wave|Pulse 2|Wave|Noise";
   pname[41] = "PULSE 1 DUTY"; penum[41] = "12.5%|25%|50%|75%";
   pname[42] = "PULSE 1 VOLUME";
   pname[43] = "PULSE 1 ENVELOPE";
@@ -3060,7 +3068,7 @@ function meta() (
   pname[55] = "PULSE 2 VIBRATO RATE";
   pname[56] = "PULSE 2 PAN"; penum[56] = "Left|Centre|Right";
   pname[57] = "PULSE 2 DETUNE";
-  pname[58] = "WAVE SHAPE"; penum[58] = "Sine|Triangle|Saw|Square|Pulse 25%|Pulse 12.5%|Organ|Buzz";
+  pname[58] = "WAVE SHAPE"; penum[58] = "Sine|Triangle|Saw|Square|Pulse 25%|Pulse 12.5%|Organ|Buzz|Custom";
   pname[59] = "WAVE LEVEL"; penum[59] = "100%|50%|25%";
   pname[60] = "WAVE RELEASE";
   pname[61] = "WAVE VIBRATO DEPTH";
@@ -3073,7 +3081,7 @@ function meta() (
   pname[68] = "NOISE RELEASE";
   pname[69] = "NOISE PAN"; penum[69] = "Left|Centre|Right";
   pname[70] = "MODEL"; penum[70] = "Master System|Game Gear";
-  pname[71] = "LAYER"; penum[71] = "Tone 1|Tone 1 + 2|Tone 1 + 2 + 3";
+  pname[71] = "LAYER"; penum[71] = "Tone 1|Tone 1 + 2|Tone 1 + 2 + 3|Tone 2|Tone 3|Noise";
   pname[72] = "TONE 1 ATTACK";
   pname[73] = "TONE 1 DECAY";
   pname[74] = "TONE 1 SUSTAIN";
@@ -3158,7 +3166,7 @@ function meta() (
   pname[153] = "OPERATOR 4 KEY SCALE";
   pname[154] = "OPERATOR 4 AM"; penum[154] = "Off|On";
   pname[155] = "OPERATOR 4 SSG-EG"; penum[155] = "Off|Repeat|Once|Alternate|Once Hold|Inverted Repeat|Inverted Once|Inverted Alternate|Inverted Once Hold";
-  pname[156] = "PC ENGINE WAVE"; penum[156] = "Sine|Triangle|Saw|Square|Pulse 25%|Pulse 12.5%|Organ|Buzz";
+  pname[156] = "PC ENGINE WAVE"; penum[156] = "Sine|Triangle|Saw|Square|Pulse 25%|Pulse 12.5%|Organ|Buzz|Custom";
   pname[157] = "PC ENGINE ATTACK";
   pname[158] = "PC ENGINE DECAY";
   pname[159] = "PC ENGINE SUSTAIN";
@@ -3263,7 +3271,7 @@ function meta() (
   pname[253] = "CARRIER SUSTAIN LEVEL";
   pname[254] = "CARRIER RELEASE";
   pname[255] = "FEEDBACK";
-  pmax[10] = 7; pmax[12] = 3;
+  pmax[10] = 7; pmax[12] = 6;
 );
 
 // ---------------------------------------------------------------------- reset
@@ -3342,6 +3350,10 @@ make_ntab();
 con = floor(slider1 + 0.5);
 md_data(); md_tables(); v7_tables();
 make_pce_waves();
+cy_winit !== 1 ? (
+  memcpy(waves + 256, waves, 32); memcpy(pce_waves + 256, pce_waves, 32);
+  cy_winit = 1;
+);
 sn_sil[0] = 3;
 sn_data(); sn_tables(); !sn_ok ? sn_load(); sn_kits(); dk_make();
 mem_set_values(sn_tms, 4100, 2600, 1500, 1000, 640, 380, 260, 160, 96, 64, 40, 24, 16, 10, 6, 0, 1200, 740, 440, 290, 180, 110, 74, 37,
@@ -3448,6 +3460,15 @@ con == 0 ? (
 fdl != 0 || fdr != 0 ? ( spl0 += fdl; spl1 += fdr; fdl *= 0.998; fdr *= 0.998; abs(fdl) + abs(fdr) < 0.00001 ? fdl = fdr = 0; );
 scope[scope_p] = spl0 + spl1; scope_p = (scope_p + 1) & 4095;
 spos += 1;
+
+@serialize
+cy_rd = file_avail(0) >= 0;
+cy_sv = cy_rd ? 0 : 1;
+file_var(0, cy_sv);
+cy_sv === 1 ? (
+  file_mem(0, waves + 256, 32); file_mem(0, pce_waves + 256, 32);
+  cy_rd ? ( cy_wv += 1; cy_pv += 1; );
+);
 
 @gfx 960 600
 
@@ -3736,7 +3757,7 @@ function env_view(x, y, w, h, k, gb, lv, c) local(a, d, s, r, tot, x1, x2, x3, y
   );
 );
 
-function wave_view(x, y, w, h, c, k, tab, mx, pos) local(i, bw, v, w_, hov)
+function wave_view(x, y, w, h, c, k, tab, mx, pos) local(i, bw, v, w_, hov, j, a, b, n)
 (
   acc(c);
   pass == 0 ? screen(x, y, w, h) : (
@@ -3751,7 +3772,23 @@ function wave_view(x, y, w, h, c, k, tab, mx, pos) local(i, bw, v, w_, hov)
     hov = hit(x, y, w, h);
     hov ? ( hov_k = k; hov_x = x + w * 0.5; hov_y = y - 2; hov_c = c; );
     mouse_click && hov ? (
-      mouse_click = 0; gfx_x = sx(x); gfx_y = sy(y + h);
+      mouse_click = 0; g_wk = k; g_wl = -1;
+      w_ != 8 ? ( memcpy(tab + 256, tab + w_ * 32, 32); set_done(k, 8); );
+    );
+    g_wk == k && (mouse_cap & 1) ? (
+      i = max(0, min(31, floor((mouse_x - sx(x + 4)) / (bw * z))));
+      v = max(0, min(mx, floor((sy(y + h - 4) - mouse_y) / ((h - 8) * z) * (mx + 1))));
+      g_wl < 0 ? ( g_wl = i; g_wlv = v; );
+      a = min(g_wl, i); b = max(g_wl, i); j = a;
+      loop(b - a + 1,
+        n = b == a ? v : floor(g_wlv + (v - g_wlv) * (j - g_wl) / (i - g_wl) + 0.5);
+        tab[256 + j] !== n ? ( tab[256 + j] = n; k == 58 ? cy_wv += 1 : cy_pv += 1; );
+        j += 1;
+      );
+      g_wl = i; g_wlv = v;
+    );
+    g_rclick && hov ? (
+      g_rclick = 0; gfx_x = mouse_x; gfx_y = mouse_y;
       i = gfx_showmenu(enum_menu(penum[k], w_, #mn));
       i > 0 ? set_done(k, i - 1);
     );
@@ -4415,6 +4452,7 @@ function layout() local(x)
     );
     chan(484, 176, 227, 2, "WAVE");
     wave_view(498, 234, 199, 94, 2, 58, waves, 15, wv.on && con == 1 && ck == 0 && vb[174] > 0 ? wv.ofs : -1);
+    pass == 0 ? ( font(1, 8); grey(0.75); label("DRAG TO DRAW  ·  RIGHT-CLICK: SHAPES", 498, 331); );
     seg(498, 358, 199, 22, 59, 3, 2, 0, "LEVEL");
     knob(522, 420, 60, "RELEASE", 2, 0);
     knob(572, 420, 61, "VIB DEPTH", 2, 0);
@@ -4457,8 +4495,8 @@ function layout() local(x)
   ) : con == 5 ? snes_page() : con == 4 ? (
     panel(10, 176, 227, 330, "WAVETABLE", 0);
     wave_view(24, 204, 199, 150, 0, 156, pce_waves, 31, ck == 0 && vb[8] ? pce_idx[0] : -1);
-    pass == 0 ? ( font(1, 9); grey(0.75); label("32 STEPS, 5 BITS  ·  CLICK TO CHANGE", 24, 362);
-      label("LAYER: CHANNELS 1-5 PLAY NOTES", 24, 386); label("CHANNEL 6: NOISE AND DRUMS", 24, 400); label("TRACKER: MIDI CH 1-6", 24, 414); );
+    pass == 0 ? ( font(1, 9); grey(0.75); label("32 STEPS, 5 BITS  ·  DRAG TO DRAW", 24, 362); label("RIGHT-CLICK FOR PRESET SHAPES", 24, 376);
+      label("LAYER: CHANNELS 1-5 PLAY NOTES", 24, 398); label("CHANNEL 6: NOISE AND DRUMS", 24, 412); label("TRACKER: MIDI CH 1-6", 24, 426); );
     panel(247, 176, 227, 330, "ENVELOPE", 1);
     env_view(261, 204, 199, 110, 157, 0, vb[4], 1);
     knob(279, 358, 157, "ATTACK", 1, 0); knob(329, 358, 158, "DECAY", 1, 0);
@@ -4505,8 +4543,9 @@ function layout() local(x)
 
 // ---------------------------------------------------------------------- frame
 mouse_click = (mouse_cap & 1) && !mouse_prev;
-!(mouse_cap & 1) ? ( drag_k >= 0 ? automate(drag_k, 1); drag_k = -1; );
-!gfx_inited ? ( drag_k = last_k = -1; touched_t = -10; gfx_inited = 1; );
+g_rclick = (mouse_cap & 2) && !g_rprev;
+!(mouse_cap & 1) ? ( drag_k >= 0 ? automate(drag_k, 1); drag_k = -1; g_wk >= 0 ? sliderchange(-1); g_wk = -1; );
+!gfx_inited ? ( drag_k = last_k = g_wk = -1; touched_t = -10; gfx_inited = 1; );
 
 !nexp || con ? g_nv = 0;
 penum[201] = nexp == 2 ? "Off|FM 1|FM 1 + 2|FM 1 + 2 + 3" : "Off|Saw|Saw + Pulse 1|Saw + Pulse 1 + 2";
@@ -4533,3 +4572,4 @@ hov_k >= 0 ? (
 );
 mouse_wheel = 0;
 mouse_prev = mouse_cap & 1;
+g_rprev = mouse_cap & 2;
