@@ -27,6 +27,7 @@ See the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-t
 - **Sound Blasted!**: 16-channel multitimbral SoundFont (SF2) General MIDI synthesizer, ported from [FluidSynth](https://www.fluidsynth.org) and playing Stardream Studios' HL4MGM sound set. Includes FluidSynth's reverb and chorus, 80 historical temperaments and GM, GM2, GS and XG reset SysEx.
 - **Kaminari**: taiko drums, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing S. Christian Collins' SCC Taiko Drums. Fifteen drums and hits on key pairs from C2 to A#4, with velocity layers and round robins.
 - **Evangelina Symphonica Espressivo String Ensemble**: string ensemble, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing S. Christian Collins' SCC Expressive Strings. Seven key-switched articulations (legato with expression or velocity control, staccato, pizzicato, tremolo and a legato/tremolo crossfade on the soft pedal), with expression on the mod wheel, breath, foot or expression controller.
+- **Tine Capsule**: sampled 1977 Mark I Stage 73 electric piano, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing Jeff Learman's [jRhodes3d](https://github.com/sfzinstruments/jlearman.jRhodes3d) samples. Five velocity layers with or without crossfades, the instrument file's tremolo and autopan, and a sustain pedal with half-pedalling and re-pedalling. Plays E1 to E7, or the full 88 keys.
 - **Super Color**: sampler with fifteen sounds playable from B3 to G5, ported from unplugred's [MPaint](https://github.com/unplugred/vsts).
 
 ## Effects
@@ -101,6 +102,7 @@ Each plugin keeps its original's license, and the JSFX code is released under th
 - **Samples**: the AVL Drumkits samples and photos by Glen MacArthur are CC-BY-SA 3.0, and music made with the kits can be licensed freely.
 - **SCC Expressive Strings** (Espressivo String Ensemble): released by S. Christian Collins as "use at your own risk", with samples collected from free SoundFont banks.
 - **Console Yourself SNES samples**: Doug Fraker's BRR samples are public domain per their author (repository MIT).
+- **jRhodes3d samples** (Tine Capsule): CC BY-NC 4.0 by Jeff Learman (non-commercial).
 - **Sonivox EAS** (Major General MIDI): Apache 2.0 original.
 
 The GPLv3 text is in [LICENSE](LICENSE). The MIT notices are included in the JuKnow Chorus and ChronoDupe sources.
