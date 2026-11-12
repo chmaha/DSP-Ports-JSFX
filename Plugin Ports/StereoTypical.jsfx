@@ -1,0 +1,658 @@
+Version: 1.0
+desc: Stereo Typical Stereo Imaging Tool by chmaha
+tags: utility stereo width pan rotation polarity goniometer vectorscope correlation meter
+author: chmaha
+changelog:
+  Initial release.
+about:
+  A stereo imaging and analysis tool: input gain, polarity, mute and pan for each channel, global stereo width and
+  pan (rotation), input and output peak meters, a phase correlation meter and a goniometer.
+  Left and Right: Input Gain trims each channel before processing, Phase inverts its polarity, Mute switches it
+  off, and the pan pot places it in the stereo field (left hard left and right hard right by default;
+  constant-power pan law).
+  Width: to the right widens the stereo image (side level in dB), to the left narrows it down to mono.
+  Rotation: turns the whole stereo image up to 45° towards the left or right without losing level.
+  Presets: the menu at the top applies a preset straight away and shows which one matches the current settings.
+  The goniometer shows the output: centred mono is vertical, left or right panned mono lies on the L or R
+  diagonal, out-of-phase signals turn horizontal and very wide signals spread sideways.
+  Normalize scales the goniometer so the recent peak fills the display, which helps with quiet material.
+  Click a peak readout to reset it.
+  Original design by chmaha, after the controls of FLUX:: Stereo Tool
+  JSFX code released under GPLv3 license
+  Claude generated some of this code
+
+slider1:p_gl=0<-12,12,0.01>-Left Input Gain (dB)
+slider2:p_gr=0<-12,12,0.01>-Right Input Gain (dB)
+slider3:p_phl=0<0,1,1{Off,On}>-Left Phase
+slider4:p_phr=0<0,1,1{Off,On}>-Right Phase
+slider5:p_mul=0<0,1,1{Off,On}>-Left Mute
+slider6:p_mur=0<0,1,1{Off,On}>-Right Mute
+slider7:p_pl=-100<-100,100,1>-Left Pan
+slider8:p_pr=100<-100,100,1>-Right Pan
+slider9:p_w=0<-100,100,0.1>-Width
+slider10:p_rot=0<-100,100,0.1>-Rotation
+slider11:p_gnorm=0<0,1,1{Off,On}>-Goniometer Normalize
+
+in_pin:Left input
+in_pin:Right input
+out_pin:Left output
+out_pin:Right output
+options:no_meter
+
+@init
+
+ext_noinit = gfx_ext_retina = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+
+RN = 65536;
+RING_L = alloc(RN);
+RING_R = alloc(RN);
+FP = alloc(16 * 10);
+MS_DB = alloc(12);
+MS_X = alloc(12);
+MS_DB[0] = 0; MS_DB[1] = -1; MS_DB[2] = -2; MS_DB[3] = -3; MS_DB[4] = -6; MS_DB[5] = -12; MS_DB[6] = -18;
+MS_DB[7] = -24; MS_DB[8] = -32; MS_DB[9] = -48; MS_DB[10] = -64; MS_DB[11] = -96;
+MS_X[0] = 1; MS_X[1] = 0.948; MS_X[2] = 0.89; MS_X[3] = 0.75; MS_X[4] = 0.641; MS_X[5] = 0.547; MS_X[6] = 0.474;
+MS_X[7] = 0.418; MS_X[8] = 0.356; MS_X[9] = 0.244; MS_X[10] = 0.156; MS_X[11] = 0;
+MS_CLIP = 0.948;
+a_wp = 0;
+
+function fp_set(i, gl, gr, phl, phr, mul, mur, pl, pr, w, rot) local(p) (
+  p = FP + i * 10;
+  p[0] = gl; p[1] = gr; p[2] = phl; p[3] = phr; p[4] = mul; p[5] = mur; p[6] = pl; p[7] = pr; p[8] = w; p[9] = rot;
+);
+fp_set(0, 0, 0, 0, 0, 0, 0, -100, 100, 0, 0);
+fp_set(1, 0, 0, 0, 0, 0, 0, -100, 100, -100, 0);
+fp_set(2, 0, 0, 0, 0, 0, 0, 100, -100, 0, 0);
+fp_set(3, 0, 0, 0, 0, 0, 1, 0, 100, 0, 0);
+fp_set(4, 0, 0, 0, 0, 1, 0, -100, 0, 0, 0);
+fp_set(5, 0, 0, 0, 0, 0, 0, -100, 100, 63, 0);
+fp_set(6, 0, 0, 0, 0, 0, 0, -100, 100, -50, 0);
+fp_set(7, 0, 0, 1, 0, 0, 0, -100, 100, 0, 0);
+fp_set(8, 0, 0, 0, 1, 0, 0, -100, 100, 0, 0);
+fp_set(9, 0, 0, 0, 0, 0, 0, -50, 50, 0, 0);
+NFP = 10;
+
+function width_lin(p) ( p <= 0 ? 1 + p * 0.01 : 10 ^ (12 * (p * 0.01) ^ 3 / 20); );
+
+function targets() local(al, ar, rot) (
+  t_gl = p_mul >= 0.5 ? 0 : 10 ^ (p_gl / 20) * (p_phl >= 0.5 ? -1 : 1);
+  t_gr = p_mur >= 0.5 ? 0 : 10 ^ (p_gr / 20) * (p_phr >= 0.5 ? -1 : 1);
+  al = (p_pl * 0.01 + 1) * 0.25 * $pi; ar = (p_pr * 0.01 + 1) * 0.25 * $pi;
+  t_lla = cos(al); t_lra = sin(al);
+  t_rla = cos(ar); t_rra = sin(ar);
+  t_w = width_lin(p_w);
+  rot = p_rot * 0.01 * 0.25 * $pi;
+  t_rc = cos(rot); t_rs = sin(rot);
+);
+
+function snap() (
+  c_gl = t_gl; c_gr = t_gr; c_lla = t_lla; c_lra = t_lra; c_rla = t_rla; c_rra = t_rra;
+  c_w = t_w; c_rc = t_rc; c_rs = t_rs;
+);
+
+targets();
+snap();
+a_hold_seen = 0;
+
+@slider
+
+last_srate != srate ? (
+  last_srate = srate;
+  sm_k = 1 - exp(-1 / (0.005 * srate));
+  pk_rel = 10 ^ (-20 / 20 / (1.7 * srate));
+  co_k = 1 - exp(-1 / (0.1 * srate));
+);
+
+@block
+
+targets();
+g_hold_req !== a_hold_seen ? (
+  a_hold_seen = g_hold_req;
+  a_hil = a_hir = a_hol = a_hor = 0;
+);
+
+@sample
+
+c_gl += (t_gl - c_gl) * sm_k;
+c_gr += (t_gr - c_gr) * sm_k;
+c_lla += (t_lla - c_lla) * sm_k;
+c_lra += (t_lra - c_lra) * sm_k;
+c_rla += (t_rla - c_rla) * sm_k;
+c_rra += (t_rra - c_rra) * sm_k;
+c_w += (t_w - c_w) * sm_k;
+c_rc += (t_rc - c_rc) * sm_k;
+c_rs += (t_rs - c_rs) * sm_k;
+
+s_il = abs(spl0); s_ir = abs(spl1);
+a_pil = max(s_il, a_pil * pk_rel);
+a_pir = max(s_ir, a_pir * pk_rel);
+a_hil = max(a_hil, s_il);
+a_hir = max(a_hir, s_ir);
+
+s_l = spl0 * c_gl;
+s_r = spl1 * c_gr;
+s_ol = s_l * c_lla + s_r * c_rla;
+s_or = s_l * c_lra + s_r * c_rra;
+s_m = (s_ol + s_or) * 0.5;
+s_s = (s_ol - s_or) * 0.5 * c_w;
+s_ol = s_m + s_s;
+s_or = s_m - s_s;
+spl0 = s_ol * c_rc - s_or * c_rs;
+spl1 = s_ol * c_rs + s_or * c_rc;
+
+s_ol = abs(spl0); s_or = abs(spl1);
+a_pol = max(s_ol, a_pol * pk_rel);
+a_por = max(s_or, a_por * pk_rel);
+a_hol = max(a_hol, s_ol);
+a_hor = max(a_hor, s_or);
+
+m_lr += (spl0 * spl1 - m_lr) * co_k;
+m_ll += (spl0 * spl0 - m_ll) * co_k;
+m_rr += (spl1 * spl1 - m_rr) * co_k;
+a_corr = m_ll > 0.000000001 && m_rr > 0.000000001 ? max(-1, min(1, m_lr / sqrt(m_ll * m_rr))) : 0;
+a_sig = m_ll + m_rr > 0.000000001;
+
+RING_L[a_wp] = spl0;
+RING_R[a_wp] = spl1;
+a_wp = (a_wp + 1) & (RN - 1);
+
+@gfx 640 688
+
+DW = 640;
+DH = 688;
+scale = max(0.5, min(gfx_w / DW, gfx_h / DH));
+ox = floor((gfx_w - DW * scale) * 0.5);
+oy = 0;
+
+function px(x) ( ox + x * scale; );
+function py(y) ( oy + y * scale; );
+function font(sz, fl) ( gfx_setfont(1, "Arial", (sz + 2) * scale, fl); );
+
+function automate(s, e)
+(
+<?
+  max_sliders > 16 ? printf("slider_automate(2^(s-1), e);") :
+    loop(i = 1; 11,
+      printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function set_slider(s, v) ( slider(s) = v; automate(s, 0); automate(s, 1); );
+
+function hit_circle(mx_, my_, cx, cy, rad) ( sqr(mx_ - cx) + sqr(my_ - cy) <= sqr(rad); );
+function hit_rect(mx_, my_, x, y, w, h) ( mx_ >= x && mx_ <= x + w && my_ >= y && my_ <= y + h; );
+
+function pmin(i) ( i <= 1 ? -12 : i <= 5 || i == 10 ? 0 : -100; );
+function pmax(i) ( i <= 1 ? 12 : i <= 5 || i == 10 ? 1 : 100; );
+function pdef(i) ( i == 6 ? -100 : i == 7 ? 100 : 0; );
+function pget(i) ( slider(1 + i); );
+function pset(i, v) local(sn) (
+  sn = 1 + i;
+  v = max(pmin(i), min(pmax(i), v));
+  slider(sn) = i <= 1 ? floor(v * 100 + 0.5) / 100 : i >= 8 ? floor(v * 10 + 0.5) / 10 : floor(v + 0.5);
+  automate(sn, 0);
+);
+function ppos(i) ( (pget(i) - pmin(i)) / (pmax(i) - pmin(i)); );
+function pset_pos(i, t) ( pset(i, pmin(i) + (pmax(i) - pmin(i)) * max(0, min(1, t))); );
+
+function ctext(str, cx, y) local(tw, th) (
+  gfx_measurestr(str, tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+function rtext(str, rx, y) local(tw, th) (
+  gfx_measurestr(str, tw, th);
+  gfx_x = rx - tw; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function arc_band(cx, cy, r0, r1, a0, a1) local(r) (
+  r = r0;
+  while (r <= r1) ( gfx_arc(cx, cy, r, a0, a1, 1); r += 0.6; );
+);
+
+function draw_knob(i, cx, cy, rad, name, valtext) local(hov, p, a0, a1, a, tr, v, tw, th) (
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, rad + 8 * scale);
+  hov ? g_hover = 1 + i;
+  mouse_just_down && hov ? (
+    (click_target == i && time_precise() - click_time < 0.3) ? (
+      pset(i, pdef(i)); automate(1 + i, 1); drag_target = -1;
+    ) : (
+      drag_target = i; drag_kind = 0; drag_start_y = mouse_y; drag_start_pos = ppos(i);
+    );
+    click_target = i; click_time = time_precise(); mouse_just_down = 0;
+  );
+  hov && wheel != 0 && drag_target < 0 ? (
+    pset_pos(i, ppos(i) + wheel / 120 * ((mouse_cap & 4) ? 0.002 : 0.02));
+    automate(1 + i, 1); wheel = 0;
+  );
+  p = ppos(i);
+  a0 = -2.35619; a1 = 2.35619;
+  a = a0 + (a1 - a0) * p;
+  tr = rad + 5 * scale;
+  gfx_set(0.28, 0.28, 0.30, 1);
+  arc_band(cx, cy, tr, tr + 3.5 * scale, a0, a1);
+  gfx_set(0.33, 0.60, 1.0, 1);
+  a < 0 ? arc_band(cx, cy, tr, tr + 3.5 * scale, a, 0) : a > 0 ? arc_band(cx, cy, tr, tr + 3.5 * scale, 0, a);
+  gfx_set(0.04, 0.05, 0.08, 0.6);
+  gfx_circle(cx + 1.5 * scale, cy + 2.5 * scale, rad, 1, 1);
+  gfx_set(0.42, 0.43, 0.46, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  gfx_set(0.62, 0.63, 0.66, 1);
+  gfx_circle(cx, cy, rad - 2 * scale, 1, 1);
+  gfx_set(0.72, 0.73, 0.76, 1);
+  gfx_circle(cx - 0.12 * rad, cy - 0.12 * rad, rad * 0.78, 1, 1);
+  gfx_set(0.80, 0.81, 0.83, 0.55);
+  gfx_circle(cx - 0.25 * rad, cy - 0.28 * rad, rad * 0.45, 1, 1);
+  gfx_set(0.13, 0.13, 0.15, 1);
+  v = -1.2;
+  loop(5,
+    gfx_line(cx + sin(a) * rad * 0.22 + cos(a) * v * scale * 0.6, cy - cos(a) * rad * 0.22 + sin(a) * v * scale * 0.6,
+             cx + sin(a) * rad * 0.92 + cos(a) * v * scale * 0.6, cy - cos(a) * rad * 0.92 + sin(a) * v * scale * 0.6, 1);
+    v += 0.6;
+  );
+  font(14, 'b');
+  gfx_set(1, 1, 1, 1);
+  gfx_measurestr(name, tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = cy - rad - 11 * scale - th;
+  gfx_drawstr(name);
+  font(12, 0);
+  gfx_set(0.92, 0.92, 0.94, 1);
+  gfx_measurestr(valtext, tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = cy + rad + 9 * scale;
+  gfx_drawstr(valtext);
+);
+
+function draw_hslider(i, x, y, w, name, valtext) local(hov, p, tx, c, tw, th) (
+  font(14, 'b');
+  gfx_set(1, 1, 1, 1);
+  rtext(name, x - 22 * scale, y - 9 * scale);
+  font(13, 0);
+  gfx_set(0.92, 0.92, 0.94, 1);
+  gfx_x = x + w + 22 * scale; gfx_y = y - 9 * scale;
+  gfx_drawstr(valtext);
+  hov = hit_rect(mouse_x, mouse_y, x - 6 * scale, y - 11 * scale, w + 12 * scale, 22 * scale);
+  hov ? g_hover = 1 + i;
+  mouse_just_down && hov ? (
+    (click_target == i && time_precise() - click_time < 0.3) ? (
+      pset(i, pdef(i)); automate(1 + i, 1); drag_target = -1;
+    ) : (
+      drag_target = i; drag_kind = 1; drag_x0 = mouse_x; drag_w = w; drag_start_pos = ppos(i);
+    );
+    click_target = i; click_time = time_precise(); mouse_just_down = 0;
+  );
+  hov && wheel != 0 && drag_target < 0 ? (
+    pset_pos(i, ppos(i) + wheel / 120 * ((mouse_cap & 4) ? 0.002 : 0.02));
+    automate(1 + i, 1); wheel = 0;
+  );
+  p = ppos(i);
+  tx = x + w * p; c = floor(x + w * 0.5 + 0.5);
+  gfx_set(0.28, 0.28, 0.30, 1);
+  gfx_rect(floor(x + 0.5), floor(y - 2 * scale + 0.5), floor(x + w + 0.5) - floor(x + 0.5), floor(4 * scale + 0.5), 1);
+  gfx_set(0.33, 0.60, 1.0, 1);
+  gfx_rect(min(c, floor(tx + 0.5)), floor(y - 2 * scale + 0.5), abs(floor(tx + 0.5) - c), floor(4 * scale + 0.5), 1);
+  gfx_set(0.04, 0.05, 0.08, 0.6);
+  gfx_circle(tx + scale, y + 1.5 * scale, 7 * scale, 1, 1);
+  gfx_set(0.55, 0.56, 0.60, 1);
+  gfx_circle(tx, y, 7 * scale, 1, 1);
+  gfx_set(0.75, 0.76, 0.79, 1);
+  gfx_circle(tx - scale, y - scale, 4.5 * scale, 1, 1);
+);
+
+function draw_toggle(i, x, y, w, h, label, fs) local(hov, on, tw, th) (
+  hov = hit_rect(mouse_x, mouse_y, x, y, w, h);
+  hov ? g_hover = 1 + i;
+  mouse_just_down && hov ? ( pset(i, pget(i) >= 0.5 ? 0 : 1); automate(1 + i, 1); mouse_just_down = 0; );
+  on = pget(i) >= 0.5;
+  on ? ( i == 10 ? gfx_set(0.16, 0.40, 0.80, 1) : gfx_set(0.706, 0.09, 0.09, 1); ) : gfx_set(0.15, 0.15, 0.16, 1);
+  gfx_roundrect(x, y, w, h, 5 * scale, 1);
+  gfx_rect(x + scale, y + scale, w - 2 * scale, h - 2 * scale, 1);
+  gfx_set(0.28, 0.28, 0.30, 1);
+  gfx_roundrect(x, y, w, h, 5 * scale, 1);
+  font(fs, 'b');
+  gfx_set(1, 1, 1, 1);
+  gfx_measurestr(label, tw, th);
+  gfx_x = x + (w - tw) * 0.5; gfx_y = y + (h - th) * 0.5;
+  gfx_drawstr(label);
+);
+
+function draw_panel(x, y, w, h) (
+  gfx_set(0.115, 0.115, 0.125, 1);
+  gfx_rect(px(x) + 4 * scale, py(y), (w - 8) * scale, h * scale, 1);
+  gfx_rect(px(x), py(y) + 4 * scale, w * scale, (h - 8) * scale, 1);
+  gfx_circle(px(x) + 4 * scale, py(y) + 4 * scale, 4 * scale, 1, 1);
+  gfx_circle(px(x + w) - 4 * scale - 1, py(y) + 4 * scale, 4 * scale, 1, 1);
+  gfx_circle(px(x) + 4 * scale, py(y + h) - 4 * scale - 1, 4 * scale, 1, 1);
+  gfx_circle(px(x + w) - 4 * scale - 1, py(y + h) - 4 * scale - 1, 4 * scale, 1, 1);
+  gfx_set(0.23, 0.23, 0.25, 1);
+  gfx_roundrect(px(x), py(y), w * scale, h * scale, 4 * scale, 1);
+);
+
+function db_text(v) ( sprintf(#g_dt, "%.2f dB", v); #g_dt; );
+function pan_text(v) (
+  abs(v) < 0.05 ? strcpy(#g_pt, "Center") : v < 0 ? sprintf(#g_pt, "L %.0f", -v) : sprintf(#g_pt, "R %.0f", v);
+  #g_pt;
+);
+function rot_text(v) (
+  abs(v) < 0.05 ? strcpy(#g_rt, "Center") : sprintf(#g_rt, "%.1f° %s", abs(v) * 0.45, v < 0 ? "L" : "R");
+  #g_rt;
+);
+
+function width_text(v) local(w) (
+  w = width_lin(v);
+  w <= 0.00001 ? strcpy(#g_wt, "Mono") : sprintf(#g_wt, "%.2f dB", 20 * log10(w));
+  #g_wt;
+);
+
+function mscale(db) local(i, a, b) (
+  db >= 0 ? 1 : db <= -96 ? 0 : (
+    i = 0;
+    while (db < MS_DB[i + 1] ? ( i += 1; 1; ) : 0; );
+    a = MS_DB[i]; b = MS_DB[i + 1];
+    MS_X[i] + (MS_X[i + 1] - MS_X[i]) * (db - a) / (b - a);
+  );
+);
+
+function meter_bar(x, y, w, h, v, cr, cg, cb) local(db, f, i, n, sx, ex, segw, cpx, red) (
+  db = v > 0.0000001 ? 20 * log10(v) : -200;
+  f = mscale(db);
+  cpx = floor(x + w * MS_CLIP + 0.5);
+  x = floor(x + 0.5);
+  gfx_set(0.06, 0.06, 0.07, 1);
+  gfx_rect(x, y, w, h, 1);
+  n = floor(w / (3 * scale));
+  segw = w / n;
+  i = 0;
+  loop(n,
+    sx = x + floor(i * segw + 0.5);
+    ex = x + floor((i + 1) * segw + 0.5);
+    red = sx > cpx;
+    (i + 0.5) / n <= f ? (
+      red ? gfx_set(0.95, 0.30, 0.25, 1) : gfx_set(cr, cg, cb, 1);
+    ) : (
+      red ? gfx_set(0.38, 0.16, 0.16, 1) : gfx_set(0.26, 0.27, 0.31, 1);
+    );
+    gfx_rect(sx, y, max(1, ex - sx - 1), h, 1);
+    i += 1;
+  );
+);
+
+function hold_text(v) (
+  v > 0.0000001 ? sprintf(#g_ht, "%.1f", 20 * log10(v)) : strcpy(#g_ht, "-inf");
+  #g_ht;
+);
+
+function preset_label(k) (
+  k == 0 ? "Default" : k == 1 ? "Mono" : k == 2 ? "Swap L/R" : k == 3 ? "Left to Both" : k == 4 ? "Right to Both" :
+  k == 5 ? "Wide" : k == 6 ? "Narrow" : k == 7 ? "Left Phase" : k == 8 ? "Right Phase" : "Half Width Pans";
+);
+
+function preset_match() local(k, i, src, ok, hit) (
+  hit = -1;
+  k = 0;
+  loop(NFP,
+    src = FP + k * 10; ok = 1; i = 0;
+    loop(10, abs(slider(1 + i) - src[i]) > 0.001 ? ok = 0; i += 1; );
+    ok && hit < 0 ? hit = k;
+    k += 1;
+  );
+  hit;
+);
+
+function preset_load(k) local(src, i) (
+  src = FP + k * 10;
+  i = 0;
+  loop(10, slider(1 + i) = src[i]; automate(1 + i, 0); automate(1 + i, 1); i += 1; );
+);
+
+function preset_menu(x, y, w) local(bx, by, bw, k, tw, th, r, m) (
+  bx = px(x); by = py(y); bw = w * scale;
+  m = preset_match();
+  gfx_set(0.08, 0.08, 0.09, 1);
+  gfx_rect(bx + scale, by + scale, bw - 2 * scale, 26 * scale, 1);
+  gfx_set(0.28, 0.28, 0.30, 1);
+  gfx_roundrect(bx, by, bw, 28 * scale, 5 * scale, 1);
+  font(13, 'b');
+  gfx_set(1, 1, 1, 1);
+  m >= 0 ? strcpy(#g_pn, preset_label(m)) : strcpy(#g_pn, "Custom");
+  gfx_measurestr(#g_pn, tw, th);
+  gfx_x = bx + (bw - 16 * scale - tw) * 0.5; gfx_y = by + (28 * scale - th) * 0.5;
+  gfx_drawstr(#g_pn);
+  gfx_set(0.62, 0.63, 0.66, 1);
+  gfx_triangle(bx + bw - 18 * scale, by + 11 * scale, bx + bw - 8 * scale, by + 11 * scale, bx + bw - 13 * scale, by + 17 * scale);
+  hit_rect(mouse_x, mouse_y, bx, by, bw, 28 * scale) ? (
+    g_hover = 30;
+    mouse_just_down ? (
+      strcpy(#g_mn, "");
+      k = 0;
+      loop(NFP, strcat(#g_mn, k == m ? "!" : ""); strcat(#g_mn, preset_label(k)); k < NFP - 1 ? strcat(#g_mn, "|"); k += 1; );
+      gfx_x = bx; gfx_y = by + 28 * scale;
+      r = gfx_showmenu(#g_mn);
+      r >= 1 && r <= NFP ? preset_load(r - 1);
+      mouse_just_down = 0;
+    );
+  );
+);
+
+!g_init ? (
+  g_init = 1;
+  IMG_GN = 1; IMG_H1 = 2; IMG_H2 = 3; IMG_H3 = 4;
+  g_rp = a_wp;
+);
+
+mouse_down = mouse_cap & 1;
+mouse_just_down = mouse_down && !g_mouse_last;
+wheel = mouse_wheel; mouse_wheel = 0;
+g_hover = 0;
+
+gfx_set(0.180, 0.180, 0.190, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+gfx_gradrect(0, 0, gfx_w, gfx_h, 0.180, 0.180, 0.190, 1, 0, 0, 0, 0, -0.045 / max(1, gfx_h), -0.045 / max(1, gfx_h), -0.045 / max(1, gfx_h), 0);
+
+font(30, 'b');
+gfx_set(1, 1, 1, 1);
+gfx_x = px(16); gfx_y = py(10);
+gfx_drawstr("Stereo Typical");
+font(12, 0);
+gfx_set(0.45, 0.65, 0.95, 1);
+gfx_x = px(18); gfx_y = py(52);
+gfx_drawstr("by chmaha  ·  stereo imaging tool");
+preset_menu(440, 24, 192);
+
+draw_panel(8, 80, 120, 332);
+draw_panel(512, 80, 120, 332);
+font(18, 'b');
+gfx_set(1, 1, 1, 0.9);
+ctext("Left", px(68), py(88));
+ctext("Right", px(572), py(88));
+KR = 24 * scale;
+draw_knob(0, px(68), py(172), KR, "Input Gain", db_text(pget(0)));
+draw_knob(1, px(572), py(172), KR, "Input Gain", db_text(pget(1)));
+draw_toggle(2, px(23), py(226), 90 * scale, 28 * scale, "Phase Ø", 14);
+draw_toggle(4, px(23), py(262), 90 * scale, 28 * scale, "Mute", 14);
+draw_toggle(3, px(527), py(226), 90 * scale, 28 * scale, "Phase Ø", 14);
+draw_toggle(5, px(527), py(262), 90 * scale, 28 * scale, "Mute", 14);
+draw_knob(6, px(68), py(350), KR, "Pan", pan_text(pget(6)));
+draw_knob(7, px(572), py(350), KR, "Pan", pan_text(pget(7)));
+
+g_gr = floor(160 * scale);
+g_gcx = floor(px(320)); g_gcy = floor(py(246));
+gfx_set(0.07, 0.07, 0.08, 1);
+gfx_circle(g_gcx, g_gcy, g_gr + 12 * scale, 1, 1);
+gfx_set(0.16, 0.16, 0.18, 1);
+gfx_circle(g_gcx, g_gcy, g_gr + 12 * scale, 0, 1);
+gfx_set(0, 0, 0, 1);
+gfx_circle(g_gcx, g_gcy, g_gr + 2 * scale, 1, 1);
+g_gs = 2 * g_gr;
+g_gs !== g_gs_last ? (
+  gfx_setimgdim(IMG_GN, g_gs, g_gs);
+  gfx_setimgdim(IMG_H1, ceil(g_gs / 2), ceil(g_gs / 2));
+  gfx_setimgdim(IMG_H2, ceil(g_gs / 4), ceil(g_gs / 4));
+  gfx_setimgdim(IMG_H3, ceil(g_gs / 8), ceil(g_gs / 8));
+  gfx_dest = IMG_GN; gfx_set(0, 0, 0, 1); gfx_rect(0, 0, g_gs, g_gs, 1);
+  g_gs_last = g_gs;
+);
+gfx_dest = IMG_GN;
+gfx_muladdrect(0, 0, g_gs, g_gs, 0.76, 0.80, 0.85);
+g_wp = a_wp;
+g_new = (g_wp - g_rp) & (RN - 1);
+g_new > 8192 ? ( g_rp = (g_wp - 8192) & (RN - 1); g_new = 8192; );
+g_stride = max(1, floor(g_new / 1400));
+g_fp = 0;
+g_q = g_rp;
+loop(g_new,
+  g_fp = max(g_fp, sqr(RING_L[g_q]) + sqr(RING_R[g_q]));
+  g_q = (g_q + 1) & (RN - 1);
+);
+g_fp = sqrt(g_fp);
+g_fp > g_gpk ? g_gpk = g_fp : g_gpk *= 0.95;
+gfx_mode = 1;
+g_k = (g_gr - 4) * 0.70710678;
+p_gnorm >= 0.5 ? g_k *= 0.9 / max(g_gpk, 0.001);
+gi = 0;
+loop(floor(g_new / g_stride),
+  g_l = RING_L[g_rp]; g_r = RING_R[g_rp];
+  g_rp = (g_rp + g_stride) & (RN - 1);
+  g_x = g_gr + (g_r - g_l) * g_k;
+  g_y = g_gr - (g_l + g_r) * g_k;
+  g_dd = sqrt(sqr(g_x - g_gr) + sqr(g_y - g_gr));
+  g_dd > g_gr - 2 ? ( g_x = g_gr + (g_x - g_gr) * (g_gr - 2) / g_dd; g_y = g_gr + (g_y - g_gr) * (g_gr - 2) / g_dd; );
+  gi > 0 ? (
+    gfx_set(0.33, 0.60, 1.0, 0.12);
+    gfx_line(g_lx, g_ly, g_x, g_y, 1);
+  );
+  g_lx = g_x; g_ly = g_y;
+  gi += 1;
+);
+g_rp = g_wp;
+gfx_mode = 0;
+gfx_a = 1;
+gfx_dest = IMG_H1; gfx_blit(IMG_GN, 1, 0, 0, 0, g_gs, g_gs, 0, 0, ceil(g_gs / 2), ceil(g_gs / 2));
+gfx_dest = IMG_H2; gfx_blit(IMG_H1, 1, 0, 0, 0, ceil(g_gs / 2), ceil(g_gs / 2), 0, 0, ceil(g_gs / 4), ceil(g_gs / 4));
+gfx_dest = IMG_H3; gfx_blit(IMG_H2, 1, 0, 0, 0, ceil(g_gs / 4), ceil(g_gs / 4), 0, 0, ceil(g_gs / 8), ceil(g_gs / 8));
+gfx_dest = -1;
+gfx_mode = 1;
+gfx_a = 1;
+gfx_blit(IMG_GN, 1, 0, 0, 0, g_gs, g_gs, g_gcx - g_gr, g_gcy - g_gr, g_gs, g_gs);
+gfx_a = 0.5;
+gfx_blit(IMG_H2, 1, 0, 0, 0, ceil(g_gs / 4), ceil(g_gs / 4), g_gcx - g_gr, g_gcy - g_gr, g_gs, g_gs);
+gfx_a = 0.4;
+gfx_blit(IMG_H3, 1, 0, 0, 0, ceil(g_gs / 8), ceil(g_gs / 8), g_gcx - g_gr, g_gcy - g_gr, g_gs, g_gs);
+gfx_a = 1;
+gfx_mode = 0;
+gfx_set(1, 1, 1, 0.14);
+gfx_line(g_gcx, g_gcy - g_gr * 0.86, g_gcx, g_gcy + g_gr * 0.88);
+gfx_line(g_gcx - g_gr * 0.8, g_gcy, g_gcx + g_gr * 0.8, g_gcy);
+gfx_line(g_gcx - g_gr * 0.55, g_gcy - g_gr * 0.55, g_gcx + g_gr * 0.55, g_gcy + g_gr * 0.55);
+gfx_line(g_gcx + g_gr * 0.55, g_gcy - g_gr * 0.55, g_gcx - g_gr * 0.55, g_gcy + g_gr * 0.55);
+font(12, 'b');
+gfx_set(0.92, 0.92, 0.94, 0.9);
+ctext("MONO", g_gcx, g_gcy - g_gr * 0.96);
+ctext("L", g_gcx - g_gr * 0.6, g_gcy - g_gr * 0.68);
+ctext("R", g_gcx + g_gr * 0.6, g_gcy - g_gr * 0.68);
+gfx_x = g_gcx - g_gr * 0.94; gfx_y = g_gcy - 8 * scale; gfx_drawstr("+S");
+rtext("-S", g_gcx + g_gr * 0.94, g_gcy - 8 * scale);
+draw_toggle(10, px(446), py(392), 62 * scale, 18 * scale, "Normalize", 9);
+
+draw_panel(8, 422, 624, 80);
+draw_hslider(8, px(170), py(448), 300 * scale, "Width", width_text(pget(8)));
+draw_hslider(9, px(170), py(480), 300 * scale, "Rotation", rot_text(pget(9)));
+
+draw_panel(8, 512, 624, 140);
+g_mx = px(70); g_mw = 494 * scale;
+font(11, 0);
+gi = 11;
+loop(12,
+  g_tx = g_mx + g_mw * MS_X[gi];
+  gfx_set(0.80, 0.81, 0.85, 1);
+  ctext(sprintf(#g_tmp, "%d", MS_DB[gi]), g_tx, py(517));
+  gi -= 1;
+);
+font(12, 'b');
+gfx_set(1, 1, 1, 0.9);
+rtext("L in", px(64), py(533)); rtext("R in", px(64), py(547));
+rtext("L out", px(64), py(567)); rtext("R out", px(64), py(581));
+rtext("Phase", px(64), py(608));
+meter_bar(g_mx, py(535), g_mw, 11 * scale, a_pil, 0.74, 0.76, 0.80);
+meter_bar(g_mx, py(549), g_mw, 11 * scale, a_pir, 0.74, 0.76, 0.80);
+meter_bar(g_mx, py(569), g_mw, 11 * scale, a_pol, 0.33, 0.60, 1.0);
+meter_bar(g_mx, py(583), g_mw, 11 * scale, a_por, 0.33, 0.60, 1.0);
+gfx_set(1, 1, 1, 0.45);
+gi = 1;
+loop(10,
+  g_tx = floor(g_mx + g_mw * MS_X[gi] + 0.5);
+  g_ty = floor(py(533));
+  while (g_ty < py(596) ? ( gfx_rect(g_tx, g_ty, 1, 1, 1); g_ty += 2; 1; ) : 0; );
+  gi += 1;
+);
+font(12, 0);
+gfx_set(0.92, 0.92, 0.94, 1);
+rtext(hold_text(a_hil), px(622), py(533));
+rtext(hold_text(a_hir), px(622), py(547));
+rtext(hold_text(a_hol), px(622), py(567));
+rtext(hold_text(a_hor), px(622), py(581));
+hit_rect(mouse_x, mouse_y, px(568), py(530), 60 * scale, 68 * scale) ? (
+  g_hover = 31;
+  mouse_just_down ? ( g_hold_req += 1; mouse_just_down = 0; );
+);
+gfx_set(0.06, 0.06, 0.07, 1);
+gfx_set(0.28, 0.28, 0.30, 1);
+gfx_rect(px(18), py(600), 604 * scale, max(1, scale), 1);
+gfx_set(0.06, 0.06, 0.07, 1);
+gfx_rect(g_mx, py(609), g_mw, 13 * scale, 1);
+gfx_set(0.80, 0.81, 0.85, 0.5);
+gfx_line(g_mx + g_mw * 0.5, py(606), g_mx + g_mw * 0.5, py(625));
+gfx_set(0.80, 0.81, 0.85, 0.3);
+gfx_line(g_mx + g_mw * 0.25, py(607), g_mx + g_mw * 0.25, py(624));
+gfx_line(g_mx + g_mw * 0.75, py(607), g_mx + g_mw * 0.75, py(624));
+a_sig ? (
+  g_cx = g_mx + g_mw * (0.5 + 0.5 * a_corr);
+  a_corr < 0 ? gfx_set(0.95, 0.30, 0.25, 1) : gfx_set(0.33, 0.60, 1.0, 1);
+  gi = -2;
+  loop(5, gfx_rect(g_cx + gi * 4 * scale - scale, py(610), 2 * scale, 11 * scale, 1); gi += 1; );
+);
+font(11, 0);
+gfx_set(0.80, 0.81, 0.85, 1);
+ctext("-1", g_mx, py(627)); ctext("-0.5", g_mx + g_mw * 0.25, py(627)); ctext("0", g_mx + g_mw * 0.5, py(627));
+ctext("+0.5", g_mx + g_mw * 0.75, py(627)); ctext("+1", g_mx + g_mw, py(627));
+hit_rect(mouse_x, mouse_y, g_mx, py(602), g_mw, 40 * scale) ? g_hover = 32;
+hit_rect(mouse_x, mouse_y, g_mx, py(530), g_mw, 68 * scale) ? g_hover = 33;
+
+drag_target >= 0 ? (
+  mouse_down ? (
+    drag_kind == 0 ? (
+      mouse_cap |= 65536;
+      pset_pos(drag_target, drag_start_pos + (drag_start_y - mouse_y) / (((mouse_cap & 4) ? 1500 : 150) * scale));
+    ) : (
+      pset_pos(drag_target, drag_start_pos + (mouse_x - drag_x0) / (drag_w * ((mouse_cap & 4) ? 10 : 1)));
+    );
+    g_hover = 1 + drag_target;
+  ) : (
+    automate(1 + drag_target, 1);
+    drag_target = -1;
+  );
+);
+
+gfx_set(0.07, 0.07, 0.08, 1);
+gfx_rect(0, py(662), gfx_w, gfx_h - py(662), 1);
+font(12, 0);
+gfx_set(0.92, 0.92, 0.94, 1);
+gfx_x = px(16); gfx_y = py(666);
+g_hover == 1 || g_hover == 2 ? gfx_drawstr("Input Gain: trims the channel before processing.") :
+g_hover == 3 || g_hover == 4 ? gfx_drawstr("Phase: inverts the polarity of the channel.") :
+g_hover == 5 || g_hover == 6 ? gfx_drawstr("Mute: switches the channel off.") :
+g_hover == 7 || g_hover == 8 ? gfx_drawstr("Pan: places the channel in the stereo field (constant power).") :
+g_hover == 9 ? gfx_drawstr("Width: right widens the image (side level in dB), left narrows it to mono.") :
+g_hover == 10 ? gfx_drawstr("Rotation: turns the whole stereo image up to 45° left or right without losing level.") :
+g_hover == 30 ? gfx_drawstr("Presets: applied straight away. Shows Custom when the settings match no preset.") :
+g_hover == 11 ? gfx_drawstr("Normalize: scales the goniometer so the recent peak fills the display.") :
+g_hover == 31 ? gfx_drawstr("Peak hold readouts (dBFS). Click to reset.") :
+g_hover == 32 ? gfx_drawstr("Phase correlation: -1 out of phase, 0 unrelated, +1 mono.") :
+g_hover == 33 ? gfx_drawstr("Input and output peak meters (dBFS).") :
+gfx_drawstr("Drag or scroll controls (Ctrl = fine), double-click to reset.");
+
+g_mouse_last = mouse_down;

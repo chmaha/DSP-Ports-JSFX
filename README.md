@@ -65,6 +65,8 @@ See the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-t
 ## Utility
 
 - **Beep Show** (original design, after the feature set of Voxengo Beeper): preview watermarker that puts beeps, low-passed noise bursts or dips in level into audio at a set interval, to protect demos, previews and stems. The material dips during each insertion so the output stays below its peak, and Variation randomises timing, duration, frequency and gain so the marks are hard to remove. The pattern follows the project position, so every render is identical. Zero latency, any number of channels.
+- **Side Hustle** (original design, after the feature set of Voxengo MSED): mid-side encoder, decoder and inline mid-side processor. Gain, mute and pan for the mid and side channels, channel swap, polarity flips for both channels or the side alone, correlation and balance meters and a plasma vector scope that draws each octave band at its own radius. Zero latency.
+- **Stereo Typical** (original design, after the controls of FLUX:: Stereo Tool): stereo imaging tool with input gain, polarity, mute and pan for each channel, stereo width from mono to extra wide, rotation of the whole image, ten instant presets, input and output peak meters, a phase correlation meter and a goniometer.
 
 ## Break Room
 

@@ -1,0 +1,562 @@
+Version: 1.0
+desc: Side Hustle Mid-Side Encoder/Decoder by chmaha
+tags: utility mid-side m/s stereo width encoder decoder vectorscope correlation
+author: chmaha
+changelog:
+  Initial release.
+about:
+  A mid-side encoder, decoder and inline mid-side processor with a plasma vector scope.
+  Mode: Encode turns left/right into mid (left output) and side (right output), Decode turns mid/side back
+  into left/right, and Inline encodes, adjusts the mid and side channels and decodes again, all in one instance.
+  Ch Swap swaps the input channels, Flip 180 inverts the polarity of both channels, and S 180 inverts the
+  side channel only.
+  Mid and Side each have Gain, Mute and Pan (0 dB, plain cosine pan law; pan works in Decode and Inline).
+  Right-drag either Gain knob to move both in opposite directions.
+  The correlation meter (500 ms average) reads -1..0 for anti-phase, 0 for unrelated and 0..1 for in-phase
+  stereo. The balance meter (500 ms average) shows how much louder one side is; negative means left is louder.
+  The plasma vector scope shows the output. Each octave band is drawn at its own radius, from the outside for
+  the lows to about 40 % of the radius for the highs, with the loudest band reaching the edge. Centred signals
+  draw a vertical line, panned signals a diagonal, out-of-phase signals a horizontal line and unrelated signals
+  a circle. The scope uses no CPU while the window is closed.
+  Zero latency, 64-bit processing.
+  Original design by chmaha, after the feature set of Voxengo MSED
+  JSFX code released under GPLv3 license
+  Claude generated some of this code
+
+slider1:p_mode=2<0,2,1{Encode,Decode,Inline}>-Mode
+slider2:p_swap=0<0,1,1{Off,On}>-Ch Swap
+slider3:p_flip=0<0,1,1{Off,On}>-Flip 180
+slider4:p_sflip=0<0,1,1{Off,On}>-S 180
+slider5:p_mgain=0<-24,24,0.1>-Mid Gain (dB)
+slider6:p_mmute=0<0,1,1{Off,On}>-Mid Mute
+slider7:p_sgain=0<-24,24,0.1>-Side Gain (dB)
+slider8:p_smute=0<0,1,1{Off,On}>-Side Mute
+slider9:p_mpan=0<-100,100,1>-Mid Pan (%)
+slider10:p_span=0<-100,100,1>-Side Pan (%)
+
+in_pin:Left input
+in_pin:Right input
+out_pin:Left output
+out_pin:Right output
+options:no_meter
+
+@init
+
+ext_noinit = gfx_ext_retina = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+
+RN = 65536;
+RING_L = alloc(RN);
+RING_R = alloc(RN);
+SC_B0 = alloc(16); SC_A1 = alloc(16); SC_A2 = alloc(16);
+SC_M1 = alloc(16); SC_M2 = alloc(16); SC_S1 = alloc(16); SC_S2 = alloc(16);
+SC_RAD = alloc(16); SC_MS = alloc(16);
+MEM_RATE = alloc.mp;
+a_wp = 0;
+
+function pan_l(p) ( p > 0 ? cos(p * 0.005 * $pi) : 1; );
+function pan_r(p) ( p < 0 ? cos(-p * 0.005 * $pi) : 1; );
+
+function targets() (
+  t_swap = p_swap >= 0.5;
+  t_flip = p_flip >= 0.5 ? -1 : 1;
+  t_gm = p_mmute >= 0.5 ? 0 : 10 ^ (p_mgain / 20);
+  t_gs = (p_smute >= 0.5 ? 0 : 10 ^ (p_sgain / 20)) * (p_sflip >= 0.5 ? -1 : 1);
+  t_pml = pan_l(p_mpan); t_pmr = pan_r(p_mpan);
+  t_psl = pan_l(p_span); t_psr = pan_r(p_span);
+);
+
+function snap() (
+  c_swap = t_swap; c_flip = t_flip; c_gm = t_gm; c_gs = t_gs;
+  c_pml = t_pml; c_pmr = t_pmr; c_psl = t_psl; c_psr = t_psr;
+);
+
+targets();
+snap();
+
+@slider
+
+last_srate != srate ? (
+  last_srate = srate;
+  alloc.mp = MEM_RATE;
+  MN = max(1, floor(srate * 0.5));
+  MB_LR = alloc(MN);
+  MB_LL = alloc(MN);
+  MB_RR = alloc(MN);
+  m_i = 0; m_lr = m_ll = m_rr = 0;
+  sm_k = 1 - exp(-1 / (0.005 * srate));
+);
+
+@block
+
+targets();
+
+@sample
+
+c_swap += (t_swap - c_swap) * sm_k;
+c_flip += (t_flip - c_flip) * sm_k;
+c_gm += (t_gm - c_gm) * sm_k;
+c_gs += (t_gs - c_gs) * sm_k;
+c_pml += (t_pml - c_pml) * sm_k;
+c_pmr += (t_pmr - c_pmr) * sm_k;
+c_psl += (t_psl - c_psl) * sm_k;
+c_psr += (t_psr - c_psr) * sm_k;
+
+s_a = spl0 + (spl1 - spl0) * c_swap;
+s_b = spl1 + (spl0 - spl1) * c_swap;
+
+p_mode >= 0.5 && p_mode < 1.5 ? (
+  s_m = s_a; s_s = s_b;
+) : (
+  s_m = (s_a + s_b) * 0.5;
+  s_s = (s_a - s_b) * 0.5;
+);
+
+s_m *= c_gm;
+s_s *= c_gs;
+
+p_mode < 0.5 ? (
+  spl0 = s_m * c_flip;
+  spl1 = s_s * c_flip;
+) : (
+  spl0 = (s_m * c_pml + s_s * c_psl) * c_flip;
+  spl1 = (s_m * c_pmr - s_s * c_psr) * c_flip;
+);
+
+m_lr += spl0 * spl1 - MB_LR[m_i]; MB_LR[m_i] = spl0 * spl1;
+m_ll += spl0 * spl0 - MB_LL[m_i]; MB_LL[m_i] = spl0 * spl0;
+m_rr += spl1 * spl1 - MB_RR[m_i]; MB_RR[m_i] = spl1 * spl1;
+m_i += 1;
+m_i >= MN ? (
+  m_i = 0;
+  m_lr = m_ll = m_rr = 0;
+  s_j = 0;
+  loop(MN, m_lr += MB_LR[s_j]; m_ll += MB_LL[s_j]; m_rr += MB_RR[s_j]; s_j += 1; );
+);
+a_corr = m_ll > 0.0000000001 && m_rr > 0.0000000001 ? m_lr / sqrt(m_ll * m_rr) : 0;
+a_ll = m_ll; a_rr = m_rr;
+
+RING_L[a_wp] = spl0;
+RING_R[a_wp] = spl1;
+a_wp = (a_wp + 1) & (RN - 1);
+
+@gfx 900 572
+
+DW = 900;
+DH = 572;
+scale = max(0.5, min(gfx_w / DW, gfx_h / DH));
+ox = floor((gfx_w - DW * scale) * 0.5);
+oy = 0;
+
+function automate(s, e)
+(
+<?
+  max_sliders > 16 ? printf("slider_automate(2^(s-1), e);") :
+    loop(i = 1; 10,
+      printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function set_slider(s, v) ( slider(s) = v; automate(s, 0); automate(s, 1); );
+
+function px(x) ( ox + x * scale; );
+function py(y) ( oy + y * scale; );
+
+function hit_circle(mx_, my_, cx, cy, rad) ( sqr(mx_ - cx) + sqr(my_ - cy) <= sqr(rad); );
+function hit_rect(mx_, my_, x, y, w, h) ( mx_ >= x && mx_ <= x + w && my_ >= y && my_ <= y + h; );
+
+function k_min(s) ( s == 5 || s == 7 ? -24 : -100; );
+function k_max(s) ( s == 5 || s == 7 ? 24 : 100; );
+function k_pos(s) local(lo, hi) (
+  lo = k_min(s); hi = k_max(s);
+  max(0, min(1, (slider(s) - lo) / (hi - lo)));
+);
+function k_val(s, pos) local(lo, hi, v) (
+  lo = k_min(s); hi = k_max(s);
+  v = lo + (hi - lo) * max(0, min(1, pos));
+  s == 5 || s == 7 ? floor(v * 10 + 0.5) / 10 : floor(v + 0.5);
+);
+function k_set(s, pos) ( slider(s) = k_val(s, pos); automate(s, 0); );
+
+function ctext(str, cx, y) local(tw, th) (
+  gfx_measurestr(str, tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function draw_knob(cx, cy, rad, pos, cr, cg, cb, valtext, minlabel, maxlabel, name, dim)
+local(ang0, ang1, ang, i, tx, ty, al)
+(
+  al = dim ? 0.35 : 1;
+  ang0 = -2.35619;
+  ang1 = 2.35619;
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(cx, cy, rad + 2 * scale, 1, 1);
+  gfx_set(cr * 0.55, cg * 0.55, cb * 0.55, al);
+  gfx_circle(cx, cy, rad, 1, 1);
+  gfx_set(cr, cg, cb, al);
+  gfx_circle(cx, cy, rad * 0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18 * al);
+  gfx_circle(cx - rad * 0.28, cy - rad * 0.28, rad * 0.42, 1, 1);
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.85, 0.85, 0.85, 0.7 * al);
+    gfx_line(cx + sin(ang) * rad * 0.82, cy - cos(ang) * rad * 0.82, cx + sin(ang) * rad * 0.98, cy - cos(ang) * rad * 0.98);
+    i += 1;
+  );
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(cx, cy, cx + sin(ang) * rad * 0.85, cy - cos(ang) * rad * 0.85, 1);
+  gfx_setfont(1, "Arial", 15 * scale);
+  gfx_set(0.88, 0.88, 0.9, al);
+  gfx_measurestr(valtext, tx, ty);
+  gfx_x = cx - tx * 0.5; gfx_y = cy - rad - 19 * scale;
+  gfx_drawstr(valtext);
+  gfx_setfont(1, "Arial", 12 * scale);
+  gfx_set(0.6, 0.6, 0.63, al);
+  gfx_x = cx - rad - 6 * scale; gfx_y = cy + rad + 3 * scale;
+  gfx_drawstr(minlabel);
+  gfx_measurestr(maxlabel, tx, ty);
+  gfx_x = cx + rad - tx + 6 * scale; gfx_y = cy + rad + 3 * scale;
+  gfx_drawstr(maxlabel);
+  gfx_setfont(1, "Arial", 14 * scale, 'b');
+  gfx_set(0.82, 0.82, 0.85, al);
+  gfx_measurestr(name, tx, ty);
+  gfx_x = cx - tx * 0.5; gfx_y = cy + rad + 17 * scale;
+  gfx_drawstr(name);
+);
+
+function knob_ui(s, cx, cy, rad)
+local(hov)
+(
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, rad + 6 * scale);
+  hov ? g_hover = s;
+  (mouse_just_down || rmouse_just_down) && hov ? (
+    mouse_just_down && click_target == s && time_precise() - click_time < 0.3 ? (
+      set_slider(s, 0);
+      drag_target = 0;
+    ) : (
+      drag_target = s; drag_start_y = mouse_y; drag_start_pos = k_pos(s);
+      drag_link = rmouse_just_down && (s == 5 || s == 7);
+      drag_other = s == 5 ? 7 : 5;
+      drag_other_start = drag_link ? slider(drag_other) : 0;
+      drag_self_start = slider(s);
+    );
+    mouse_just_down ? ( click_target = s; click_time = time_precise(); );
+    mouse_just_down = rmouse_just_down = 0;
+  );
+  wheel != 0 && hov && drag_target == 0 ? (
+    k_set(s, k_pos(s) + wheel / 120 * ((mouse_cap & 4) ? 0.0025 : 0.025));
+    automate(s, 1);
+    wheel = 0;
+  );
+);
+
+function draw_btn(bx, by, bw, bh, txt, active, cr, cg, cb)
+local(tw, th, gap)
+(
+  active ? 0 : ( cr = 0.22; cg = 0.22; cb = 0.25; );
+  gap = max(1, scale);
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(bx - gap, by - gap, bw + 2 * gap, bh + 2 * gap, 1);
+  gfx_set(cr * 0.6, cg * 0.6, cb * 0.6, 1);
+  gfx_rect(bx, by, bw, bh, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_rect(bx + gap, by + gap, bw - 2 * gap, bh * 0.5, 1);
+  gfx_set(1, 1, 1, active ? 0.22 : 0.10);
+  gfx_rect(bx + gap, by + gap, bw - 2 * gap, bh * 0.32, 1);
+  gfx_set(1, 1, 1, active ? 0.4 : 0.22);
+  gfx_rect(bx, by, bw, gap, 1);
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(bx, by + bh - gap, bw, gap, 1);
+  gfx_setfont(1, "Arial", 15 * scale);
+  gfx_set(1, 1, 1, active ? 0.95 : 0.8);
+  gfx_measurestr(txt, tw, th);
+  gfx_x = bx + bw * 0.5 - tw * 0.5; gfx_y = by + bh * 0.5 - th * 0.5;
+  gfx_drawstr(txt);
+  hit_rect(mouse_x, mouse_y, bx, by, bw, bh) ? (
+    mouse_just_down ? ( mouse_just_down = 0; 1; ) : 0;
+  ) : 0;
+);
+
+function toggle(x, y, w, s, txt, cr, cg, cb)
+(
+  draw_btn(px(x), py(y), w * scale, 28 * scale, txt, slider(s) >= 0.5, cr, cg, cb) ? set_slider(s, slider(s) >= 0.5 ? 0 : 1);
+  hit_rect(mouse_x, mouse_y, px(x), py(y), w * scale, 28 * scale) ? g_hover = s;
+);
+
+function panel(x, y, w, h, title)
+(
+  gfx_set(0.12, 0.12, 0.135, 1);
+  gfx_rect(px(x), py(y), w * scale, h * scale, 1);
+  gfx_set(0.22, 0.22, 0.25, 1);
+  gfx_rect(px(x), py(y), w * scale, h * scale, 0);
+  gfx_setfont(1, "Arial", 13 * scale, 'b');
+  gfx_set(0.6, 0.62, 0.66, 1);
+  gfx_x = px(x + 10); gfx_y = py(y + 7);
+  gfx_drawstr(title);
+);
+
+function pan_text(v)
+(
+  v === 0 ? strcpy(#g_pt, "C") : v < 0 ? sprintf(#g_pt, "%d L", -v) : sprintf(#g_pt, "%d R", v);
+  #g_pt;
+);
+
+function gain_text(v, muted)
+(
+  muted ? strcpy(#g_gt, "muted") : sprintf(#g_gt, "%+.1f dB", v);
+  #g_gt;
+);
+
+function bp_set(b, f) local(w, al, a0) (
+  w = 2 * $pi * min(f, srate * 0.45) / srate;
+  al = sin(w) / (2 * 1.41);
+  a0 = 1 + al;
+  SC_B0[b] = al / a0;
+  SC_A1[b] = -2 * cos(w) / a0;
+  SC_A2[b] = (1 - al) / a0;
+);
+
+function plasma(t) (
+  g_cr = min(1, max(0, 0.05 + 2.2 * t - 0.9 * t * t));
+  g_cg = min(1, max(0, -0.15 + 1.5 * t * t));
+  g_cb = min(1, max(0, 0.55 + 0.9 * t - 1.7 * t * t));
+);
+
+!g_init ? (
+  g_init = 1;
+  SC_NB = 9;
+  g_rp = a_wp;
+  g_norm = 0.0001;
+  IMG_SC = 1;
+);
+g_srate !== srate ? (
+  g_srate = srate;
+  gi = 0;
+  loop(SC_NB,
+    g_f = 50 * 2 ^ gi;
+    bp_set(gi, g_f);
+    SC_RAD[gi] = g_f <= 100 ? 1 : g_f >= 10000 ? 0.4 : 1 - 0.6 * log(g_f / 100) / log(100);
+    gi += 1;
+  );
+  memset(SC_M1, 0, 16); memset(SC_M2, 0, 16); memset(SC_S1, 0, 16); memset(SC_S2, 0, 16);
+);
+
+mouse_down = mouse_cap & 1;
+rmouse_down = mouse_cap & 2;
+mouse_just_down = mouse_down && !g_mouse_last;
+rmouse_just_down = rmouse_down && !g_rmouse_last;
+wheel = mouse_wheel; mouse_wheel = 0;
+g_hover = 0;
+
+gfx_set(0.09, 0.09, 0.10, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_setfont(1, "Arial", 24 * scale, 'b');
+gfx_set(0.62, 0.78, 0.98, 1);
+gfx_x = px(16); gfx_y = py(8);
+gfx_drawstr("SIDE HUSTLE");
+gfx_setfont(1, "Arial", 14 * scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = px(18); gfx_y = py(36);
+gfx_drawstr("by chmaha  ·  mid-side encoder/decoder");
+
+gfx_setfont(1, "Arial", 13 * scale, 'b');
+gfx_set(0.6, 0.62, 0.66, 1);
+gfx_x = px(600); gfx_y = py(10); gfx_drawstr("MODE");
+draw_btn(px(600), py(28), 92 * scale, 26 * scale, "Encode", p_mode < 0.5, 0.40, 0.62, 0.95) ? set_slider(1, 0);
+draw_btn(px(696), py(28), 92 * scale, 26 * scale, "Decode", p_mode >= 0.5 && p_mode < 1.5, 0.40, 0.62, 0.95) ? set_slider(1, 1);
+draw_btn(px(792), py(28), 92 * scale, 26 * scale, "Inline", p_mode >= 1.5, 0.40, 0.62, 0.95) ? set_slider(1, 2);
+hit_rect(mouse_x, mouse_y, px(600), py(28), 284 * scale, 26 * scale) ? g_hover = 1;
+
+panel(14, 66, 476, 74, "INPUT & PHASE");
+toggle(28, 96, 140, 2, "Ch Swap", 0.95, 0.70, 0.30);
+toggle(180, 96, 140, 3, "Flip 180", 0.95, 0.70, 0.30);
+toggle(332, 96, 140, 4, "S 180", 0.95, 0.70, 0.30);
+
+g_nopan = p_mode < 0.5;
+KR = 30 * scale;
+panel(14, 152, 476, 150, "MID");
+panel(14, 314, 476, 150, "SIDE");
+knob_ui(5, px(110), py(236), KR);
+knob_ui(9, px(260), py(236), KR);
+knob_ui(7, px(110), py(398), KR);
+knob_ui(10, px(260), py(398), KR);
+draw_knob(px(110), py(236), KR, k_pos(5), 0.40, 0.62, 0.95, gain_text(p_mgain, p_mmute >= 0.5), "-24", "+24", "Gain", p_mmute >= 0.5);
+draw_knob(px(260), py(236), KR, k_pos(9), 0.40, 0.75, 0.60, pan_text(p_mpan), "L", "R", "Pan", g_nopan);
+draw_knob(px(110), py(398), KR, k_pos(7), 0.85, 0.45, 0.75, gain_text(p_sgain, p_smute >= 0.5), "-24", "+24", "Gain", p_smute >= 0.5);
+draw_knob(px(260), py(398), KR, k_pos(10), 0.40, 0.75, 0.60, pan_text(p_span), "L", "R", "Pan", g_nopan);
+toggle(366, 222, 104, 6, "Mute", 0.90, 0.35, 0.30);
+toggle(366, 384, 104, 8, "Mute", 0.90, 0.35, 0.30);
+
+drag_target > 0 ? (
+  mouse_down || rmouse_down ? (
+    mouse_cap |= 65536;
+    g_np = drag_start_pos + (drag_start_y - mouse_y) / (((mouse_cap & 4) ? 1500 : 150) * scale);
+    k_set(drag_target, g_np);
+    drag_link ? (
+      slider(drag_other) = max(-24, min(24, drag_other_start - (slider(drag_target) - drag_self_start)));
+      automate(drag_other, 0);
+    );
+    g_hover = drag_target;
+  ) : (
+    automate(drag_target, 1);
+    drag_link ? automate(drag_other, 1);
+    drag_target = 0;
+    drag_link = 0;
+  );
+);
+
+panel(502, 66, 384, 398, "PLASMA VECTOR SCOPE");
+g_ss = floor(354 * scale);
+g_sx = floor(px(517)); g_sy = floor(py(94));
+g_ss !== g_ss_last ? (
+  gfx_setimgdim(IMG_SC, g_ss, g_ss);
+  gfx_dest = IMG_SC; gfx_set(0, 0, 0, 1); gfx_rect(0, 0, g_ss, g_ss, 1);
+  g_ss_last = g_ss;
+);
+gfx_dest = IMG_SC;
+gfx_muladdrect(0, 0, g_ss, g_ss, 0.86, 0.86, 0.88);
+g_wp = a_wp;
+g_new = (g_wp - g_rp) & (RN - 1);
+g_new > 8192 ? ( g_rp = (g_wp - 8192) & (RN - 1); g_new = 8192; );
+g_stride = max(1, floor(g_new / 700));
+memset(SC_MS, 0, 16);
+gfx_mode = 1;
+g_half = g_ss * 0.5;
+g_ps = max(2, floor(2 * scale));
+gi = 0;
+loop(g_new,
+  g_l = RING_L[g_rp]; g_r = RING_R[g_rp];
+  g_rp = (g_rp + 1) & (RN - 1);
+  g_mm = (g_l + g_r) * 0.5;
+  g_sd = (g_l - g_r) * 0.5;
+  gb = 0;
+  loop(SC_NB,
+    g_ym = SC_B0[gb] * g_mm + SC_M1[gb];
+    SC_M1[gb] = -SC_A1[gb] * g_ym + SC_M2[gb];
+    SC_M2[gb] = -SC_B0[gb] * g_mm - SC_A2[gb] * g_ym;
+    g_ys = SC_B0[gb] * g_sd + SC_S1[gb];
+    SC_S1[gb] = -SC_A1[gb] * g_ys + SC_S2[gb];
+    SC_S2[gb] = -SC_B0[gb] * g_sd - SC_A2[gb] * g_ys;
+    SC_MS[gb] += g_ym * g_ym + g_ys * g_ys;
+    gi % g_stride == 0 ? (
+      g_k = SC_RAD[gb] * (g_half - 3) / g_norm;
+      g_dx = -g_ys * g_k; g_dy = g_ym * g_k;
+      g_rr = sqrt(g_dx * g_dx + g_dy * g_dy);
+      g_rr > g_half - 3 ? ( g_dx *= (g_half - 3) / g_rr; g_dy *= (g_half - 3) / g_rr; );
+      plasma(1 - gb / (SC_NB - 1));
+      gfx_set(g_cr, g_cg, g_cb, 0.45);
+      gfx_rect(g_half + g_dx, g_half - g_dy, g_ps, g_ps, 1);
+    );
+    gb += 1;
+  );
+  gi += 1;
+);
+gfx_mode = 0;
+g_new > 0 ? (
+  g_lm = 0;
+  gb = 0;
+  loop(SC_NB, g_lm = max(g_lm, SC_MS[gb] / g_new); gb += 1; );
+  g_tn = 3 * sqrt(g_lm);
+  g_tn > g_norm ? g_norm += (g_tn - g_norm) * 0.3 : g_norm = max(0.0001, g_norm + (g_tn - g_norm) * 0.04);
+);
+gfx_dest = -1;
+gfx_set(0, 0, 0, 1);
+gfx_rect(g_sx, g_sy, g_ss, g_ss, 1);
+gfx_a = 1;
+gfx_blit(IMG_SC, 1, 0, 0, 0, g_ss, g_ss, g_sx, g_sy, g_ss, g_ss);
+gfx_set(1, 1, 1, 0.12);
+g_cx = g_sx + g_ss * 0.5; g_cy = g_sy + g_ss * 0.5;
+gfx_line(g_cx, g_sy, g_cx, g_sy + g_ss);
+gfx_line(g_sx, g_cy, g_sx + g_ss, g_cy);
+gfx_line(g_sx + g_ss * 0.15, g_sy + g_ss * 0.15, g_sx + g_ss * 0.85, g_sy + g_ss * 0.85);
+gfx_line(g_sx + g_ss * 0.85, g_sy + g_ss * 0.15, g_sx + g_ss * 0.15, g_sy + g_ss * 0.85);
+gfx_circle(g_cx, g_cy, g_ss * 0.5 - 2, 0, 1);
+gfx_setfont(1, "Arial", 13 * scale, 'b');
+gfx_set(0.7, 0.72, 0.76, 0.8);
+ctext("M", g_cx, g_sy + 4 * scale);
+ctext("L", g_sx + g_ss * 0.15 - 8 * scale, g_sy + g_ss * 0.15 - 6 * scale);
+ctext("R", g_sx + g_ss * 0.85 + 8 * scale, g_sy + g_ss * 0.15 - 6 * scale);
+gfx_x = g_sx + 6 * scale; gfx_y = g_cy - 18 * scale; gfx_drawstr("+S");
+gfx_measurestr("-S", g_tw, g_th);
+gfx_x = g_sx + g_ss - g_tw - 6 * scale; gfx_y = g_cy - 18 * scale; gfx_drawstr("-S");
+hit_rect(mouse_x, mouse_y, g_sx, g_sy, g_ss, g_ss) ? g_hover = 20;
+
+panel(14, 476, 872, 64, "");
+g_corr = a_corr;
+g_bal = a_ll > 0.0000000001 && a_rr > 0.0000000001 ? max(-24, min(24, 10 * log10(a_rr / a_ll))) :
+  a_ll > 0.0000000001 ? -24 : a_rr > 0.0000000001 ? 24 : 0;
+g_quiet = a_ll <= 0.0000000001 && a_rr <= 0.0000000001;
+gfx_setfont(1, "Arial", 13 * scale, 'b');
+gfx_set(0.6, 0.62, 0.66, 1);
+gfx_x = px(24); gfx_y = py(484); gfx_drawstr("CORRELATION");
+gfx_x = px(460); gfx_y = py(484); gfx_drawstr("BALANCE");
+gfx_setfont(1, "Arial", 14 * scale);
+gfx_set(0.88, 0.88, 0.9, 1);
+sprintf(#g_tmp, "%+.2f", g_corr);
+gfx_measurestr(#g_tmp, g_tw, g_th);
+gfx_x = px(424) - g_tw; gfx_y = py(484); gfx_drawstr(#g_tmp);
+g_bal > -0.05 && g_bal < 0.05 ? strcpy(#g_tmp, "0.0 dB") : sprintf(#g_tmp, "%+.1f dB", g_bal);
+gfx_measurestr(#g_tmp, g_tw, g_th);
+gfx_x = px(876) - g_tw; gfx_y = py(484); gfx_drawstr(#g_tmp);
+
+g_mx = px(24); g_my = py(506); g_mw = 400 * scale; g_mh = 14 * scale;
+gfx_set(0.06, 0.06, 0.07, 1); gfx_rect(g_mx, g_my, g_mw, g_mh, 1);
+g_x0 = g_mx + g_mw * 0.5; g_x1 = g_mx + g_mw * (0.5 + 0.5 * g_corr);
+g_quiet ? 0 : (
+  g_corr < 0 ? gfx_set(0.90, 0.35, 0.30, 1) : gfx_set(0.40, 0.80, 0.50, 1);
+  gfx_rect(min(g_x0, g_x1), g_my + 2 * scale, max(1, abs(g_x1 - g_x0)), g_mh - 4 * scale, 1);
+);
+gfx_set(0.9, 0.9, 0.92, 0.8); gfx_line(g_x0, g_my - 2 * scale, g_x0, g_my + g_mh + 2 * scale);
+gfx_setfont(1, "Arial", 12 * scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = g_mx; gfx_y = g_my + g_mh + 2 * scale; gfx_drawstr("-1");
+ctext("0", g_x0, g_my + g_mh + 2 * scale);
+gfx_measurestr("+1", g_tw, g_th); gfx_x = g_mx + g_mw - g_tw; gfx_drawstr("+1");
+hit_rect(mouse_x, mouse_y, g_mx, g_my - 20 * scale, g_mw, 50 * scale) ? g_hover = 21;
+
+g_mx = px(460);
+gfx_set(0.06, 0.06, 0.07, 1); gfx_rect(g_mx, g_my, g_mw + 16 * scale, g_mh, 1);
+g_mw2 = g_mw + 16 * scale;
+g_x0 = g_mx + g_mw2 * 0.5; g_x1 = g_mx + g_mw2 * (0.5 + g_bal / 48);
+g_quiet ? 0 : (
+  gfx_set(0.40, 0.62, 0.95, 1);
+  gfx_rect(min(g_x0, g_x1), g_my + 2 * scale, max(1, abs(g_x1 - g_x0)), g_mh - 4 * scale, 1);
+);
+gfx_set(0.9, 0.9, 0.92, 0.8); gfx_line(g_x0, g_my - 2 * scale, g_x0, g_my + g_mh + 2 * scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = g_mx; gfx_y = g_my + g_mh + 2 * scale; gfx_drawstr("L +24");
+ctext("0", g_x0, g_my + g_mh + 2 * scale);
+gfx_measurestr("R +24", g_tw, g_th); gfx_x = g_mx + g_mw2 - g_tw; gfx_drawstr("R +24");
+hit_rect(mouse_x, mouse_y, g_mx, g_my - 20 * scale, g_mw2, 50 * scale) ? g_hover = 22;
+
+gfx_set(0.12, 0.12, 0.135, 1);
+gfx_rect(px(14), py(546), 872 * scale, 22 * scale, 1);
+gfx_set(0.22, 0.22, 0.25, 1);
+gfx_rect(px(14), py(546), 872 * scale, 22 * scale, 0);
+gfx_setfont(1, "Arial", 14 * scale);
+gfx_set(0.66, 0.66, 0.7, 1);
+gfx_x = px(22); gfx_y = py(549);
+g_hover == 1 ? gfx_drawstr("Mode: Encode L/R to M/S (M left, S right), Decode M/S to L/R, or Inline: encode, adjust, decode.") :
+g_hover == 2 ? gfx_drawstr("Ch Swap: swaps the input channels.") :
+g_hover == 3 ? gfx_drawstr("Flip 180: inverts the polarity of both channels (does not swap them).") :
+g_hover == 4 ? gfx_drawstr("S 180: inverts the polarity of the side channel only.") :
+g_hover == 5 ? gfx_drawstr("Mid gain. Right-drag to move mid and side gain in opposite directions.") :
+g_hover == 6 ? gfx_drawstr("Mid mute: removes the mid channel completely.") :
+g_hover == 7 ? gfx_drawstr("Side gain. Right-drag to move side and mid gain in opposite directions.") :
+g_hover == 8 ? gfx_drawstr("Side mute: removes the side channel completely.") :
+g_hover == 9 ? gfx_drawstr(g_nopan ? "Mid pan: works in Decode and Inline modes." : "Mid pan: 0 dB (plain cosine) pan law.") :
+g_hover == 10 ? gfx_drawstr(g_nopan ? "Side pan: works in Decode and Inline modes." : "Side pan: 0 dB (plain cosine) pan law.") :
+g_hover == 20 ? gfx_drawstr("Output vector scope: lows on the outside, highs towards the centre, loudest band at the edge.") :
+g_hover == 21 ? gfx_drawstr("Correlation (500 ms): -1..0 anti-phase, 0 unrelated, 0..1 in-phase stereo.") :
+g_hover == 22 ? gfx_drawstr("Balance (500 ms): how much louder one side is. Negative means left is louder.") :
+gfx_drawstr("Drag or scroll knobs (Ctrl = fine), double-click to reset.");
+
+g_mouse_last = mouse_down;
+g_rmouse_last = rmouse_down;
