@@ -29,6 +29,9 @@ See the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-t
 - **Kaminari**: taiko drums, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing S. Christian Collins' SCC Taiko Drums. Fifteen drums and hits on key pairs from C2 to A#4, with velocity layers and round robins.
 - **Evangelina Symphonica Espressivo String Ensemble**: string ensemble, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing S. Christian Collins' SCC Expressive Strings. Seven key-switched articulations (legato with expression or velocity control, staccato, pizzicato, tremolo and a legato/tremolo crossfade on the soft pedal), with expression on the mod wheel, breath, foot or expression controller.
 - **Tine Capsule**: sampled 1977 Mark I Stage 73 electric piano, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing Jeff Learman's [jRhodes3d](https://github.com/sfzinstruments/jlearman.jRhodes3d) samples. Five velocity layers with or without crossfades, the instrument file's tremolo and autopan, and a sustain pedal with half-pedalling and re-pedalling. Plays E1 to E7, or the full 88 keys.
+- **Grand Designs**: sampled Yamaha CP80 electric grand, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing Greg Sullivan's [CP80 samples](https://github.com/sfzinstruments/GregSullivan.E-Pianos). Four velocity layers with the samples' own sustain loops, release and velocity tracking controls, and a sustain pedal with half-pedalling and re-pedalling. Plays the full 88 keys.
+- **Sticky Situation**: sampled Hohner Pianet T reed piano, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing Greg Sullivan's [Pianet T samples](https://github.com/sfzinstruments/GregSullivan.E-Pianos). Two velocity layers plus key-release samples that fade the longer a key is held, release and velocity tracking controls, and a sustain pedal with half-pedalling and re-pedalling. Plays F1 to E6.
+- **Out of This Wurld**: sampled Wurlitzer EP200 electric piano, ported from the [sfizz](https://sfz.tools/sfizz) SFZ engine and playing Greg Sullivan's [EP200 samples](https://github.com/sfzinstruments/GregSullivan.E-Pianos). Four velocity layers with the samples' own sustain loops, release and velocity tracking controls, and a sustain pedal with half-pedalling and re-pedalling. Plays A1 to C7.
 - **Super Color**: sampler with fifteen sounds playable from B3 to G5, ported from unplugred's [MPaint](https://github.com/unplugred/vsts).
 
 ## Effects
@@ -104,6 +107,7 @@ Each plugin keeps its original's license, and the JSFX code is released under th
 - **SCC Expressive Strings** (Espressivo String Ensemble): released by S. Christian Collins as "use at your own risk", with samples collected from free SoundFont banks.
 - **Console Yourself SNES samples**: Doug Fraker's BRR samples are public domain per their author (repository MIT).
 - **jRhodes3d samples** (Tine Capsule): CC BY-NC 4.0 by Jeff Learman (non-commercial).
+- **Greg Sullivan E-Pianos samples** (Grand Designs, Sticky Situation, Out of This Wurld): CC BY 4.0 by Greg Sullivan; SFZ mapping by kinwie, CC BY 3.0.
 - **Sonivox EAS** (Major General MIDI): Apache 2.0 original.
 
 The GPLv3 text is in [LICENSE](LICENSE). The MIT notices are included in the JuKnow Chorus and ChronoDupe sources.
