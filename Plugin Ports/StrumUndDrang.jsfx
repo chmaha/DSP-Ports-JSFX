@@ -1,8 +1,8 @@
 desc: Strum und Drang (Suzuki Omnichord OM-84 / KoniSynth port) by chmaha
 author: chmaha
-version: 1.0
+version: 1.1
 changelog:
-  Initial release.
+  Strumming the strum plate no longer leaves keyboard keys lit.
 tags: instrument omnichord autoharp chord strum rhythm
 about:
   Suzuki Omnichord OM-84 (1984): chord buttons, a 13-zone strum plate ("Sonic Strings"), a held chord voice,
@@ -1538,11 +1538,11 @@ function plate() local(x, y, w, h, zw, k, zx, amp, QX, QY, zone, vel, ln, z2, nt
     zone = max(0, min(12, floor((mouse_x - QX) / (zw * z))));
     vel = max(20, min(127, floor(20 + 107 * (mouse_y - QY) / (h * z))));
     zone != g_lz ? (
-      g_lz < 0 ? gq(144, split + zone, vel) : (
+      g_lz < 0 ? ( gq(144, split + zone, vel); gq(128, split + zone, 0); ) : (
         z2 = g_lz;
         while (z2 != zone) (
           z2 += zone > g_lz ? 1 : -1;
-          gq(144, split + z2, vel);
+          gq(144, split + z2, vel); gq(128, split + z2, 0);
         );
       );
       g_lz = zone;
