@@ -1,8 +1,8 @@
 desc: Strum und Drang (Suzuki Omnichord OM-84 / KoniSynth port) by chmaha
 author: chmaha
-version: 1.1
+version: 1.2
 changelog:
-  Strumming the strum plate no longer leaves keyboard keys lit.
+  Note names in REAPER's piano roll: the chord buttons below Split (C Major, C Minor, C 7th and so on) and the 13 strum-plate strings from Split up.
 tags: instrument omnichord autoharp chord strum rhythm
 about:
   Suzuki Omnichord OM-84 (1984): chord buttons, a 13-zone strum plate ("Sonic Strings"), a held chord voice,
@@ -1089,6 +1089,32 @@ function om_params() (
   pr_freeze = rev_freeze;
 );
 
+<?
+!jsfx_has_set_midi_note_name ? printf("function set_midi_note_name(a,b,c,d) ( 0 );\n");
+?>
+function nn_root(pc) (
+  pc === 0 ? "C" : pc === 1 ? "Db" : pc === 2 ? "D" : pc === 3 ? "Eb" : pc === 4 ? "E" : pc === 5 ? "F" :
+  pc === 6 ? "F#" : pc === 7 ? "G" : pc === 8 ? "Ab" : pc === 9 ? "A" : pc === 10 ? "Bb" : "B";
+);
+function nn_update() local(st, k, r) (
+  st = split + chord_keys * 256;
+  st !== nn_st ? (
+    nn_st = st;
+    set_midi_note_name(-1, 0, 0, "");
+    k = 0;
+    loop(128,
+      k >= split ? (
+        set_midi_note_name(0, k, -1, sprintf(#nn_s, "String %d", (k - split) % 13 + 1));
+      ) : !chord_keys ? (
+        r = floor(((split - 1) - k) / 12) % 3;
+        set_midi_note_name(0, k, -1, sprintf(#nn_s, "%s %s", nn_root(k % 12), r === 0 ? "Major" : r === 1 ? "Minor" : "7th"));
+      );
+      k += 1;
+    );
+  );
+);
+nn_st = -1;
+
 @slider
 om_last_srate !== srate ? (
   om_last_srate = srate;
@@ -1099,9 +1125,11 @@ om_last_srate !== srate ? (
   om_ambwas = 0;
 );
 om_params();
+nn_update();
 
 @block
 om_params();
+nn_update();
 om_ne = 0;
 while (cq_r != cq_w) (
   om_ne < 1024 ? (

@@ -1,9 +1,9 @@
-Version: 1.0.1
+Version: 1.1
 desc: Goldibops (AVL Drumkits port) by chmaha
 tags: instrument
 author: chmaha
 changelog:
-  Larger, easier-to-read text in the GUI.
+  Kit piece names show in REAPER's piano roll, on the channel chosen in MIDI Channel.
 about:
   Acoustic drum kit based on the AVL Drumkits Blonde Bop, played with sticks or Hot Rods
   (from Blonde Bop HR), 27 pieces on the GM drum map (notes 35-61, stick click on 35),
@@ -476,10 +476,35 @@ function kit_load(s)
 );
 
 kit_load(slider6);
+<?
+!jsfx_has_set_midi_note_name ? printf("function set_midi_note_name(a,b,c,d) ( 0 );\n");
+?>
+function nn_update() local(i, p, n, c, len) (
+  midich !== nn_ch ? (
+    nn_ch = midich;
+    c = midich - 1;
+    set_midi_note_name(-1, 0, 0, "");
+    set_midi_note_name(0, 35, c, "Stick Click");
+    #nn_all = "Kick Drum|Snare Side-Stick|Snare Center|Hand Clap|Snare Edge|Floor Tom Center|Closed Hi-Hat|Floor Tom Edge|Pedal Hi-Hat|Tom Center|Semi-Open Hi-Hat|Tom Edge|Swish Hi-Hat|Crash 1|Crash 1 Choked|Ride Tip|Ride Choked|Ride Bell|Tambourine|Splash|Cowbell|Crash 2|Crash 2 Choked|Ride Shank|China|Shaker";
+    len = strlen(#nn_all);
+    i = 0; p = 0; n = 36;
+    loop(len + 1,
+      (i === len || str_getchar(#nn_all, i) === '|') ? (
+        strcpy_substr(#nn_s, #nn_all, p, i - p);
+        set_midi_note_name(0, n, c, #nn_s);
+        n += 1; p = i + 1;
+      );
+      i += 1;
+    );
+  );
+);
+nn_ch = -9;
+
 @slider
 lvl_t = 10 ^ (slider1 / 20);
 !lvl_set ? ( lvl = lvl_t; lvl_set = 1; );
 midich = slider3;
+nn_update();
 slider6 != kit_cur ? kit_load(slider6);
 
 @block
@@ -487,6 +512,7 @@ srate != last_srate ? rate_init();
 lvl_t = 10 ^ (slider1 / 20);
 slider6 != kit_cur ? kit_load(slider6);
 midich = slider3;
+nn_update();
 nblk = min(samplesblock, OBL);
 loop(ii=0; <? printf("%d",outs); ?>, memset(OB + OBL * ii, 0, nblk); ii+=1);
 pos = 0;
