@@ -1,8 +1,9 @@
-Version: 1.0
+Version: 1.1
 desc: Chamber Organ (Aeolus port) by chmaha
 tags: instrument
 changelog:
-  Initial release.
+  Build all stops when the plugin opens, so it is ready at once on rec-armed tracks too
+  Retune rebuilds every stop in one go and is faster
 provides:
   Dependencies/ChamberOrganStops.jsfx-inc
 options:maxmem=8000000
@@ -288,7 +289,7 @@ global(ATT_BUF)
 );
 
 function genwave_note(note_i, fpipe)
-local(m, t, h, f0, f1, f, ks, l1, ncyc, l0, ktmp, k, krsamp, mr, drv, da, dw,
+local(hp, tp, n, ka, m, t, h, f0, f1, f, ks, l1, ncyc, l0, ktmp, k, krsamp, mr, drv, da, dw,
       i, v, v0, cbase, p0base, totallen, tt, found,
       chiff_dt, chiff_lp_freq, chiff_period, chiff_buf_len)
 global(cur_nvol, cur_noff, cur_nran, cur_nins, cur_natt, cur_natd, cur_ndct, cur_ndcd,
@@ -364,13 +365,18 @@ global(cur_nvol, cur_noff, cur_nran, cur_nins, cur_natt, cur_natd, cur_ndct, cur
         v = v0 * pow(2, 0.1661 * (v + hnf_vi(cur_hran, h, note_i) * (2 * rng01() - 1)));
         k = floor(srate * hnf_vi(cur_hatt, h, note_i) + 0.5);
         attgain(k, hnf_vi(cur_hatp, h, note_i));
+        hp = h + 1; tp = 2 * $pi; n = l0 + l1; ka = min(k, n);
         i = 0;
-        while (i < l0 + l1) (
-          tt = ARG_BUF[i] * (h + 1);
+        loop(ka,
+          tt = ARG_BUF[i] * hp;
           tt -= floor(tt);
-          m = v * sin(2 * $pi * tt);
-          (i < k) ? ( m *= ATT_BUF[i]; );
-          p0base[i] += m;
+          p0base[i] += v * sin(tp * tt) * ATT_BUF[i];
+          i += 1;
+        );
+        loop(n - ka,
+          tt = ARG_BUF[i] * hp;
+          tt -= floor(tt);
+          p0base[i] += v * sin(tp * tt);
           i += 1;
         );
       );
@@ -995,6 +1001,8 @@ ORGAN_VOL = 0.32;
 reverb_amount_applied = slider14;
 ASECT_GR_REVERB = 0.5 * reverb_amount_applied;
 rate_change();
+while (regen_sweep_idx < N_STOPS) ( regen_one_stop(regen_sweep_idx); regen_sweep_idx += 1; );
+regen_sweep_active = 0;
 asect_recompute_gains();
 
 function play_stop(voice_base, const_base, active_list, count_ptr, pan_a, pan_b)
@@ -1132,10 +1140,15 @@ srate != gen_srate ? rate_change();
 
 @block
 
+retune_req ? (
+  retune_req = 0;
+  regen_start();
+  regen_sweep_idx = 0;
+  regen_sweep_active = 1;
+);
 regen_sweep_active ? (
-  regen_one_stop(regen_sweep_idx);
-  regen_sweep_idx += 1;
-  regen_sweep_idx >= N_STOPS ? ( regen_sweep_active = 0; );
+  while (regen_sweep_idx < N_STOPS) ( regen_one_stop(regen_sweep_idx); regen_sweep_idx += 1; );
+  regen_sweep_active = 0;
 );
 
 (slider7 != tuning_hz || slider8 != temper_idx) ? ( retune_pending = 1; );
@@ -1599,10 +1612,8 @@ ry += ROWH;
 
 RBX = RCOL_X; CTLY = ry;
 !reverb_popup_open && mouse_just_down && hit_rect(mouse_x, mouse_y, RBX, CTLY, RBW, RBH) ? (
-  regen_start();
   retune_pending = 0;
-  regen_sweep_idx = 0;
-  regen_sweep_active = 1;
+  retune_req = 1;
 );
 retune_pending ? gfx_set(0.75, 0.45, 0.20, 1) : gfx_set(0.20, 0.21, 0.24, 1);
 gfx_rect(RBX - scale, CTLY - scale, RBW + 2*scale, RBH + 2*scale, 1);
