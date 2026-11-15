@@ -2,6 +2,36 @@
 
 Open-source DSP ported to JSFX for REAPER. Every plugin's header names the original it was ported from and its license.
 
+## Install
+
+There are two ways to install the plugins. Use one or the other, not both.
+
+### ReaPack (recommended, keeps everything up to date)
+
+1. In REAPER, open **Extensions → ReaPack → Import repositories…** and paste:
+
+   ```
+   https://github.com/chmaha/DSP-Ports-JSFX/raw/main/index.xml
+   ```
+
+2. Open **Extensions → ReaPack → Browse packages…**, filter by **DSP to JSFX**, and install the plugins you want.
+3. The plugins then appear in the FX browser under **JS**.
+
+ReaPack also installs each plugin's `Dependencies` files and keeps everything up to date.
+
+### ReaperPkg bundles (no ReaPack needed)
+
+Each [release](https://github.com/chmaha/DSP-Ports-JSFX/releases) has a single `.ReaperPkg` file that installs a whole set of plugins with their `Dependencies` files:
+
+- **DSP to JSFX**: every plugin except Break Room ([latest release](https://github.com/chmaha/DSP-Ports-JSFX/releases/latest)).
+- **Break Room**: the mini-games plugin and its music.
+
+Download the `.ReaperPkg` file and open it in REAPER to install. The plugins then appear in the FX browser under **JS: DSP to JSFX/Plugin Ports**. Bundles don't update themselves: download the newer bundle when a new release comes out.
+
+### Manual install
+
+Copy the plugin's `.jsfx` file into your REAPER `Effects` folder (**Options → Show REAPER resource path…**). For every plugin that has files in `Dependencies` (the drum kits, the unplugred ports and others), also copy the `Dependencies` folder that sits next to the `.jsfx` (each plugin needs its own subfolder, such as `Drumkits`, `Scope` or `VU`), and keep it next to the `.jsfx`.
+
 ## User guide
 
 See the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-to-JSFX-Manual.pdf) for a quick start to each plugin's controls, with screenshots of every plugin.
@@ -80,23 +110,6 @@ See the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-t
 **Break Room** (original design) is a collection of 15 little games to play when you need a breather, grouped into Zen and Games on the home screen. They range from calm pieces such as Koi Pond, Rain Window and Pixel Garden to Peggy, Krypton Gigablast, Flop House (Texas Hold'em against twelve rogues) and Hold Your Horses (the whole British racing year). Progress is saved with the project. Audio passes through untouched, and game sound only plays while the transport is stopped or paused, so it never ends up in a render or recording.
 
 See the [Break Room manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/BreakRoom-Manual.pdf) for a guide to every game.
-
-## Install
-
-1. In REAPER, open **Extensions → ReaPack → Import repositories…** and paste:
-
-   ```
-   https://github.com/chmaha/DSP-Ports-JSFX/raw/main/index.xml
-   ```
-
-2. Open **Extensions → ReaPack → Browse packages…**, filter by **DSP to JSFX**, and install the plugins you want.
-3. The plugins then appear in the FX browser under **JS**.
-
-ReaPack also installs each plugin's `Dependencies` files and keeps everything up to date.
-
-### Manual install
-
-Copy the plugin's `.jsfx` file into your REAPER `Effects` folder (**Options → Show REAPER resource path…**). For every plugin that has files in `Dependencies` (the drum kits, the unplugred ports and others), also copy the `Dependencies` folder that sits next to the `.jsfx` (each plugin needs its own subfolder, such as `Drumkits`, `Scope` or `VU`), and keep it next to the `.jsfx`.
 
 ## License
 
