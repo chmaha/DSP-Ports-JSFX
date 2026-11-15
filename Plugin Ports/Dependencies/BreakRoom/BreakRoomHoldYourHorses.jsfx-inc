@@ -2522,12 +2522,16 @@ function hb_bake(c, wx, light, going) local(i, w, x, y, q, r, g, b, h, k, dst, s
   gfx_dest = dst;
 );
 
-function hb_layer(img, par, cam, yoff, sc2) local(w, x)
+function hb_layer(img, par, cam, yoff, sc2) local(w, x, d, n)
 (
   w = 1800;
-  x = cam * par + g_hb_rot; x -= floor(x / w) * w;
-  gfx_blit(img, 1, 0, x, 0, min(w - x, 900 / sc2), 300, sx(0), sy(yoff), min(w - x, 900 / sc2) * sc2 * g_s, 300 * sc2 * g_s);
-  (w - x) < 900 / sc2 ? gfx_blit(img, 1, 0, 0, 0, 900 / sc2 - (w - x), 300, sx((w - x) * sc2), sy(yoff), (900 / sc2 - (w - x)) * sc2 * g_s, 300 * sc2 * g_s);
+  x = cam * par + g_hb_rot + g_hv0 / sc2; x -= floor(x / w) * w;
+  d = g_hv0;
+  while (d < g_hv1 - 0.001) (
+    n = min(w - x, (g_hv1 - d) / sc2);
+    gfx_blit(img, 1, 0, x, 0, n, 300, sx(d), sy(yoff), n * sc2 * g_s, 300 * sc2 * g_s);
+    d += n * sc2; x = 0;
+  );
 );
 
 function hb_k(z) ( g_hc_z * g_hc_d / (g_hc_d + z); );
@@ -2539,19 +2543,19 @@ function hb_draw_ground() local(y, y1, z, k, sw, sxx, tv, st, zmn, zmx, w)
 (
   y = g_hc_hy + g_hc_h * hb_k(1500);
   gfx_mode = 0; gfx_a = 1;
-  hf_rgb(g_hb_gr, g_hb_gg, g_hb_gb); gfx_rect(sx(0), sy(y), 900 * g_s, (700 - y) * g_s);
+  hf_rgb(g_hb_gr, g_hb_gg, g_hb_gb); gfx_rect(sx(g_hv0), sy(y), (g_hv1 - g_hv0) * g_s, (g_hvb - y) * g_s);
   gfx_a = 1;
-  while (y < 700) (
+  while (y < g_hvb) (
     st = max(3, ceil(1.5 / g_s));
     k = (y - g_hc_hy) / g_hc_h;
     z = g_hc_z * g_hc_d / max(0.01, k) - g_hc_d;
     tv = (z + 900) / 2400; tv = tv < 0 ? 0 : tv > 1 ? 1 : tv;
-    sw = 900 / (k * 1.5);
-    sxx = (g_hc_x * g_hc_dir - 450 / k) / 1.5; sxx -= floor(sxx / HTW) * HTW;
+    sw = (g_hv1 - g_hv0) / (k * 1.5);
+    sxx = (g_hc_x * g_hc_dir - (450 - g_hv0) / k) / 1.5; sxx -= floor(sxx / HTW) * HTW;
     w = 0;
     while (w < sw) (
       k = min(sw - w, HTW + 1690 - sxx);
-      gfx_blit(IMG_HRT, 1, 0, sxx, tv * (HTH - 2), k, 1, sx(w / sw * 900), sy(y), k / sw * 900 * g_s + 1, (st + 0.6) * g_s);
+      gfx_blit(IMG_HRT, 1, 0, sxx, tv * (HTH - 2), k, 1, sx(g_hv0 + w / sw * (g_hv1 - g_hv0)), sy(y), k / sw * (g_hv1 - g_hv0) * g_s + 1, (st + 0.6) * g_s);
       w += k;
       sxx += k; sxx -= floor(sxx / HTW) * HTW;
     );
@@ -2559,19 +2563,20 @@ function hb_draw_ground() local(y, y1, z, k, sw, sxx, tv, st, zmn, zmx, w)
   );
 );
 
-function hb_rail(z, tall, post) local(k, gy, ty, x, sx0, st, m, w, al)
+function hb_rail(z, tall, post) local(k, gy, ty, x, sx0, st, m, w, al, hw)
 (
   k = hb_k(z); gy = hb_gy(z); ty = gy - tall * k;
   st = post;
-  x = floor((g_hc_x - 450 / k) / st) * st;
+  hw = max(450 - g_hv0, g_hv1 - 450);
+  x = floor((g_hc_x - hw / k) / st) * st;
   gfx_set(0.92 * g_hl_r, 0.92 * g_hl_g, 0.9 * g_hl_b, 1);
-  gfx_rect(sx(0), sy(ty), 900 * g_s, max(1, 7 * k * g_s));
+  gfx_rect(sx(g_hv0), sy(ty), (g_hv1 - g_hv0) * g_s, max(1, 7 * k * g_s));
   gfx_set(0.6 * g_hl_r, 0.6 * g_hl_g, 0.6 * g_hl_b, 1);
-  gfx_rect(sx(0), sy(ty + 6 * k), 900 * g_s, max(1, 2 * k * g_s));
+  gfx_rect(sx(g_hv0), sy(ty + 6 * k), (g_hv1 - g_hv0) * g_s, max(1, 2 * k * g_s));
   m = abs(g_hc_dx) * k;
   w = max(6 * k, min(m * 0.3, 14 * k));
   al = max(0.6, min(1, 6 * k / max(0.01, w) + 0.2));
-  loop(ceil(900 / k / st) + 3,
+  loop(ceil(2 * hw / k / st) + 3,
     sx0 = hb_sxw(x, z);
     gfx_set(0.85 * g_hl_r, 0.85 * g_hl_g, 0.82 * g_hl_b, al);
     gfx_rect(sx(sx0 - w * 0.5), sy(ty), max(1, w * g_s), (gy - ty) * g_s);
@@ -3286,7 +3291,7 @@ function hb_furlongs() local(i, x, k, y, xs, f)
   loop(max(1, floor(rc_f)),
     x = (g_rs_d - f * 201.168) * 100;
     xs = hb_sxw(x, 1150);
-    xs > -20 && xs < 920 ? (
+    xs > g_hv0 - 20 && xs < g_hv1 + 20 ? (
       gfx_set(0.95, 0.95, 0.92, 1); gfx_rect(sx(xs - 3 * k), sy(y - 210 * k), 6 * k * g_s, 210 * k * g_s);
       gfx_set(0.9, 0.2, 0.15, 1); gfx_circle(sx(xs), sy(y - 215 * k), 22 * k * g_s, 1, 1);
       font(9, 'b'); gfx_set(1, 1, 1, 1);
@@ -3301,7 +3306,7 @@ function hb_post() local(x, k, y, xs, k2, y2, xs2)
   x = g_rs_d * 100;
   k = hb_k(1150); y = hb_gy(1150); xs = hb_sxw(x, 1150);
   k2 = hb_k(-130); y2 = hb_gy(-130); xs2 = hb_sxw(x, -130);
-  xs > -60 && xs < 960 ? (
+  xs > g_hv0 - 60 && xs < g_hv1 + 60 ? (
     gfx_set(0.95, 0.95, 0.95, 0.75);
     gfx_triangle(sx(xs - 3), sy(y), sx(xs + 3), sy(y), sx(xs2 + 5), sy(y2), sx(xs2 - 5), sy(y2));
     gfx_set(0.95, 0.95, 0.92, 1); gfx_rect(sx(xs - 4 * k), sy(y - 260 * k), 8 * k * g_s, 260 * k * g_s);
@@ -3486,14 +3491,15 @@ function hr_weather() local(i, x, y, n)
     n = g_rs_wx == 3 ? 70 : 170;
     gfx_set(0.78, 0.82, 0.92, 0.45);
     i = 0;
-    loop(n, x = (hash(i) * 2000 - g_t * 240) % 900; x < 0 ? x += 900; y = (hash(i * 3) * 2000 + g_t * 900) % 700; gfx_line(sx(x), sy(y), sx(x - 3), sy(y + 16)); i += 1; );
+    n = ceil(n * (g_hv1 - g_hv0) / 900);
+    loop(n, x = (hash(i) * 4000 - g_t * 240) % g_hvw; x < 0 ? x += g_hvw; y = (hash(i * 3) * 2000 + g_t * 900) % g_hvh; gfx_line(sx(g_hv0 + x), sy(y), sx(g_hv0 + x - 3), sy(y + 16)); i += 1; );
   ) : g_rs_wx == 6 ? (
     gfx_set(0.95, 0.96, 1, 0.8);
     i = 0;
-    loop(110, x = (hash(i) * 2000 + g_t * 70 + 30 * sin(g_t + i)) % 900; y = (hash(i * 3) * 2000 + g_t * 110) % 700; gfx_circle(sx(x), sy(y), 1.6 * g_s, 1, 1); i += 1; );
+    loop(ceil(110 * (g_hv1 - g_hv0) / 900), x = (hash(i) * 4000 + g_t * 70 + 30 * sin(g_t + i)) % g_hvw; y = (hash(i * 3) * 2000 + g_t * 110) % g_hvh; gfx_circle(sx(g_hv0 + x), sy(y), 1.6 * g_s, 1, 1); i += 1; );
   ) : g_rs_wx == 5 ? (
-    gfx_set(0.72, 0.74, 0.76, 0.26); gfx_rect(sx(0), sy(200), 900 * g_s, 280 * g_s);
-    gfx_set(0.72, 0.74, 0.76, 0.2); gfx_rect(sx(0), sy(330), 900 * g_s, 120 * g_s);
+    gfx_set(0.72, 0.74, 0.76, 0.26); gfx_rect(sx(g_hv0), sy(200), (g_hv1 - g_hv0) * g_s, 280 * g_s);
+    gfx_set(0.72, 0.74, 0.76, 0.2); gfx_rect(sx(g_hv0), sy(330), (g_hv1 - g_hv0) * g_s, 120 * g_s);
   );
 );
 
@@ -3502,11 +3508,11 @@ function hr_sky() local(x, y, i, a, n, p)
   p = g_hc_x * 0.04 + g_hb_rot;
   (g_rs_wx <= 3 && g_rs_light !== 2) ? (
     (!g_bd_on && g_t > g_bd_next && g_hc_dx > 0) ? (
-      g_bd_on = 1; g_bd_t0 = g_t; g_bd_p0 = p; g_bd_y = 200 + rand(130); g_bd_n = 3 + floor(rand(6)); g_bd_f = rand(1) < 0.5 ? 10 : -10;
+      g_bd_on = 1; g_bd_t0 = g_t; g_bd_p0 = p; g_bd_x0 = g_hv1 + 70; g_bd_y = 200 + rand(130); g_bd_n = 3 + floor(rand(6)); g_bd_f = rand(1) < 0.5 ? 10 : -10;
     );
     g_bd_on ? (
-      x = 970 - (p - g_bd_p0) + (g_t - g_bd_t0) * g_bd_f;
-      (x < -90 || x > 1000 || g_t - g_bd_t0 > 40) ? ( g_bd_on = 0; g_bd_next = g_t + 25 + rand(40); ) : (
+      x = g_bd_x0 - (p - g_bd_p0) + (g_t - g_bd_t0) * g_bd_f;
+      (x < g_hv0 - 90 || x > g_hv1 + 100 || g_t - g_bd_t0 > 40) ? ( g_bd_on = 0; g_bd_next = g_t + 25 + rand(40); ) : (
         gfx_set(0.16, 0.16, 0.2, 1);
         i = 0;
         loop(g_bd_n,
@@ -3531,7 +3537,7 @@ function hr_race_scene() local(wa, wx, wy, c, i, j, k, x, z, f, sf, xs, dt)
   wx += g_wb_jx * wa * 0.7; wy += g_wb_jy * wa;
   g_hc_x += wx / g_hc_z; g_hc_hy += wy;
   gfx_mode = 0; gfx_a = 1;
-  gfx_gradrect(sx(0), sy(0), 900 * g_s, 470 * g_s, g_sk_r0, g_sk_g0, g_sk_b0, 1, 0, 0, 0, 0, (g_sk_r1 - g_sk_r0) / (470 * g_s), (g_sk_g1 - g_sk_g0) / (470 * g_s), (g_sk_b1 - g_sk_b0) / (470 * g_s), 0);
+  gfx_gradrect(sx(g_hv0), sy(0), (g_hv1 - g_hv0) * g_s, 470 * g_s, g_sk_r0, g_sk_g0, g_sk_b0, 1, 0, 0, 0, 0, (g_sk_r1 - g_sk_r0) / (470 * g_s), (g_sk_g1 - g_sk_g0) / (470 * g_s), (g_sk_b1 - g_sk_b0) / (470 * g_s), 0);
   c = (g_hc_x - g_rs_d * 100) * g_hc_dir;
   i = g_rs_d - g_hc_x / 100;
   j = i < 0 ? 0 : i / 10; k = hr_tki(j * 10);
@@ -3541,8 +3547,8 @@ function hr_race_scene() local(wa, wx, wy, c, i, j, k, x, z, f, sf, xs, dt)
   hb_layer(IMG_HRF2, 0.03, c, 148, 1);
   hb_layer(IMG_HRF3, 0.09, c, 158, 1);
   x = 450 + (g_rs_d * 100 - g_hc_x) * g_hc_dir * 0.3 - 900;
-  (x > -1800 && x < 900) ? ( i = max(0, -x); j = max(0, x); k = min(1800 - i, 900 - j); gfx_blit(IMG_HRF4, 1, 0, i, 0, k, 300, sx(j), sy(158), k * g_s, 300 * g_s); );
-  hf_rgb(0.22, 0.38, 0.17); gfx_rect(sx(0), sy(450), 900 * g_s, 60 * g_s);
+  (x > g_hv0 - 1800 && x < g_hv1) ? ( i = max(0, g_hv0 - x); j = max(g_hv0, x); k = min(1800 - i, g_hv1 - j); gfx_blit(IMG_HRF4, 1, 0, i, 0, k, 300, sx(j), sy(158), k * g_s, 300 * g_s); );
+  hf_rgb(0.22, 0.38, 0.17); gfx_rect(sx(g_hv0), sy(450), (g_hv1 - g_hv0) * g_s, 60 * g_s);
   hb_draw_ground();
   hb_furlongs();
   hb_rail(1150, 105, 300);
@@ -3551,7 +3557,7 @@ function hr_race_scene() local(wa, wx, wy, c, i, j, k, x, z, f, sf, xs, dt)
     loop(rc_nf,
       sf = hr_fenceat(f) * 100;
       xs = hb_sxw(sf, 500);
-      (xs > -500 && xs < 1400) ? (rc_j == 2 ? hb_fence(sf, -60, 1100, hr_fkind(f, rc_nf)) : hb_hurdle(sf, -60, 1100));
+      (xs > g_hv0 - 500 && xs < g_hv1 + 500) ? (rc_j == 2 ? hb_fence(sf, -60, 1100, hr_fkind(f, rc_nf)) : hb_hurdle(sf, -60, 1100));
       f += 1;
     );
   );
@@ -3569,7 +3575,15 @@ function hr_race_scene() local(wa, wx, wy, c, i, j, k, x, z, f, sf, xs, dt)
   g_hc_x -= wx / g_hc_z; g_hc_hy -= wy;
 );
 ru_lz_o = alloc(NR);
+g_hv0 = 0; g_hv1 = 900; g_hvb = 700; g_hvw = 900; g_hvh = 700;
 hr_ph_o = alloc(NR);
+function hr_race_view()
+(
+  g_hv0 = -g_ox / g_s; g_hv1 = (gfx_w - g_ox) / g_s; g_hvb = (gfx_h - g_oy) / g_s;
+  g_hvw = max(1, ceil(g_hv1 - g_hv0)); g_hvh = max(1, ceil(g_hvb));
+  hr_race_scene();
+  g_hv0 = 0; g_hv1 = 900; g_hvb = 700; g_hvw = 900; g_hvh = 700;
+);
 
 IMG_HRP = 43;
 function hr_photo_draw(x0, y0, w, h) local(i, j, k, r, t0, x, sc, cnt, y, s0, ox, oy, dst, fit, span, bw, bh)
@@ -4696,7 +4710,7 @@ function hr_race() local(i, r, a, y0, t, left, k, st)
     );
   );
   hr_cam(g_rs_pre > 0 ? g_rs_sdt : t, g_rs_sdt);
-  hr_race_scene();
+  hr_race_view();
   hr_hud();
   hr_camui();
   g_rs_ride ? (
@@ -4832,7 +4846,7 @@ function hr_replay() local(t, i, a, r)
     db_snd(14, 3.2, 0.012 + 0.07 * max(0, 1 - a / 500), 0, rand(1) - 0.5);
   );
   hr_cam(t, g_rs_sdt);
-  hr_race_scene();
+  hr_race_view();
   hr_hud();
   hr_camui();
   font(13, 'b'); pill("REPLAY", 150, 18, 90, 26, 0.95, 0.35, 0.3, 1);
