@@ -1,0 +1,2034 @@
+desc: Kick Back (Mz808 + KoniSynth drum machine port) by chmaha
+tags: instrument drum machine
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  Analog drum machine with three kits: Roland TR-808 (1980), Roland CR-78 (1978) and Korg Mini Pops 7 (1966).
+  TR-808 kit ported from Mz808 by Simon Moscrop, https://github.com/simozzer/Mz808 (AGPL-3.0):
+  bridged-T resonators struck by the trigger pulse, after Werner, Abel and Smith (DAFx-14, ICMC-SMC 2014).
+  CR-78 and Mini Pops 7 kits, rhythm patterns, + Pattern and step lights ported from the KoniSynth
+  Drum Machine engine by k0n1m4k1, https://github.com/k0n1m4k1/KoniSynth (AGPL-3.0).
+  Roland, TR-808, CR-78 and Korg are trademarks of their owners; no affiliation.
+  JSFX version released under the GNU Affero General Public License v3.0
+  Claude generated some of this code
+
+slider1:kit=2<0,2,1{Mini Pops 7 (1966),CR-78 (1978),TR-808 (1980)}>-Kit
+slider2:pat=0<0,37,1{Off,Rock 1,Rock 2,Disco,Funk,Electro,Hip Hop,Synth Pop,Bossa Nova,Samba,Cha-Cha,Mambo,Beguine,Tango,Reggae,March,Foxtrot,Waltz,Shuffle,Slow Rock,Swing,Boogie,Rumba,Merengue,Habanera,Rock 4,Latin Swing,Jazz Waltz,March 6/8,Hardbass,User 1,User 2,User 3,User 4,User 5,User 6,User 7,User 8}>-Pattern
+slider3:pat2=0<0,37,1{Off,Rock 1,Rock 2,Disco,Funk,Electro,Hip Hop,Synth Pop,Bossa Nova,Samba,Cha-Cha,Mambo,Beguine,Tango,Reggae,March,Foxtrot,Waltz,Shuffle,Slow Rock,Swing,Boogie,Rumba,Merengue,Habanera,Rock 4,Latin Swing,Jazz Waltz,March 6/8,Hardbass,User 1,User 2,User 3,User 4,User 5,User 6,User 7,User 8}>-+ Pattern
+slider4:swing=0<0,50,0.1>-Swing (%)
+slider5:accent=5<0,10,0.1>-Accent
+slider6:ktune=0<-12,12,0.1>-Tune (st, CR-78/Mini Pops)
+slider7:kdecay=0<-1,1,0.01>-Decay (CR-78/Mini Pops)
+slider8:ktone=50<0,100,1>-Tone (%, CR-78/Mini Pops)
+slider9:ksnappy=50<0,100,1>-Snappy (%, CR-78/Mini Pops)
+slider10:kvel=0<0,1,1{Off,On}>-Velocity (CR-78/Mini Pops)
+slider11:ch10=0<0,1,1{Off,On}>-Channel 10 only
+slider12:bd_level=8<0,10,0.1>-BD Level
+slider13:bd_tone=5<0,10,0.1>-BD Tone
+slider14:bd_decay=5<0,10,0.1>-BD Decay
+slider15:sd_level=7<0,10,0.1>-SD Level
+slider16:sd_tone=5<0,10,0.1>-SD Tone
+slider17:sd_snappy=5<0,10,0.1>-SD Snappy
+slider18:lt_level=7<0,10,0.1>-LT/LC Level
+slider19:lt_tuning=5<0,10,0.1>-LT/LC Tuning
+slider20:mt_level=7<0,10,0.1>-MT/MC Level
+slider21:mt_tuning=5<0,10,0.1>-MT/MC Tuning
+slider22:ht_level=7<0,10,0.1>-HT/HC Level
+slider23:ht_tuning=5<0,10,0.1>-HT/HC Tuning
+slider24:rs_level=6<0,10,0.1>-RS/CL Level
+slider25:cp_level=7<0,10,0.1>-CP/MA Level
+slider26:cb_level=6<0,10,0.1>-CB Level
+slider27:cy_level=6<0,10,0.1>-CY Level
+slider28:cy_tone=5<0,10,0.1>-CY Tone
+slider29:cy_decay=5<0,10,0.1>-CY Decay
+slider30:oh_level=6<0,10,0.1>-OH Level
+slider31:oh_decay=4<0,10,0.1>-OH Decay
+slider32:ch_level=6<0,10,0.1>-CH Level
+slider33:mz_volume=7<0,10,0.1>-Volume (TR-808)
+slider34:kgain=50<0,100,0.1>-Gain (%, CR-78/Mini Pops)
+slider35:seq_on=1<0,1,1{Off,On}>-Sequencer
+slider36:mout=0<0,1,1{Off,On}>-MIDI Out
+
+options:no_meter gmem=KickBack
+config: outs "Outputs -preserve-config" 2 2="2 (stereo)" 11="11 (multi-out)"
+
+in_pin:none
+<?
+  outs == 11 ? (
+    printf("out_pin:Bass Drum\n");
+    printf("out_pin:Snare\n");
+    printf("out_pin:Low Tom / Conga\n");
+    printf("out_pin:Mid Tom / Conga\n");
+    printf("out_pin:Hi Tom / Conga\n");
+    printf("out_pin:Rim Shot / Claves\n");
+    printf("out_pin:Clap / Maracas\n");
+    printf("out_pin:Cowbell\n");
+    printf("out_pin:Cymbal\n");
+    printf("out_pin:Hi-Hats\n");
+    printf("out_pin:Percussion\n");
+  ) : (
+    printf("out_pin:Left\n");
+    printf("out_pin:Right\n");
+  );
+?>
+
+@init
+ext_noinit = 1;
+gfx_ext_retina = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+alloc.mp = 0;
+
+function f32(x) local(c) ( c = x * 536870913; c - (c - x); );
+function f32k(x) local(c) ( c = x * 536870913; c - (c - x); );
+function clampf(x, lo, hi) ( x < lo ? lo : (x > hi ? hi : x); );
+
+function mz_explaw(x, lo, hi) ( (lo * (pow((hi / lo), clampf(x, 0, 1)))); );
+function mz_taper(p) local(x) ( x = clampf((p / 10), 0, 1); (x * x); );
+function mz_opc(tau, fs) ( tau <= 0 ? 1 : (1 - (exp((-1 / (tau * fs))))); );
+function mz_dcc(tau, fs) ( tau <= 0 ? 0 : (exp((-1 / (tau * fs)))); );
+function mz_tauof(hz) ( (1 / (MZ_2PI * hz)); );
+function mz_sc(x) local(x2) (
+  x > 3 ? 1 : (x < -3 ? -1 : (
+    x2 = (x * x);
+    ((x * (27 + x2)) / (27 + (9 * x2)));
+  ));
+);
+function mz_scg(x) ( abs(x) < (0.0001) ? 1 : (mz_sc(x) / x); );
+function mz_swing(x, env, drive) ( (env * mz_sc((x * drive))); );
+
+function mz_rnext() local(s) instance(st) (
+  s = st;
+  s = s ~ (s << 13); s < 0 ? s += 4294967296;
+  s = s ~ (s >> 17); s < 0 ? s += 4294967296;
+  s = s ~ (s << 5); s < 0 ? s += 4294967296;
+  st = s;
+);
+function mz_uniform() ( (this.mz_rnext() >> 8) * (1 / 16777216); );
+function mz_white() ( (((this.mz_uniform() * 2) - 1) * (1.7320508)); );
+
+function svf_prep(fs) instance(pof, nyq) ( pof = (MZ_PI / fs); nyq = ((0.49) * fs); );
+function svf_damp(d) instance(sg, sk, a1, a2, a3) (
+  sk = d;
+  a1 = (1 / (1 + (sg * (sg + sk))));
+  a2 = (sg * a1);
+  a3 = (sg * a2);
+);
+function svf_setup(hz, q) instance(sg, pof, nyq) ( sg = (tan((pof * clampf(hz, 1, nyq)))); this.svf_damp((1 / q)); );
+function svf_tune(hz, d) instance(sg, pof, nyq) ( sg = (tan((pof * clampf(hz, 1, nyq)))); this.svf_damp(d); );
+function svf_proc(x) local(v1, v2, v3) instance(ic1, ic2, a1, a2, a3, sk, lp, bp, hp) (
+  v3 = (x - ic2);
+  v1 = ((a1 * ic1) + (a2 * v3));
+  v2 = ((ic2 + (a2 * ic1)) + (a3 * v3));
+  ic1 = ((2 * v1) - ic1);
+  ic2 = ((2 * v2) - ic2);
+  lp = v2;
+  bp = v1;
+  hp = ((x - (sk * v1)) - v2);
+  v1;
+);
+function svf_bn() instance(sk, bp) ( (sk * bp); );
+function svf_energy() instance(ic1, ic2) ( (abs(ic1) + abs(ic2)); );
+function svf_reset() instance(ic1, ic2, lp, bp, hp) ( ic1 = ic2 = lp = bp = hp = 0; );
+
+function op_lp(x, c) instance(z) ( z = (z + ((x - z) * c)); z; );
+function op_hp(x, c) ( (x - this.op_lp(x, c)); );
+
+function bt_prep(fs) ( this.svf.svf_prep(fs); );
+function bt_set(hz, tau) instance(f, k) (
+  f = hz;
+  k = (1 / ((MZ_PI * hz) * tau));
+  this.svf.svf_setup(f, (1 / k));
+);
+function bt_proc2(x, hz) instance(k) ( this.svf.svf_tune(hz, k); this.svf.svf_proc(x); );
+function bt_proc(x) ( this.svf.svf_proc(x); );
+function bt_energy() ( this.svf.svf_energy(); );
+function bt_reset() ( this.svf.svf_reset(); );
+
+function tp_fire(h, fs) instance(ht, rem) ( ht = h; rem = floor(((0.001) * fs) + 0.5); );
+function tp_next() instance(ht, rem) ( rem <= 0 ? 0 : (rem -= 1; ht); );
+
+function ps_prep(fs, tau) instance(c) ( c = mz_opc(tau, fs); );
+function ps_proc(p) local(s) instance(c) (
+  this.rc.op_lp(p, c);
+  s = ((p - this.rc.z) + ((0.3) * this.rc.z));
+  s >= 0 ? s : (s * (0.15));
+);
+function ps_reset() ( this.rc.z = 0; );
+
+function en_setd(tau) instance(fall, efs) ( fall = mz_dcc(tau, efs); );
+function en_proc(p) instance(sm, v, ac, fall) (
+  sm = (sm + ((p - sm) * ac));
+  v = sm > v ? sm : (v * fall);
+  v;
+);
+function en_reset() instance(sm, v) ( sm = v = 0; );
+
+function en_prep(fs) instance(efs, ac) ( efs = fs; ac = mz_opc((0.0001), fs); this.en_setd((0.1)); );
+function mz_blep(t, dt) local(x) (
+  t < dt ? (
+    x = f32k(t / dt);
+    f32k(f32k(f32k(x + x) - f32k(x * x)) - 1);
+  ) : (t > f32k(1 - dt) ? (
+    x = f32k(f32k(t - 1) / dt);
+    f32k(f32k(f32k(f32k(x * x) + x) + x) + 1);
+  ) : 0);
+);
+function mz_metal_prep(fs) local(i) (
+  i = 0;
+  loop(6, MZINC[i] = f32k(MZHZ[i] / fs); MZ1DT[i] = f32k(1 - MZINC[i]); MZPH[i] = mzr.mz_uniform(); i += 1;);
+);
+function mz_tick() local(i, t, dt, v, tf, tot) (
+  tot = 0;
+  i = 0;
+  loop(6,
+    t = f32k(MZPH[i] + MZINC[i]);
+    t >= 1 ? t = f32k(t - 1);
+    MZPH[i] = t;
+    dt = MZINC[i];
+    v = t < MZDUTY ? 0.5 : -0.5;
+    (t < dt || t > MZ1DT[i]) ? v = f32k(v + f32k(0.5 * mz_blep(t, dt)));
+    abs(t - MZDUTY) < 2 * dt ? (
+      tf = f32k(t - MZDUTY);
+      tf < 0 ? tf = f32k(tf + 1);
+      v = f32k(v - f32k(0.5 * mz_blep(tf, dt)));
+    );
+    MZOUT[i] = v;
+    tot = f32k(tot + v);
+    i += 1;
+  );
+  mz_msum = tot;
+);
+function bd_set(dp, tp) local(tau) instance(kheld, kshort, tonec, bfs) (
+  tau = mz_explaw((dp / 10), (0.05), (0.75));
+  this.res.bt_set(56, tau);
+  kheld = this.res.k;
+  kshort = (1 / ((MZ_PI * 56) * (0.03)));
+  tonec = mz_opc(mz_tauof(mz_explaw((tp / 10), 180, 6000)), bfs);
+);
+function bd_trig(h) instance(sigh, bfs) ( this.pulse.tp_fire(h, bfs); sigh = h; );
+function bd_proc() local(p, s, rp, shift, hz, clipped, kk, y) instance(env, rplag, sigh, envup, envdn, rpc, sighf, kheld, kshort, tonec) (
+  p = this.pulse.tp_next();
+  s = this.shaper.ps_proc(p);
+  env = (env + ((p - env) * (p > env ? envup : envdn)));
+  rplag = (rplag + ((env - rplag) * rpc));
+  rp = rplag > env ? (rplag - env) : 0;
+  sigh = (sigh * sighf);
+  shift = clampf(env, 0, 1);
+  hz = ((56 * (1 + ((1.3) * shift))) * (1 + ((0.045) * sigh)));
+  clipped = (1 - mz_scg((this.res.svf.bp / 2)));
+  kk = (kheld + ((kshort - kheld) * clipped));
+  kk = (kk * (1 - ((0.4) * shift)));
+  this.res.svf.svf_tune(hz, kk);
+  y = this.res.bt_proc((((2.2) * s) + (2 * rp)));
+  (this.out.op_lp((y + ((0.3) * s)), tonec) * (1.75));
+);
+function bd_quiet() instance(env) (
+  this.pulse.rem <= 0 && this.res.bt_energy() < (0.000001) && env < (0.000001) && abs(this.out.z) < (0.000001);
+);
+function bd_reset() instance(env, rplag, sigh) (
+  this.res.bt_reset();
+  this.shaper.ps_reset();
+  this.out.z = 0;
+  env = rplag = sigh = 0;
+);
+
+function bd_prep(fs) instance(bfs, envup, envdn, rpc, sighf) (
+  bfs = fs;
+  this.res.bt_prep(fs);
+  this.shaper.ps_prep(fs, (0.0004));
+  envup = mz_opc((0.0001), fs);
+  envdn = mz_opc((0.0017), fs);
+  rpc = mz_opc((0.002), fs);
+  sighf = mz_dcc((0.11), fs);
+  this.bd_set(5, 5);
+  this.bd_reset();
+);
+function sd_set(tp, sp) local(t) instance(lowmix, highmix, snappy) (
+  t = clampf((tp / 10), 0, 1);
+  lowmix = (1 - ((0.75) * t));
+  highmix = ((0.25) + ((0.75) * t));
+  snappy = clampf((sp / 10), 0, 1);
+);
+function sd_trig(h) instance(sfs) ( this.pulse.tp_fire(h, sfs); );
+function sd_proc() local(p, s, head, hiss, e, sn) instance(lowmix, highmix, snappy, nlpc) (
+  p = this.pulse.tp_next();
+  s = this.shaper.ps_proc(p);
+  head = ((lowmix * this.lo.bt_proc(s)) + (highmix * this.hi.bt_proc(s)));
+  this.nhp.svf_proc(mzr.mz_white());
+  hiss = this.nlp.op_lp(this.nhp.hp, nlpc);
+  e = this.nenv.en_proc(p);
+  sn = mz_sc(((hiss * e) * (0.9)));
+  ((head + ((snappy * (0.55)) * sn)) * (0.9));
+);
+function sd_quiet() (
+  this.pulse.rem <= 0 && (this.lo.bt_energy() + this.hi.bt_energy()) < (0.000001) && this.nenv.v < (0.00001);
+);
+function sd_reset() (
+  this.lo.bt_reset();
+  this.hi.bt_reset();
+  this.shaper.ps_reset();
+  this.nhp.svf_reset();
+  this.nlp.z = 0;
+  this.nenv.en_reset();
+);
+
+function sd_prep(fs) instance(sfs, nlpc) (
+  sfs = fs;
+  this.lo.bt_prep(fs);
+  this.hi.bt_prep(fs);
+  this.lo.bt_set(238, (0.045));
+  this.hi.bt_set(476, (0.025));
+  this.shaper.ps_prep(fs, (0.0003));
+  this.nhp.svf_prep(fs);
+  this.nhp.svf_setup(1800, (0.7));
+  nlpc = mz_opc(mz_tauof(9000), fs);
+  this.nenv.en_prep(fs);
+  this.nenv.en_setd((0.055));
+  this.sd_set(5, 5);
+  this.sd_reset();
+);
+function tom_conf(c) instance(conga, centre, tune, sz, sdep, sfall, tfs) (
+  conga = c;
+  centre = ((conga ? MZCONHZ[sz] : MZTOMHZ[sz]) * tune);
+  this.res.bt_set(centre, conga ? MZCONTAU[sz] : MZTOMTAU[sz]);
+  sdep = conga ? (0.12) : (0.25);
+  sfall = mz_dcc(conga ? (0.008) : (0.03), tfs);
+);
+function tom_set(tp) instance(tune, conga) (
+  tune = (pow(2, (((clampf(tp, 0, 10) - 5) / 5) * (0.25))));
+  this.tom_conf(conga);
+);
+function tom_trig(h, ac) instance(conga, sweep, tfs) (
+  ac != conga ? this.tom_conf(ac);
+  this.pulse.tp_fire(h, tfs);
+  sweep = h;
+);
+function tom_proc() local(p, s, y, shell, w, pink) instance(sweep, sfall, centre, sdep, conga, b0, b1, b2, nlpc, sz) (
+  p = this.pulse.tp_next();
+  s = this.shaper.ps_proc(p);
+  sweep = (sweep * sfall);
+  y = this.res.bt_proc2(s, (centre * (1 + (sdep * sweep))));
+  shell = 0;
+  !conga ? (
+    w = mzr.mz_white();
+    b0 = (((0.99765) * b0) + (w * (0.0990460)));
+    b1 = (((0.96300) * b1) + (w * (0.2965164)));
+    b2 = (((0.57000) * b2) + (w * (1.0526913)));
+    pink = ((((b0 + b1) + b2) + (w * (0.1848))) * (0.25));
+    shell = ((this.nlp.op_lp(pink, nlpc) * this.nenv.en_proc(p)) * (0.5));
+  );
+  ((y + shell) * (conga ? MZCONG[sz] : MZTOMG[sz]));
+);
+function tom_quiet() (
+  this.pulse.rem <= 0 && this.res.bt_energy() < (0.000001) && this.nenv.v < (0.00001);
+);
+function tom_reset() instance(b0, b1, b2, sweep) (
+  this.res.bt_reset();
+  this.shaper.ps_reset();
+  this.nenv.en_reset();
+  this.nlp.z = 0;
+  b0 = b1 = b2 = sweep = 0;
+);
+
+function tom_prep(fs, size) instance(sz, tfs, nlpc, tune, conga) (
+  sz = size;
+  tfs = fs;
+  tune = 1;
+  conga = 0;
+  this.res.bt_prep(fs);
+  this.shaper.ps_prep(fs, (0.0003));
+  this.nenv.en_prep(fs);
+  this.nenv.en_setd((0.05));
+  nlpc = mz_opc(mz_tauof(1800), fs);
+  this.tom_set(5);
+  this.tom_reset();
+  this.tom_conf(0);
+);
+function rim_trig(h, ac) instance(claves, rfs) ( claves = ac; this.pulse.tp_fire(h, rfs); );
+function rim_proc() local(p, s, ring, e, cr, r) instance(claves) (
+  p = this.pulse.tp_next();
+  s = this.shaper.ps_proc(p);
+  claves ? (
+    this.rl.bt_proc(0);
+    this.rh.bt_proc(0);
+    r = (this.cl.bt_proc(s) * (0.85));
+  ) : (
+    this.cl.bt_proc(0);
+    ring = (this.rl.bt_proc(s) + ((1.4) * this.rh.bt_proc(s)));
+    e = this.venv.en_proc(p);
+    cr = (e * mz_sc((ring * (2.5))));
+    this.hpf.svf_proc(cr);
+    r = (this.hpf.hp * (0.75));
+  );
+  r;
+);
+function rim_quiet() (
+  this.pulse.rem <= 0 && ((this.rl.bt_energy() + this.rh.bt_energy()) + this.cl.bt_energy()) < (0.000001)
+    && this.venv.v < (0.00001);
+);
+function rim_reset() (
+  this.shaper.ps_reset();
+  this.rl.bt_reset();
+  this.rh.bt_reset();
+  this.cl.bt_reset();
+  this.venv.en_reset();
+  this.hpf.svf_reset();
+);
+
+function rim_prep(fs) instance(rfs) (
+  rfs = fs;
+  this.shaper.ps_prep(fs, (0.0002));
+  this.rl.bt_prep(fs);
+  this.rh.bt_prep(fs);
+  this.cl.bt_prep(fs);
+  this.rl.bt_set(455, (0.008));
+  this.rh.bt_set(1667, (0.005));
+  this.cl.bt_set(2500, (0.011));
+  this.venv.en_prep(fs);
+  this.venv.en_setd((0.0045));
+  this.hpf.svf_prep(fs);
+  this.hpf.svf_setup(320, (0.7));
+  this.rim_reset();
+);
+function cp_trig(h, am) instance(maracas, hh, fast, slow, tooth, tleft, timer, spacing) (
+  maracas = am;
+  hh = h;
+  maracas ? (
+    fast = slow = h;
+    tooth = 0;
+    tleft = 0;
+  ) : (
+    tooth = h;
+    tleft = 3;
+    timer = spacing;
+    fast = slow = h;
+  );
+);
+function cp_proc() local(w, tail, r) instance(maracas, hh, fast, slow, tooth, tleft, timer, spacing, toothfall, tailrise, tailfall, shakerise, shakefall) (
+  w = mzr.mz_white();
+  maracas ? (
+    fast = (fast * shakerise);
+    slow = (slow * shakefall);
+    this.mhp.svf_proc(w);
+    this.bp.svf_proc(0);
+    r = ((this.mhp.hp * (slow - fast)) * (0.45));
+  ) : (
+    tooth = (tooth * toothfall);
+    tleft > 0 ? (
+      timer -= 1;
+      timer <= 0 ? (
+        tooth = hh;
+        tleft -= 1;
+        timer = spacing;
+      );
+    );
+    fast = (fast * tailrise);
+    slow = (slow * tailfall);
+    tail = ((slow - fast) * (0.75));
+    this.bp.svf_proc(w);
+    this.mhp.svf_proc(0);
+    r = (mz_sc(((this.bp.svf_bn() * (tooth + tail)) * (1.1))) * (1.25));
+  );
+  r;
+);
+function cp_quiet() instance(tleft, tooth, slow) ( tleft <= 0 && tooth < (0.00001) && slow < (0.00001); );
+function cp_reset() instance(tooth, fast, slow, tleft) (
+  this.bp.svf_reset();
+  this.mhp.svf_reset();
+  tooth = fast = slow = 0;
+  tleft = 0;
+);
+
+function cp_prep(fs) instance(toothfall, tailrise, tailfall, shakerise, shakefall, spacing) (
+  this.bp.svf_prep(fs);
+  this.bp.svf_setup(1000, (2.2));
+  this.mhp.svf_prep(fs);
+  this.mhp.svf_setup(5000, (0.7));
+  toothfall = mz_dcc((0.0028), fs);
+  tailrise = mz_dcc((0.006), fs);
+  tailfall = mz_dcc((0.075), fs);
+  shakerise = mz_dcc((0.0015), fs);
+  shakefall = mz_dcc((0.012), fs);
+  spacing = floor(((0.0105) * fs) + 0.5);
+  this.cp_reset();
+);
+function cb_trig(h) instance(cfs) ( this.pulse.tp_fire(h, cfs); );
+function cb_proc() local(p, e, x) (
+  p = this.pulse.tp_next();
+  e = (((0.75) * this.strike.en_proc(p)) + ((0.25) * this.ring.en_proc(p)));
+  x = ((0.5) * (MZOUT[4] + MZOUT[5]));
+  this.bp.svf_proc(mz_swing(x, e, (1.6)));
+  (this.bp.svf_bn() * (1.3));
+);
+function cb_quiet() ( this.pulse.rem <= 0 && this.ring.v < (0.00001) && this.bp.svf_energy() < (0.000001); );
+function cb_reset() ( this.strike.en_reset(); this.ring.en_reset(); this.bp.svf_reset(); );
+
+function cb_prep(fs) instance(cfs) (
+  cfs = fs;
+  this.strike.en_prep(fs);
+  this.strike.en_setd((0.009));
+  this.ring.en_prep(fs);
+  this.ring.en_setd((0.11));
+  this.bp.svf_prep(fs);
+  this.bp.svf_setup(2000, (0.9));
+  this.cb_reset();
+);
+function cy_set(tp, dp) local(t) instance(lw, md, tp3) (
+  t = clampf((tp / 10), 0, 1);
+  lw = (1 - ((0.55) * t));
+  md = ((0.9) - ((0.2) * t));
+  tp3 = ((0.05) + ((2.6) * t));
+  this.e1.en_setd(mz_explaw((dp / 10), (0.12), (0.75)));
+);
+function cy_trig(h) instance(yfs) ( this.pulse.tp_fire(h, yfs); );
+function cy_proc() local(p, x, a, b, splash) instance(lw, md, tp3, h3c) (
+  p = this.pulse.tp_next();
+  x = mz_msum;
+  this.bp1.svf_proc(x);
+  this.bp2.svf_proc(x);
+  a = this.bp1.svf_bn();
+  b = this.bp2.svf_bn();
+  this.hp1.svf_proc(mz_swing(a, this.e1.en_proc(p), (1.6)));
+  this.hp2.svf_proc(mz_swing(b, this.e2.en_proc(p), (1.6)));
+  this.hp3.svf_proc(mz_swing(b, this.e3.en_proc(p), (1.6)));
+  splash = this.h3p.op_hp(this.hp3.hp, h3c);
+  ((((lw * this.hp1.hp) + (md * this.hp2.hp)) + (tp3 * splash)) * (0.75));
+);
+function cy_quiet() ( this.pulse.rem <= 0 && ((this.e1.v + this.e2.v) + this.e3.v) < (0.00001); );
+function cy_reset() (
+  this.e1.en_reset(); this.e2.en_reset(); this.e3.en_reset();
+  this.hp1.svf_reset(); this.hp2.svf_reset(); this.hp3.svf_reset();
+  this.h3p.z = 0;
+);
+
+function cy_prep(fs) instance(yfs, h3c) (
+  yfs = fs;
+  this.bp1.svf_prep(fs); this.bp1.svf_setup(3440, (1.3));
+  this.bp2.svf_prep(fs); this.bp2.svf_setup(7100, (1.3));
+  this.hp1.svf_prep(fs); this.hp1.svf_setup(2200, (0.7));
+  this.hp2.svf_prep(fs); this.hp2.svf_setup(4600, (0.7));
+  this.hp3.svf_prep(fs); this.hp3.svf_setup(10500, (1.6));
+  h3c = mz_opc(mz_tauof(10500), fs);
+  this.e1.en_prep(fs);
+  this.e2.en_prep(fs);
+  this.e2.en_setd((0.085));
+  this.e3.en_prep(fs);
+  this.e3.en_setd((0.028));
+  this.cy_set(5, 5);
+  this.cy_reset();
+);
+function hat_set(dp) instance(opentau, open) (
+  opentau = mz_explaw((dp / 10), (0.045), (0.45));
+  open ? this.env.en_setd(opentau);
+);
+function hat_trig(h, ao) instance(open, opentau, hfs) (
+  open = ao;
+  this.env.en_setd(open ? opentau : (0.013));
+  this.pulse.tp_fire(h, hfs);
+);
+function hat_proc() local(p) (
+  p = this.pulse.tp_next();
+  this.bp.svf_proc(mz_msum);
+  this.hp.svf_proc(mz_swing(this.bp.svf_bn(), this.env.en_proc(p), (1.8)));
+  (this.hp.hp * (1.3));
+);
+function hat_quiet() ( this.pulse.rem <= 0 && this.env.v < (0.00001); );
+function hat_reset() ( this.bp.svf_reset(); this.hp.svf_reset(); this.env.en_reset(); );
+
+function hat_prep(fs) instance(hfs, opentau, open) (
+  hfs = fs;
+  opentau = (0.15);
+  open = 0;
+  this.bp.svf_prep(fs); this.bp.svf_setup(7100, (1.4));
+  this.hp.svf_prep(fs); this.hp.svf_setup(7000, (0.9));
+  this.env.en_prep(fs);
+  this.hat_set(4);
+  this.hat_reset();
+);
+function mz_setset() (
+  bd.bd_set((bd_decay), (bd_tone));
+  sd.sd_set((sd_tone), (sd_snappy));
+  tlo.tom_set((lt_tuning));
+  tmi.tom_set((mt_tuning));
+  thi.tom_set((ht_tuning));
+  cy.cy_set((cy_tone), (cy_decay));
+  hat.hat_set((oh_decay));
+  MZLT[0] = mz_taper((bd_level));
+  MZLT[1] = mz_taper((sd_level));
+  MZLT[2] = mz_taper((lt_level));
+  MZLT[3] = mz_taper((mt_level));
+  MZLT[4] = mz_taper((ht_level));
+  MZLT[5] = mz_taper((rs_level));
+  MZLT[6] = mz_taper((cp_level));
+  MZLT[7] = mz_taper((cb_level));
+  MZLT[8] = mz_taper((cy_level));
+  MZLT[9] = mz_taper((hat.open ? oh_level : ch_level));
+  mz_mt = ((1.4) * mz_taper((mz_volume)));
+);
+
+function mz_prep(fs) local(c) (
+  mz_metal_prep(fs);
+  bd.bd_prep(fs);
+  sd.sd_prep(fs);
+  tlo.tom_prep(fs, 0);
+  tmi.tom_prep(fs, 1);
+  thi.tom_prep(fs, 2);
+  rim.rim_prep(fs);
+  cp.cp_prep(fs);
+  cb.cb_prep(fs);
+  cy.cy_prep(fs);
+  hat.hat_prep(fs);
+  memset(MZAW, 0, 10);
+  mz_gc = mz_opc((0.005), fs);
+  mz_dcf = (1 - ((MZ_2PI * 8) / fs));
+  mz_dx1 = mz_dy1 = 0;
+  mz_setset();
+  c = 0;
+  loop(10, MZLN[c] = MZLT[c]; c += 1;);
+  mz_mn = mz_mt;
+);
+
+function mz_trigger(vc, acc) local(h) (
+  h = acc ? (1 + (clampf((mz_accent), 0, 10) / 10)) : 1;
+  vc == 0 ? ( bd.bd_trig(h); MZAW[0] = 1; ) :
+  vc == 1 ? ( sd.sd_trig(h); MZAW[1] = 1; ) :
+  vc == 2 ? ( tlo.tom_trig(h, 0); MZAW[2] = 1; ) :
+  vc == 3 ? ( tlo.tom_trig(h, 1); MZAW[2] = 1; ) :
+  vc == 4 ? ( tmi.tom_trig(h, 0); MZAW[3] = 1; ) :
+  vc == 5 ? ( tmi.tom_trig(h, 1); MZAW[3] = 1; ) :
+  vc == 6 ? ( thi.tom_trig(h, 0); MZAW[4] = 1; ) :
+  vc == 7 ? ( thi.tom_trig(h, 1); MZAW[4] = 1; ) :
+  vc == 8 ? ( rim.rim_trig(h, 0); MZAW[5] = 1; ) :
+  vc == 9 ? ( rim.rim_trig(h, 1); MZAW[5] = 1; ) :
+  vc == 10 ? ( cp.cp_trig(h, 0); MZAW[6] = 1; ) :
+  vc == 11 ? ( cp.cp_trig(h, 1); MZAW[6] = 1; ) :
+  vc == 12 ? ( cb.cb_trig(h); MZAW[7] = 1; ) :
+  vc == 13 ? ( cy.cy_trig(h); MZAW[8] = 1; ) :
+  vc == 14 || vc == 15 ? (
+    hat.hat_trig(h, vc == 14);
+    MZLT[9] = mz_taper((vc == 14 ? oh_level : ch_level));
+    MZAW[9] = 1;
+  );
+  vc >= 0 && vc < 16 ? HITS[vc] += 1;
+);
+
+function mz_alloff() (
+  bd.bd_reset(); sd.sd_reset(); tlo.tom_reset(); tmi.tom_reset(); thi.tom_reset();
+  rim.rim_reset(); cp.cp_reset(); cb.cb_reset(); cy.cy_reset(); hat.hat_reset();
+  memset(MZAW, 0, 10);
+);
+
+function mz_render1(segn) local(c, sum, y, mzv, yo) (
+  mz_tick();
+  kb_multi ? memset(MZO, 0, 10);
+  c = 0;
+  loop(10, MZLN[c] !== MZLT[c] ? MZLN[c] = (MZLN[c] + ((MZLT[c] - MZLN[c]) * mz_gc)); c += 1;);
+  sum = 0;
+  MZAW[0] ? ( mzv = (MZLN[0] * bd.bd_proc()); sum = (sum + mzv); kb_multi ? MZO[0] = mzv; );
+  MZAW[1] ? ( mzv = (MZLN[1] * sd.sd_proc()); sum = (sum + mzv); kb_multi ? MZO[1] = mzv; );
+  MZAW[2] ? ( mzv = (MZLN[2] * tlo.tom_proc()); sum = (sum + mzv); kb_multi ? MZO[2] = mzv; );
+  MZAW[3] ? ( mzv = (MZLN[3] * tmi.tom_proc()); sum = (sum + mzv); kb_multi ? MZO[3] = mzv; );
+  MZAW[4] ? ( mzv = (MZLN[4] * thi.tom_proc()); sum = (sum + mzv); kb_multi ? MZO[4] = mzv; );
+  MZAW[5] ? ( mzv = (MZLN[5] * rim.rim_proc()); sum = (sum + mzv); kb_multi ? MZO[5] = mzv; );
+  MZAW[6] ? ( mzv = (MZLN[6] * cp.cp_proc()); sum = (sum + mzv); kb_multi ? MZO[6] = mzv; );
+  MZAW[7] ? ( mzv = (MZLN[7] * cb.cb_proc()); sum = (sum + mzv); kb_multi ? MZO[7] = mzv; );
+  MZAW[8] ? ( mzv = (MZLN[8] * cy.cy_proc()); sum = (sum + mzv); kb_multi ? MZO[8] = mzv; );
+  MZAW[9] ? ( mzv = (MZLN[9] * hat.hat_proc()); sum = (sum + mzv); kb_multi ? MZO[9] = mzv; );
+  (segn & 31) == 0 ? (
+    MZAW[0] && bd.bd_quiet() ? ( bd.bd_reset(); MZAW[0] = 0; );
+    MZAW[1] && sd.sd_quiet() ? ( sd.sd_reset(); MZAW[1] = 0; );
+    MZAW[2] && tlo.tom_quiet() ? ( tlo.tom_reset(); MZAW[2] = 0; );
+    MZAW[3] && tmi.tom_quiet() ? ( tmi.tom_reset(); MZAW[3] = 0; );
+    MZAW[4] && thi.tom_quiet() ? ( thi.tom_reset(); MZAW[4] = 0; );
+    MZAW[5] && rim.rim_quiet() ? ( rim.rim_reset(); MZAW[5] = 0; );
+    MZAW[6] && cp.cp_quiet() ? ( cp.cp_reset(); MZAW[6] = 0; );
+    MZAW[7] && cb.cb_quiet() ? ( cb.cb_reset(); MZAW[7] = 0; );
+    MZAW[8] && cy.cy_quiet() ? ( cy.cy_reset(); MZAW[8] = 0; );
+    MZAW[9] && hat.hat_quiet() ? ( hat.hat_reset(); MZAW[9] = 0; );
+  );
+  y = ((sum - mz_dx1) + (mz_dcf * mz_dy1));
+  mz_dx1 = sum;
+  mz_dy1 = y;
+  mz_mn !== mz_mt ? mz_mn = (mz_mn + ((mz_mt - mz_mn) * mz_gc));
+  kb_multi ? (
+    c = 0;
+    loop(10,
+      yo = (MZO[c] - MZDX[c]) + mz_dcf * MZDY[c];
+      MZDX[c] = MZO[c];
+      MZDY[c] = yo;
+      MZO[c] = yo * mz_mn;
+      c += 1;
+    );
+  );
+  (y * mz_mn);
+);
+
+function jr_next() local(sh, sl, mid, tot) instance(seed) (
+  sh = floor(seed / 16777216);
+  sl = seed - sh * 16777216;
+  mid = sl * 1502 + sh * 15525485;
+  mid -= floor(mid / 16777216) * 16777216;
+  tot = sl * 15525485 + mid * 16777216 + 11;
+  seed = tot - floor(tot / 281474976710656) * 281474976710656;
+  floor(seed / 65536);
+);
+function km_noise() local(r) (
+  r = f32k(kmr.jr_next()) / 4294967296;
+  r > KM_FMAX ? r = KM_FMAX;
+  (r * 2) - 1;
+);
+function km_tanh(x) local(e) (
+  x > 20 ? 1 : (x < -20 ? -1 : (e = exp(2 * x); (e - 1) / (e + 1)));
+);
+function km_decay(t, dt) ( exp(((-t) * 2.302585) / dt); );
+
+function bq_set(q, type, f, qq) local(w, c, al, a0) (
+  w = (KM_2PI * clampf(f, 10, 0.45 * srate)) / srate;
+  c = cos(w);
+  al = sin(w) / (2 * qq);
+  a0 = 1 + al;
+  type == 0 ? (
+    q[0] = al; q[1] = 0; q[2] = -al;
+  ) : (type == 1 ? (
+    q[0] = q[2] = 0.5 * (1 - c); q[1] = 1 - c;
+  ) : (
+    q[0] = q[2] = 0.5 * (1 + c); q[1] = -(1 + c);
+  ));
+  q[0] /= a0; q[1] /= a0; q[2] /= a0;
+  q[3] = (-2 * c) / a0;
+  q[4] = (1 - al) / a0;
+);
+function bq(q, x) local(y) (
+  y = q[0] * x + q[5];
+  q[5] = ((q[1] * x) - (q[3] * y)) + q[6];
+  q[6] = (q[2] * x) - (q[4] * y);
+  y;
+);
+
+function km_blep(t, dt) (
+  t < dt ? (
+    t = t / dt;
+    (((t + t) - (t * t)) - 1);
+  ) : (t > 1 - dt ? (
+    t = (t - 1) / dt;
+    ((((t * t) + t) + t) + 1);
+  ) : 0);
+);
+function km_sq(v, k, f) local(dt, ph, plv, fm) (
+  dt = f / srate;
+  ph = v[7 + k] + dt;
+  ph >= 1 ? ph -= 1;
+  v[7 + k] = ph;
+  plv = ph < 0.5 ? 1 : -1;
+  fm = (ph + 1) - 0.5;
+  fm >= 1 ? fm -= 1;
+  plv = (plv + (km_blep(ph, dt) - km_blep(fm, dt)));
+  ((0.7) * plv);
+);
+function km_ring(v, k, f, dt) local(ph) (
+  ph = v[7 + k] + f / srate;
+  ph >= 1 ? ph -= 1;
+  v[7 + k] = ph;
+  sin(KM_2PI * ph) * km_decay(v[6], dt);
+);
+function km_tom(v, f0, dt, blip) local(f) (
+  f = (f0 * v[2]) * (1 + blip * exp((-v[6]) / 0.020));
+  km_life = dt * v[3];
+  km_ring(v, 0, f, km_life);
+);
+
+function km_filters(id, v) (
+  id == 1 ? ( bq_set(v + 16, 2, 2000, 0.707); bq_set(v + 23, 1, 12000, 0.707); ) :
+  id == 10 ? ( bq_set(v + 16, 0, 800, 3); ) :
+  id == 3 || id == 4 || id == 5 ? ( bq_set(v + 16, 0, 9100, 3); bq_set(v + 23, 2, 6000, 0.707); ) :
+  id == 11 ? ( bq_set(v + 16, 0, 4300, 4); bq_set(v + 23, 0, 4300, 4); ) :
+  id == 12 || id == 13 ? ( bq_set(v + 16, 0, 6130, 8); ) :
+  id == 14 ? ( bq_set(v + 16, 2, 3000, 0.7); ) :
+  id == 16 ? ( bq_set(v + 16, 0, 5500, 1.5); bq_set(v + 23, 2, 2000, 0.7); ) :
+  id == 17 ? ( bq_set(v + 16, 0, 5500, 1); bq_set(v + 23, 2, 1500, 0.7); ) :
+  id == 18 ? ( bq_set(v + 16, 0, 5600, 4); ) :
+  id == 19 || id == 20 ? ( bq_set(v + 16, 2, 5600, 2); ) :
+  id == 21 ? ( bq_set(v + 16, 0, 4600, 3); bq_set(v + 23, 2, 3000, 0.7); ) :
+  id == 28 ? ( bq_set(v + 16, 0, 4100, 3); ) :
+  id == 29 ? ( bq_set(v + 16, 0, 2700, 4); );
+);
+
+function km_trigger(id, vel) local(v) (
+  v = KMV + id * 64;
+  memset(v, 0, 64);
+  v[16] = v[23] = v[30] = v[37] = 1;
+  v[0] = 1;
+  v[1] = vel;
+  v[2] = km_tu;
+  v[3] = km_dc;
+  v[4] = km_tone;
+  v[5] = km_snappy;
+  km_filters(id, v);
+  km_active |= 1;
+  KHITS[id] += 1;
+);
+
+function km_voice(id, v) local(t, tu, dc, y, f, tq, s, tail, env, n, jingle, rate, len, click, tick, guiro, pulse) (
+  t = v[6];
+  tu = v[2];
+  dc = v[3];
+  y = 0;
+  km_life = 1;
+  id == 0 ? (
+    f = (62.5 * tu) * (1 + 0.6 * exp((-t) / 0.002));
+    km_life = 0.081 * dc;
+    y = km_tanh((1.2 + v[4]) * km_ring(v, 0, f, km_life));
+  ) : id == 1 ? (
+    f = km_ring(v, 0, 340 * tu, 0.06 * dc);
+    n = bq(v + 23, bq(v + 16, km_noise())) * km_decay(t, 0.02 + (0.06 * v[5]) * dc);
+    y = 0.2 * f + 1.6 * n;
+    km_life = 0.09 * dc;
+  ) : id == 2 ? (
+    y = km_ring(v, 0, 1480 * tu, 0.005 * dc); km_life = 0.006 * dc;
+  ) : id == 3 ? (
+    y = (2.4 * bq(v + 23, bq(v + 16, km_noise()))) * km_decay(t, 0.05 * dc); km_life = 0.05 * dc;
+  ) : id == 4 ? (
+    tq = 0.35 * dc;
+    env = t < tq ? km_decay(t, tq) : 0.1 * exp((-(t - tq)) / 0.0156);
+    y = (2.1 * bq(v + 23, bq(v + 16, km_noise()))) * env;
+    km_life = tq + 0.08;
+  ) : id == 5 ? (
+    y = (2.2 * bq(v + 23, bq(v + 16, km_noise()))) * km_decay(t, 0.02 * dc); km_life = 0.02 * dc;
+  ) : id == 6 ? (
+    y = km_ring(v, 0, 2630 * tu, 0.018 * dc); km_life = 0.018 * dc;
+  ) : id == 7 ? (
+    y = km_tom(v, 600, 0.023, 0.05);
+  ) : id == 8 ? (
+    y = km_tom(v, 400, 0.023, 0.05);
+  ) : id == 9 ? (
+    y = km_tom(v, 208, 0.08, 0.05);
+  ) : id == 10 ? (
+    s = km_sq(v, 0, 555 * tu) + km_sq(v, 1, 800 * tu);
+    tail = 0.029 * dc;
+    y = (1.2 * bq(v + 16, s)) * (0.6 * exp((-t) / 0.003) + 0.4 * exp((-t) / tail));
+    km_life = 4 * tail;
+  ) : id == 11 ? (
+    jingle = 0.6 + 0.4 * sin((KM_2PI * 35) * t);
+    y = ((4 * bq(v + 23, bq(v + 16, km_noise()))) * jingle) * km_decay(t, 0.22 * dc);
+    km_life = 0.22 * dc;
+  ) : id == 12 || id == 13 ? (
+    rate = id == 12 ? 125 : 77;
+    len = id == 12 ? 0.10 : 0.30;
+    v[7] += (rate * tu) / srate;
+    click = v[7] >= 1 ? 1 : 0;
+    v[7] >= 1 ? v[7] -= 1;
+    y = 12 * bq(v + 16, t < len * dc ? click : 0);
+    km_life = len * dc;
+  ) : id == 14 ? (
+    s = (km_sq(v, 0, 6170 * tu) + km_sq(v, 1, 5620 * tu)) + km_sq(v, 2, 4080 * tu);
+    y = (0.6 * bq(v + 16, s)) * km_decay(t, 0.05 * dc);
+    km_life = 0.05 * dc;
+  ) : id == 15 ? (
+    y = km_tanh(1.3 * km_ring(v, 0, 65 * tu, 0.10 * dc)); km_life = 0.10 * dc;
+  ) : id == 16 || id == 17 ? (
+    tq = (id == 16 ? 0.12 : 0.25) * dc;
+    tick = t < 0.001 ? 1 - t / 0.001 : 0;
+    y = ((2 * bq(v + 23, bq(v + 16, km_noise()))) * km_decay(t, tq)) * (0.5 + v[5]) + 0.6 * tick;
+    km_life = tq;
+  ) : id == 18 ? (
+    y = (2.5 * bq(v + 16, km_noise())) * km_decay(t, 0.06 * dc); km_life = 0.06 * dc;
+  ) : id == 19 ? (
+    y = (1.4 * bq(v + 16, km_noise())) * (km_decay(t, 0.05 * dc) + 0.1 * km_decay(t, 0.46 * dc));
+    km_life = 0.5 * dc;
+  ) : id == 20 ? (
+    tq = 0.9 * dc;
+    y = (1.4 * bq(v + 16, km_noise())) * km_decay(t, tq);
+    km_life = tq;
+  ) : id == 21 ? (
+    jingle = 0.6 + 0.4 * sin((KM_2PI * 30) * t);
+    y = ((2.5 * bq(v + 23, bq(v + 16, km_noise()))) * jingle) * km_decay(t, 0.2 * dc);
+    km_life = 0.2 * dc;
+  ) : id == 22 ? (
+    y = 0.9 * km_ring(v, 0, 860 * tu, 0.12 * dc) + 0.5 * km_ring(v, 1, 4600 * tu, 0.04 * dc);
+    km_life = 0.12 * dc;
+  ) : id == 23 ? (
+    y = km_ring(v, 0, 195 * tu, 0.18 * dc) + 0.3 * km_ring(v, 1, 390 * tu, 0.05 * dc);
+    km_life = 0.18 * dc;
+  ) : id == 24 ? (
+    y = km_ring(v, 0, 600 * tu, 0.06 * dc); km_life = 0.06 * dc;
+  ) : id == 25 ? (
+    y = km_ring(v, 0, 400 * tu, 0.08 * dc); km_life = 0.08 * dc;
+  ) : id == 26 ? (
+    y = km_ring(v, 0, 2200 * tu, 0.04 * dc); km_life = 0.04 * dc;
+  ) : id == 27 ? (
+    y = km_ring(v, 0, 860 * tu, 0.025 * dc); km_life = 0.025 * dc;
+  ) : id == 28 || id == 29 ? (
+    guiro = id == 28;
+    len = (guiro ? 0.15 : 0.4) * dc;
+    rate = (guiro ? 65 : 25 * (1 - (0.5 * t) / len)) * tu;
+    v[7] += rate / srate;
+    pulse = v[7] >= 1 ? 1 : 0;
+    v[7] >= 1 ? v[7] -= 1;
+    env = guiro ? 1 : km_decay(t, len);
+    y = t < len ? (6 * bq(v + 16, pulse)) * env : bq(v + 16, 0);
+    km_life = len;
+  );
+  v[6] = t + 1 / srate;
+  v[6] > km_life * 2 + 0.005 ? v[0] = 0;
+  (0.5 * (y));
+);
+
+function km_render() local(id, v, sum, any, kv) (
+  sum = 0;
+  kb_multi ? memset(KMO, 0, 11);
+  any = 0;
+  km_active ? (
+    id = 0;
+    v = KMV;
+    loop(30,
+      v[0] ? (
+        kv = (v[1] * km_voice(id, v));
+        sum = (sum + kv);
+        kb_multi ? KMO[KOUT[id]] += kv;
+        any = 1;
+      );
+      id += 1;
+      v += 64;
+    );
+    km_active = any;
+  );
+  sum;
+);
+
+function kc_valid(p) ( p >= 0 && (p < KC_NF || (p < KC_NF + 8 && UPRES[p - KC_NF])); );
+function kc_skip(p) ( PN[p] == 12 ? (PS[p] == 3 ? 34952 : 816) : 0; );
+
+function kc_fire(si, step) local(cyc, c, k, p, own, rank, q, ow, idx, j, slot, vel, vc, ki) (
+  cyc = floor(step / kc_np);
+  c = PLAY[step - cyc * kc_np];
+  ki = 2 - kit;
+  k = 0;
+  loop(2,
+    p = k ? kc_p2 : kc_p1;
+    (k ? kc_a2 : kc_a1) ? (
+      own = k ? kc_o2 : kc_o1;
+      rank = 0;
+      q = 0;
+      loop(c, rank += ((own >> q) & 1) ? 0 : 1; q += 1;);
+      ow = own == 0 ? 16 : 12;
+      idx = (cyc * ow + rank) % PN[p];
+      j = 0;
+      loop(PC[p],
+        slot = PL[p * 16 + j];
+        vel = PV[(p * 15 + slot) * 32 + idx];
+        vel > 0 ? (
+          vc = ki == 0 ? MZSLOT[slot] : (ki == 1 ? K78SLOT[slot] : KMPSLOT[slot]);
+          vc >= 0 && mout ? (
+            midisend(si, 0x99, LNOTE[slot], vel >= 1 ? 127 : (vel > 0.6 ? 95 : 57));
+            kc_non < 256 ? ( NOQ[kc_non * 2] = LNOTE[slot]; NOQ[kc_non * 2 + 1] = si + floor(kc_half); kc_non += 1; );
+          );
+          vc >= 0 && kc_nh < 64 ? (
+            HQ[kc_nh * 4] = si;
+            HQ[kc_nh * 4 + 1] = vc;
+            HQ[kc_nh * 4 + 2] = vel < 1 ? vel : (0.75 + (0.5 * km_acc));
+            HQ[kc_nh * 4 + 3] = vel >= 1;
+            kc_nh += 1;
+          );
+        );
+        j += 1;
+      );
+    );
+    k += 1;
+  );
+);
+
+function kc_noteoffs() local(i) (
+  i = 0;
+  while (i < kc_non) (
+    NOQ[i * 2 + 1] < samplesblock ? (
+      midisend(max(0, NOQ[i * 2 + 1]), 0x89, NOQ[i * 2], 0);
+      kc_non -= 1;
+      NOQ[i * 2] = NOQ[kc_non * 2];
+      NOQ[i * 2 + 1] = NOQ[kc_non * 2 + 1];
+    ) : (
+      NOQ[i * 2 + 1] -= samplesblock;
+      i += 1;
+    );
+  );
+);
+
+function kc_block() local(kp, kq, spb, c, sps, hp, sw, si, nx, thr, mode, own1) (
+  kc_noteoffs();
+  play_state !== 0 ? prev_on = 0;
+  prev_req ? (
+    prev_req = 0;
+    play_state === 0 ? prev_on = prev_req_on;
+  );
+  mode = (play_state & 1) ? (seq_on ? 1 : 0) : (prev_on ? 2 : 0);
+  kp = pat - 1;
+  kq = pat2 - 1;
+  kp != kc_p1 || kq != kc_p2 || (mode == 2 && kc_mode != 2) ? (
+    kc_p1 = kp;
+    kc_p2 = kq;
+    kc_pos = -0.000000001;
+    kc_last = -1;
+  );
+  kc_mode = mode;
+  kc_a1 = kc_valid(kp);
+  kc_a2 = kc_valid(kq);
+  kc_o1 = kc_a1 ? kc_skip(kp) : 0;
+  kc_o2 = kc_a2 ? kc_skip(kq) : 0;
+  spb = 4;
+  kc_a1 && PS[kp] == 3 ? spb = 3;
+  kc_a2 && PS[kq] == 3 ? spb = 3;
+  kc_np = 0;
+  c = 0;
+  loop(16,
+    !(((kc_o1 | kc_o2) >> c) & 1) ? ( PLAY[kc_np] = c; kc_np += 1; );
+    c += 1;
+  );
+  kc_nh = 0;
+  kc_run = 0;
+  (kc_a1 || kc_a2) && kc_np > 0 ? (
+    mode ? (
+      sps = ((tempo / 60) * spb) / srate;
+      kc_half = 0.5 / sps;
+      mode == 1 ? (
+        hp = beat_position * spb;
+        abs(hp - kc_pos) > 0.5 ? kc_last = ceil(hp) - 1;
+        kc_pos = hp;
+      );
+      own1 = kc_a1 ? (kc_o1 == 0 ? 16 : 12) : (kc_o2 == 0 ? 16 : 12);
+      kc_pass = ceil(PN[kc_a1 ? kp : kq] * kc_np / own1);
+      sw = spb == 4 ? (swing / 100) : 0;
+      si = 0;
+      loop(samplesblock,
+        nx = kc_last + 1;
+        thr = nx + ((nx & 1) ? sw : 0);
+        kc_pos >= thr ? (
+          mode == 2 && !prev_loop && nx >= kc_pass ? (
+            prev_on = 0;
+          ) : (
+            nx >= 0 ? kc_fire(si, nx);
+            kc_last = nx;
+          );
+        );
+        kc_pos += sps;
+        si += 1;
+      );
+      mode == 2 && !prev_on ? ( kc_pos = -1000000000; kc_last = -1; );
+    ) : (
+      kc_pos = -1000000000;
+      kc_last = -1;
+    );
+    kc_run = kc_last >= 0;
+  ) : (
+    mode == 2 ? prev_on = 0;
+  );
+  kc_led = kc_run ? kc_last % kc_np : -1;
+  kc_step = kc_run ? kc_last : -1;
+);
+
+function ev_handle(m1, m2, m3) local(st, ch, ki, vc, vel, lvl) (
+  st = m1 & 240;
+  ch = (m1 & 15) + 1;
+  ki = 2 - kit;
+  st == 144 && m3 > 0 && (!ch10 || ch == 10) ? (
+    ki == 0 ? (
+      vc = MZGM[m2];
+      vc >= 0 ? mz_trigger(vc, m3 >= 101);
+    ) : (
+      vc = KGM[(ki - 1) * 128 + m2];
+      vc >= 0 ? (
+        vel = (m3 * (1 / 127));
+        lvl = kvel ? (vel >= (0.99) ? (0.75 + (0.5 * km_acc)) : vel) : (m3 >= 100 ? (0.75 + (0.5 * km_acc)) : 0.75);
+        km_trigger(vc, lvl);
+      );
+    );
+    PADHIT[m2] += 1;
+  );
+  st == 176 && m2 == 120 ? (
+    memset(KMV, 0, 30 * 64);
+    km_active = 0;
+    mz_alloff();
+  );
+);
+
+
+<?
+!jsfx_has_set_midi_note_name ? printf("function set_midi_note_name(a,b,c,d) ( 0 );\n");
+?>
+function kb_names() local(i) (
+  kb_nkit != kit ? (
+    kb_nkit = kit;
+    set_midi_note_name(-1, 0, 0, "");
+    i = 0;
+    loop(128,
+      NMN[(2 - kit) * 128 + i] ? set_midi_note_name(0, i, -1, NMN[(2 - kit) * 128 + i]);
+      i += 1;
+    );
+  );
+);
+
+function kc_lane(p, j, slot, s) local(i, ch, b) (
+  PL[p * 16 + j] = slot;
+  b = (p * 15 + slot) * 32;
+  i = 0;
+  loop(strlen(s),
+    ch = str_getchar(s, i);
+    PV[b + i] = ch == 'X' ? 1 : (ch == 'x' ? 0.75 : (ch == 'o' ? KM_SOFT : 0));
+    i += 1;
+  );
+);
+
+MZ_PI = ($pi);
+MZ_2PI = (2 * MZ_PI);
+MZDUTY = f32k(0.4798);
+KM_2PI = 2 * $pi;
+KM_FMAX = 1 - 2 ^ -23;
+KM_SOFT = (0.45);
+
+MZHZ = alloc(8); MZ1DT = alloc(8); MZINC = alloc(8); MZPH = alloc(8); MZOUT = alloc(8);
+MZTOMHZ = alloc(4); MZCONHZ = alloc(4); MZTOMTAU = alloc(4); MZCONTAU = alloc(4); MZTOMG = alloc(4); MZCONG = alloc(4);
+MZAW = alloc(16); MZLT = alloc(16); MZLN = alloc(16);
+HITS = alloc(16); PADHIT = alloc(128); KHITS = alloc(32);
+KMV = alloc(30 * 64);
+PN = alloc(40); PS = alloc(40); PC = alloc(40); PL = alloc(40 * 16); PV = alloc(40 * 15 * 32);
+UPRES = alloc(8);
+MZSLOT = alloc(16); K78SLOT = alloc(16); KMPSLOT = alloc(16);
+MZGM = alloc(128); KGM = alloc(256); NMN = alloc(384);
+PLAY = alloc(16); MZO = alloc(16); MZDX = alloc(16); MZDY = alloc(16); KMO = alloc(16); KOUT = alloc(32); NOQ = alloc(512); LNOTE = alloc(16); HQ = alloc(64 * 4); EVQ = alloc(1024 * 4); PADQ = alloc(64 * 2);
+
+MZHZ[0] = f32k(205.3); MZHZ[1] = f32k(304.4); MZHZ[2] = f32k(369.6); MZHZ[3] = f32k(522.7); MZHZ[4] = 540; MZHZ[5] = 800;
+MZTOMHZ[0] = 90; MZTOMHZ[1] = 135; MZTOMHZ[2] = 185;
+MZCONHZ[0] = 185; MZCONHZ[1] = 250; MZCONHZ[2] = 400;
+MZTOMTAU[0] = (0.20); MZTOMTAU[1] = (0.16); MZTOMTAU[2] = (0.13);
+MZCONTAU[0] = (0.09); MZCONTAU[1] = (0.075); MZCONTAU[2] = (0.06);
+MZTOMG[0] = 1; MZTOMG[1] = (0.72); MZTOMG[2] = (0.62);
+MZCONG[0] = (1.15); MZCONG[1] = (0.95); MZCONG[2] = (0.75);
+
+KC_NF = 29;
+KOUTT = alloc(32); KOUTT[0] = 0; KOUTT[1] = 1; KOUTT[2] = 5; KOUTT[3] = 9; KOUTT[4] = 8; KOUTT[5] = 6; KOUTT[6] = 5; KOUTT[7] = 4; KOUTT[8] = 3; KOUTT[9] = 2; KOUTT[10] = 7; KOUTT[11] = 10; KOUTT[12] = 10; KOUTT[13] = 10; KOUTT[14] = 10; KOUTT[15] = 0; KOUTT[16] = 1; KOUTT[17] = 1; KOUTT[18] = 5; KOUTT[19] = 9; KOUTT[20] = 8; KOUTT[21] = 8; KOUTT[22] = 10; KOUTT[23] = 7; KOUTT[24] = 2; KOUTT[25] = 4; KOUTT[26] = 3; KOUTT[27] = 5; KOUTT[28] = 10; KOUTT[29] = 10;
+PN[0] = 16; PS[0] = 4; PC[0] = 3;
+kc_lane(0, 0, 0, "x.......x.x.....");
+kc_lane(0, 1, 1, "....X.......X...");
+kc_lane(0, 2, 4, "x.x.x.x.x.x.x.x.");
+PN[1] = 16; PS[1] = 4; PC[1] = 3;
+kc_lane(1, 0, 0, "x..x..x.x.x.....");
+kc_lane(1, 1, 1, "....X.......X..o");
+kc_lane(1, 2, 4, "XxxxXxxxXxxxXxxx");
+PN[2] = 16; PS[2] = 4; PC[2] = 4;
+kc_lane(2, 0, 0, "X...X...X...X...");
+kc_lane(2, 1, 1, "....X.......X...");
+kc_lane(2, 2, 4, "x...x...x...x...");
+kc_lane(2, 3, 5, "..x...x...x...x.");
+PN[3] = 16; PS[3] = 4; PC[3] = 3;
+kc_lane(3, 0, 0, "x.....x...x..x..");
+kc_lane(3, 1, 1, "....X..o.o..X...");
+kc_lane(3, 2, 4, "xxxxxxxxxxxxxxxx");
+PN[4] = 16; PS[4] = 4; PC[4] = 4;
+kc_lane(4, 0, 0, "x.....x..x...x..");
+kc_lane(4, 1, 3, "....X.......X...");
+kc_lane(4, 2, 4, "xxxxxxxxxxxxxxxx");
+kc_lane(4, 3, 7, "..x.....x.x.....");
+PN[5] = 16; PS[5] = 4; PC[5] = 3;
+kc_lane(5, 0, 0, "x......x.xx.....");
+kc_lane(5, 1, 1, "....X.......X...");
+kc_lane(5, 2, 4, "x.x.x.x.x.x.x.x.");
+PN[6] = 16; PS[6] = 4; PC[6] = 4;
+kc_lane(6, 0, 0, "x...x...x...x...");
+kc_lane(6, 1, 3, "....X.......X...");
+kc_lane(6, 2, 4, "..x...x...x...x.");
+kc_lane(6, 3, 8, "..............xx");
+PN[7] = 16; PS[7] = 4; PC[7] = 3;
+kc_lane(7, 0, 0, "x..xx..xx..xx..x");
+kc_lane(7, 1, 2, "x..x..x...x.x...");
+kc_lane(7, 2, 4, "oooooooooooooooo");
+PN[8] = 16; PS[8] = 4; PC[8] = 4;
+kc_lane(8, 0, 0, "x..xx..xx..xx..x");
+kc_lane(8, 1, 2, "x.x..x.x.x..x.x.");
+kc_lane(8, 2, 4, "xoxoxoxoxoxoxoxo");
+kc_lane(8, 3, 10, "......x.......x.");
+PN[9] = 16; PS[9] = 4; PC[9] = 5;
+kc_lane(9, 0, 0, "x.......x.......");
+kc_lane(9, 1, 7, "x...x...x...x...");
+kc_lane(9, 2, 9, "....x.x.........");
+kc_lane(9, 3, 10, "........x...x.x.");
+kc_lane(9, 4, 4, "x.x.x.x.x.x.x.x.");
+PN[10] = 16; PS[10] = 4; PC[10] = 5;
+kc_lane(10, 0, 0, "...x.......x....");
+kc_lane(10, 1, 7, "x..x..x...x.x...");
+kc_lane(10, 2, 9, "..x.......x.....");
+kc_lane(10, 3, 10, "......xx......x.");
+kc_lane(10, 4, 4, "xxxxxxxxxxxxxxxx");
+PN[11] = 16; PS[11] = 4; PC[11] = 4;
+kc_lane(11, 0, 0, "x.......x.......");
+kc_lane(11, 1, 9, "x..x..x.x.......");
+kc_lane(11, 2, 10, "........x...x.x.");
+kc_lane(11, 3, 4, "x.x.x.x.x.x.x.x.");
+PN[12] = 16; PS[12] = 4; PC[12] = 3;
+kc_lane(12, 0, 0, "x...x...x...x.x.");
+kc_lane(12, 1, 1, "............x.x.");
+kc_lane(12, 2, 12, "x...x...x..x.x..");
+PN[13] = 16; PS[13] = 4; PC[13] = 3;
+kc_lane(13, 0, 0, "........X.......");
+kc_lane(13, 1, 2, "........X.......");
+kc_lane(13, 2, 4, "..x...x...x...x.");
+PN[14] = 16; PS[14] = 4; PC[14] = 3;
+kc_lane(14, 0, 0, "x.......x.......");
+kc_lane(14, 1, 1, "....x.x.....x.xx");
+kc_lane(14, 2, 6, "x...............");
+PN[15] = 16; PS[15] = 4; PC[15] = 3;
+kc_lane(15, 0, 0, "x.......x.......");
+kc_lane(15, 1, 1, "....x.......x...");
+kc_lane(15, 2, 6, "o...o...o...o...");
+PN[16] = 12; PS[16] = 4; PC[16] = 3;
+kc_lane(16, 0, 0, "x...........");
+kc_lane(16, 1, 1, "....x...x...");
+kc_lane(16, 2, 4, "x...x...x...");
+PN[17] = 12; PS[17] = 3; PC[17] = 3;
+kc_lane(17, 0, 0, "x.....x.....");
+kc_lane(17, 1, 1, "...X.....X..");
+kc_lane(17, 2, 4, "x.xx.xx.xx.x");
+PN[18] = 12; PS[18] = 3; PC[18] = 3;
+kc_lane(18, 0, 0, "x.....x.x...");
+kc_lane(18, 1, 1, "...X.....X..");
+kc_lane(18, 2, 4, "xxxxxxxxxxxx");
+PN[19] = 12; PS[19] = 3; PC[19] = 3;
+kc_lane(19, 0, 0, "o.....o.....");
+kc_lane(19, 1, 6, "x..x.xx..x.x");
+kc_lane(19, 2, 4, "...x.....x..");
+PN[20] = 12; PS[20] = 3; PC[20] = 3;
+kc_lane(20, 0, 0, "x..x..x..x..");
+kc_lane(20, 1, 1, "...X.....X..");
+kc_lane(20, 2, 4, "x.xx.xx.xx.x");
+PN[21] = 16; PS[21] = 4; PC[21] = 5;
+kc_lane(21, 0, 0, "x..x....x..x....");
+kc_lane(21, 1, 12, "x..x...x..x.x...");
+kc_lane(21, 2, 10, "......x.......x.");
+kc_lane(21, 3, 9, "..x...x...x...x.");
+kc_lane(21, 4, 11, "xoxoxoxoxoxoxoxo");
+PN[22] = 16; PS[22] = 4; PC[22] = 4;
+kc_lane(22, 0, 0, "x...x...x...x...");
+kc_lane(22, 1, 14, "x.xxx.xxx.xxx.xx");
+kc_lane(22, 2, 10, "......xx......xx");
+kc_lane(22, 3, 4, "x.x.x.x.x.x.x.x.");
+PN[23] = 16; PS[23] = 4; PC[23] = 3;
+kc_lane(23, 0, 0, "x..xx...x..xx...");
+kc_lane(23, 1, 12, "x..x....x..x....");
+kc_lane(23, 2, 4, "x.x.x.x.x.x.x.x.");
+PN[24] = 16; PS[24] = 4; PC[24] = 4;
+kc_lane(24, 0, 0, "x..x.x..x..x.x..");
+kc_lane(24, 1, 1, "....X.......X...");
+kc_lane(24, 2, 4, "xxxxxxxxxxxxxx..");
+kc_lane(24, 3, 5, "..............x.");
+PN[25] = 16; PS[25] = 4; PC[25] = 4;
+kc_lane(25, 0, 0, "x.......x.x.....");
+kc_lane(25, 1, 6, "x..x.x..x..x.x..");
+kc_lane(25, 2, 2, "....x.......x...");
+kc_lane(25, 3, 10, "......x.......x.");
+PN[26] = 12; PS[26] = 4; PC[26] = 3;
+kc_lane(26, 0, 0, "x...........");
+kc_lane(26, 1, 6, "x...x..xx...");
+kc_lane(26, 2, 4, "....x...x...");
+PN[27] = 12; PS[27] = 3; PC[27] = 3;
+kc_lane(27, 0, 0, "x.....x.....");
+kc_lane(27, 1, 1, "..x..x..x..x");
+kc_lane(27, 2, 6, "x...........");
+PN[28] = 16; PS[28] = 4; PC[28] = 4;
+kc_lane(28, 0, 0, "X...X...X...X...");
+kc_lane(28, 1, 4, "..x...x...x...x.");
+kc_lane(28, 2, 3, "....x.......x...");
+kc_lane(28, 3, 5, "..............x.");
+MZSLOT[0] = 0; MZSLOT[1] = 1; MZSLOT[2] = 8; MZSLOT[3] = 10; MZSLOT[4] = 15; MZSLOT[5] = 14; MZSLOT[6] = 13; MZSLOT[7] = 12; MZSLOT[8] = 2; MZSLOT[9] = 6; MZSLOT[10] = 3; MZSLOT[11] = 11; MZSLOT[12] = 9; MZSLOT[13] = -1; MZSLOT[14] = -1;
+K78SLOT[0] = 0; K78SLOT[1] = 1; K78SLOT[2] = 2; K78SLOT[3] = -1; K78SLOT[4] = 3; K78SLOT[5] = 4; K78SLOT[6] = 4; K78SLOT[7] = 10; K78SLOT[8] = 8; K78SLOT[9] = 7; K78SLOT[10] = 9; K78SLOT[11] = 5; K78SLOT[12] = 6; K78SLOT[13] = 11; K78SLOT[14] = 12;
+KMPSLOT[0] = 15; KMPSLOT[1] = 16; KMPSLOT[2] = 27; KMPSLOT[3] = 17; KMPSLOT[4] = 18; KMPSLOT[5] = 19; KMPSLOT[6] = 20; KMPSLOT[7] = 22; KMPSLOT[8] = 25; KMPSLOT[9] = 24; KMPSLOT[10] = 23; KMPSLOT[11] = 29; KMPSLOT[12] = 26; KMPSLOT[13] = 21; KMPSLOT[14] = 28;
+NMN[35] = "Bass Drum"; NMN[36] = "Bass Drum"; NMN[37] = "Rim Shot"; NMN[38] = "Snare Drum"; NMN[39] = "Hand Clap"; NMN[40] = "Snare Drum"; NMN[41] = "Low Tom"; NMN[42] = "Closed Hihat"; NMN[43] = "Low Tom"; NMN[44] = "Closed Hihat"; NMN[45] = "Low Tom"; NMN[46] = "Open Hihat"; NMN[47] = "Mid Tom"; NMN[48] = "Mid Tom"; NMN[49] = "Cymbal"; NMN[50] = "Hi Tom"; NMN[52] = "Cymbal"; NMN[55] = "Cymbal"; NMN[56] = "Cow Bell"; NMN[57] = "Cymbal"; NMN[62] = "Hi Conga"; NMN[63] = "Mid Conga"; NMN[64] = "Low Conga"; NMN[70] = "Maracas"; NMN[75] = "Claves";
+NMN[163] = "Bass Drum"; NMN[164] = "Bass Drum"; NMN[165] = "Rim Shot"; NMN[166] = "Snare"; NMN[168] = "Snare"; NMN[169] = "Low Conga"; NMN[170] = "Hi-Hat"; NMN[171] = "Low Conga"; NMN[172] = "Hi-Hat"; NMN[173] = "Low Conga"; NMN[174] = "Hi-Hat"; NMN[177] = "Cymbal"; NMN[179] = "Cymbal"; NMN[180] = "Cymbal"; NMN[182] = "Tambourine"; NMN[183] = "Cymbal"; NMN[184] = "Cow Bell"; NMN[185] = "Cymbal"; NMN[187] = "Cymbal"; NMN[188] = "High Bongo"; NMN[189] = "Low Bongo"; NMN[190] = "High Bongo"; NMN[191] = "Low Bongo"; NMN[192] = "Low Conga"; NMN[198] = "Maracas"; NMN[201] = "Guiro (short)"; NMN[202] = "Guiro (long)"; NMN[203] = "Claves"; NMN[209] = "Metal Beat";
+NMN[291] = "Bass Drum"; NMN[292] = "Bass Drum"; NMN[293] = "Rim Shot"; NMN[294] = "Snare 1"; NMN[295] = "Snare 2"; NMN[296] = "Snare 2"; NMN[298] = "Hi-Hat"; NMN[300] = "Hi-Hat"; NMN[302] = "Cymbal 1"; NMN[305] = "Cymbal 2"; NMN[307] = "Cymbal 2"; NMN[308] = "Cymbal 2"; NMN[310] = "Tambourine"; NMN[311] = "Cymbal 2"; NMN[312] = "Cow Bell"; NMN[313] = "Cymbal 2"; NMN[314] = "Quijada"; NMN[315] = "Cymbal 2"; NMN[316] = "Bongo (600 Hz)"; NMN[317] = "Bongo (400 Hz)"; NMN[318] = "Conga"; NMN[319] = "Conga"; NMN[320] = "Conga"; NMN[329] = "Guiro"; NMN[330] = "Guiro"; NMN[331] = "Claves";
+memset(MZGM, -1, 128); memset(KGM, -1, 256);
+MZGM[35] = 0; MZGM[36] = 0; MZGM[37] = 8; MZGM[38] = 1; MZGM[39] = 10; MZGM[40] = 1; MZGM[41] = 2; MZGM[42] = 15; MZGM[43] = 2; MZGM[44] = 15; MZGM[45] = 2; MZGM[46] = 14; MZGM[47] = 4; MZGM[48] = 4; MZGM[49] = 13; MZGM[50] = 6; MZGM[52] = 13; MZGM[55] = 13; MZGM[56] = 12; MZGM[57] = 13; MZGM[62] = 7; MZGM[63] = 5; MZGM[64] = 3; MZGM[70] = 11; MZGM[75] = 9;
+KGM[35] = 0; KGM[36] = 0; KGM[37] = 2; KGM[38] = 1; KGM[40] = 1; KGM[41] = 9; KGM[42] = 3; KGM[43] = 9; KGM[44] = 3; KGM[45] = 9; KGM[46] = 3; KGM[49] = 4; KGM[51] = 4; KGM[52] = 4; KGM[54] = 11; KGM[55] = 4; KGM[56] = 10; KGM[57] = 4; KGM[59] = 4; KGM[60] = 7; KGM[61] = 8; KGM[62] = 7; KGM[63] = 8; KGM[64] = 9; KGM[70] = 5; KGM[73] = 12; KGM[74] = 13; KGM[75] = 6; KGM[81] = 14;
+KGM[163] = 15; KGM[164] = 15; KGM[165] = 27; KGM[166] = 16; KGM[167] = 17; KGM[168] = 17; KGM[170] = 18; KGM[172] = 18; KGM[174] = 19; KGM[177] = 20; KGM[179] = 20; KGM[180] = 20; KGM[182] = 21; KGM[183] = 20; KGM[184] = 22; KGM[185] = 20; KGM[186] = 29; KGM[187] = 20; KGM[188] = 24; KGM[189] = 25; KGM[190] = 23; KGM[191] = 23; KGM[192] = 23; KGM[201] = 28; KGM[202] = 28; KGM[203] = 26;
+
+u_i = 0;
+loop(8,
+  PN[KC_NF + u_i] = 16; PS[KC_NF + u_i] = 4; PC[KC_NF + u_i] = 15;
+  u_j = 0; loop(15, PL[(KC_NF + u_i) * 16 + u_j] = u_j; u_j += 1;);
+  u_i += 1;
+);
+mzr.st = 625341585;
+kmr.seed = 1;
+kc_p1 = kc_p2 = -2;
+kc_pos = -0.000000001;
+kc_last = -1;
+kc_led = kc_step = -1;
+kb_nkit = -1;
+kb_multi = 0 <? outs == 11 ? printf("+ 1"); ?>;
+u_i = 0;
+loop(30, KOUT[u_i] = KOUTT[u_i]; u_i += 1;);
+prev_loop = 1;
+LNOTE[0] = 36; LNOTE[1] = 38; LNOTE[2] = 37; LNOTE[3] = 39; LNOTE[4] = 42; LNOTE[5] = 46; LNOTE[6] = 49; LNOTE[7] = 56;
+LNOTE[8] = 45; LNOTE[9] = 50; LNOTE[10] = 64; LNOTE[11] = 70; LNOTE[12] = 75; LNOTE[13] = 54; LNOTE[14] = 73;
+km_glast = (kgain / 100);
+mz_accent = accent;
+mz_prep((srate));
+last_srate = srate;
+
+@slider
+last_srate != srate ? (
+  last_srate = srate;
+  memset(KMV, 0, 30 * 64);
+  km_active = 0;
+  km_glast = (kgain / 100);
+  mz_prep((srate));
+);
+
+@block
+kb_names();
+mz_accent = accent;
+km_tu = 2 ^ ((ktune) / 12);
+km_dc = 2 ^ (2 * (kdecay));
+km_tone = (ktone / 100);
+km_snappy = (ksnappy / 100);
+km_acc = (accent / 10);
+mz_setset();
+eq_n = 0;
+while (pad_rd != pad_wr) (
+  eq_n < 1024 ? (
+    EVQ[eq_n * 4] = 0; EVQ[eq_n * 4 + 1] = 153; EVQ[eq_n * 4 + 2] = PADQ[pad_rd * 2]; EVQ[eq_n * 4 + 3] = PADQ[pad_rd * 2 + 1];
+    eq_n += 1;
+  );
+  pad_rd = (pad_rd + 1) & 63;
+);
+while (midirecv(mofs, m1, m2, m3)) (
+  eq_n < 1024 ? (
+    EVQ[eq_n * 4] = mofs; EVQ[eq_n * 4 + 1] = m1; EVQ[eq_n * 4 + 2] = m2; EVQ[eq_n * 4 + 3] = m3;
+    eq_n += 1;
+  );
+  midisend(mofs, m1, m2, m3);
+);
+kc_block();
+km_gcur = km_glast;
+km_gend = (kgain / 100);
+km_ginc = km_gcur === km_gend ? 0 : ((km_gend - km_gcur) / samplesblock);
+km_glast = km_gend;
+eq_p = 0;
+hq_p = 0;
+b_si = 0;
+mz_seg = 0;
+
+@sample
+(eq_p < eq_n && EVQ[eq_p * 4] <= b_si) || (hq_p < kc_nh && HQ[hq_p * 4] <= b_si) ? mz_seg = 0;
+while (eq_p < eq_n && EVQ[eq_p * 4] <= b_si) (
+  ev_handle(EVQ[eq_p * 4 + 1], EVQ[eq_p * 4 + 2], EVQ[eq_p * 4 + 3]);
+  eq_p += 1;
+);
+while (hq_p < kc_nh && HQ[hq_p * 4] <= b_si) (
+  kit == 2 ? mz_trigger(HQ[hq_p * 4 + 1], HQ[hq_p * 4 + 3]) : km_trigger(HQ[hq_p * 4 + 1], HQ[hq_p * 4 + 2]);
+  hq_p += 1;
+);
+km_gl = km_gcur;
+out_km = (km_render() * km_gcur);
+km_gcur = (km_gcur + km_ginc);
+mz_idle = kit != 2 && !(MZAW[0] || MZAW[1] || MZAW[2] || MZAW[3] || MZAW[4] || MZAW[5] || MZAW[6] || MZAW[7] || MZAW[8] || MZAW[9]) && abs(mz_dy1) < 0.000000000001;
+out_mz = mz_idle ? 0 : mz_render1(mz_seg);
+mz_idle && kb_multi ? memset(MZO, 0, 10);
+mz_seg += 1;
+b_si += 1;
+kb_multi ? (
+  0;
+<?
+  outs == 11 ? (
+    i = 0;
+    loop(11,
+      i < 10 ? printf("  spl%d = KMO[%d] * km_gl + MZO[%d];\n", i, i, i) : printf("  spl%d = KMO[%d] * km_gl;\n", i, i);
+      i += 1;
+    );
+  );
+?>
+) : (
+  spl0 = spl1 = out_km + out_mz;
+);
+
+@serialize
+ser_v = 1;
+file_var(0, ser_v);
+file_mem(0, UPRES, 8);
+file_mem(0, PN + KC_NF, 8);
+file_mem(0, PS + KC_NF, 8);
+file_mem(0, PV + KC_NF * 15 * 32, 8 * 15 * 32);
+
+@gfx 1120 582
+
+gW0 = 1120; gH0 = 582;
+z = max(0.4, min(gfx_w / gW0, gfx_h / gH0));
+ox = floor((gfx_w - gW0 * z) * 0.5);
+oy = 0;
+gnow = time_precise();
+
+function automate(s, e)
+(
+<?
+  max_sliders > 36 ? printf("slider_automate(2^(s-1),e);") :
+    loop(i = 1; 36,
+      printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function sx(x) ( ox + x * z; );
+function sy(y) ( oy + y * z; );
+function hit(x, y, w, h) ( mouse_x >= sx(x) && mouse_x < sx(x + w) && mouse_y >= sy(y) && mouse_y < sy(y + h); );
+function hitc(x, y, r) ( sqr(mouse_x - sx(x)) + sqr(mouse_y - sy(y)) <= sqr(r * z); );
+function font(sz, fl) ( gfx_setfont(1, "Arial", (sz + 2) * z, fl); );
+function text_c(str, cx, y) local(tw, th) ( gfx_measurestr(str, tw, th); gfx_x = sx(cx) - tw * 0.5; gfx_y = sy(y); gfx_drawstr(str); );
+function text_l(str, lx, y) ( gfx_x = sx(lx); gfx_y = sy(y); gfx_drawstr(str); );
+function text_r(str, rx, y) local(tw, th) ( gfx_measurestr(str, tw, th); gfx_x = sx(rx) - tw; gfx_y = sy(y); gfx_drawstr(str); );
+function box(x, y, w, h) ( gfx_rect(sx(x), sy(y), w * z, h * z, 1); );
+function frame(x, y, w, h, a) ( gfx_set(0, 0, 0, a); gfx_rect(sx(x) - z, sy(y) - z, w * z + 2 * z, h * z + 2 * z, 1); );
+
+function set_sl(i, v) (
+  v = max(GSMIN[i], min(GSMAX[i], v));
+  slider(i) !== v ? ( slider(i) = v; automate(i, 0); );
+);
+function tap_sl(i, v) ( set_sl(i, v); automate(i, 1); );
+
+function sl_text(i, str) local(v) (
+  v = slider(i);
+  i == 4 ? sprintf(str, "%.1f %%", v) :
+  i == 6 ? sprintf(str, "%+.1f st", v) :
+  i == 7 ? sprintf(str, "x%.2f", 2 ^ (2 * v)) :
+  i == 8 || i == 9 ? sprintf(str, "%d %%", v) :
+  i == 34 ? sprintf(str, "%.1f %%", v) :
+  sprintf(str, "%.1f", v);
+);
+
+function hint(str) ( strcpy(#ghint, str); );
+
+function knob_body(x, y, r) local(QX, QY, QR, k, t, c) (
+  QX = sx(x); QY = sy(y); QR = r * z;
+  gfx_set(0, 0, 0, 0.35);
+  gfx_circle(QX + 1.5 * z, QY + 2.5 * z, QR + 2 * z, 1, 1);
+  gfx_set(0.04, 0.04, 0.045, 1);
+  gfx_circle(QX, QY, QR + 1.5 * z, 1, 1);
+  k = 0;
+  loop(ceil(QR),
+    t = k / ceil(QR);
+    c = 0.10 + 0.16 * t;
+    gfx_set(c, c, c * 1.04, 1);
+    gfx_circle(QX - QR * 0.12 * t, QY - QR * 0.18 * t, QR * (1 - t * 0.75), 1, 1);
+    k += 1;
+  );
+  gfx_set(1, 1, 1, 0.10);
+  gfx_arc(QX, QY, QR - 1 * z, -1.6, 0.2, 1);
+);
+
+function knob(x, y, r, i, label, lc) local(hov, nv, d, fine, QX, QY, a, a0, a1, k, pos, rr, big) (
+  hov = hitc(x, y, r + 5);
+  (mouse_click && hov) ? (
+    (g_lci == i && gnow - g_lct < 0.3) ? ( tap_sl(i, GSDEF[i]); g_drag = -1; ) :
+      ( g_drag = i; g_dy0 = mouse_y; g_dv0 = slider(i); );
+    g_lci = i; g_lct = gnow; mouse_click = 0;
+  );
+  g_drag == i && (mouse_cap & 1) ? (
+    mouse_cap |= 65536;
+    fine = (mouse_cap & 4) || (mouse_cap & 8);
+    d = (g_dy0 - mouse_y) / (200 * z) * (fine ? 0.1 : 1);
+    nv = g_dv0 + d * (GSMAX[i] - GSMIN[i]);
+    set_sl(i, floor(nv / GSSTEP[i] + 0.5) * GSSTEP[i]);
+  );
+  (hov && g_wheel != 0 && g_drag < 0) ? (
+    tap_sl(i, slider(i) + (g_wheel > 0 ? 1 : -1) * GSSTEP[i] * ((mouse_cap & 4) ? 1 : 5));
+    g_wheel = 0;
+  );
+  QX = sx(x); QY = sy(y);
+  pos = (slider(i) - GSMIN[i]) / (GSMAX[i] - GSMIN[i]);
+  a0 = -2.35619; a1 = 2.35619;
+  a = a0 + (a1 - a0) * max(0, min(1, pos));
+  k = 0;
+  loop(11,
+    d = a0 + (a1 - a0) * k / 10;
+    big = k == 0 || k == 5 || k == 10;
+    gfx_set(lc, lc, lc * 0.96, big ? 0.9 : 0.55);
+    rr = r + (big ? 8 : 6.5);
+    gfx_line(QX + sin(d) * (r + 4) * z, QY - cos(d) * (r + 4) * z, QX + sin(d) * rr * z, QY - cos(d) * rr * z, 1);
+    k += 1;
+  );
+  knob_body(x, y, r);
+  gfx_set(0.96, 0.96, 0.94, 1);
+  k = 0;
+  loop(max(1, ceil(1.6 * z)),
+    gfx_line(QX + sin(a) * r * 0.2 * z + (k - 0.5) * cos(a), QY - cos(a) * r * 0.2 * z + (k - 0.5) * sin(a),
+             QX + sin(a) * r * 0.92 * z + (k - 0.5) * cos(a), QY - cos(a) * r * 0.92 * z + (k - 0.5) * sin(a), 1);
+    k += 1;
+  );
+  label != 0 ? (
+    font(r >= 20 ? 10 : 8.5, 'b');
+    gfx_set(lc, lc, lc * 0.96, 1);
+    text_c(label, x, y - r - (r >= 20 ? 24 : 20));
+  );
+  (hov || g_drag == i) ? (
+    sl_text(i, #gkv);
+    sprintf(#ghint, "%s: %s   (drag, wheel, Ctrl/Shift fine, double-click resets)", GSNAME[i], #gkv);
+    g_tipi = i; g_tipx = x; g_tipy = y + r + 10;
+  );
+);
+
+function tooltip(x, y, str) local(tw, th, bx, by, bw, bh) (
+  font(10, 'b');
+  gfx_measurestr(str, tw, th);
+  bw = tw + 12 * z; bh = th + 6 * z;
+  bx = max(2, min(gfx_w - bw - 2, sx(x) - bw * 0.5)); by = sy(y);
+  gfx_set(0.08, 0.08, 0.09, 0.95);
+  gfx_rect(bx, by, bw, bh, 1);
+  gfx_set(0.93, 0.42, 0.13, 1);
+  gfx_rect(bx, by, bw, max(1, z), 1);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = bx + 6 * z; gfx_y = by + 3 * z;
+  gfx_drawstr(str);
+);
+
+function btn(x, y, w, h, label, lit) local(QX, QY, QW, QH, hov, r) (
+  QX = sx(x); QY = sy(y); QW = w * z; QH = h * z;
+  hov = hit(x, y, w, h);
+  gfx_set(0.02, 0.02, 0.02, 1);
+  gfx_rect(QX - z, QY - z, QW + 2 * z, QH + 2 * z, 1);
+  lit ? gfx_gradrect(QX, QY, QW, QH, 0.95, 0.50, 0.16, 1, 0, 0, 0, 0, -0.15 / QH, -0.10 / QH, -0.05 / QH, 0)
+      : gfx_gradrect(QX, QY, QW, QH, 0.30, 0.30, 0.31, 1, 0, 0, 0, 0, -0.10 / QH, -0.10 / QH, -0.10 / QH, 0);
+  hov ? ( gfx_set(1, 1, 1, 0.10); gfx_rect(QX, QY, QW, QH, 1); );
+  font(9.5, 'b');
+  lit ? gfx_set(0.10, 0.06, 0.03, 1) : gfx_set(0.92, 0.92, 0.90, 1);
+  text_c(label, x + w * 0.5, y + h * 0.5 - 7);
+  r = mouse_click && hov;
+  r ? mouse_click = 0;
+  r;
+);
+
+function seg(x, y, w, h, n, cur, s1, s2, s3) local(k, sw, on, hov, QX, r) (
+  sw = w / n;
+  r = -1;
+  k = 0;
+  loop(n,
+    on = k == cur;
+    hov = hit(x + k * sw, y, sw, h);
+    QX = sx(x + k * sw);
+    gfx_set(0.02, 0.02, 0.02, 1);
+    gfx_rect(QX - z, sy(y) - z, sw * z + 2 * z, h * z + 2 * z, 1);
+    on ? gfx_gradrect(QX, sy(y), sw * z - z, h * z, 0.95, 0.50, 0.16, 1, 0, 0, 0, 0, -0.15 / (h * z), -0.10 / (h * z), -0.05 / (h * z), 0)
+       : gfx_gradrect(QX, sy(y), sw * z - z, h * z, 0.27, 0.27, 0.28, 1, 0, 0, 0, 0, -0.08 / (h * z), -0.08 / (h * z), -0.08 / (h * z), 0);
+    hov && !on ? ( gfx_set(1, 1, 1, 0.10); gfx_rect(QX, sy(y), sw * z - z, h * z, 1); );
+    font(9.5, 'b');
+    on ? gfx_set(0.10, 0.06, 0.03, 1) : gfx_set(0.90, 0.90, 0.88, 1);
+    text_c(k == 0 ? s1 : (k == 1 ? s2 : s3), x + k * sw + sw * 0.5, y + h * 0.5 - 7);
+    (mouse_click && hov) ? ( r = k; mouse_click = 0; );
+    k += 1;
+  );
+  r;
+);
+
+function pat_name(p, str) (
+  p <= 0 ? strcpy(str, "OFF") : (p <= KC_NF ? strcpy(str, GPNAME[p - 1]) : sprintf(str, "USER %d", p - KC_NF));
+);
+
+function pat_menu(i) local(k, cur, sel, p) (
+  cur = slider(i);
+  strcpy(#gmn, cur == 0 ? "!Off" : "Off");
+  k = 0;
+  loop(KC_NF,
+    p = GPORD[k] + 1;
+    strcat(#gmn, "|");
+    p == cur ? strcat(#gmn, "!");
+    strcat(#gmn, GPNAME[p - 1]);
+    k += 1;
+  );
+  k = 0;
+  loop(8,
+    strcat(#gmn, "|");
+    cur == KC_NF + 1 + k ? strcat(#gmn, "!");
+    sprintf(#gtmp, "User %d%s", k + 1, UPRES[k] ? "" : " (empty)");
+    strcat(#gmn, #gtmp);
+    k += 1;
+  );
+  sel = gfx_showmenu(#gmn);
+  sel == 1 ? tap_sl(i, 0) : sel >= 2 && sel <= KC_NF + 1 ? tap_sl(i, GPORD[sel - 2] + 1) : sel > KC_NF + 1 ? tap_sl(i, sel - 1);
+);
+
+function chip(x, y, w, i, label) local(hov, QX, QY, QW, QH, tw, th) (
+  QX = sx(x); QY = sy(y); QW = w * z; QH = 24 * z;
+  hov = hit(x, y, w, 24);
+  font(8.5, 'b');
+  gfx_set(g_lab, g_lab, g_lab * 0.96, 1);
+  text_l(label, x, y - 16);
+  gfx_set(0.02, 0.02, 0.02, 1);
+  gfx_rect(QX - z, QY - z, QW + 2 * z, QH + 2 * z, 1);
+  gfx_gradrect(QX, QY, QW, QH, 0.20, 0.09, 0.05, 1, 0, 0, 0, 0, -0.08 / QH, -0.04 / QH, -0.02 / QH, 0);
+  hov ? ( gfx_set(1, 1, 1, 0.08); gfx_rect(QX, QY, QW, QH, 1); hint("Click to choose a rhythm (factory patterns A-Z, then your User 1-8)"); );
+  pat_name(slider(i), #gcv);
+  font(10, 'b');
+  gfx_set(1.0, 0.55, 0.22, 1);
+  gfx_measurestr(#gcv, tw, th);
+  gfx_x = QX + 8 * z; gfx_y = QY + floor((QH - th) * 0.5 + 0.5);
+  gfx_drawstr(#gcv);
+  gfx_x = QX + QW - 16 * z; gfx_drawstr("v");
+  (mouse_click && hov) ? ( gfx_x = QX; gfx_y = QY + QH; pat_menu(i); mouse_click = 0; );
+);
+
+function pad_col(c, ki) (
+  ki == 0 ? (
+    c < 4 ? (g_pr = 0.85; g_pg = 0.29; g_pb = 0.20;) :
+    c < 8 ? (g_pr = 0.96; g_pg = 0.51; g_pb = 0.10;) :
+    c < 12 ? (g_pr = 0.92; g_pg = 0.83; g_pb = 0.06;) :
+    (g_pr = 0.94; g_pg = 0.86; g_pb = 0.69;);
+  ) : ki == 1 ? (
+    g_pr = 0.92; g_pg = 0.62; g_pb = 0.22;
+  ) : (
+    g_pr = 0.90; g_pg = 0.87; g_pb = 0.78;
+  );
+);
+
+function pad_voice(ki, c) ( ki == 0 ? GPV808[c] : (ki == 1 ? GPV78[c] : GPVMP[c]); );
+function pad_note(ki, c) ( ki == 0 ? GPN808[c] : (ki == 1 ? GPN78[c] : GPNMP[c]); );
+
+function pad_fit(mw) local(tw, th, tw2) (
+  g_pnsz = 11;
+  font(g_pnsz, 'b');
+  gfx_measurestr(#gpn1, tw, th); gfx_measurestr(#gpn2, tw2, th);
+  while (g_pnsz > 6 && max(tw, tw2) > mw * z) (
+    g_pnsz -= 0.5;
+    font(g_pnsz, 'b');
+    gfx_measurestr(#gpn1, tw, th); gfx_measurestr(#gpn2, tw2, th);
+  );
+  g_pnth = th;
+);
+
+function pad_name(str, cx, y, mw) local(n, i, sp, ch, two) (
+  n = strlen(str);
+  sp = -1;
+  i = 0;
+  loop(n, ch = str_getchar(str, i); sp < 0 && (ch == 32 || ch == 126) ? ( sp = i; g_pnhy = ch == 126; ); i += 1;);
+  two = sp >= 0;
+  two && g_pnhy ? (
+    strcpy_substr(#gpn1, str, 0, sp); strcpy_substr(#gpn2, str, sp + 1); strcat(#gpn1, #gpn2); strcpy(#gpn2, "");
+    pad_fit(mw);
+    g_pnsz >= 10.5 ? two = 0;
+  );
+  two ? (
+    strcpy_substr(#gpn1, str, 0, sp); strcpy_substr(#gpn2, str, sp + 1);
+    g_pnhy ? strcat(#gpn1, "-");
+  ) : (
+    sp < 0 ? strcpy(#gpn1, str);
+    strcpy(#gpn2, "");
+  );
+  pad_fit(mw);
+  two ? ( text_c(#gpn1, cx, y - g_pnth / z); text_c(#gpn2, cx, y); ) : text_c(#gpn1, cx, y - g_pnth * 0.5 / z);
+);
+
+function pad(c, ki) local(x, y, w, h, QX, QY, QW, QH, hov, t, lit, vc, nt, cnt, acc) (
+  vc = pad_voice(ki, c);
+  vc >= 0 ? (
+    x = 20 + c * 68; y = 438; w = 60; h = 99;
+    QX = sx(x); QY = sy(y); QW = w * z; QH = h * z;
+    pad_col(c, ki);
+    hov = hit(x, y, w, h);
+    cnt = ki == 0 ? HITS[vc] : KHITS[vc];
+    cnt != GPADC[c] ? ( GPADC[c] = cnt; GPADT[c] = gnow; );
+    t = gnow - GPADT[c];
+    lit = t >= 0 && t < 0.18 ? 1 - t / 0.18 : 0;
+    gfx_set(0.02, 0.02, 0.02, 1);
+    gfx_rect(QX - 2 * z, QY - 2 * z, QW + 4 * z, QH + 4 * z, 1);
+    gfx_gradrect(QX, QY, QW, QH, g_pr, g_pg, g_pb, 1, 0, 0, 0, 0, -0.20 * g_pr / QH, -0.20 * g_pg / QH, -0.20 * g_pb / QH, 0);
+    gfx_set(1, 1, 1, 0.28);
+    gfx_rect(QX, QY, QW, max(1, 1.5 * z), 1);
+    gfx_set(0, 0, 0, 0.22);
+    gfx_rect(QX, QY + QH - 6 * z, QW, 6 * z, 1);
+    lit > 0 ? ( gfx_set(1, 1, 1, 0.35 * lit); gfx_rect(QX, QY, QW, QH, 1); );
+    hov ? ( gfx_set(1, 1, 1, 0.10); gfx_rect(QX, QY, QW, QH, 1); );
+    gfx_set(0, 0, 0, 0.10); gfx_rect(QX, QY, QW, 25 * z, 1);
+    gfx_set(g_pr + (1 - g_pr) * 0.30, g_pg + (1 - g_pg) * 0.30, g_pb + (1 - g_pb) * 0.30, 1); gfx_rect(QX, QY + 20 * z, QW, max(1, z), 1);
+    gfx_rect(QX + 4 * z, QY + 25 * z, QW - 8 * z, max(1, z), 1);
+    gfx_set(0.10, 0.06, 0.04, 0.92);
+    pad_name(GPL2[ki * 16 + c], x + w * 0.5, y + 54, w - 4);
+    nt = pad_note(ki, c);
+    sprintf(#gnt, "%s%d", nt % 12 == 0 ? "C" : nt % 12 == 1 ? "C#" : nt % 12 == 2 ? "D" : nt % 12 == 3 ? "D#" : nt % 12 == 4 ? "E" :
+            nt % 12 == 5 ? "F" : nt % 12 == 6 ? "F#" : nt % 12 == 7 ? "G" : nt % 12 == 8 ? "G#" : nt % 12 == 9 ? "A" : nt % 12 == 10 ? "A#" : "B",
+            floor(nt / 12) - 1);
+    font(8.5, 'b');
+    gfx_set(0.10, 0.06, 0.04, 0.6);
+    text_c(#gnt, x + w * 0.5, y + h - 24);
+    hov ? hint("Click to play (accent: Shift-click or right-click). MIDI notes follow the General MIDI drum map");
+    acc = (mouse_cap & 8) || (mouse_cap & 2);
+    ((mouse_click || mouse_rclick) && hov) ? (
+      PADQ[pad_wr * 2] = nt; PADQ[pad_wr * 2 + 1] = acc ? 127 : (ki == 0 ? 100 : 90);
+      pad_wr = (pad_wr + 1) & 63;
+      mouse_click = mouse_rclick = 0;
+    );
+  );
+);
+
+function leds() local(c, x, y, on) (
+  c = 0;
+  loop(16,
+    x = 20 + c * 68 + 30; y = 449;
+    on = kc_led == c;
+    gfx_set(0, 0, 0, 0.45); gfx_circle(sx(x), sy(y), 5.5 * z, 1, 1);
+    gfx_set(0.24, 0.03, 0.02, 1); gfx_circle(sx(x), sy(y), 4.5 * z, 1, 1);
+    gfx_set(1, 0.6, 0.5, 0.18); gfx_circle(sx(x - 1.2), sy(y - 1.4), 1.6 * z, 1, 1);
+    on ? (
+      gfx_set(1, 0.15, 0.06, 0.35); gfx_circle(sx(x), sy(y), 9 * z, 1, 1);
+      gfx_set(1, 0.22, 0.12, 1); gfx_circle(sx(x), sy(y), 4.5 * z, 1, 1);
+      gfx_set(1, 0.85, 0.75, 0.9); gfx_circle(sx(x - 1.2), sy(y - 1.4), 1.6 * z, 1, 1);
+    );
+    font(8, 'b');
+    gfx_set(g_lab, g_lab, g_lab * 0.96, 0.8);
+    sprintf(#gn, "%d", c + 1);
+    text_c(#gn, x, 418);
+    c += 1;
+  );
+);
+
+function panel808() local(c, x, y, i, cw) (
+  cw = 82;
+  c = 0;
+  loop(13,
+    x = 26 + c * cw + cw * 0.5;
+    c > 0 && c < 12 ? ( gfx_set(1, 1, 1, 0.07); box(26 + c * cw, 84, 1, 220); );
+    i = 0;
+    loop(3,
+      GC8[c * 3 + i] > 0 ? knob(x, 126 + i * 66, c == 12 ? 20 : 15, GC8[c * 3 + i], GC8L[c * 3 + i], 0.86);
+      i += 1;
+    );
+    font(9, 'b');
+    gfx_set(0.96, 0.52, 0.18, 1);
+    text_c(GC8N1[c], x, 280);
+    text_c(GC8N2[c], x, 294);
+    c += 1;
+  );
+);
+
+function panelkm(ki) local(c, x, r) (
+  c = 0;
+  loop(6,
+    x = 120 + c * 132;
+    knob(x, 170, 28, GCKM[c], GCKML[c], 0.86);
+    c += 1;
+  );
+  font(9, 'b');
+  gfx_set(0.86, 0.86, 0.83, 1);
+  text_c("VELOCITY", 975, 128);
+  r = seg(920, 150, 110, 28, 2, kvel, "OFF", "ON", "");
+  r >= 0 ? tap_sl(10, r);
+  hit(920, 150, 110, 28) ? hint("Off: as the machine (normal level, accent from velocity 100). On: velocity sets the level");
+  font(9, 'b');
+  gfx_set(0.96, 0.52, 0.18, 1);
+  text_c(ki == 1 ? "CR-78 KIT  -  15 VOICES" : "MINI POPS 7 KIT  -  15 VOICES", gW0 * 0.5, 262);
+);
+
+function ed_lane_voice(ki, l) ( ki == 0 ? MZSLOT[l] : (ki == 1 ? K78SLOT[l] : KMPSLOT[l]); );
+
+function ed_cell_set(u, l, s, v) ( PV[((KC_NF + u) * 15 + l) * 32 + s] = v; UPRES[u] = 1; );
+
+function editor(ki) local(u, p, ns, spb, gx, gy, cw, rh, l, s, x, y, v, on, hov, QX, QY, cur, r, sel, k, q, src, inl, mx, my) (
+  u = g_eslot;
+  p = KC_NF + u;
+  ns = PN[p];
+  spb = PS[p];
+  gfx_set(0.07, 0.07, 0.075, 1);
+  box(14, 70, gW0 - 28, 470);
+  gfx_set(0.96, 0.52, 0.18, 1);
+  box(14, 70, gW0 - 28, 2);
+  font(11, 'b');
+  gfx_set(0.95, 0.95, 0.92, 1);
+  text_l("USER RHYTHMS", 30, 86);
+  k = 0;
+  loop(8,
+    sprintf(#gn, "%d", k + 1);
+    btn(190 + k * 34, 82, 30, 24, #gn, k == u) ? g_eslot = k;
+    k += 1;
+  );
+  btn(476, 82, 150, 24, ns == 32 ? "32 STEPS (2 BARS)" : ns == 16 ? "16 STEPS (4/4)" : spb == 3 ? "12 STEPS (SHUFFLE)" : "12 STEPS (WALTZ)", 0) ? (
+    gfx_x = sx(476); gfx_y = sy(106);
+    sel = gfx_showmenu("16 steps (4/4)|32 steps (2 bars)|12 steps (waltz 3/4)|12 steps (shuffle: triplet eighths)");
+    sel > 0 ? (
+      PN[p] = sel == 1 ? 16 : (sel == 2 ? 32 : 12);
+      PS[p] = sel == 4 ? 3 : 4;
+      l = 0;
+      loop(15, s = PN[p]; loop(32 - PN[p], PV[(p * 15 + l) * 32 + s] = 0; s += 1;); l += 1;);
+      UPRES[u] = 1;
+    );
+  );
+  btn(636, 82, 110, 24, "COPY FROM...", 0) ? (
+    strcpy(#gmn, "");
+    k = 0;
+    loop(KC_NF, k > 0 ? strcat(#gmn, "|"); strcat(#gmn, GPNAME[GPORD[k]]); k += 1;);
+    gfx_x = sx(636); gfx_y = sy(106);
+    sel = gfx_showmenu(#gmn);
+    sel > 0 ? (
+      src = GPORD[sel - 1];
+      PN[p] = PN[src]; PS[p] = PS[src];
+      memset(PV + p * 15 * 32, 0, 15 * 32);
+      k = 0;
+      loop(PC[src],
+        l = PL[src * 16 + k];
+        memcpy(PV + (p * 15 + l) * 32, PV + (src * 15 + l) * 32, PN[src]);
+        k += 1;
+      );
+      UPRES[u] = 1;
+    );
+  );
+  btn(756, 82, 60, 24, "CLEAR", 0) ? ( memset(PV + p * 15 * 32, 0, 15 * 32); UPRES[u] = 1; );
+  btn(822, 82, 56, 24, "COPY", gnow - g_copyt < 0.15) ? (
+    g_copyt = gnow;
+    gmem[0] = 1; gmem[1] = ns; gmem[2] = spb;
+    k = 0; loop(480, gmem[10 + k] = PV[p * 480 + k]; k += 1;);
+  );
+  hit(822, 82, 56, 24) ? hint("Copies this rhythm (any Kick Back instance can paste it). Shift-click a lane name to copy one lane");
+  btn(882, 82, 60, 24, "PASTE", gmem[0] > 0) ? (
+    gmem[0] == 1 ? (
+      PN[p] = gmem[1]; PS[p] = gmem[2];
+      k = 0; loop(480, PV[p * 480 + k] = gmem[10 + k]; k += 1;);
+      UPRES[u] = 1;
+    ) : gmem[0] == 2 ? (
+      k = 0; loop(32, PV[p * 480 + gmem[3] * 32 + k] = k < ns ? gmem[500 + k] : 0; k += 1;);
+      UPRES[u] = 1;
+    );
+  );
+  hit(882, 82, 60, 24) && gmem[0] > 0 ? hint(gmem[0] == 1 ? "Pastes the copied rhythm into this slot" : "Pastes the copied lane into the same lane of this slot");
+  cur = pat == KC_NF + 1 + u;
+  g_pv = prev_on && play_state == 0;
+  btn(950, 82, 80, 24, cur && (g_pv || (play_state & 1)) ? "STOP" : "PLAY IT", cur && (g_pv || (play_state & 1))) ? (
+    cur && (g_pv || (play_state & 1)) ? (
+      tap_sl(2, 0); prev_req_on = 0; prev_req = 1;
+    ) : (
+      tap_sl(2, KC_NF + 1 + u);
+      play_state == 0 ? ( prev_req_on = 1; prev_req = 1; );
+    );
+  );
+  hit(950, 82, 80, 24) ? hint("Selects this slot as the pattern and previews it while REAPER is stopped");
+  btn(1036, 82, 60, 24, "CLOSE", 0) ? g_edit = 0;
+  gx = 150; gy = 124; rh = 25;
+  cw = min(56, floor((gW0 - 30 - gx) / ns));
+  k = 0;
+  loop(ns,
+    x = gx + k * cw;
+    k % spb == 0 ? ( gfx_set(1, 1, 1, 0.10); box(x, gy - 4, 1, 15 * rh + 4); font(8, 'b'); gfx_set(0.8, 0.8, 0.78, 1); sprintf(#gn, "%d", k + 1); text_l(#gn, x + 3, gy - 18); );
+    ns == 32 && k == 16 ? ( gfx_set(0.96, 0.52, 0.18, 0.8); box(x - 1, gy - 6, 2, 15 * rh + 8); );
+    k += 1;
+  );
+  q = cur && pat2 == 0 && kc_step >= 0 ? kc_step % ns : -1;
+  q >= 0 ? ( gfx_set(1, 1, 1, 0.08); box(gx + q * cw, gy, cw, 15 * rh); );
+  mx = mouse_x; my = mouse_y;
+  inl = mx >= sx(gx) && mx < sx(gx + ns * cw) && my >= sy(gy) && my < sy(gy + 15 * rh);
+  l = 0;
+  loop(15,
+    y = gy + l * rh;
+    on = ed_lane_voice(ki, l) >= 0;
+    font(9.5, 'b');
+    gfx_set(0.92, 0.92, 0.89, on ? 1 : 0.35);
+    text_l(GLANE[l], 30, y + 6);
+    (mouse_click && (mouse_cap & 8) && hit(26, y, 118, rh)) ? (
+      gmem[0] = 2; gmem[3] = l;
+      k = 0; loop(32, gmem[500 + k] = PV[(p * 15 + l) * 32 + k]; k += 1;);
+      g_copyt = gnow; mouse_click = 0;
+    );
+    s = 0;
+    loop(ns,
+      x = gx + s * cw;
+      v = PV[(p * 15 + l) * 32 + s];
+      QX = sx(x + 2); QY = sy(y + 3);
+      pad_col(l < 15 ? (l < 4 ? 0 : l < 8 ? 4 : l < 12 ? 8 : 12) : 0, 0);
+      v > 0.9 ? gfx_set(g_pr, g_pg, g_pb, on ? 1 : 0.4) :
+      v > 0.6 ? gfx_set(g_pr * 0.72, g_pg * 0.72, g_pb * 0.72, on ? 1 : 0.4) :
+      v > 0 ? gfx_set(g_pr * 0.45, g_pg * 0.45, g_pb * 0.45, on ? 1 : 0.4) :
+      gfx_set(0.19, 0.19, 0.20, on ? 1 : 0.5);
+      gfx_rect(QX, QY, (cw - 4) * z, (rh - 6) * z, 1);
+      v > 0.9 ? ( font(8, 'b'); gfx_set(0.1, 0.05, 0.03, 1); text_c("A", x + cw * 0.5, y + 6); );
+      v > 0 && v < 0.6 ? ( font(8, 'b'); gfx_set(0.85, 0.85, 0.82, 0.9); text_c("s", x + cw * 0.5, y + 5); );
+      s += 1;
+    );
+    l += 1;
+  );
+  inl ? (
+    s = floor((mx - sx(gx)) / (cw * z));
+    l = floor((my - sy(gy)) / (rh * z));
+    v = PV[(p * 15 + l) * 32 + s];
+    mouse_click ? ( g_paint = v == 0 ? 0.75 : (v > 0.9 ? KM_SOFT : (v > 0.6 ? 1 : 0)); g_painting = 1; mouse_click = 0; );
+    mouse_rclick ? ( g_paint = 0; g_painting = 2; mouse_rclick = 0; );
+    g_painting == 1 && (mouse_cap & 1) ? ed_cell_set(u, l, s, g_paint);
+    g_painting == 2 && (mouse_cap & 2) ? ed_cell_set(u, l, s, 0);
+    hint("Click: normal > accent > soft > empty.  Right-click empties.  Drag paints the first click's value");
+  );
+  !(mouse_cap & 3) ? g_painting = 0;
+  font(8.5, 0);
+  gfx_set(0.75, 0.75, 0.72, 1);
+  text_l("Editing User 1-8 only (pick them in the Pattern menus). Factory patterns can't be changed: COPY FROM... starts a User slot from one.", 30, 506);
+  text_l("A = accent, s = soft. Dimmed lanes are sounds the selected kit lacks; they stay in the rhythm for the other kits.", 30, 521);
+);
+
+function gfx_setup() local(i) (
+  GSMIN = 2000000; GSMAX = 2000040; GSDEF = 2000080; GSSTEP = 2000120;
+  GC8 = 2000200; GC8L = 2000260; GC8N1 = 2000320; GC8N2 = 2000340; GCKM = 2000360; GCKML = 2000370;
+  GPV808 = 2000400; GPV78 = 2000420; GPVMP = 2000440; GPN808 = 2000460; GPN78 = 2000480; GPNMP = 2000500;
+  GPL1 = 2000520; GPL2 = 2000580; GPADC = 2000640; GPADT = 2000660; GPORD = 2000700; GPNAME = 2000740; GSNAME = 2000780; GLANE = 2000820;
+  i = 1;
+  loop(36, GSMIN[i] = 0; GSMAX[i] = 10; GSDEF[i] = 5; GSSTEP[i] = 0.1; i += 1;);
+  GSMAX[4] = 50; GSDEF[4] = 0;
+  GSMAX[1] = 2; GSDEF[1] = 2; GSSTEP[1] = 1;
+  GSMAX[2] = GSMAX[3] = KC_NF + 8; GSDEF[2] = GSDEF[3] = 0; GSSTEP[2] = GSSTEP[3] = 1;
+  GSMAX[10] = GSMAX[11] = GSMAX[35] = GSMAX[36] = 1; GSDEF[10] = GSDEF[11] = GSDEF[36] = 0; GSDEF[35] = 1;
+  GSSTEP[10] = GSSTEP[11] = GSSTEP[35] = GSSTEP[36] = 1;
+  GSDEF[5] = 5;
+  GSMIN[6] = -12; GSMAX[6] = 12; GSDEF[6] = 0;
+  GSMIN[7] = -1; GSMAX[7] = 1; GSDEF[7] = 0; GSSTEP[7] = 0.01;
+  GSMAX[8] = 100; GSDEF[8] = 50; GSSTEP[8] = 1;
+  GSMAX[9] = 100; GSDEF[9] = 50; GSSTEP[9] = 1;
+  GSDEF[12] = 8; GSDEF[15] = 7; GSDEF[18] = 7; GSDEF[20] = 7; GSDEF[22] = 7; GSDEF[24] = 6; GSDEF[25] = 7; GSDEF[26] = 6;
+  GSDEF[27] = 6; GSDEF[30] = 6; GSDEF[31] = 4; GSDEF[32] = 6; GSDEF[33] = 7;
+  GSMAX[34] = 100; GSDEF[34] = 50; GSSTEP[34] = 0.5;
+  GSNAME[1] = "Kit"; GSNAME[2] = "Pattern"; GSNAME[3] = "+ Pattern"; GSNAME[4] = "Swing (%)"; GSNAME[5] = "Accent"; GSNAME[6] = "Tune (st, CR-78/Mini Pops)"; GSNAME[7] = "Decay (CR-78/Mini Pops)"; GSNAME[8] = "Tone (%, CR-78/Mini Pops)"; GSNAME[9] = "Snappy (%, CR-78/Mini Pops)"; GSNAME[10] = "Velocity (CR-78/Mini Pops)"; GSNAME[11] = "Channel 10 only"; GSNAME[12] = "BD Level"; GSNAME[13] = "BD Tone"; GSNAME[14] = "BD Decay"; GSNAME[15] = "SD Level"; GSNAME[16] = "SD Tone"; GSNAME[17] = "SD Snappy"; GSNAME[18] = "LT/LC Level"; GSNAME[19] = "LT/LC Tuning"; GSNAME[20] = "MT/MC Level"; GSNAME[21] = "MT/MC Tuning"; GSNAME[22] = "HT/HC Level"; GSNAME[23] = "HT/HC Tuning"; GSNAME[24] = "RS/CL Level"; GSNAME[25] = "CP/MA Level"; GSNAME[26] = "CB Level"; GSNAME[27] = "CY Level"; GSNAME[28] = "CY Tone"; GSNAME[29] = "CY Decay"; GSNAME[30] = "OH Level"; GSNAME[31] = "OH Decay"; GSNAME[32] = "CH Level"; GSNAME[33] = "Volume (TR-808)"; GSNAME[34] = "Gain (%, CR-78/Mini Pops)"; GSNAME[35] = "Sequencer"; GSNAME[36] = "MIDI Out";
+  memset(GC8, 0, 39);
+  GC8[0] = 5; GC8L[0] = "ACCENT";
+  GC8[3] = 12; GC8[4] = 13; GC8[5] = 14; GC8L[3] = "LEVEL"; GC8L[4] = "TONE"; GC8L[5] = "DECAY";
+  GC8[6] = 15; GC8[7] = 16; GC8[8] = 17; GC8L[6] = "LEVEL"; GC8L[7] = "TONE"; GC8L[8] = "SNAPPY";
+  GC8[9] = 18; GC8[10] = 19; GC8L[9] = "LEVEL"; GC8L[10] = "TUNING";
+  GC8[12] = 20; GC8[13] = 21; GC8L[12] = "LEVEL"; GC8L[13] = "TUNING";
+  GC8[15] = 22; GC8[16] = 23; GC8L[15] = "LEVEL"; GC8L[16] = "TUNING";
+  GC8[18] = 24; GC8L[18] = "LEVEL";
+  GC8[21] = 25; GC8L[21] = "LEVEL";
+  GC8[24] = 26; GC8L[24] = "LEVEL";
+  GC8[27] = 27; GC8[28] = 28; GC8[29] = 29; GC8L[27] = "LEVEL"; GC8L[28] = "TONE"; GC8L[29] = "DECAY";
+  GC8[30] = 30; GC8[31] = 31; GC8L[30] = "LEVEL"; GC8L[31] = "DECAY";
+  GC8[33] = 32; GC8L[33] = "LEVEL";
+  GC8[36] = 33; GC8L[36] = "VOLUME";
+  GC8N1[0] = "ACCENT"; GC8N2[0] = "";
+  GC8N1[1] = "BASS"; GC8N2[1] = "DRUM";
+  GC8N1[2] = "SNARE"; GC8N2[2] = "DRUM";
+  GC8N1[3] = "LOW TOM"; GC8N2[3] = "LOW CONGA";
+  GC8N1[4] = "MID TOM"; GC8N2[4] = "MID CONGA";
+  GC8N1[5] = "HI TOM"; GC8N2[5] = "HI CONGA";
+  GC8N1[6] = "RIM SHOT"; GC8N2[6] = "CLAVES";
+  GC8N1[7] = "HAND CLAP"; GC8N2[7] = "MARACAS";
+  GC8N1[8] = "COW"; GC8N2[8] = "BELL";
+  GC8N1[9] = "CYMBAL"; GC8N2[9] = "";
+  GC8N1[10] = "OPEN"; GC8N2[10] = "HIHAT";
+  GC8N1[11] = "CLOSED"; GC8N2[11] = "HIHAT";
+  GC8N1[12] = "MASTER"; GC8N2[12] = "";
+  GCKM[0] = 6; GCKM[1] = 7; GCKM[2] = 8; GCKM[3] = 9; GCKM[4] = 5; GCKM[5] = 34;
+  GCKML[0] = "TUNE"; GCKML[1] = "DECAY"; GCKML[2] = "TONE"; GCKML[3] = "SNAPPY"; GCKML[4] = "ACCENT"; GCKML[5] = "VOLUME";
+  i = 0;
+  loop(16, GPV808[i] = i; i += 1;);
+  GPN808[0] = 36; GPN808[1] = 38; GPN808[2] = 43; GPN808[3] = 64; GPN808[4] = 47; GPN808[5] = 63; GPN808[6] = 50; GPN808[7] = 62;
+  GPN808[8] = 37; GPN808[9] = 75; GPN808[10] = 39; GPN808[11] = 70; GPN808[12] = 56; GPN808[13] = 49; GPN808[14] = 46; GPN808[15] = 42;
+  GPN78[0] = 36; GPN78[1] = 38; GPN78[2] = 37; GPN78[3] = 42; GPN78[4] = 49; GPN78[5] = 54; GPN78[6] = 56; GPN78[7] = 60;
+  GPN78[8] = 61; GPN78[9] = 64; GPN78[10] = 70; GPN78[11] = 73; GPN78[12] = 74; GPN78[13] = 75; GPN78[14] = 81; GPN78[15] = -1;
+  GPNMP[0] = 36; GPNMP[1] = 38; GPNMP[2] = 39; GPNMP[3] = 37; GPNMP[4] = 42; GPNMP[5] = 46; GPNMP[6] = 49; GPNMP[7] = 54;
+  GPNMP[8] = 56; GPNMP[9] = 58; GPNMP[10] = 60; GPNMP[11] = 61; GPNMP[12] = 62; GPNMP[13] = 73; GPNMP[14] = 75; GPNMP[15] = -1;
+  i = 0;
+  loop(16,
+    GPV78[i] = GPN78[i] >= 0 ? KGM[GPN78[i]] : -1;
+    GPVMP[i] = GPNMP[i] >= 0 ? KGM[128 + GPNMP[i]] : -1;
+    i += 1;
+  );
+  GPL1[0] = "BD"; GPL1[1] = "SD"; GPL1[2] = "LT"; GPL1[3] = "LC"; GPL1[4] = "MT"; GPL1[5] = "MC"; GPL1[6] = "HT"; GPL1[7] = "HC";
+  GPL1[8] = "RS"; GPL1[9] = "CL"; GPL1[10] = "CP"; GPL1[11] = "MA"; GPL1[12] = "CB"; GPL1[13] = "CY"; GPL1[14] = "OH"; GPL1[15] = "CH";
+  GPL2[0] = "BASS DRUM"; GPL2[1] = "SNARE"; GPL2[2] = "LOW TOM"; GPL2[3] = "LOW CONGA"; GPL2[4] = "MID TOM"; GPL2[5] = "MID CONGA";
+  GPL2[6] = "HI TOM"; GPL2[7] = "HI CONGA"; GPL2[8] = "RIM SHOT"; GPL2[9] = "CLAVES"; GPL2[10] = "HAND CLAP"; GPL2[11] = "MARA~CAS";
+  GPL2[12] = "COW BELL"; GPL2[13] = "CYMBAL"; GPL2[14] = "OPEN HAT"; GPL2[15] = "CLOSED HAT";
+  GPL1[16] = "BD"; GPL1[17] = "SD"; GPL1[18] = "RS"; GPL1[19] = "HH"; GPL1[20] = "CY"; GPL1[21] = "TB"; GPL1[22] = "CB"; GPL1[23] = "HB";
+  GPL1[24] = "LB"; GPL1[25] = "LC"; GPL1[26] = "MA"; GPL1[27] = "GU"; GPL1[28] = "GU"; GPL1[29] = "CL"; GPL1[30] = "MB";
+  GPL2[16] = "BASS DRUM"; GPL2[17] = "SNARE"; GPL2[18] = "RIM SHOT"; GPL2[19] = "HI-HAT"; GPL2[20] = "CYMBAL"; GPL2[21] = "TAMBOU~RINE";
+  GPL2[22] = "COW BELL"; GPL2[23] = "HIGH BONGO"; GPL2[24] = "LOW BONGO"; GPL2[25] = "LOW CONGA"; GPL2[26] = "MARA~CAS";
+  GPL2[27] = "GUIRO SHORT"; GPL2[28] = "GUIRO LONG"; GPL2[29] = "CLAVES"; GPL2[30] = "METAL BEAT";
+  GPL1[32] = "BD"; GPL1[33] = "SN1"; GPL1[34] = "SN2"; GPL1[35] = "RS"; GPL1[36] = "HH"; GPL1[37] = "CY1"; GPL1[38] = "CY2"; GPL1[39] = "TA";
+  GPL1[40] = "CB"; GPL1[41] = "QU"; GPL1[42] = "BO"; GPL1[43] = "BO"; GPL1[44] = "CO"; GPL1[45] = "GU"; GPL1[46] = "CL";
+  GPL2[32] = "BASS DRUM"; GPL2[33] = "SNARE 1"; GPL2[34] = "SNARE 2"; GPL2[35] = "RIM SHOT"; GPL2[36] = "HI-HAT"; GPL2[37] = "CYMBAL 1";
+  GPL2[38] = "CYMBAL 2"; GPL2[39] = "TAMBOU~RINE"; GPL2[40] = "COW BELL"; GPL2[41] = "QUIJADA"; GPL2[42] = "BONGO 600";
+  GPL2[43] = "BONGO 400"; GPL2[44] = "CONGA"; GPL2[45] = "GUIRO"; GPL2[46] = "CLAVES";
+  GLANE[0] = "Bass Drum"; GLANE[1] = "Snare"; GLANE[2] = "Rim Shot"; GLANE[3] = "Hand Clap"; GLANE[4] = "Closed Hat";
+  GLANE[5] = "Open Hat"; GLANE[6] = "Cymbal"; GLANE[7] = "Cowbell"; GLANE[8] = "Low Tom"; GLANE[9] = "High Tom";
+  GLANE[10] = "Low Conga"; GLANE[11] = "Maracas"; GLANE[12] = "Claves"; GLANE[13] = "Tambourine"; GLANE[14] = "Guiro";
+  GPNAME[0] = "Rock 1"; GPNAME[1] = "Rock 2"; GPNAME[2] = "Disco"; GPNAME[3] = "Funk"; GPNAME[4] = "Electro"; GPNAME[5] = "Hip Hop"; GPNAME[6] = "Synth Pop"; GPNAME[7] = "Bossa Nova"; GPNAME[8] = "Samba"; GPNAME[9] = "Cha-Cha"; GPNAME[10] = "Mambo"; GPNAME[11] = "Beguine"; GPNAME[12] = "Tango"; GPNAME[13] = "Reggae"; GPNAME[14] = "March"; GPNAME[15] = "Foxtrot"; GPNAME[16] = "Waltz"; GPNAME[17] = "Shuffle"; GPNAME[18] = "Slow Rock"; GPNAME[19] = "Swing"; GPNAME[20] = "Boogie"; GPNAME[21] = "Rumba"; GPNAME[22] = "Merengue"; GPNAME[23] = "Habanera"; GPNAME[24] = "Rock 4"; GPNAME[25] = "Latin Swing"; GPNAME[26] = "Jazz Waltz"; GPNAME[27] = "March 6/8"; GPNAME[28] = "Hardbass";
+  GPORD[0] = 11; GPORD[1] = 20; GPORD[2] = 7; GPORD[3] = 9; GPORD[4] = 2; GPORD[5] = 4; GPORD[6] = 15; GPORD[7] = 3; GPORD[8] = 23; GPORD[9] = 28; GPORD[10] = 5; GPORD[11] = 26; GPORD[12] = 25; GPORD[13] = 10; GPORD[14] = 14; GPORD[15] = 27; GPORD[16] = 22; GPORD[17] = 13; GPORD[18] = 0; GPORD[19] = 1; GPORD[20] = 24; GPORD[21] = 21; GPORD[22] = 8; GPORD[23] = 17; GPORD[24] = 18; GPORD[25] = 19; GPORD[26] = 6; GPORD[27] = 12; GPORD[28] = 16;
+  g_setup = 1;
+  g_drag = -1;
+);
+
+!g_setup ? gfx_setup();
+g_wheel = mouse_wheel; mouse_wheel = 0;
+mouse_click = (mouse_cap & 1) && !(g_lcap & 1);
+mouse_rclick = (mouse_cap & 2) && !(g_lcap & 2);
+!(mouse_cap & 1) ? g_drag = -1;
+g_lcap = mouse_cap;
+strcpy(#ghint, "");
+g_tipi = -1;
+g_ki = 2 - kit;
+
+gfx_set(0.10, 0.10, 0.105, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+g_ki == 0 ? gfx_set(0.17, 0.17, 0.18, 1) : g_ki == 1 ? gfx_set(0.16, 0.13, 0.11, 1) : gfx_set(0.33, 0.22, 0.14, 1);
+box(0, 0, gW0, gH0);
+gfx_set(0.05, 0.05, 0.055, 1);
+box(0, 0, gW0, 62);
+g_ki == 2 ? ( gfx_set(0.24, 0.15, 0.09, 1); box(0, 62, 10, gH0 - 62); box(gW0 - 10, 62, 10, gH0 - 62); );
+g_lab = 0.86;
+
+font(22, 'b');
+gfx_set(0.97, 0.96, 0.92, 1);
+text_l("KICK BACK", 22, 12);
+font(8.5, 'b');
+gfx_set(0.96, 0.52, 0.18, 1);
+text_l("ANALOG RHYTHM MACHINE  -  MZ808 + KONISYNTH", 24, 42);
+g_r = seg(500, 18, 420, 28, 3, kit, "MINI POPS 7  1966", "CR-78  1978", "TR-808  1980");
+g_r >= 0 ? tap_sl(1, g_r);
+hit(500, 18, 420, 28) ? hint("Drum kit, by year. Patterns and the keyboard map follow the kit");
+font(8.5, 'b');
+gfx_set(0.86, 0.86, 0.83, 1);
+text_c("CH 10 ONLY", 1040, 6);
+g_r = seg(990, 22, 100, 24, 2, ch10, "OFF", "ON", "");
+g_r >= 0 ? tap_sl(11, g_r);
+hit(990, 22, 100, 24) ? hint("On: only MIDI channel 10 (General MIDI drums) plays the kit");
+
+g_edit ? editor(g_ki) : (
+  g_ki == 0 ? panel808() : panelkm(g_ki);
+
+  gfx_set(0, 0, 0, 0.25);
+  box(14, 316, gW0 - 28, 1);
+  chip(26, 346, 190, 2, "PATTERN");
+  chip(232, 346, 190, 3, "+ PATTERN (COMBINES TWO)");
+  knob(466, 358, 15, 4, "SWING", 0.86);
+  btn(508, 346, 120, 24, "USER RHYTHMS...", g_edit) ? g_edit = !g_edit;
+  hit(508, 346, 120, 24) ? hint("Edit your own rhythms User 1-8. The factory patterns are fixed; COPY FROM... in the editor starts from one");
+  font(8.5, 'b');
+  gfx_set(g_lab, g_lab, g_lab * 0.96, 1);
+  text_l("SEQUENCER", 644, 330);
+  btn(644, 346, 80, 24, seq_on ? "ON" : "OFF", seq_on) ? tap_sl(35, !seq_on);
+  hit(644, 346, 80, 24) ? hint("On: the selected pattern plays while REAPER plays. Off: the transport does not start it");
+  font(8.5, 'b'); gfx_set(g_lab, g_lab, g_lab * 0.96, 1);
+  text_l("PREVIEW", 740, 330);
+  g_pv = prev_on && play_state == 0;
+  btn(740, 346, 66, 24, g_pv ? "STOP" : "PLAY", g_pv) ? ( play_state == 0 ? ( prev_req_on = !g_pv; prev_req = 1; ); );
+  btn(810, 346, 50, 24, "LOOP", prev_loop) ? prev_loop = !prev_loop;
+  hit(740, 346, 120, 24) ? hint(play_state == 0 ? "Plays the pattern at REAPER's tempo while the transport is stopped. LOOP off: one pass" : "Preview works while REAPER's transport is stopped");
+  font(8.5, 'b'); gfx_set(g_lab, g_lab, g_lab * 0.96, 1);
+  text_l("MIDI OUT", 876, 330);
+  btn(876, 346, 66, 24, mout ? "ON" : "OFF", mout) ? tap_sl(36, !mout);
+  hit(876, 346, 66, 24) ? hint("Sends pattern hits as MIDI notes (channel 10). To record them, set the track's record mode to Record: output (MIDI)");
+  font(9, 'b');
+  gfx_set(0.86, 0.86, 0.83, 1);
+  sprintf(#gtmp, "%.1f BPM", tempo);
+  text_l(#gtmp, 960, 344);
+  font(8.5, 0);
+  gfx_set(0.80, 0.80, 0.77, 0.9);
+  text_l((play_state & 1) ? "REAPER PLAYING" : g_pv ? "PREVIEW" : "STOPPED", 960, 362);
+
+  g_c = 0;
+  loop(16, pad(g_c, g_ki); g_c += 1;);
+  leds();
+);
+
+
+gfx_set(0.05, 0.05, 0.055, 1);
+box(0, 552, gW0, 30);
+font(9, 0);
+gfx_set(0.86, 0.86, 0.83, 1);
+strlen(#ghint) ? text_l(#ghint, 22, 559) : text_l("Kick Back: TR-808 from Mz808 (Simon Moscrop), CR-78 and Mini Pops 7 from KoniSynth (k0n1m4k1)  -  AGPL-3.0", 22, 559);
+g_tipi > 0 && !g_edit ? ( sl_text(g_tipi, #gkv); tooltip(g_tipx, g_tipy, #gkv); );
