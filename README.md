@@ -83,8 +83,40 @@ See the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-t
 - **Sugar and Space**: plate reverb, ported from [Plateau](https://github.com/ValleyAudio/ValleyRackFree) by Dale Johnson (Valley Audio Soft), after Jon Dattorro's 1997 design. Pre-delay, input and tank filters, size up to four times the original plate, diffusion, decay, modulation with rate, shape and depth, Hold for an endless tail, Clear, a tuned mode for resonator effects and an optional soft-drive output. The tank keeps the same size and decay at every sample rate (the original only does at 44.1 kHz).
 - **Warp Factor**: meta-modulator, ported from Mutable Instruments [Warps](https://github.com/pichenettes/eurorack/tree/master/warps). Morphs two inputs through crossfade, wavefolding, analog and digital ring modulation, XOR and comparator to a 20-band vocoder with release and freeze. Includes the internal oscillator, sidechain input on channels 3/4 and the module's hidden frequency shifter.
 - **Squishy**: a flexible compressor with a touch of citrus, ported from [Squeezer](https://github.com/mzuther/Squeezer) by Martin Zuther. Feed-forward or feed-back design, FET or optical gain stage, linear, smooth or logarithmic release, peak or RMS sensing, three knee widths, upward expansion below 1:1, stereo link, input trim, auto or manual make-up gain, wet mix for parallel compression, and a side-chain with an external input, filters and listen. Knobs snap to tuned values or turn continuously. Four skins.
-- **Lumina Channel Strip**: HPF/LPF, gate, analog EQ, compressor, saturation, limiter and true peak metering in one plugin, built from the ports above.
+- **Lumina Channel Strip**: tape, HPF/LPF, gate, analog EQ, compressor, saturation, limiter and true peak metering in one plugin, built from the ports above.
 - **Original design**: Dynamic Tilt, a tilt EQ whose slope follows the signal.
+
+## calfNXT
+
+The complete [calfNXT](https://calfnxt.org) suite by Markus Schmidt (derived from Calf Studio Gear by Krzysztof Foltman and Thor Harald Johansen), apart from the Impulse convolver. Every plugin keeps the calfNXT look, with dark and light themes and five accent colours.
+
+- **Aligner NXT**: eight-lane time aligner and mixer for multi-microphone recordings. Per-lane delay trim, join, polarity, gain, pan, mute and solo, a stereo reference input on channels 9/10, hit waveforms and per-lane correlation through an analysis band-pass, and a master delay reported as delay compensation.
+- **Analyzer NXT**: stereo spectrum (1k to 8k FFT, three scales) with a difference view, BS.1770-4 loudness (momentary, short-term, integrated, range and true peak) with EBU, ATSC, -14 and -16 LUFS targets, level meters, correlation and a goniometer.
+- **Bender NXT**: pitch-pedal shifter over +/-24 semitones with optional semitone or whole-tone snapping, glide, grain quality, tone and mix.
+- **Chorus NXT**: stereo chorus with one to eight voices, phase spread and overlap, stereo phase, wet high and low pass and a channel selector.
+- **Compressor NXT**: feed-forward compressor with peak, RMS and opto detection, soft knee, programme-dependent release, mix, stereo link modes and an external sidechain with 12 to 48 dB/oct filters and listen.
+- **Crusher NXT**: bit crusher with continuous bit depth from 1 to 16 (linear or logarithmic), anti-aliasing, DC asymmetry and mix.
+- **DeEsser NXT**: de-esser with a filtered detector, wide or split-band reduction, a Rumble mode that turns it into a de-rumbler, channel routing and detector listen.
+- **Delay NXT**: tempo-based stereo delay with tap tempo or host sync, Stereo, Ping-Pong, L then R and R then L routings, filtered feedback, stereo width and an echo-pattern chart.
+- **Denoiser NXT**: spectral noise reducer with three learnable noise profiles that can be blended, amount, floor, span and offset, a band limit, profile listen and a listen to what is removed.
+- **Equalizer NXT**: 16-band equalizer (parametric, shelves, pass filters up to 48 dB/oct) where every band works on stereo, left, right, mid or side and can turn dynamic with its own sidechain compressor.
+- **Expander NXT**: downward expander and gate with range, hysteresis, hold, a filtered detector, external sidechain and two inhibit keys that keep the gate shut on spill.
+- **Filter NXT**: multimode filter (low, high, band pass, band reject and allpass) with resonance, soft clip, mix, inertia, an envelope follower and MIDI note tracking.
+- **Flanger NXT**: stereo flanger with feedback, stereo phase and a comb-filter chart.
+- **Harmonics NXT**: exciter and saturator: a filtered feed band goes into a transistor-to-tube waveshaper with up to 4x oversampling, and only the added harmonics are mixed back in. Wide, Exciter and Bass presets.
+- **Limiter NXT**: look-ahead brickwall limiter with up to 4x oversampling, true peak margin, adaptive release, three gain curves, release hold, transient emphasis, colour, auto level and a difference listen.
+- **Multiband Compressor NXT**: two to six bands with flat-summing Linkwitz-Riley crossovers, a full compressor, bypass and listen per band, channel routing and mono.
+- **Multiband Limiter NXT**: two to six bands of look-ahead limiting with per-band release and weight, a broadband limiter on the sum, true peak, oversampling, auto level and band and difference listen.
+- **Octaver NXT**: pitch-tracking octaver with one and two octaves down, one octave up and a sub oscillator, each with level, balance, tone, formant and listen.
+- **Phaser NXT**: stereo phaser with up to 12 stages, feedback, stereo phase and a response chart.
+- **Pulsator NXT**: tremolo and auto-pan with five wave shapes, pulse width, per-channel phase, tap tempo or host sync.
+- **Reverb NXT**: algorithmic reverb with image-source early reflections of a room you size, a modulated late tail with RT60 decay and damping, input filters, air, wet widening, ducking, gate and freeze.
+- **Ringmod NXT**: ring modulator from 1 Hz to 20 kHz with four carrier waves, stereo phase and detune, and two LFOs that sweep the carrier, detune, LFO rate and amount.
+- **Split NXT**: mono to stereo splitter with volume, mute and polarity on each side.
+- **Stereo NXT**: stereo utility with a seven-mode channel matrix, mid and side level, pan and balance, a high-band side decorrelator, channel delay, stereo base, phase rotation, a goniometer and correlation.
+- **Tamer NXT**: spectral resonance tamer that finds and cuts narrow peaks as they happen, with a search range, harmonic protection, an external sidechain and a listen to what is removed.
+- **Transients NXT**: transient shaper with attack and sustain amounts, lookahead, soft clip, mix, delta listen and a filtered detector.
+- **Tuner NXT**: real-time pitch correction to a scale or the notes held on a MIDI keyboard, with retune and release speed, vibrato and glide preservation, formant control, an optional synthetic vibrato and a pitch history chart.
 
 ## MIDI
 
@@ -117,7 +149,7 @@ See the [Break Room manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/BreakR
 
 Each plugin keeps its original's license, and the JSFX code is released under the same or a compatible license (GPLv3 or later unless stated). The header of each `.jsfx` file gives the details, and each license file sits next to the assets it covers in `Dependencies`.
 
-- **GPLv3 or later** (JSFX code): ports of GPL originals, including the x42 plugins (GPLv2 or later), zam-plugins (GPLv2 or later), Zita-Rev1, Aeolus, setBfree, amsynth, Dexed, mda-lv2, mda-effects (Lip Service, MIT or GPLv2 or later), Spectral Compressor, CHOW Tape Model and ZynAddSubFX, plus Acid Reign (from the MIT-licensed Open303), Wax Lyrical (from Calf Vinyl and FluidSynth, both LGPL 2.1), Console Yourself (from Nes_Snd_Emu and snes_spc, both LGPL 2.1 or later, and the BSD-3-Clause MAME sound cores and ymfm), Skin in the Game (from the GPLv3-or-later 4ms CoreModules), Sugar and Space (from the GPLv3-or-later ValleyRackFree), Squishy (from the GPLv3-or-later Squeezer), Grid Expectations (from the GPLv3 Grids) and the other Mutable Instruments ports: Ring Leader, Silver Lining, Plait Tectonics, Bead Time Story, In Your Element, Warp Factor and Losing My Marbles (from the MIT-licensed eurorack code, including the tables in `Dependencies`).
+- **GPLv3 or later** (JSFX code): ports of GPL originals, including the x42 plugins (GPLv2 or later), zam-plugins (GPLv2 or later), Zita-Rev1, Aeolus, setBfree, amsynth, Dexed, mda-lv2, mda-effects (Lip Service, MIT or GPLv2 or later), Spectral Compressor, CHOW Tape Model and ZynAddSubFX, plus Acid Reign (from the MIT-licensed Open303), Wax Lyrical (from Calf Vinyl and FluidSynth, both LGPL 2.1), Console Yourself (from Nes_Snd_Emu and snes_spc, both LGPL 2.1 or later, and the BSD-3-Clause MAME sound cores and ymfm), Skin in the Game (from the GPLv3-or-later 4ms CoreModules), Sugar and Space (from the GPLv3-or-later ValleyRackFree), Squishy (from the GPLv3-or-later Squeezer), the calfNXT ports (from the GPLv3 calfNXT), Grid Expectations (from the GPLv3 Grids) and the other Mutable Instruments ports: Ring Leader, Silver Lining, Plait Tectonics, Bead Time Story, In Your Element, Warp Factor and Losing My Marbles (from the MIT-licensed eurorack code, including the tables in `Dependencies`).
 - **MIT**: JuKnow Chorus (Peter Allwin), ChronoDupe (Christopher Arndt), Analog EQ and Final Touch (lkjb), and the Airwindows ports (Chris Johnson).
 - **AGPLv3 or later**: the unplugred ports (Oscilloscope, VU Meter, Super Color). **AGPLv3**: Strum und Drang (from KoniSynth) and Kick Back (from Mz808 and KoniSynth). unplugred's image assets and samples are CC BY-NC (non-commercial).
 - **Samples**: the AVL Drumkits samples and photos by Glen MacArthur are CC-BY-SA 3.0, and music made with the kits can be licensed freely.
