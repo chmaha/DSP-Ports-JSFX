@@ -1,9 +1,9 @@
-Version: 1.0
+Version: 1.1
 desc: calfNXT Tamer
 tags: dynamics resonance suppressor spectral
 author: chmaha
 changelog:
-  Initial release.
+  Softer neighbour test and tip hold from calfNXT 2.17.0: dense cymbal and hi-hat partials get tamed without extreme Threshold or Depth settings, steady resonances ramp to the full cut and one-hop FFT speckle stays weak, so there is less chirping on broadband highs.
 about:
   A spectral resonance tamer. An STFT (1024 to 8192 points, hop N/4, sqrt-Hann) finds narrow peaks that stand out from
   a slow spectral envelope and their neighbours by more than Threshold and cuts them by up to Depth, spread by Sharpness
@@ -61,6 +61,7 @@ function dblin(db) ( (10 ^ (db * K005)); );
 
 K005 = (0.05); K1M3 = (0.001); K1M12 = (0.000000000001); FMIN = 1.17549435 / (10 ^ 38);
 KA = (0.94); K1MA = (1 - KA); K098 = (0.98); K003 = (0.03); K008 = (0.08); K025 = (0.25);
+KTIPD = (0.55); KTIPB = (0.55); KTIPS = (KTIPB * 0.5); KTIPE = (0.001); KPEERW = (0.4);
 K185 = (1.85); K215 = (2.15); K046 = (0.46); K054 = (0.54); K28 = (2.8); K32 = (3.2); K031 = (0.31); K036 = (0.36);
 K16 = (1 / 6); K112 = (1 / 12); K124 = (1 / 24); K02 = (0.2); TWOPIF = (2 * $pi);
 mt_il = mt_ir = mt_ol = mt_or = 0;
@@ -80,6 +81,7 @@ HCAND = alloc(8); HUSED = alloc(64); HPAT = alloc(32); HMEM = alloc(16); HBMEM =
 LMEM = alloc(12 * 16); LNM = alloc(12); LF0 = alloc(12); INLAD = alloc(64); LSC = alloc(12); LKILL = alloc(12);
 KEEPP = alloc(64); CLAIM = alloc(64);
 LADD = alloc(96); ladN = 0; ladKeep = 0;
+TIPH = alloc(NMAX / 2 + 2);
 
 tm_sr = 48000; tm_n = 0; tm_hop = 512; tm_wp = 0; tm_hc = 0; tm_fill = 0; tm_dw = 0; tm_or = 0; tm_ow = 0;
 tm_act = 0; tm_byp = 0; tm_scd = 0; tm_scl = 0; tm_cola = 0.5;
@@ -174,6 +176,7 @@ function tm_reset() local(i)
   memset(TIL, 0, NMAX); memset(TIR, 0, NMAX); memset(TSC, 0, NMAX); memset(OLL, 0, NMAX); memset(OLR, 0, NMAX);
   memset(DRL, 0, 16384); memset(DRR, 0, 16384); memset(SCD, 0, 16384); memset(OUL, 0, 16384); memset(OUR, 0, 16384);
   memset(GRD, 0, NMAX / 2 + 2);
+  memset(TIPH, 0, NMAX / 2 + 2);
   i = 0; loop(NMAX / 2 + 2, ENVD[i] = -120; i += 1; );
   tm_wp = 0; tm_hc = 0; tm_fill = 0; tm_dw = 0; tm_or = 0; tm_ow = 0; tm_act = 0;
   tm_ow = tm_n & RMASK;
@@ -545,7 +548,7 @@ function tm_disp_gr() local(s, k, pk, pd, m)
   );
 );
 
-function tm_hop() local(n, hop, half, nrm, st, i, idx, w, k, ml, mr, r_, i_, wd, sd, back, e, dep, thr, soft, drv, sf, nyq, m, f, res, R, rhz, dOct, fh, ro, peer, lo, hi, j, rj, exs, amt, key, kk, hs, g, t, c, gl, mk, oL, oR, keep)
+function tm_hop() local(n, hop, half, nrm, st, i, idx, w, k, ml, mr, r_, i_, wd, sd, back, e, dep, thr, soft, drv, sf, nyq, m, f, res, R, rhz, dOct, fh, ro, peer, lo, hi, j, rj, exs, amt, key, kk, hs, g, t, c, gl, mk, oL, oR, keep, tv)
 (
   n = tm_n; hop = tm_hop; half = n / 2;
   nrm = (2 / n);
@@ -586,6 +589,7 @@ function tm_hop() local(n, hop, half, nrm, st, i, idx, w, k, ml, mr, r_, i_, wd,
   );
   memset(GRT, 0, half + 1);
   ladN = 0; ladKeep = 0;
+  k = 0; loop(half + 1, TIPH[k] = sdn((TIPH[k] * KTIPD)); k += 1; );
   hs = tm_harm;
   tm_scd ? tm_harm = 0;
   (!tm_byp && tm_depth > 0 && tm_khi >= tm_klo) ? (
@@ -626,7 +630,7 @@ function tm_hop() local(n, hop, half, nrm, st, i, idx, w, k, ml, mr, r_, i_, wd,
             abs(j - k) > 1 ? ( rj = (DETD[j] - ENVD[j]); peer = max(peer, rj); );
             j += 1;
           );
-          exs = ((res - peer) - thr);
+          exs = ((res - (KPEERW * peer)) - thr);
           exs > 0 ? (
             tm_tip(f, m, res, k);
             amt = (dep * (1 - (exp(((-exs) / sf)))));
@@ -634,6 +638,21 @@ function tm_hop() local(n, hop, half, nrm, st, i, idx, w, k, ml, mr, r_, i_, wd,
           );
         );
       );
+      k += 1;
+    );
+    k = tm_klo;
+    loop(tm_khi - tm_klo + 1,
+      GRT[k] < -KTIPE ? (
+        TIPH[k] = min(1, (TIPH[k] + KTIPB));
+        k > 0 ? TIPH[k - 1] = min(1, (TIPH[k - 1] + KTIPS));
+        k < half ? TIPH[k + 1] = min(1, (TIPH[k + 1] + KTIPS));
+      );
+      k += 1;
+    );
+    k = 0;
+    loop(half + 1,
+      tv = GRT[k];
+      tv < 0 ? GRT[k] = (tv * TIPH[k]);
       k += 1;
     );
     i = 1;
