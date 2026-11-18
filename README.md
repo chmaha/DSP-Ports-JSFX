@@ -39,7 +39,7 @@ See the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-t
 ## Instruments
 
 - **Synthy McSynthface**: four instruments in one (ePiano, JX10, DX10 and Piano), ported from the mda plugins via [mda-lv2](https://gitlab.com/drobilla/mda-lv2).
-- **Jexed**: DX7-style FM synthesizer, ported from [Dexed](https://github.com/asb2m10/dexed). Includes 1056 voices (Dexed_01 and SynprezFM_01–32 cartridges) and a full voice editor.
+- **Jexed**: DX7-style FM synthesizer, ported from [Dexed](https://github.com/asb2m10/dexed). Includes 1056 voices (Dexed_01 and SynprezFM_01–32 cartridges) and a full voice editor with operator copy/paste and a simple ADSR mode for setting several envelopes at once.
 - **JamSynth**: subtractive synthesizer with 28 factory banks and a 128-slot user bank, ported from [amsynth](https://github.com/amsynth/amsynth).
 - **Tolerable Tines**: electric piano, ported from Ardour's [ACE Reasonable Synth](https://github.com/Ardour/ardour/tree/master/libs/plugins/reasonablesynth.lv2).
 - **Partiality**: additive and modulation synthesizer, ported from the ADsynth engine of [ZynAddSubFX](https://github.com/zynaddsubfx/zynaddsubfx). Includes eight voices per note, each with its own harmonic oscillator and modulator, unison, noise sources, envelopes and LFOs, five filter types, poly, mono and legato modes, 19 factory patches and 122 instruments converted from the ZynAddSubFX banks.

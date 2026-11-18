@@ -1,11 +1,10 @@
-Version: 1.1.2
+Version: 1.2.0
 desc: Jexed FM Synth (Dexed port) by chmaha
 tags: instrument
 author: chmaha
 changelog:
-  Larger, easier-to-read text and brighter labels in the GUI.
-  The mouse cursor hides while dragging a knob (REAPER 7.83+).
-  Changing the project sample rate updates the filter and all voices immediately.
+  Copy and paste operators: COPY and PASTE on the operator panel paste a whole operator or just its envelope, into one operator or all six.
+  ADSR mode: four simple Attack, Decay, Sustain and Release knobs that set the envelopes of the carriers, the modulators, all operators or just one at once.
 about:
   DX7-style FM synthesizer, ported from Dexed by Pascal Gauthier
   https://github.com/asb2m10/dexed (GPLv3)
@@ -1604,7 +1603,7 @@ function panel(x, y, w, h, title, c) local(tw, th)
     gfx_x = sx(x + 12); gfx_y = sy(y + 8);
     gfx_drawstr(title);
     gfx_set(acc_r, acc_g, acc_b, 0.35);
-    gfx_rect(sx(x + 12) + tw + 8 * z, sy(y + 14), sx(x + w - 12) - (sx(x + 12) + tw + 8 * z), max(1, z), 1);
+    gfx_rect(sx(x + 12) + tw + 8 * z, sy(y + 14), sx(x + w - 12 - panel_cut) - (sx(x + 12) + tw + 8 * z), max(1, z), 1);
   );
 );
 
@@ -1939,7 +1938,7 @@ function arrow(x, y, w, h, dir) local(hov, QX, QY, QW, QH, cx, cy, s)
 );
 
 
-function lvl_q24(L) ( ((scaleout(max(0, min(99, floor(L + 0.5)))) >> 1) * 64 + 3168 - 4256) / 256; );
+function lvl_q24(L) ( L = max(0, min(99, floor(L + 0.5))); (((L >= 20 ? 28 + L : levellut_t[L]) >> 1) * 64 + 3168 - 4256) / 256; );
 
 function stage_time(rate, la, lb) local(qr, inc, a, b, blocks, sr_)
 (
@@ -2459,6 +2458,10 @@ function play_page() local(c, i, n, x, y, cur, hov, QX, QY, tw, th)
   pass == 0 ? ( font(1, 9, 'b'); gfx_set(0.5, 0.52, 0.56, 1); text_c("RANGE", 710, 318); );
 );
 
+function op_base(op) ( 35 + (5 - op) * 21; );
+function is_carrier(op) ( (algs[floor(slider(35 + 134) + 0.5) * 6 + 5 - op] & 3) == 0; );
+function in_target(op) ( adsr_tg == 0 ? is_carrier(op) : adsr_tg == 1 ? !is_carrier(op) : adsr_tg == 2 ? 1 : op == sel_op; );
+
 function op_card(op, x, y, w, h) local(b, QX, QY, QW, QH, on, hov, lvl, sel, i, sn)
 (
   b = 35 + (5 - op) * 21;
@@ -2486,6 +2489,7 @@ function op_card(op, x, y, w, h) local(b, QX, QY, QW, QH, on, hov, lvl, sel, i, 
     lvl = slider(b + 16) / 99;
     gfx_set(0.04, 0.045, 0.05, 1); gfx_rect(QX + 8 * z, QY + 28 * z, QW - 16 * z, 4 * z, 1);
     gfx_set(acc_r, acc_g, acc_b, on ? 0.9 : 0.3); gfx_rect(QX + 8 * z, QY + 28 * z, (QW - 16 * z) * lvl, 4 * z, 1);
+    adsr_mode && in_target(op) ? ( acc(2); gfx_set(acc_r, acc_g, acc_b, on ? 0.9 : 0.4); gfx_rect(QX + 8 * z, QY + QH - 6 * z, QW - 16 * z, 2 * z, 1); acc(1); );
     (mouse_click && hit(x + 4, y + 4, 44, 20)) ? ( tap_sl(sn, on ? 0 : 1); mouse_click = 0; ) :
     (mouse_click && hov) ? ( sel_op = op; bg_dirty = 1; mouse_click = 0; );
   );
@@ -2523,6 +2527,153 @@ function alg_step(d) local(v, n, i) (
   tap_sl(i, slMin[i] + (v + d + n) % n);
 );
 
+function adsr_ref() local(i, r)
+(
+  in_target(sel_op) ? sel_op : (
+    r = -1; i = 5;
+    loop(6, in_target(i) ? r = i; i -= 1; );
+    r;
+  );
+);
+
+function adsr_get(k, b)
+(
+  k == 0 ? 99 - slider(b) : k == 1 ? 99 - slider(b + 1) : k == 2 ? slider(b + 6) : 99 - slider(b + 3);
+);
+
+function adsr_set(k, v) local(op, b)
+(
+  v = max(0, min(99, floor(v + 0.5)));
+  op = 0;
+  loop(6,
+    in_target(op) ? (
+      b = op_base(op);
+      k == 0 ? ( set_sl(b, 99 - v); set_sl(b + 4, 99); ) :
+      k == 1 ? ( set_sl(b + 1, 99 - v); set_sl(b + 2, 99 - v); ) :
+      k == 2 ? ( set_sl(b + 5, v); set_sl(b + 6, v); ) :
+      ( set_sl(b + 3, 99 - v); set_sl(b + 7, 0); );
+    );
+    op += 1;
+  );
+);
+
+function adsr_end(k) local(op, b)
+(
+  op = 0;
+  loop(6,
+    in_target(op) ? (
+      b = op_base(op);
+      k == 0 ? ( end_sl(b); end_sl(b + 4); ) :
+      k == 1 ? ( end_sl(b + 1); end_sl(b + 2); ) :
+      k == 2 ? ( end_sl(b + 5); end_sl(b + 6); ) :
+      ( end_sl(b + 3); end_sl(b + 7); );
+    );
+    op += 1;
+  );
+);
+
+function fmt_time(t, str) ( t < 1 ? sprintf(str, "%.0f ms", t * 1000) : sprintf(str, "%.2f s", t); );
+
+function adsr_tipstr(k, b, str) local(t, db)
+(
+  k == 0 ? ( fmt_time(stage_time(slider(b), slider(b + 7), slider(b + 4)), #at); sprintf(str, "ATTACK  %s", #at); ) :
+  k == 1 ? ( fmt_time(stage_time(slider(b + 1), slider(b + 4), slider(b + 5)), #at); sprintf(str, "DECAY  %s", #at); ) :
+  k == 2 ? (
+    db = 6.0206 * (lvl_q24(slider(b + 6)) - lvl_q24(99));
+    floor(slider(b + 6) + 0.5) == 0 ? strcpy(str, "SUSTAIN  0 (silent)") : sprintf(str, "SUSTAIN  %d (%.1f dB)", floor(slider(b + 6) + 0.5), db);
+  ) :
+  ( fmt_time(stage_time(slider(b + 3), slider(b + 6), slider(b + 7)), #at); sprintf(str, "RELEASE  %s", #at); );
+  str;
+);
+
+function adsr_knob(x, y, r, k, label, c) local(hov, ref, b, v, nv, d, fine)
+(
+  acc(c);
+  pass == 0 ? (
+    knob_body(x, y, r);
+    font(1, 9, 'b');
+    gfx_set(0.62, 0.64, 0.68, 1);
+    text_c(label, x, y + r + 6);
+  ) : (
+    ref = adsr_ref();
+    ref >= 0 ? (
+      b = op_base(ref);
+      v = adsr_get(k, b);
+      hov = hitc(x, y, r + 4);
+      (mouse_click && hov) ? ( drag_n = 1000 + k; drag_y0 = mouse_y; drag_v0 = v; mouse_click = 0; );
+      drag_n == 1000 + k ? (
+        mouse_cap |= 65536;
+        fine = (mouse_cap & 4) || (mouse_cap & 8);
+        d = (drag_y0 - mouse_y) / (220 * z) * (fine ? 0.12 : 1);
+        nv = drag_v0 + floor(d * 99 * (fine ? 4 : 1.2) + 0.5);
+        nv != v ? adsr_set(k, nv);
+      );
+      (hov && mouse_wheel != 0 && drag_n < 0) ? ( adsr_set(k, v + (mouse_wheel > 0 ? 1 : -1)); adsr_end(k); mouse_wheel = 0; );
+      knob_value(x, y, r, adsr_get(k, b) / 99, 0, hov || drag_n == 1000 + k);
+      (hov || drag_n == 1000 + k) ? ( adsr_tipstr(k, b, #ht); ht_on = 1; ht_x = x; ht_y = y - r - 6; ht_below = 0; ht_c = c; );
+    );
+  );
+);
+
+function hover_tip(x, y, w, h, str, c)
+(
+  pass == 1 && hit(x, y, w, h) ? ( strcpy(#ht, str); ht_on = 1; ht_x = x + w * 0.5; ht_y = y + h + 4; ht_below = 1; ht_c = c; );
+);
+
+function adsr_panel() local(i, ref, tx, ty)
+(
+  adsr_knob(280, 444, 14, 0, "ATTACK", 2);
+  adsr_knob(334, 444, 14, 1, "DECAY", 2);
+  adsr_knob(390, 444, 14, 2, "SUSTAIN", 2);
+  adsr_knob(446, 444, 14, 3, "RELEASE", 2);
+  sprintf(#tg, "OP%d ONLY", sel_op + 1);
+  i = 0;
+  loop(4,
+    tx = 258 + (i % 2) * 106; ty = 486 + floor(i / 2) * 26;
+    btn(tx, ty, 102, 22, i == 0 ? "CARRIERS" : i == 1 ? "MODULATORS" : i == 2 ? "ALL OPS" : #tg, adsr_tg == i, 2) ? adsr_tg = i;
+    hover_tip(tx, ty, 102, 22, i == 0 ? "Operators you hear: the volume envelope" :
+      i == 1 ? "Operators that colour the sound: the brightness envelope" :
+      i == 2 ? "Every operator gets the same envelope" : "Only the operator being edited", 2);
+    i += 1;
+  );
+  pass == 1 ? (
+    ref = adsr_ref();
+    ref < 0 ? (
+      gfx_set(0.02, 0.022, 0.026, 0.88); gfx_rect(sx(292), sy(342), 140 * z, 40 * z, 1);
+      acc(2); gfx_set(acc_r, acc_g, acc_b, 0.5); gfx_rect(sx(292), sy(381), 140 * z, max(1, z), 1);
+      font(1, 10, 'b'); gfx_set(0.82, 0.83, 0.86, 1);
+      text_c("NO MODULATORS", 362, 347); text_c("IN THIS ALGORITHM", 362, 363);
+    );
+  );
+);
+
+function op_copy(op) local(b, i)
+(
+  b = op_base(op);
+  i = 0; loop(21, clipb[i] = slider(b + i); i += 1; );
+  clip_op = op + 1; copy_t = now;
+);
+
+function op_paste(op, n) local(b, i)
+(
+  b = op_base(op);
+  i = 0; loop(n, set_sl(b + i, clipb[i]); i += 1; );
+  i = 0; loop(n, end_sl(b + i); i += 1; );
+);
+
+function paste_menu(op) local(sel, i)
+(
+  clip_op == 0 ? strcpy(#pm, "#Nothing copied yet: press COPY on an operator first") :
+    sprintf(#pm, "Paste whole OP%d into OP%d|Paste OP%d envelope into OP%d|Paste OP%d envelope into all operators|Paste whole OP%d into all operators",
+      clip_op, op + 1, clip_op, op + 1, clip_op, clip_op);
+  sel = gfx_showmenu(#pm);
+  clip_op > 0 ? (
+    sel == 1 ? op_paste(op, 21) :
+    sel == 2 ? op_paste(op, 8) :
+    (sel == 3 || sel == 4) ? ( i = 0; loop(6, op_paste(i, sel == 3 ? 8 : 21); i += 1; ); );
+  );
+);
+
 function edit_page() local(b, op, i, x, lab)
 (
   panel(10, 92, 226, 196, "ALGORITHM", 0);
@@ -2555,13 +2706,23 @@ function edit_page() local(b, op, i, x, lab)
   op = sel_op;
   b = 35 + (5 - op) * 21;
   sprintf(#pt, "OPERATOR %d", op + 1);
+  panel_cut = 184;
   panel(244, 296, 472, 248, #pt, 2);
+  panel_cut = 0;
+  btn(532, 300, 54, 18, "COPY", now - copy_t < 0.35, 2) ? op_copy(op);
+  hover_tip(532, 300, 54, 18, "Copy this operator's settings", 2);
+  btn(590, 300, 54, 18, "PASTE", 0, 2) ? paste_menu(op);
+  hover_tip(590, 300, 54, 18, "Paste the copied settings into this operator or all of them", 2);
+  btn(648, 300, 56, 18, "ADSR", adsr_mode, 2) ? ( adsr_mode = !adsr_mode; bg_dirty = 1; );
+  hover_tip(648, 300, 56, 18, adsr_mode ? "Back to the full DX7 envelope (rates and levels)" : "Simple ADSR envelope for several operators at once", 2);
   dx_env(256, 322, 212, 92, b, b + 4, 2, 5 - op);
-  i = 0;
-  loop(4,
-    sprintf(#kr, "R%d", i + 1); knob(274 + i * 50, 446, 11, b + i, 0, #kr, 2);
-    sprintf(#kr, "L%d", i + 1); knob(274 + i * 50, 506, 11, b + 4 + i, 0, #kr, 2);
-    i += 1;
+  adsr_mode ? adsr_panel() : (
+    i = 0;
+    loop(4,
+      sprintf(#kr, "R%d", i + 1); knob(274 + i * 50, 446, 11, b + i, 0, #kr, 2);
+      sprintf(#kr, "L%d", i + 1); knob(274 + i * 50, 506, 11, b + 4 + i, 0, #kr, 2);
+      i += 1;
+    );
   );
   knob(508, 350, 15, b + 16, 0, "OUTPUT", 1);
   enum_dd(548, 334, 72, 22, b + 17, "MODE", 1);
@@ -2611,9 +2772,9 @@ function layout()
 
 mouse_down = mouse_cap & 1;
 mouse_click = mouse_down && !mouse_prev;
-!mouse_down ? ( drag_n >= 0 ? end_sl(drag_n); drag_n = -1; );
+!mouse_down ? ( drag_n >= 1000 ? adsr_end(drag_n - 1000) : drag_n >= 0 ? end_sl(drag_n); drag_n = -1; );
 !gfx_inited ? (
-  drag_n = -1; last_click_n = -1; touched_n = 0; touched_t = -10; sel_op = 0; page = 0; gfx_inited = 1;
+  drag_n = -1; last_click_n = -1; touched_n = 0; touched_t = -10; sel_op = 0; page = 0; adsr_mode = 0; adsr_tg = 0; clip_op = 0; copy_t = -10; panel_cut = 0; clipb = 6700000; gfx_inited = 1;
   slMin = 6500000; slMax = 6500300; slStep = 6500600; slDef = 6500900; alg_t = 6501200;
   mem_set_values(slMin+1, 0,0,-24,0,0,0,0,0,-100,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
@@ -2695,9 +2856,10 @@ gfx_x = gfx_y = 0;
 gfx_blit(1, 1, 0);
 
 pass = 1;
-hov_n = -1; tip_on = 0;
+hov_n = -1; tip_on = 0; ht_on = 0;
 layout();
 tip_on ? ( acc(0); tip_below(tip_x, tip_y, "Switch to the User cartridge to store, init or rename voices"); );
+ht_on ? ( acc(ht_c); ht_below ? tip_below(ht_x, ht_y, #ht) : tooltip(ht_x, ht_y, #ht); ) :
 hov_n > 0 ? ( acc(hov_c); sl_name(hov_n, #tn); fmt_sl(hov_n, #tv); sprintf(#tt, "%s  %s", #tn, #tv); tooltip(hov_x, hov_y, #tt); );
 
 mouse_wheel = 0;
