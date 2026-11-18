@@ -1,11 +1,13 @@
-Version: 1.0
+Version: 1.1
 desc: Lumina Channel Strip (port) by chmaha
 author: chmaha
 changelog:
-  Initial release.
+  Add TAPE toggle in the input section (Airwindows Tape), driven by the input gain.
 about:
-  Channel strip: HPF/LPF, gate, analog EQ, compressor, saturation, limiter, true peak metering.
+  Channel strip: tape, HPF/LPF, gate, analog EQ, compressor, saturation, limiter, true peak metering.
   DSP ports of the original plugins (not of the standalone versions):
+  Tape: DSP from Airwindows Tape by Chris Johnson (MIT License).
+  https://github.com/airwindows/airwindows/tree/master/plugins/LinuxVST/src/Tape
   HPF/LPF: Ported from x42/fil4.lv2 (Robin Gareus). GPLv2+.
   https://github.com/x42/fil4.lv2
   Gate: Ported from ZamGateX2 (zam-plugins). GPLv2+.
@@ -68,6 +70,7 @@ slider44:-50<-50,0,0.1>-Gate Range (dB)
 slider45:0<0,1,1{Gate,Duck}>-Gate Mode
 slider46:0<0,1,1{Off,On}>-Output TP Meter
 slider47:0<0,1,1{Pre EQ,Post EQ}>-Gate Position
+slider48:tape_on=0<0,1,1{Off,On}>-Tape On
 
 in_pin:left input
 in_pin:right input
@@ -473,6 +476,110 @@ local(x, delta, dry, diel, rbk, phatS, distS, dA, dB, dC, dD, dE, clampv)
   -clampv > slew ? x = lsB - slew;
   lsA = (lsA*0.381966011250105) + (x*0.6180339887498948482045);
 
+  x;
+);
+
+// ---------------- Tape (Airwindows Tape) ----------------
+tape_os = 1.0;
+tape_os /= 44100.0;
+tape_os *= srate;
+tape_bump = 0.5*0.1;
+tape_hbf = 0.12/tape_os;
+tape_soft = 0.618033988749894848204586;
+tape_roll = (1.0 - tape_soft) / tape_os;
+tape_bf = 0.0072/tape_os; tape_bq = 0.0009;
+tape_k = tan($pi * tape_bf);
+tape_n = 1.0 / (1.0 + tape_k / tape_bq + tape_k * tape_k);
+tape_ab2 = tape_k / tape_bq * tape_n;
+tape_ab4 = -tape_ab2;
+tape_ab5 = 2.0 * (tape_k * tape_k - 1.0) * tape_n;
+tape_ab6 = (1.0 - tape_k / tape_bq + tape_k * tape_k) * tape_n;
+tape_bf = 0.032/tape_os; tape_bq = 0.0007;
+tape_k = tan($pi * tape_bf);
+tape_n = 1.0 / (1.0 + tape_k / tape_bq + tape_k * tape_k);
+tape_cd2 = tape_k / tape_bq * tape_n;
+tape_cd4 = -tape_cd2;
+tape_cd5 = 2.0 * (tape_k * tape_k - 1.0) * tape_n;
+tape_cd6 = (1.0 - tape_k / tape_bq + tape_k * tape_k) * tape_n;
+tape_flip = 0;
+
+function tape_chan(x, fl)
+instance(rma, rmb, hba, hbb, sa7, sa8, sb7, sb8, sc7, sc8, sd7, sd8, last)
+local(dry, hi, tmp, sft, gnd, sup)
+(
+  dry = x;
+  fl ? (
+    rma = (rma * (1.0 - tape_roll)) + (x * tape_roll);
+    hi = x - rma;
+    hba += (x * 0.05);
+    hba -= (hba * hba * hba * tape_hbf);
+    hba = sin(hba);
+    tmp = (hba * tape_ab2) + sa7;
+    sa7 = sa8 - (tmp * tape_ab5);
+    sa8 = (hba * tape_ab4) - (tmp * tape_ab6);
+    hba = tmp;
+    hba > 1.0 ? hba = 1.0;
+    hba < -1.0 ? hba = -1.0;
+    hba = asin(hba);
+    x = sin(x);
+    tmp = (x * tape_cd2) + sc7;
+    sc7 = sc8 - (tmp * tape_cd5);
+    sc8 = (x * tape_cd4) - (tmp * tape_cd6);
+    x = tmp;
+    x > 1.0 ? x = 1.0;
+    x < -1.0 ? x = -1.0;
+    x = asin(x);
+  ) : (
+    rmb = (rmb * (1.0 - tape_roll)) + (x * tape_roll);
+    hi = x - rmb;
+    hbb += (x * 0.05);
+    hbb -= (hbb * hbb * hbb * tape_hbf);
+    hbb = sin(hbb);
+    tmp = (hbb * tape_ab2) + sb7;
+    sb7 = sb8 - (tmp * tape_ab5);
+    sb8 = (hbb * tape_ab4) - (tmp * tape_ab6);
+    hbb = tmp;
+    hbb > 1.0 ? hbb = 1.0;
+    hbb < -1.0 ? hbb = -1.0;
+    hbb = asin(hbb);
+    x = sin(x);
+    tmp = (x * tape_cd2) + sd7;
+    sd7 = sd8 - (tmp * tape_cd5);
+    sd8 = (x * tape_cd4) - (tmp * tape_cd6);
+    x = tmp;
+    x > 1.0 ? x = 1.0;
+    x < -1.0 ? x = -1.0;
+    x = asin(x);
+  );
+  gnd = dry - x;
+
+  sft = abs(hi)*1.57079633;
+  sft > 1.57079633 ? sft = 1.57079633;
+  sft = 1-cos(sft);
+  hi > 0 ? x -= sft;
+  hi < 0 ? x += sft;
+
+  x > 1.2533141373155 ? x = 1.2533141373155;
+  x < -1.2533141373155 ? x = -1.2533141373155;
+  x = sin(x * abs(x)) / ((abs(x) === 0.0) ? 1 : abs(x));
+
+  sup = (1.0-abs(x)) * 0.00013;
+  hba > sup ? hba -= sup;
+  hba < -sup ? hba += sup;
+  hbb > sup ? hbb -= sup;
+  hbb < -sup ? hbb += sup;
+
+  x += gnd;
+  x += ((hba + hbb) * tape_bump);
+
+  last >= 0.99 ? ( last = (x < 0.99) ? ((0.99*tape_soft) + (x * (1.0-tape_soft))) : 0.99; );
+  last <= -0.99 ? ( last = (x > -0.99) ? ((-0.99*tape_soft) + (x * (1.0-tape_soft))) : -0.99; );
+  x > 0.99 ? ( x = (last < 0.99) ? ((0.99*tape_soft) + (last * (1.0-tape_soft))) : 0.99; );
+  x < -0.99 ? ( x = (last > -0.99) ? ((-0.99*tape_soft) + (last * (1.0-tape_soft))) : -0.99; );
+  last = x;
+
+  x > 0.99 ? x = 0.99;
+  x < -0.99 ? x = -0.99;
   x;
 );
 
@@ -896,6 +1003,7 @@ in_g = pow(10, slider1/20);
 out_g = pow(10, slider30/20);
 bypass_on = slider31 >= 0.5;
 phase_inv = slider2 >= 0.5;
+tape_act = tape_on >= 0.5;
 
 // Preset select
 cur_preset_new = floor(slider32 + 0.5);
@@ -920,6 +1028,13 @@ in_pk = max(abs(spl0), abs(spl1));
 m_pk_L = max(in_pk, m_pk_L * 0.9995);
 
 !bypass_on ? (
+  // ---- Tape (Airwindows Tape), driven by the input gain ----
+  tape_act ? (
+    spl0 = tapL.tape_chan(spl0, tape_flip);
+    spl1 = tapR.tape_chan(spl1, tape_flip);
+    tape_flip = !tape_flip;
+  );
+
   // ---- Filters (HPF/LPF, x42-fil4) ----
   filt_sub = (filt_sub + 1) % 32;
   filt_sub == 0 ? (
@@ -1482,7 +1597,7 @@ gfx_drawstr("LUMINA CHANNEL STRIP");
 gfx_setfont(1, "Arial", 12*scale);
 gfx_set(0.6, 0.6, 0.63, 1);
 gfx_x = 20*scale; gfx_y = 32*scale;
-gfx_drawstr("by chmaha · filters · gate · analog EQ · compressor · saturation · limiter · true peak");
+gfx_drawstr("by chmaha · tape · filters · gate · analog EQ · compressor · saturation · limiter · true peak");
 
 // Preset control
 preset_name = "Flat";
@@ -1520,6 +1635,7 @@ gfx_x = 81*scale - txl*0.5; gfx_y = 566*scale;
 gfx_drawstr("LCS-6");
 
 small_btn(36*scale, 92*scale, 90*scale, 20*scale, "PHASE INV", phase_inv); phase_bx = hb_x; phase_by = hb_y; phase_bw = hb_w; phase_bh = hb_h;
+small_btn(36*scale, 120*scale, 90*scale, 20*scale, "TAPE", tape_on >= 0.5); tape_bx = hb_x; tape_by = hb_y; tape_bw = hb_w; tape_bh = hb_h;
 
 // input meter, vertical, right beside the IN GAIN knob
 IN_GAIN_X = 81*scale; IN_GAIN_Y = 270*scale; IN_RAD = 32*scale;
@@ -1797,6 +1913,7 @@ pdrop_open && mouse_just_down && !click_consumed ? (
 !click_consumed && mouse_just_down && hit_rect(mouse_x, mouse_y, press_next_x, press_next_y, press_next_w, press_next_h) ? ( slider32 = min(7, floor(slider32+0.5) + 1); slider_automate(slider32); click_consumed = 1; );
 !click_consumed && mouse_just_down && hit_rect(mouse_x, mouse_y, bypass_bx, bypass_by, bypass_bw, bypass_bh) ? ( slider31 = slider31 >= 0.5 ? 0 : 1; slider_automate(slider31); click_consumed = 1; );
 !click_consumed && mouse_just_down && hit_rect(mouse_x, mouse_y, phase_bx, phase_by, phase_bw, phase_bh) ? ( slider2 = slider2 >= 0.5 ? 0 : 1; slider_automate(slider2); click_consumed = 1; );
+!click_consumed && mouse_just_down && hit_rect(mouse_x, mouse_y, tape_bx, tape_by, tape_bw, tape_bh) ? ( tape_on = tape_on >= 0.5 ? 0 : 1; slider_automate(tape_on); click_consumed = 1; );
 !click_consumed && mouse_just_down && hit_rect(mouse_x, mouse_y, eq_ana_x, eq_ana_y, eq_ana_w, eq_ana_h) ? ( slider11 = slider11 >= 0.5 ? 0 : 1; slider_automate(slider11); click_consumed = 1; );
 !click_consumed && mouse_just_down && hit_rect(mouse_x, mouse_y, eq_kg_x, eq_kg_y, eq_kg_w, eq_kg_h) ? ( slider12 = slider12 >= 0.5 ? 0 : 1; slider_automate(slider12); click_consumed = 1; );
 !click_consumed && mouse_just_down && hit_rect(mouse_x, mouse_y, sc_x, sc_y, sc_w, sc_h) ? ( slider19 = slider19 >= 0.5 ? 0 : 1; slider_automate(slider19); click_consumed = 1; );
