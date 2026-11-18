@@ -99,6 +99,7 @@ The complete [calfNXT](https://calfnxt.org) suite by Markus Schmidt (derived fro
 - **DeEsser NXT**: de-esser with a filtered detector, wide or split-band reduction, a Rumble mode that turns it into a de-rumbler, channel routing and detector listen.
 - **Delay NXT**: tempo-based stereo delay with tap tempo or host sync, Stereo, Ping-Pong, L then R and R then L routings, filtered feedback, stereo width and an echo-pattern chart.
 - **Denoiser NXT**: spectral noise reducer with three learnable noise profiles that can be blended, amount, floor, span and offset, a band limit, profile listen and a listen to what is removed.
+- **Elliptic NXT**: bass mono maker. A Linkwitz-Riley crossover (12 or 24 dB/oct, 30 to 200 Hz) splits the side signal and Amount pulls the side bass to the centre, while the mid runs through the same filters so the mono sum stays flat. Listen solos the side bass being removed; a goniometer shows the bass band and a correlation meter the full output.
 - **Equalizer NXT**: 16-band equalizer (parametric, shelves, pass filters up to 48 dB/oct) where every band works on stereo, left, right, mid or side and can turn dynamic with its own sidechain compressor.
 - **Expander NXT**: downward expander and gate with range, hysteresis, hold, a filtered detector, external sidechain and two inhibit keys that keep the gate shut on spill.
 - **Filter NXT**: multimode filter (low, high, band pass, band reject and allpass) with resonance, soft clip, mix, inertia, an envelope follower and MIDI note tracking.
