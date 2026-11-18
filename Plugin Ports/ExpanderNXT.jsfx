@@ -1,9 +1,9 @@
-Version: 1.0
+Version: 1.1
 desc: calfNXT Expander
 tags: dynamics expander gate noise gate sidechain
 author: chmaha
 changelog:
-  Initial release.
+  A closed gate stays closed when the detector falls to digital silence (calfNXT 2.17.0 fix), for example a silent external sidechain.
 about:
   A downward expander / gate. Below the threshold the signal is expanded by the ratio, limited by Range; a separate
   release threshold gives hysteresis and Hold keeps the gate open before it closes. The detector (Peak, RMS or Opto, linked
@@ -232,7 +232,7 @@ function gx_proc(dl, dr) local(lk, ac, rc, dp, sq, ct, g, idb)
       gx_lin > 0 ? (
         idb = l2db(gx_lin);
         g = clampf(dblin((gx_static(idb, gx_cdb, gx_ra, gx_kn, gx_rg) - idb)), gx_rgl, 1);
-      );
+      ) : !gx_open ? g = gx_rgl;
       gx_lgr = san15(g);
     );
   );
