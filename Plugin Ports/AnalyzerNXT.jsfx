@@ -1,9 +1,9 @@
-Version: 1.0
+Version: 1.1
 desc: calfNXT Analyzer
 tags: analysis meter spectrum loudness lufs goniometer
 author: chmaha
 changelog:
-  Initial release.
+  Moving a control in the plugin window now records automation and notifies REAPER (named slider fix).
 about:
   A transparent analyser. It shows a stereo spectrum (1k to 8k FFT, three scales), a spectrum difference view, ITU-R BS.1770-4
   loudness (momentary, short-term, integrated, loudness range, true peak) with EBU, ATSC, -14 and -16 LUFS targets, level
@@ -1569,11 +1569,22 @@ gdest0 = gfx_dest;
 function automate(s, e)
 (
 <?
-  loop(i = 1; 10,
-    printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
-    i += 1;
+  max_sliders > 64 ? printf("slider_automate(2^(s-1), e);") : (
+    printf("  s === 1 ? slider_automate(g_bypass, e) :\n");
+    printf("  s === 2 ? slider_automate(g_mode, e) :\n");
+    printf("  s === 3 ? slider_automate(g_hold, e) :\n");
+    printf("  s === 4 ? slider_automate(g_fft, e) :\n");
+    printf("  s === 5 ? slider_automate(g_scale, e) :\n");
+    printf("  s === 6 ? slider_automate(g_std, e) :\n");
+    printf("  s === 7 ? slider_automate(g_target, e) :\n");
+    printf("  s === 8 ? slider_automate(g_tpc, e) :\n");
+    printf("  s === 9 ? slider_automate(g_in, e) :\n");
+    printf("  s === 10 ? slider_automate(g_out, e) :\n");
+    printf("  s === 11 ? slider_automate(g_day, e) :\n");
+    printf("  s === 12 ? slider_automate(g_acc, e) :\n");
+    printf("  0;");
   );
-?> 0;
+?>
 );
 
 function gxp(x) ( gox + x * gsc; );

@@ -1,9 +1,9 @@
-Version: 1.0
+Version: 1.1
 desc: calfNXT Ringmod
 tags: processing ring modulator effect
 author: chmaha
 changelog:
-  Initial release.
+  Moving a control in the plugin window now records automation and notifies REAPER (named slider fix).
 about:
   A stereo ring modulator. The carrier (sine, triangle, square or saw) runs at a frequency from 1 Hz to 20 kHz with an adjustable
   amount, phase offset between the channels and detune. Two LFOs can modulate the carrier frequency, the detune, the first
@@ -1953,39 +1953,43 @@ gdest0 = gfx_dest;
 
 function automate(s, e)
 (
-  s == 1 ? slider_automate(slider1, e) :
-  s == 2 ? slider_automate(slider2, e) :
-  s == 3 ? slider_automate(slider3, e) :
-  s == 4 ? slider_automate(slider4, e) :
-  s == 5 ? slider_automate(slider5, e) :
-  s == 6 ? slider_automate(slider6, e) :
-  s == 7 ? slider_automate(slider7, e) :
-  s == 8 ? slider_automate(slider8, e) :
-  s == 9 ? slider_automate(slider9, e) :
-  s == 10 ? slider_automate(slider10, e) :
-  s == 11 ? slider_automate(slider11, e) :
-  s == 12 ? slider_automate(slider12, e) :
-  s == 13 ? slider_automate(slider13, e) :
-  s == 14 ? slider_automate(slider14, e) :
-  s == 15 ? slider_automate(slider15, e) :
-  s == 16 ? slider_automate(slider16, e) :
-  s == 17 ? slider_automate(slider17, e) :
-  s == 18 ? slider_automate(slider18, e) :
-  s == 19 ? slider_automate(slider19, e) :
-  s == 20 ? slider_automate(slider20, e) :
-  s == 21 ? slider_automate(slider21, e) :
-  s == 22 ? slider_automate(slider22, e) :
-  s == 23 ? slider_automate(slider23, e) :
-  s == 24 ? slider_automate(slider24, e) :
-  s == 25 ? slider_automate(slider25, e) :
-  s == 26 ? slider_automate(slider26, e) :
-  s == 27 ? slider_automate(slider27, e) :
-  s == 28 ? slider_automate(slider28, e) :
-  s == 29 ? slider_automate(slider29, e) :
-  s == 30 ? slider_automate(slider30, e) :
-  s == 31 ? slider_automate(slider31, e) :
-  s == 32 ? slider_automate(slider32, e) :
-  0;
+<?
+  max_sliders > 64 ? printf("slider_automate(2^(s-1), e);") : (
+    printf("  s === 1 ? slider_automate(g_bypass, e) :\n");
+    printf("  s === 2 ? slider_automate(g_mode, e) :\n");
+    printf("  s === 3 ? slider_automate(g_freq, e) :\n");
+    printf("  s === 4 ? slider_automate(g_amount, e) :\n");
+    printf("  s === 5 ? slider_automate(g_phase, e) :\n");
+    printf("  s === 6 ? slider_automate(g_detune, e) :\n");
+    printf("  s === 7 ? slider_automate(g_listen, e) :\n");
+    printf("  s === 8 ? slider_automate(g_lin, e) :\n");
+    printf("  s === 9 ? slider_automate(g_l1mode, e) :\n");
+    printf("  s === 10 ? slider_automate(g_l1freq, e) :\n");
+    printf("  s === 11 ? slider_automate(g_l1reset, e) :\n");
+    printf("  s === 12 ? slider_automate(g_l1flo, e) :\n");
+    printf("  s === 13 ? slider_automate(g_l1fhi, e) :\n");
+    printf("  s === 14 ? slider_automate(g_l1fact, e) :\n");
+    printf("  s === 15 ? slider_automate(g_l1dlo, e) :\n");
+    printf("  s === 16 ? slider_automate(g_l1dhi, e) :\n");
+    printf("  s === 17 ? slider_automate(g_l1dact, e) :\n");
+    printf("  s === 18 ? slider_automate(g_l2mode, e) :\n");
+    printf("  s === 19 ? slider_automate(g_l2freq, e) :\n");
+    printf("  s === 20 ? slider_automate(g_l2reset, e) :\n");
+    printf("  s === 21 ? slider_automate(g_l2l1lo, e) :\n");
+    printf("  s === 22 ? slider_automate(g_l2l1hi, e) :\n");
+    printf("  s === 23 ? slider_automate(g_l2l1act, e) :\n");
+    printf("  s === 24 ? slider_automate(g_l2alo, e) :\n");
+    printf("  s === 25 ? slider_automate(g_l2ahi, e) :\n");
+    printf("  s === 26 ? slider_automate(g_l2aact, e) :\n");
+    printf("  s === 27 ? slider_automate(g_channel, e) :\n");
+    printf("  s === 28 ? slider_automate(g_spec, e) :\n");
+    printf("  s === 29 ? slider_automate(g_in, e) :\n");
+    printf("  s === 30 ? slider_automate(g_out, e) :\n");
+    printf("  s === 31 ? slider_automate(g_day, e) :\n");
+    printf("  s === 32 ? slider_automate(g_acc, e) :\n");
+    printf("  0;");
+  );
+?>
 );
 
 function gxp(x) ( gox + x * gsc; );
@@ -2385,6 +2389,7 @@ function glab_fmt(v, kd)
   kd === 120 ? ( v < -0.99 ? sprintf(#gv, "-100 %%") : v > 0.99 ? sprintf(#gv, "+100 %%") : v < -0.01 ? sprintf(#gv, "%.0f", v * 100) : v > 0.01 ? sprintf(#gv, "+%.0f", v * 100) : sprintf(#gv, "0"); ) :
   kd === 123 ? ( v < 0.001 ? sprintf(#gv, "0") : abs(v - 0.125) < 0.008 ? sprintf(#gv, "1/8") : abs(v - 0.25) < 0.008 ? sprintf(#gv, "1/4") : abs(v - 1 / 3) < 0.008 ? sprintf(#gv, "1/3") : abs(v - 0.5) < 0.008 ? sprintf(#gv, "1/2") : sprintf(#gv, "1"); ) :
   kd === 124 ? ( v < -0.5 ? sprintf(#gv, "−%.0f", -v) : sprintf(#gv, "%.0f", v); ) :
+  kd === 125 ? sprintf(#gv, "%.0f", v * 100) :
   kd === 121 ? ( v < 0.05 ? sprintf(#gv, "1/24") : v < 0.1 ? sprintf(#gv, "1/12") : v < 0.2 ? sprintf(#gv, "1/6") : v < 0.4 ? sprintf(#gv, "1/3") : sprintf(#gv, "½"); ) :
   kd === 118 ? ( v < -0.5 ? sprintf(#gv, "−1") : v > 0.5 ? sprintf(#gv, "1") : sprintf(#gv, "0"); ) :
   kd === 101 ? ( v < -0.5 ? sprintf(#gv, "L") : v > 0.5 ? sprintf(#gv, "R") : sprintf(#gv, "C"); ) :
