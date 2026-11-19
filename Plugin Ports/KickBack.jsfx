@@ -1,13 +1,17 @@
 desc: Kick Back (Mz808 + KoniSynth drum machine port) by chmaha
 tags: instrument drum machine
 author: chmaha
-version: 1.0
+version: 1.1
 changelog:
-  Initial release.
+  TR-808 kit recalibrated against recordings of a real TR-808 at every sampled knob position:
+  snare (lower drum tones, darker snares), hand clap (three distinct claps, then the tail), cymbal
+  (brighter; TONE now brightens), hi-hats, maracas, toms, congas, rim shot, claves, cowbell and
+  bass drum decay. Each voice keeps its previous loudness at the middle knob settings.
 about:
   Analog drum machine with three kits: Roland TR-808 (1980), Roland CR-78 (1978) and Korg Mini Pops 7 (1966).
   TR-808 kit ported from Mz808 by Simon Moscrop, https://github.com/simozzer/Mz808 (AGPL-3.0):
   bridged-T resonators struck by the trigger pulse, after Werner, Abel and Smith (DAFx-14, ICMC-SMC 2014).
+  TR-808 voices calibrated against Michael Fischer's TR-808 sample set (Technopolis, 1994).
   CR-78 and Mini Pops 7 kits, rhythm patterns, + Pattern and step lights ported from the KoniSynth
   Drum Machine engine by k0n1m4k1, https://github.com/k0n1m4k1/KoniSynth (AGPL-3.0).
   Roland, TR-808, CR-78 and Korg are trademarks of their owners; no affiliation.
@@ -202,14 +206,14 @@ function mz_tick() local(i, t, dt, v, tf, tot) (
   mz_msum = tot;
 );
 function bd_set(dp, tp) local(tau) instance(kheld, kshort, tonec, bfs) (
-  tau = mz_explaw((dp / 10), (0.05), (0.75));
+  tau = mz_explaw((pow(clampf((dp / 10), 0, 1), (0.7558))), (0.01834), (0.5746));
   this.res.bt_set(56, tau);
   kheld = this.res.k;
   kshort = (1 / ((MZ_PI * 56) * (0.03)));
-  tonec = mz_opc(mz_tauof(mz_explaw((tp / 10), 180, 6000)), bfs);
+  tonec = mz_opc(mz_tauof(mz_explaw((tp / 10), (471.2), 6564)), bfs);
 );
 function bd_trig(h) instance(sigh, bfs) ( this.pulse.tp_fire(h, bfs); sigh = h; );
-function bd_proc() local(p, s, rp, shift, hz, clipped, kk, y) instance(env, rplag, sigh, envup, envdn, rpc, sighf, kheld, kshort, tonec) (
+function bd_proc() local(p, s, rp, shift, hz, clipped, kk, y, yy) instance(env, rplag, sigh, envup, envdn, rpc, sighf, kheld, kshort, tonec) (
   p = this.pulse.tp_next();
   s = this.shaper.ps_proc(p);
   env = (env + ((p - env) * (p > env ? envup : envdn)));
@@ -223,7 +227,8 @@ function bd_proc() local(p, s, rp, shift, hz, clipped, kk, y) instance(env, rpla
   kk = (kk * (1 - ((0.4) * shift)));
   this.res.svf.svf_tune(hz, kk);
   y = this.res.bt_proc((((2.2) * s) + (2 * rp)));
-  (this.out.op_lp((y + ((0.3) * s)), tonec) * (1.75));
+  yy = (y + (((0.09603) * y) * y));
+  (this.out.op_lp((yy + ((0.1997) * s)), tonec) * (1.884));
 );
 function bd_quiet() instance(env) (
   this.pulse.rem <= 0 && this.res.bt_energy() < (0.000001) && env < (0.000001) && abs(this.out.z) < (0.000001);
@@ -246,11 +251,16 @@ function bd_prep(fs) instance(bfs, envup, envdn, rpc, sighf) (
   this.bd_set(5, 5);
   this.bd_reset();
 );
-function sd_set(tp, sp) local(t) instance(lowmix, highmix, snappy) (
+function sd_set(tp, sp) local(t) instance(lowmix, highmix, snappy, lastt) (
   t = clampf((tp / 10), 0, 1);
-  lowmix = (1 - ((0.75) * t));
-  highmix = ((0.25) + ((0.75) * t));
-  snappy = clampf((sp / 10), 0, 1);
+  lowmix = (1 - ((0.7007) * t));
+  highmix = ((0.2504) + ((0.7895) * t));
+  snappy = (pow(clampf((sp / 10), 0, 1), (2.139)));
+  t !== lastt ? (
+    lastt = t;
+    this.lo.bt_set(172, ((0.03017) * (1 - ((0.1615) * t))));
+    this.hi.bt_set(339, (0.007111));
+  );
 );
 function sd_trig(h) instance(sfs) ( this.pulse.tp_fire(h, sfs); );
 function sd_proc() local(p, s, head, hiss, e, sn) instance(lowmix, highmix, snappy, nlpc) (
@@ -258,10 +268,11 @@ function sd_proc() local(p, s, head, hiss, e, sn) instance(lowmix, highmix, snap
   s = this.shaper.ps_proc(p);
   head = ((lowmix * this.lo.bt_proc(s)) + (highmix * this.hi.bt_proc(s)));
   this.nhp.svf_proc(mzr.mz_white());
-  hiss = this.nlp.op_lp(this.nhp.hp, nlpc);
+  this.nlp2.svf_proc(this.nlp.op_lp(this.nhp.hp, nlpc));
+  hiss = this.nlp2.lp;
   e = this.nenv.en_proc(p);
   sn = mz_sc(((hiss * e) * (0.9)));
-  ((head + ((snappy * (0.55)) * sn)) * (0.9));
+  ((head + ((snappy * (0.9498)) * sn)) * (1.738));
 );
 function sd_quiet() (
   this.pulse.rem <= 0 && (this.lo.bt_energy() + this.hi.bt_energy()) < (0.000001) && this.nenv.v < (0.00001);
@@ -272,34 +283,39 @@ function sd_reset() (
   this.shaper.ps_reset();
   this.nhp.svf_reset();
   this.nlp.z = 0;
+  this.nlp2.svf_reset();
   this.nenv.en_reset();
 );
 
-function sd_prep(fs) instance(sfs, nlpc) (
+function sd_prep(fs) instance(sfs, nlpc, lastt) (
   sfs = fs;
+  lastt = -1;
   this.lo.bt_prep(fs);
   this.hi.bt_prep(fs);
-  this.lo.bt_set(238, (0.045));
-  this.hi.bt_set(476, (0.025));
+  this.lo.bt_set(172, (0.03017));
+  this.hi.bt_set(339, (0.007111));
   this.shaper.ps_prep(fs, (0.0003));
   this.nhp.svf_prep(fs);
-  this.nhp.svf_setup(1800, (0.7));
-  nlpc = mz_opc(mz_tauof(9000), fs);
+  this.nhp.svf_setup(1654, (0.8387));
+  nlpc = mz_opc(mz_tauof(20000), fs);
+  this.nlp2.svf_prep(fs);
+  this.nlp2.svf_setup(10630, (0.5006));
   this.nenv.en_prep(fs);
-  this.nenv.en_setd((0.055));
+  this.nenv.en_setd((0.03487));
   this.sd_set(5, 5);
   this.sd_reset();
 );
-function tom_conf(c) instance(conga, centre, tune, sz, sdep, sfall, tfs) (
+function tom_conf(c) instance(conga, centre, tune, tpos, sz, sdep, sfall, tfs) (
   conga = c;
+  tune = (pow(2, (tpos * (conga ? (0.1589) : (0.1242)))));
   centre = ((conga ? MZCONHZ[sz] : MZTOMHZ[sz]) * tune);
   this.res.bt_set(centre, conga ? MZCONTAU[sz] : MZTOMTAU[sz]);
-  sdep = conga ? (0.12) : (0.25);
-  sfall = mz_dcc(conga ? (0.008) : (0.03), tfs);
+  sdep = conga ? (0.4144) : (0.6209);
+  sfall = mz_dcc(conga ? (0.001976) : (0.006153), tfs);
 );
-function tom_set(tp) instance(tune, conga) (
-  tune = (pow(2, (((clampf(tp, 0, 10) - 5) / 5) * (0.25))));
-  this.tom_conf(conga);
+function tom_set(tp) local(np) instance(tpos, conga) (
+  np = ((clampf(tp, 0, 10) - 5) / 5);
+  np !== tpos ? ( tpos = np; this.tom_conf(conga); );
 );
 function tom_trig(h, ac) instance(conga, sweep, tfs) (
   ac != conga ? this.tom_conf(ac);
@@ -318,7 +334,7 @@ function tom_proc() local(p, s, y, shell, w, pink) instance(sweep, sfall, centre
     b1 = (((0.96300) * b1) + (w * (0.2965164)));
     b2 = (((0.57000) * b2) + (w * (1.0526913)));
     pink = ((((b0 + b1) + b2) + (w * (0.1848))) * (0.25));
-    shell = ((this.nlp.op_lp(pink, nlpc) * this.nenv.en_proc(p)) * (0.5));
+    shell = ((this.nlp.op_lp(pink, nlpc) * this.nenv.en_proc(p)) * (0.02919));
   );
   ((y + shell) * (conga ? MZCONG[sz] : MZTOMG[sz]));
 );
@@ -333,17 +349,18 @@ function tom_reset() instance(b0, b1, b2, sweep) (
   b0 = b1 = b2 = sweep = 0;
 );
 
-function tom_prep(fs, size) instance(sz, tfs, nlpc, tune, conga) (
+function tom_prep(fs, size) instance(sz, tfs, nlpc, tune, tpos, conga) (
   sz = size;
   tfs = fs;
   tune = 1;
+  tpos = 0;
   conga = 0;
   this.res.bt_prep(fs);
   this.shaper.ps_prep(fs, (0.0003));
   this.nenv.en_prep(fs);
-  this.nenv.en_setd((0.05));
-  nlpc = mz_opc(mz_tauof(1800), fs);
-  this.tom_set(5);
+  this.nenv.en_setd((0.08528));
+  nlpc = mz_opc(mz_tauof((287.8)), fs);
+  this.tom_conf(0);
   this.tom_reset();
   this.tom_conf(0);
 );
@@ -354,14 +371,14 @@ function rim_proc() local(p, s, ring, e, cr, r) instance(claves) (
   claves ? (
     this.rl.bt_proc(0);
     this.rh.bt_proc(0);
-    r = (this.cl.bt_proc(s) * (0.85));
+    r = (this.cl.bt_proc(s) * (1.091));
   ) : (
     this.cl.bt_proc(0);
-    ring = (this.rl.bt_proc(s) + ((1.4) * this.rh.bt_proc(s)));
+    ring = (this.rl.bt_proc(s) + ((2.129) * this.rh.bt_proc(s)));
     e = this.venv.en_proc(p);
-    cr = (e * mz_sc((ring * (2.5))));
+    cr = (e * mz_sc((ring * (5.404))));
     this.hpf.svf_proc(cr);
-    r = (this.hpf.hp * (0.75));
+    r = (this.hpf.hp * (0.7423));
   );
   r;
 );
@@ -384,37 +401,47 @@ function rim_prep(fs) instance(rfs) (
   this.rl.bt_prep(fs);
   this.rh.bt_prep(fs);
   this.cl.bt_prep(fs);
-  this.rl.bt_set(455, (0.008));
-  this.rh.bt_set(1667, (0.005));
-  this.cl.bt_set(2500, (0.011));
+  this.rl.bt_set(419, (0.02145));
+  this.rh.bt_set(1696, (0.003679));
+  this.cl.bt_set(2444, (0.006925));
   this.venv.en_prep(fs);
-  this.venv.en_setd((0.0045));
+  this.venv.en_setd((0.003163));
   this.hpf.svf_prep(fs);
-  this.hpf.svf_setup(320, (0.7));
+  this.hpf.svf_setup((424.6), (0.7));
   this.rim_reset();
 );
-function cp_trig(h, am) instance(maracas, hh, fast, slow, tooth, tleft, timer, spacing) (
+function cp_trig(h, am) instance(maracas, hh, fast, slow, lng, tooth, tleft, timer, ttimer, taildelay, spacing, mat, maenv) (
   maracas = am;
   hh = h;
   maracas ? (
     fast = slow = h;
     tooth = 0;
     tleft = 0;
+    mat = 0;
+    maenv = 0;
+    lng = 0;
+    ttimer = 0;
   ) : (
     tooth = h;
-    tleft = 3;
+    tleft = 2;
     timer = spacing;
-    fast = slow = h;
+    ttimer = taildelay;
+    fast = slow = lng = 0;
   );
 );
-function cp_proc() local(w, tail, r) instance(maracas, hh, fast, slow, tooth, tleft, timer, spacing, toothfall, tailrise, tailfall, shakerise, shakefall) (
+function cp_proc() local(w, tail, r) instance(maracas, hh, fast, slow, lng, tooth, tleft, timer, ttimer, spacing, toothfall, tailrise, tailfall, longfall, shakefall, mat, mahold, maenv, marisec) (
   w = mzr.mz_white();
   maracas ? (
-    fast = (fast * shakerise);
-    slow = (slow * shakefall);
+    mat < mahold ? (
+      maenv = (maenv + ((hh - maenv) * marisec));
+      mat += 1;
+    ) : (
+      maenv = (maenv * shakefall);
+    );
+    slow = maenv;
     this.mhp.svf_proc(w);
     this.bp.svf_proc(0);
-    r = ((this.mhp.hp * (slow - fast)) * (0.45));
+    r = ((this.mhp.hp * maenv) * (0.5426));
   ) : (
     tooth = (tooth * toothfall);
     tleft > 0 ? (
@@ -425,63 +452,83 @@ function cp_proc() local(w, tail, r) instance(maracas, hh, fast, slow, tooth, tl
         timer = spacing;
       );
     );
+    ttimer > 0 ? (
+      ttimer -= 1;
+      ttimer == 0 ? fast = slow = lng = hh;
+    );
     fast = (fast * tailrise);
     slow = (slow * tailfall);
-    tail = ((slow - fast) * (0.75));
+    lng = (lng * longfall);
+    tail = (((slow - fast) * (2.997)) + ((lng - fast) * (0.1568)));
     this.bp.svf_proc(w);
     this.mhp.svf_proc(0);
-    r = (mz_sc(((this.bp.svf_bn() * (tooth + tail)) * (1.1))) * (1.25));
+    this.tbp.svf_proc(w);
+    r = (((mz_sc(((this.bp.svf_bn() * tooth) * (0.9994))) + mz_sc(((this.tbp.svf_bn() * tail) * (0.9994))))
+      + ((0.0007598) * (tooth + tail))) * (0.7712));
   );
   r;
 );
-function cp_quiet() instance(tleft, tooth, slow) ( tleft <= 0 && tooth < (0.00001) && slow < (0.00001); );
-function cp_reset() instance(tooth, fast, slow, tleft) (
+function cp_quiet() instance(tleft, ttimer, tooth, slow, lng) (
+  tleft <= 0 && ttimer <= 0 && tooth < (0.00001) && slow < (0.00001) && lng < (0.00001);
+);
+function cp_reset() instance(tooth, fast, slow, lng, maenv, mat, tleft, ttimer) (
   this.bp.svf_reset();
+  this.tbp.svf_reset();
   this.mhp.svf_reset();
-  tooth = fast = slow = 0;
+  ttimer = 0;
+  tooth = fast = slow = lng = maenv = 0;
+  mat = 0;
   tleft = 0;
 );
 
-function cp_prep(fs) instance(toothfall, tailrise, tailfall, shakerise, shakefall, spacing) (
+function cp_prep(fs) instance(toothfall, tailrise, tailfall, longfall, shakefall, spacing, taildelay, mahold, marisec) (
   this.bp.svf_prep(fs);
-  this.bp.svf_setup(1000, (2.2));
+  this.bp.svf_setup(1600, (0.8001));
+  this.tbp.svf_prep(fs);
+  this.tbp.svf_setup(1111, (3.997));
   this.mhp.svf_prep(fs);
-  this.mhp.svf_setup(5000, (0.7));
-  toothfall = mz_dcc((0.0028), fs);
-  tailrise = mz_dcc((0.006), fs);
-  tailfall = mz_dcc((0.075), fs);
-  shakerise = mz_dcc((0.0015), fs);
-  shakefall = mz_dcc((0.012), fs);
-  spacing = floor(((0.0105) * fs) + 0.5);
+  this.mhp.svf_setup(5110, (1.161));
+  toothfall = mz_dcc((0.002999), fs);
+  tailrise = mz_dcc((0.0006918), fs);
+  tailfall = mz_dcc((0.02297), fs);
+  shakefall = mz_dcc((0.002146), fs);
+  spacing = floor(((0.01115) * fs) + 0.5);
+  taildelay = floor(((0.02937) * fs) + 0.5);
+  longfall = mz_dcc((0.2089), fs);
+  mahold = floor(((0.0203) * fs) + 0.5);
+  marisec = mz_opc((0.02871), fs);
   this.cp_reset();
 );
 function cb_trig(h) instance(cfs) ( this.pulse.tp_fire(h, cfs); );
 function cb_proc() local(p, e, x) (
   p = this.pulse.tp_next();
-  e = (((0.75) * this.strike.en_proc(p)) + ((0.25) * this.ring.en_proc(p)));
+  e = (((0.7877) * this.strike.en_proc(p)) + ((1 - (0.7877)) * this.ring.en_proc(p)));
   x = ((0.5) * (MZOUT[4] + MZOUT[5]));
-  this.bp.svf_proc(mz_swing(x, e, (1.6)));
-  (this.bp.svf_bn() * (1.3));
+  this.bp.svf_proc(mz_swing(x, e, 4));
+  this.lp.svf_proc(this.bp.svf_bn());
+  (this.lp.lp * (1.588));
 );
 function cb_quiet() ( this.pulse.rem <= 0 && this.ring.v < (0.00001) && this.bp.svf_energy() < (0.000001); );
-function cb_reset() ( this.strike.en_reset(); this.ring.en_reset(); this.bp.svf_reset(); );
+function cb_reset() ( this.strike.en_reset(); this.ring.en_reset(); this.bp.svf_reset(); this.lp.svf_reset(); );
 
 function cb_prep(fs) instance(cfs) (
   cfs = fs;
   this.strike.en_prep(fs);
-  this.strike.en_setd((0.009));
+  this.strike.en_setd((0.006568));
   this.ring.en_prep(fs);
-  this.ring.en_setd((0.11));
+  this.ring.en_setd((0.1041));
   this.bp.svf_prep(fs);
-  this.bp.svf_setup(2000, (0.9));
+  this.bp.svf_setup(1064, (4.225));
+  this.lp.svf_prep(fs);
+  this.lp.svf_setup(13200, (1.999));
   this.cb_reset();
 );
 function cy_set(tp, dp) local(t) instance(lw, md, tp3) (
   t = clampf((tp / 10), 0, 1);
-  lw = (1 - ((0.55) * t));
-  md = ((0.9) - ((0.2) * t));
-  tp3 = ((0.05) + ((2.6) * t));
-  this.e1.en_setd(mz_explaw((dp / 10), (0.12), (0.75)));
+  lw = (1 - ((0.6991) * t));
+  md = ((1.176) - ((0.6484) * t));
+  tp3 = ((0.8833) + ((1.515) * t));
+  this.e1.en_setd((mz_explaw((dp / 10), (0.225), (0.7478)) * (1 - ((-0.07808) * t))));
 );
 function cy_trig(h) instance(yfs) ( this.pulse.tp_fire(h, yfs); );
 function cy_proc() local(p, x, a, b, splash) instance(lw, md, tp3, h3c) (
@@ -491,11 +538,11 @@ function cy_proc() local(p, x, a, b, splash) instance(lw, md, tp3, h3c) (
   this.bp2.svf_proc(x);
   a = this.bp1.svf_bn();
   b = this.bp2.svf_bn();
-  this.hp1.svf_proc(mz_swing(a, this.e1.en_proc(p), (1.6)));
-  this.hp2.svf_proc(mz_swing(b, this.e2.en_proc(p), (1.6)));
-  this.hp3.svf_proc(mz_swing(b, this.e3.en_proc(p), (1.6)));
+  this.hp1.svf_proc(mz_swing(a, this.e1.en_proc(p), (1.454)));
+  this.hp2.svf_proc(mz_swing(b, this.e2.en_proc(p), (1.454)));
+  this.hp3.svf_proc(mz_swing(b, this.e3.en_proc(p), (1.454)));
   splash = this.h3p.op_hp(this.hp3.hp, h3c);
-  ((((lw * this.hp1.hp) + (md * this.hp2.hp)) + (tp3 * splash)) * (0.75));
+  ((((lw * this.hp1.hp) + (md * this.hp2.hp)) + (tp3 * splash)) * (0.6629));
 );
 function cy_quiet() ( this.pulse.rem <= 0 && ((this.e1.v + this.e2.v) + this.e3.v) < (0.00001); );
 function cy_reset() (
@@ -506,44 +553,63 @@ function cy_reset() (
 
 function cy_prep(fs) instance(yfs, h3c) (
   yfs = fs;
-  this.bp1.svf_prep(fs); this.bp1.svf_setup(3440, (1.3));
-  this.bp2.svf_prep(fs); this.bp2.svf_setup(7100, (1.3));
-  this.hp1.svf_prep(fs); this.hp1.svf_setup(2200, (0.7));
-  this.hp2.svf_prep(fs); this.hp2.svf_setup(4600, (0.7));
-  this.hp3.svf_prep(fs); this.hp3.svf_setup(10500, (1.6));
-  h3c = mz_opc(mz_tauof(10500), fs);
+  this.bp1.svf_prep(fs); this.bp1.svf_setup(7800, (2.156));
+  this.bp2.svf_prep(fs); this.bp2.svf_setup(9955, (0.8868));
+  this.hp1.svf_prep(fs); this.hp1.svf_setup(2636, (0.7));
+  this.hp2.svf_prep(fs); this.hp2.svf_setup(8928, (0.7));
+  this.hp3.svf_prep(fs); this.hp3.svf_setup(5690, (1.6));
+  h3c = mz_opc(mz_tauof(5690), fs);
   this.e1.en_prep(fs);
   this.e2.en_prep(fs);
-  this.e2.en_setd((0.085));
+  this.e2.en_setd((0.1785));
   this.e3.en_prep(fs);
-  this.e3.en_setd((0.028));
+  this.e3.en_setd((0.05982));
   this.cy_set(5, 5);
   this.cy_reset();
 );
-function hat_set(dp) instance(opentau, open) (
-  opentau = mz_explaw((dp / 10), (0.045), (0.45));
+function hat_set(dp) local(x) instance(opentau, open, holdlen, hfs) (
+  x = clampf((dp / 10), 0, 1);
+  opentau = mz_explaw((pow(x, (0.3717))), (0.05795), (0.2782));
+  holdlen = floor((((0.05308) + (((0.5678) - (0.05308)) * (pow(x, (1.015))))) * hfs) + 0.5);
   open ? this.env.en_setd(opentau);
 );
-function hat_trig(h, ao) instance(open, opentau, hfs) (
+function hat_trig(h, ao) instance(open, opentau, hfs, gate, held) (
   open = ao;
-  this.env.en_setd(open ? opentau : (0.013));
+  this.env.en_setd(open ? opentau : (0.01766));
   this.pulse.tp_fire(h, hfs);
+  gate = 1;
+  held = 0;
 );
-function hat_proc() local(p) (
+function hat_proc() local(p, x, y) instance(open, gate, held, holdlen, relc) (
   p = this.pulse.tp_next();
   this.bp.svf_proc(mz_msum);
-  this.hp.svf_proc(mz_swing(this.bp.svf_bn(), this.env.en_proc(p), (1.8)));
-  (this.hp.hp * (1.3));
+  x = mz_swing(this.bp.svf_bn(), this.env.en_proc(p), (3.182));
+  open ? (
+    this.hpo.svf_proc(x);
+    this.hp.svf_proc(0);
+    held < holdlen ? held += 1 : gate = (gate * relc);
+    y = (this.hpo.hp * gate);
+    (y * (0.6891));
+  ) : (
+    this.hp.svf_proc(x);
+    this.hpo.svf_proc(0);
+    (this.hp.hp * (0.7992));
+  );
 );
-function hat_quiet() ( this.pulse.rem <= 0 && this.env.v < (0.00001); );
-function hat_reset() ( this.bp.svf_reset(); this.hp.svf_reset(); this.env.en_reset(); );
+function hat_quiet() instance(open, gate) ( this.pulse.rem <= 0 && (this.env.v < (0.00001) || (open && gate < (0.00001))); );
+function hat_reset() ( this.bp.svf_reset(); this.hp.svf_reset(); this.hpo.svf_reset(); this.env.en_reset(); );
 
-function hat_prep(fs) instance(hfs, opentau, open) (
+function hat_prep(fs) instance(hfs, opentau, open, relc, gate, held, holdlen) (
   hfs = fs;
   opentau = (0.15);
   open = 0;
-  this.bp.svf_prep(fs); this.bp.svf_setup(7100, (1.4));
-  this.hp.svf_prep(fs); this.hp.svf_setup(7000, (0.9));
+  gate = 1;
+  held = 0;
+  holdlen = 0;
+  this.bp.svf_prep(fs); this.bp.svf_setup(11940, (1.062));
+  this.hp.svf_prep(fs); this.hp.svf_setup(8939, (1.047));
+  this.hpo.svf_prep(fs); this.hpo.svf_setup(6820, (1.21));
+  relc = mz_dcc((0.0162), fs);
   this.env.en_prep(fs);
   this.hat_set(4);
   this.hat_reset();
@@ -1097,13 +1163,13 @@ MZSLOT = alloc(16); K78SLOT = alloc(16); KMPSLOT = alloc(16);
 MZGM = alloc(128); KGM = alloc(256); NMN = alloc(384);
 PLAY = alloc(16); MZO = alloc(16); MZDX = alloc(16); MZDY = alloc(16); KMO = alloc(16); KOUT = alloc(32); NOQ = alloc(512); LNOTE = alloc(16); HQ = alloc(64 * 4); EVQ = alloc(1024 * 4); PADQ = alloc(64 * 2);
 
-MZHZ[0] = f32k(205.3); MZHZ[1] = f32k(304.4); MZHZ[2] = f32k(369.6); MZHZ[3] = f32k(522.7); MZHZ[4] = 540; MZHZ[5] = 800;
-MZTOMHZ[0] = 90; MZTOMHZ[1] = 135; MZTOMHZ[2] = 185;
-MZCONHZ[0] = 185; MZCONHZ[1] = 250; MZCONHZ[2] = 400;
-MZTOMTAU[0] = (0.20); MZTOMTAU[1] = (0.16); MZTOMTAU[2] = (0.13);
-MZCONTAU[0] = (0.09); MZCONTAU[1] = (0.075); MZCONTAU[2] = (0.06);
-MZTOMG[0] = 1; MZTOMG[1] = (0.72); MZTOMG[2] = (0.62);
-MZCONG[0] = (1.15); MZCONG[1] = (0.95); MZCONG[2] = (0.75);
+MZHZ[0] = f32k(211.5); MZHZ[1] = 315; MZHZ[2] = f32k(380.7); MZHZ[3] = f32k(538.4); MZHZ[4] = f32k(558.3); MZHZ[5] = f32k(823.6);
+MZTOMHZ[0] = (90.88); MZTOMHZ[1] = (140.3); MZTOMHZ[2] = (187.4);
+MZCONHZ[0] = (200.1); MZCONHZ[1] = (283.4); MZCONHZ[2] = (413.9);
+MZTOMTAU[0] = (0.08763); MZTOMTAU[1] = (0.05723); MZTOMTAU[2] = (0.04339);
+MZCONTAU[0] = (0.07687); MZCONTAU[1] = (0.03825); MZCONTAU[2] = (0.03408);
+MZTOMG[0] = (1.16); MZTOMG[1] = (0.8836); MZTOMG[2] = (0.8644);
+MZCONG[0] = (0.9687); MZCONG[1] = (1.038); MZCONG[2] = (0.9466);
 
 KC_NF = 29;
 KOUTT = alloc(32); KOUTT[0] = 0; KOUTT[1] = 1; KOUTT[2] = 5; KOUTT[3] = 9; KOUTT[4] = 8; KOUTT[5] = 6; KOUTT[6] = 5; KOUTT[7] = 4; KOUTT[8] = 3; KOUTT[9] = 2; KOUTT[10] = 7; KOUTT[11] = 10; KOUTT[12] = 10; KOUTT[13] = 10; KOUTT[14] = 10; KOUTT[15] = 0; KOUTT[16] = 1; KOUTT[17] = 1; KOUTT[18] = 5; KOUTT[19] = 9; KOUTT[20] = 8; KOUTT[21] = 8; KOUTT[22] = 10; KOUTT[23] = 7; KOUTT[24] = 2; KOUTT[25] = 4; KOUTT[26] = 3; KOUTT[27] = 5; KOUTT[28] = 10; KOUTT[29] = 10;
