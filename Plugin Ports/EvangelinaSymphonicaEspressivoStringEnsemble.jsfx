@@ -1,9 +1,9 @@
 desc: Evangelina Symphonica Espressivo String Ensemble (SCC Expressive Strings port) by chmaha
 tags: instrument
 author: chmaha
-version: 1.2
+version: 1.3
 changelog:
-  Load samples when the plugin opens, so loading is fast on rec-armed tracks too
+  Key-switch notes show their articulation names in the piano roll
 about:
   String ensemble playing S. Christian Collins' SCC Expressive Strings through a port of the sfizz SFZ engine.
   Seven key-switched articulations: legato with expression control, legato with velocity control, staccato,
@@ -1501,6 +1501,37 @@ function apply_sliders() local(s, b, p)
   sec_ok ? while (load_pending()) ( loader_step(); );
 );
 apply_sliders();
+<?
+!jsfx_has_set_midi_note_name ? printf("function set_midi_note_name(a,b,c,d) ( 0 );\n");
+?>
+function nn_update() local(s, b, a, z, c, k, n) (
+  a = 0; z = 0; s = 0;
+  loop(NSLOT,
+    b = 2 + s * 6;
+    s < 4 ? a = a * 544 + (slider(b) * 2 + slider(b + 1)) * 17 + slider(b + 2) : z = z * 544 + (slider(b) * 2 + slider(b + 1)) * 17 + slider(b + 2);
+    s += 1;
+  );
+  (a !== nn_a || z !== nn_z) ? (
+    nn_a = a; nn_z = z;
+    set_midi_note_name(-1, 0, 0, "");
+    s = 0;
+    loop(NSLOT,
+      b = SLOT[s * SLS + 9];
+      (sec_ok && b) ? (
+        c = slider(2 + s * 6 + 2) - 1;
+        k = 0;
+        loop(b[15],
+          n = b[b[16] + k];
+          n >= 0 && n < 128 && strlen(art_name(slider(2 + s * 6), slider(2 + s * 6 + 1), k)) ? set_midi_note_name(0, n, c, art_name(slider(2 + s * 6), slider(2 + s * 6 + 1), k));
+          k += 1;
+        );
+      );
+      s += 1;
+    );
+  );
+);
+nn_a = nn_z = -1;
+nn_update();
 
 @slider
 srate !== last_rate ? (
@@ -1508,9 +1539,11 @@ srate !== last_rate ? (
   s = 0; loop(NSLOT, slot_enter(s); src_rate(); slot_leave(); s += 1; );
 );
 apply_sliders();
+nn_update();
 
 @block
 apply_sliders();
+nn_update();
 all_need();
 sec_ok ? (
   n = 0; s = 0; loop(NSLOT, n += SLOT[s * SLS + 4]; s += 1; );
