@@ -1,0 +1,2691 @@
+desc: Ensemble Cast (4ms Ensemble Oscillator port) by chmaha
+tags: instrument synthesizer oscillator drone additive
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  An additive drone oscillator: up to 16 pairs of sine oscillators per voice, tuned to a scale, spread across the
+  stereo field, cross-modulated and shaped. It always sounds; MIDI notes transpose it.
+  Root and Pitch set the base note, Spread the interval between oscillators, Balance the tilt between low and high
+  oscillators, Detune the beating, Cross FM the frequency modulation between oscillators, Twist (Ramp, Pulsar,
+  Crush) and Warp (Fold, Cheby, Segment) the waveshape. Scale picks one of ten scales in three banks (12TET, Octave,
+  Free). Freeze holds the pitches of half the oscillators (Freeze Split). Learn records your own scale: press Learn,
+  play notes, press Learn again (hold Learn for a second to restore the factory scale).
+  MIDI: notes drive up to 4 voices (0 V = middle C). The Freeze note (C2) and the Learn note (C#2) work like the
+  Freeze and Learn gate jacks; with Notes Gate Learn on, every played note also gates Learn.
+  Ported from the 4ms Ensemble Oscillator module of 4ms CoreModules (MetaModule / VCV Rack, 4ms Company,
+  https://github.com/4ms/metamodule-core-modules, GPLv3+), original firmware by Matthias Puech.
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+
+slider1:k_scale=0.453125<0,1,0.001>-Scale
+slider2:k_spread=0.375<0,1,0.001>-Spread
+slider3:k_pitch=0.5<0,1,0.001>-Pitch
+slider4:k_balance=0.5<0,1,0.001>-Balance
+slider5:k_root=0.5<0,1,0.001>-Root
+slider6:k_xfm=0<0,1,0.001>-Cross FM
+slider7:k_twist=0<0,1,0.001>-Twist
+slider8:k_detune=0<0,1,0.001>-Detune
+slider9:k_warp=0<0,1,0.001>-Warp
+slider10:sw_scale=2<0,2,1{Free,Octave,12TET}>-Scale Bank
+slider11:sw_xfm=2<0,2,1{Down,All,Up}>-Cross FM Mode
+slider12:sw_twist=0<0,2,1{Crush,Pulsar,Ramp}>-Twist Mode
+slider13:sw_warp=2<0,2,1{Segment,Cheby,Fold}>-Warp Mode
+slider14:a_fzs=0<0,2,1{Even/Odd,Low/High,Root/Others}>-Freeze Split
+slider15:a_sts=0<0,2,1{Even/Odd,Low/High,Root/Others}>-Stereo Split
+slider16:a_xf=0.5<0,1,0.001>-Crossfade
+slider17:a_nosc=16<1,16,1>-Oscillators
+slider18:a_fine=0.5<0,1,0.001>-Fine Tune
+slider19:voices=4<1,4,1>-Voices
+slider20:frz_note=36<0,127,1>-Freeze Note
+slider21:lrn_note=37<0,127,1>-Learn Note
+slider22:note_lrn=1<0,1,1{Off,On}>-Notes Gate Learn
+
+in_pin:none
+out_pin:Out A (left)
+out_pin:Out B (right)
+options:maxmem=1048576 no_meter
+
+@init
+
+function f32k(x) local(c) ( c = x * 536870913; c - (c - x); );
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+function trunc(x) ( x < 0 ? -floor(-x) : floor(x); );
+function u32w(x) ( x - 4294967296 * floor(x / 4294967296); );
+
+K_PI = (13176795 / 4194304);
+K_EXPINC = (524643 / 524288);
+K_16O2PI = (10680707 / 4194304);
+K_0225 = (7549747 / 33554432);
+K_092 = (15435039 / 16777216);
+K_1EM5 = (2748779 / 274877906944);
+K_0004 = (8589935 / 2147483648);
+K_0005 = (5368709 / 1073741824);
+K_1O1024 = (1 / 1024);
+K_01 = (13421773 / 134217728);
+K_M01 = -(13421773 / 134217728);
+K_M12 = -(5033165 / 4194304);
+K_07 = (11744051 / 16777216);
+K_06 = (5033165 / 8388608);
+K_005 = (13421773 / 268435456);
+K_DCC = (8346665 / 8388608);
+K_DCG = (16735273 / 16777216);
+K_001 = (5368709 / 536870912);
+K_098 = (2055209 / 2097152);
+K_099 = (4152361 / 4194304);
+K_09 = (7549747 / 8388608);
+K_0125 = (1 / 8);
+K_04 = (13421773 / 33554432);
+K_NNDELAY = 15;
+LED_BLACK = 0;
+LED_LEMON = 8421376;
+LED_WHITE = 16777215;
+LED_BLUE = 204;
+LED_DRED = 8323084;
+LED_GREEN = 65280;
+
+SAD = alloc(513);
+CHB = alloc(16 * 513);
+FA = alloc(1025); FD = alloc(1025);
+FMX = alloc(513);
+TRI = alloc(80);
+EX2 = alloc(1024);
+POW2 = alloc(256);
+NF = alloc(17);
+SCL = alloc(3 * 10 * 33);
+DSCL = alloc(3 * 10 * 33);
+PSV = alloc(33);
+
+PH = alloc(96); LPS = alloc(96); FDV = alloc(96); TWV = alloc(96); WAV = alloc(96); MDV = alloc(96);
+SLC = alloc(32); F1S = alloc(32); F2S = alloc(32); XFS = alloc(32); XLP = alloc(32);
+MODB = alloc(33 * 32);
+ZB = alloc(32);
+OB1 = alloc(4 * 32); OB2 = alloc(4 * 32);
+FRL = alloc(4 * 32); FRR = alloc(4 * 32);
+DCX1 = alloc(4); DCY1 = alloc(4); DCX2 = alloc(4); DCY2 = alloc(4);
+ROOTC = alloc(4); PITCHC = alloc(4);
+ADC = alloc(16);
+SPIP = alloc(4); SPIR = alloc(4);
+PCR = alloc(4 * 16); PCC = alloc(4); PCI = alloc(4 * 4);
+RCR = alloc(4 * 8); RCC = alloc(4); RCI = alloc(4 * 2);
+RHY = alloc(4); PSB = alloc(4);
+EVT = alloc(64); EVD = alloc(64);
+PVOLT = alloc(4);
+POTF = alloc(16); POTP = alloc(16); SUMF = alloc(16);
+LEDC = alloc(16);
+
+function fexp2(x) local(y, e) ( y = x + 127; e = floor(y); POW2[e] * EX2[floor((y - e) * 1024)]; );
+function fexp2k(x) local(y, e) ( y = f32k(x + 127); e = floor(y); POW2[e] * EX2[floor((y - e) * 1024)]; );
+
+function of_pitch(p) ( ((fexp2(((p - 69) / 12)) * 440) / p_sr); );
+
+function tables_init() local(i, n, sz, cz, fq, prev, x, g, p, y, mx, k, fv, v)
+(
+  i = 0; loop(256, POW2[i] = 2 ^ (i - 127); i += 1; );
+  x = 1; i = 0; loop(1024, EX2[i] = x; x = f32k(x * K_EXPINC); i += 1; );
+  fq = f32k(f32k(2 * K_PI) * f32k(1 / 512));
+  sz = 0; cz = 1;
+  sz = f32k(sz + f32k(fq * cz)); cz = f32k(cz - f32k(fq * sz));
+  prev = trunc(f32k(sz * 32767));
+  i = 0;
+  loop(513,
+    sz = f32k(sz + f32k(fq * cz)); cz = f32k(cz - f32k(fq * sz));
+    v = trunc(f32k(sz * 32767));
+    SAD[i] = (prev + 32768) * 65536 + (v - prev + 32768);
+    prev = v;
+    i += 1;
+  );
+  i = 0; loop(513, CHB[i] = f32k(f32k(i * 2 / 512) - 1); i += 1; );
+  i = 0; loop(513, x = CHB[i]; CHB[513 + i] = f32k(f32k(f32k(2 * x) * x) - 1); i += 1; );
+  n = 2;
+  loop(14,
+    i = 0;
+    loop(513, CHB[n * 513 + i] = f32k(f32k(f32k(2 * CHB[i]) * CHB[(n - 1) * 513 + i]) - CHB[(n - 2) * 513 + i]); i += 1; );
+    n += 1;
+  );
+  prev = 0; i = 0;
+  loop(1025,
+    x = f32k(i / 1022);
+    x = f32k(6 * f32k(f32k(2 * x) - 1));
+    g = f32k(1 / f32k(1 + abs(x)));
+    p = f32k(f32k(K_16O2PI * x) * g);
+    while (p > 1) ( p = f32k(p - 1); );
+    while (p < 0) ( p = f32k(p + 1); );
+    y = f32k(f32k(p * 2) - 1);
+    y = f32k(4 * f32k(y - f32k(y * abs(y))));
+    y = f32k(f32k(K_0225 * f32k(f32k(y * abs(y)) - y)) + y);
+    x = f32k(-g * f32k(x + y));
+    i === 0 ? ( FA[0] = x; FD[0] = 0; ) : ( FA[i] = prev; FD[i] = f32k(x - prev); );
+    prev = x;
+    i += 1;
+  );
+  mx = 0; i = 0;
+  loop(513,
+    v = abs(FA[i + 512]);
+    mx = mx < v ? v : mx;
+    FMX[i] = f32k(K_092 / f32k(mx + K_1EM5));
+    i += 1;
+  );
+  TRI[0] = -1; TRI[1] = -(3 / 4); TRI[2] = -(1 / 2); TRI[3] = -(1 / 4); TRI[4] = 0; TRI[5] = (1 / 4); TRI[6] = (1 / 2); TRI[7] = (3 / 4); TRI[8] = 1; TRI[9] = -1; TRI[10] = -1; TRI[11] = -(11184811 / 16777216); TRI[12] = -(11184811 / 33554432); TRI[13] = 0; TRI[14] = (11184811 / 33554432); TRI[15] = (11184811 / 16777216); TRI[16] = 1; TRI[17] = 1; TRI[18] = -1; TRI[19] = -1; TRI[20] = -1; TRI[21] = -(1 / 2); TRI[22] = 0; TRI[23] = (1 / 2); TRI[24] = 1; TRI[25] = 1; TRI[26] = 1; TRI[27] = -1; TRI[28] = -1; TRI[29] = -1; TRI[30] = -1; TRI[31] = 0; TRI[32] = 1; TRI[33] = 1; TRI[34] = 1; TRI[35] = 1; TRI[36] = -1; TRI[37] = -(1 / 2); TRI[38] = -1; TRI[39] = -(1 / 2); TRI[40] = 0; TRI[41] = (1 / 2); TRI[42] = 1; TRI[43] = (1 / 2); TRI[44] = 1; TRI[45] = -1; TRI[46] = -(1 / 2); TRI[47] = 0; TRI[48] = -1; TRI[49] = 0; TRI[50] = 1; TRI[51] = 0; TRI[52] = (1 / 2); TRI[53] = 1; TRI[54] = -1; TRI[55] = -(1 / 2); TRI[56] = 1; TRI[57] = -1; TRI[58] = 0; TRI[59] = 1; TRI[60] = -1; TRI[61] = (1 / 2); TRI[62] = 1; TRI[63] = 1; TRI[64] = -1; TRI[65] = 1; TRI[66] = -1; TRI[67] = 0; TRI[68] = 1; TRI[69] = -1; TRI[70] = 1; TRI[71] = -1;
+  NF[0] = 0; NF[1] = -(13421773 / 33554432); NF[2] = (11199393 / 8589934592); NF[3] = (1049601 / 1073741824); NF[4] = (13463847 / 4294967296); NF[5] = (2113665 / 268435456); NF[6] = (9761289 / 536870912); NF[7] = (16760321 / 536870912); NF[8] = (6408759 / 134217728); NF[9] = (8947849 / 134217728); NF[10] = (2942007 / 33554432); NF[11] = (458965 / 4194304); NF[12] = (278383 / 2097152); NF[13] = (5251339 / 33554432); NF[14] = (12134075 / 67108864); NF[15] = (3446291 / 16777216); NF[16] = (7719985 / 33554432);
+  DSCL[0] = 0; DSCL[1] = 12; DSCL[32] = 2;
+  DSCL[33] = 0; DSCL[34] = 7; DSCL[35] = 12; DSCL[65] = 3;
+  DSCL[66] = 0; DSCL[67] = 4; DSCL[68] = 7; DSCL[69] = 12; DSCL[98] = 4;
+  DSCL[99] = 0; DSCL[100] = 3; DSCL[101] = 7; DSCL[102] = 12; DSCL[131] = 4;
+  DSCL[132] = 0; DSCL[133] = 3; DSCL[134] = 5; DSCL[135] = 7; DSCL[136] = 12; DSCL[164] = 5;
+  DSCL[165] = 0; DSCL[166] = 3; DSCL[167] = 5; DSCL[168] = 10; DSCL[169] = 12; DSCL[197] = 5;
+  DSCL[198] = 0; DSCL[199] = 1; DSCL[200] = 5; DSCL[201] = 8; DSCL[202] = 12; DSCL[230] = 5;
+  DSCL[231] = 0; DSCL[232] = 7; DSCL[263] = 2;
+  DSCL[264] = 0; DSCL[265] = 3; DSCL[266] = 5; DSCL[267] = 7; DSCL[296] = 4;
+  DSCL[297] = 0; DSCL[298] = 1; DSCL[329] = 2;
+  DSCL[330] = 0; DSCL[331] = (14721063 / 2097152); DSCL[332] = 12; DSCL[362] = 3;
+  DSCL[363] = 0; DSCL[364] = (4050793 / 1048576); DSCL[365] = (14721063 / 2097152); DSCL[366] = (2539719 / 262144); DSCL[367] = 12; DSCL[395] = 5;
+  DSCL[396] = 0; DSCL[397] = (8552605 / 4194304); DSCL[398] = (4050793 / 1048576); DSCL[399] = (11561975 / 2097152); DSCL[400] = (14721063 / 2097152); DSCL[401] = (8813571 / 1048576); DSCL[402] = (2539719 / 262144); DSCL[403] = (11411325 / 1048576); DSCL[404] = 12; DSCL[428] = 9;
+  DSCL[429] = 0; DSCL[430] = (14721063 / 2097152); DSCL[431] = (16633705 / 1048576); DSCL[432] = (5685447 / 262144); DSCL[433] = (3412997 / 131072); DSCL[434] = (7736703 / 262144); DSCL[435] = (8494849 / 262144); DSCL[436] = (9144287 / 262144); DSCL[437] = 36; DSCL[461] = 9;
+  DSCL[462] = 0; DSCL[463] = (10444761 / 2097152); DSCL[464] = (14721063 / 2097152); DSCL[465] = 12; DSCL[494] = 4;
+  DSCL[495] = 0; DSCL[496] = (8552605 / 4194304); DSCL[497] = (10444761 / 2097152); DSCL[498] = (14721063 / 2097152); DSCL[499] = (9498683 / 1048576); DSCL[500] = 12; DSCL[527] = 6;
+  DSCL[528] = 0; DSCL[529] = (10444761 / 2097152); DSCL[530] = (14721063 / 2097152); DSCL[531] = (9273173 / 1048576); DSCL[532] = 12; DSCL[560] = 5;
+  DSCL[561] = 0; DSCL[562] = (4050793 / 1048576); DSCL[563] = (10444761 / 2097152); DSCL[564] = (14721063 / 2097152); DSCL[565] = (9273173 / 1048576); DSCL[566] = (2539719 / 262144); DSCL[567] = 12; DSCL[593] = 7;
+  DSCL[594] = 0; DSCL[595] = (5033165 / 2097152); DSCL[596] = (5033165 / 1048576); DSCL[597] = (7549747 / 1048576); DSCL[598] = (5033165 / 524288); DSCL[599] = 12; DSCL[626] = 6;
+  DSCL[627] = 0; DSCL[628] = (14380471 / 8388608); DSCL[629] = (14380471 / 4194304); DSCL[630] = (10785353 / 2097152); DSCL[631] = (14380471 / 2097152); DSCL[632] = (4493897 / 524288); DSCL[633] = (10785353 / 1048576); DSCL[634] = 12; DSCL[659] = 8;
+  DSCL[660] = 0; DSCL[661] = (14721063 / 2097152); DSCL[692] = 2;
+  DSCL[693] = 0; DSCL[694] = 2; DSCL[725] = 2;
+  DSCL[726] = 0; DSCL[727] = 1; DSCL[728] = 3; DSCL[758] = 3;
+  DSCL[759] = 0; DSCL[760] = 2; DSCL[761] = 3; DSCL[762] = 4; DSCL[791] = 4;
+  DSCL[792] = 0; DSCL[793] = 1; DSCL[794] = 2; DSCL[795] = 5; DSCL[796] = 6; DSCL[824] = 5;
+  DSCL[825] = 0; DSCL[826] = (1534111 / 1048576); DSCL[827] = (1534111 / 524288); DSCL[828] = (4602333 / 1048576); DSCL[829] = (1534111 / 262144); DSCL[830] = (15341111 / 2097152); DSCL[831] = (4602333 / 524288); DSCL[832] = (10738777 / 1048576); DSCL[833] = (1534111 / 131072); DSCL[834] = (13806999 / 1048576); DSCL[835] = (15341111 / 1048576); DSCL[836] = (8437611 / 524288); DSCL[837] = (4602333 / 262144); DSCL[838] = (4985861 / 262144); DSCL[857] = 14;
+  DSCL[858] = 0; DSCL[859] = (4602333 / 524288); DSCL[860] = (15341111 / 1048576); DSCL[861] = (4985861 / 262144); DSCL[890] = 4;
+  DSCL[891] = 0; DSCL[892] = (1534111 / 262144); DSCL[893] = (15341111 / 1048576); DSCL[894] = (4985861 / 262144); DSCL[923] = 4;
+  DSCL[924] = 0; DSCL[925] = (3271557 / 4194304); DSCL[956] = 2;
+  DSCL[957] = 0; DSCL[958] = (1337983 / 2097152); DSCL[989] = 2;
+  memcpy(SCL, DSCL, 3 * 10 * 33);
+);
+
+function scl_base(m, v) ( SCL + (m * 10 + v) * 33; );
+
+function scale_proc(SCQ, pitch) local(sz, mx, oc, octs, semi, lo, hi, mid, p1, p2, cf, t)
+(
+  sz = SCQ[32];
+  mx = SCQ[sz - 1];
+  oc = trunc((pitch / mx));
+  octs = (oc * mx);
+  semi = (pitch - octs);
+  lo = 0; hi = sz - 1;
+  while (lo + 1 < hi) ( mid = floor((lo + hi) / 2); semi < SCQ[mid] ? hi = mid : lo = mid; );
+  p1 = SCQ[lo]; p2 = SCQ[lo + 1];
+  cf = ((semi - p1) / (p2 - p1));
+  p1 = (p1 + octs); p2 = (p2 + octs);
+  (lo + oc * (sz + 1)) & 1 ? ( cf = (1 - cf); t = p1; p1 = p2; p2 = t; );
+  sp_p1 = p1; sp_p2 = p2; sp_cf = cf;
+);
+
+function osc_prep(frq, fade, tw_in, wa_in, md_in, tv0, wv0, mv0, fv0) local(ff, sq, fv, t)
+(
+  ff = (1 - (2 * frq)); ff < 0 ? ff = 0; sq = (ff * ff);
+  fv = (1 - ((4 * frq) * frq)); fv < 0 ? fv = 0;
+  q_fade = (fade * fv);
+  q_md = (md_in * sq);
+  o_tm === 0 ? q_tw = (tw_in * sq) : o_tm === 1 ? (
+    t = (sq * sq); t = (t * t); t = (t * t);
+    q_tw = (((tw_in - 1) * t) + 1);
+  ) : q_tw = tw_in;
+  o_wm === 0 ? (
+    t = (1 - (8 * frq)); t < 0 ? t = 0; t = (t * t); t = (t * t);
+    q_wa = (wa_in * t); q_wa < K_0004 ? q_wa = K_0004;
+  ) : o_wm === 1 ? (
+    t = (1 - (6 * frq)); t < 0 ? t = 0;
+    q_wa = (wa_in * t);
+  ) : (
+    t = (1 - (4 * frq)); t = ((t * t) * t); t < 0 ? t = 0;
+    q_wa = (wa_in * t);
+  );
+  q_ti = ((q_tw - tv0) * 0.03125);
+  q_wi = ((q_wa - wv0) * 0.03125);
+  q_mi = ((q_md - mv0) * 0.03125);
+  q_fi = ((q_fade - fv0) * 0.03125);
+  q_fr = u32w(trunc((frq * 4294967296)));
+);
+
+function osc_run(o, frq, fade, amp, tw_in, wa_in, md_in, OUT)
+  local(fr, phv, lp, fv, fi, tv, ti, wv, wi, mv, mi, i, m, p, x, e, k, q, fbv, t, smp, ii, fr2, ip, a, b, v, am, u, g, sf, fmv, C1, C2, R1)
+(
+  tv = TWV[o]; wv = WAV[o]; mv = MDV[o]; fv = FDV[o];
+  osc_prep(frq, fade, tw_in, wa_in, md_in, tv, wv, mv, fv);
+  ti = q_ti; wi = q_wi; mi = q_mi; fi = q_fi; fr = q_fr;
+  phv = PH[o]; lp = LPS[o];
+  i = 0;
+  o_tm === 0 && o_wm === 0 ? (
+    wi === 0 && wv > K_0005 ? ( ip = (wv * 512); ii = floor(ip); fmv = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = 0;
+      phv += fr; phv >= 4294967296 ? phv -= 4294967296;
+      p = phv + m; p >= 4294967296 ? p -= 4294967296;
+      tv = (tv + ti); wv = (wv + wi);
+      fbv = tv * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lp * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lp = lp + floor(x / 4) - floor(lp / 4);
+      wv <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wv * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wi !== 0 ? ( ip = (wv * 512); ii = floor(ip); fmv = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fmv);
+      );
+      fv = (fv + fi); smp = (smp * fv);
+      mv = (mv + mi);
+      OUT[i] = (OUT[i] + (smp * amp));
+      i += 1;
+    )
+  ) :
+  o_tm === 0 && o_wm === 1 ? (
+    wi === 0 ? ( am = (wv * 14); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = CHB + ii * 513; );
+    loop(32,
+      m = 0;
+      phv += fr; phv >= 4294967296 ? phv -= 4294967296;
+      p = phv + m; p >= 4294967296 ? p -= 4294967296;
+      tv = (tv + ti); wv = (wv + wi);
+      fbv = tv * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lp * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lp = lp + floor(x / 4) - floor(lp / 4);
+      wi !== 0 ? ( am = (wv * 14); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1 + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * fr2));
+      fv = (fv + fi); smp = (smp * fv);
+      mv = (mv + mi);
+      OUT[i] = (OUT[i] + (smp * amp));
+      i += 1;
+    )
+  ) :
+  o_tm === 0 && o_wm === 2 ? (
+    wi === 0 ? ( am = (wv * 7); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = TRI + ii * 9; );
+    loop(32,
+      m = 0;
+      phv += fr; phv >= 4294967296 ? phv -= 4294967296;
+      p = phv + m; p >= 4294967296 ? p -= 4294967296;
+      tv = (tv + ti); wv = (wv + wi);
+      fbv = tv * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lp * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lp = lp + floor(x / 4) - floor(lp / 4);
+      wi !== 0 ? ( am = (wv * 7); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1 + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * fr2));
+      fv = (fv + fi); smp = (smp * fv);
+      mv = (mv + mi);
+      OUT[i] = (OUT[i] + (smp * amp));
+      i += 1;
+    )
+  ) :
+  o_tm === 1 && o_wm === 0 ? (
+    wi === 0 && wv > K_0005 ? ( ip = (wv * 512); ii = floor(ip); fmv = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = 0;
+      phv += fr; phv >= 4294967296 ? phv -= 4294967296;
+      p = phv + m; p >= 4294967296 ? p -= 4294967296;
+      tv = (tv + ti); wv = (wv + wi);
+      q = floor(p / 65536) * floor((tv * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wv <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wv * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wi !== 0 ? ( ip = (wv * 512); ii = floor(ip); fmv = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fmv);
+      );
+      fv = (fv + fi); smp = (smp * fv);
+      mv = (mv + mi);
+      OUT[i] = (OUT[i] + (smp * amp));
+      i += 1;
+    )
+  ) :
+  o_tm === 1 && o_wm === 1 ? (
+    wi === 0 ? ( am = (wv * 14); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = CHB + ii * 513; );
+    loop(32,
+      m = 0;
+      phv += fr; phv >= 4294967296 ? phv -= 4294967296;
+      p = phv + m; p >= 4294967296 ? p -= 4294967296;
+      tv = (tv + ti); wv = (wv + wi);
+      q = floor(p / 65536) * floor((tv * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wi !== 0 ? ( am = (wv * 14); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1 + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * fr2));
+      fv = (fv + fi); smp = (smp * fv);
+      mv = (mv + mi);
+      OUT[i] = (OUT[i] + (smp * amp));
+      i += 1;
+    )
+  ) :
+  o_tm === 1 && o_wm === 2 ? (
+    wi === 0 ? ( am = (wv * 7); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = TRI + ii * 9; );
+    loop(32,
+      m = 0;
+      phv += fr; phv >= 4294967296 ? phv -= 4294967296;
+      p = phv + m; p >= 4294967296 ? p -= 4294967296;
+      tv = (tv + ti); wv = (wv + wi);
+      q = floor(p / 65536) * floor((tv * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wi !== 0 ? ( am = (wv * 7); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1 + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * fr2));
+      fv = (fv + fi); smp = (smp * fv);
+      mv = (mv + mi);
+      OUT[i] = (OUT[i] + (smp * amp));
+      i += 1;
+    )
+  ) :
+  o_tm === 2 && o_wm === 0 ? (
+    wi === 0 && wv > K_0005 ? ( ip = (wv * 512); ii = floor(ip); fmv = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = 0;
+      phv += fr; phv >= 4294967296 ? phv -= 4294967296;
+      p = phv + m; p >= 4294967296 ? p -= 4294967296;
+      tv = (tv + ti); wv = (wv + wi);
+      am = tv * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wv <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wv * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wi !== 0 ? ( ip = (wv * 512); ii = floor(ip); fmv = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fmv);
+      );
+      fv = (fv + fi); smp = (smp * fv);
+      mv = (mv + mi);
+      OUT[i] = (OUT[i] + (smp * amp));
+      i += 1;
+    )
+  ) :
+  o_tm === 2 && o_wm === 1 ? (
+    wi === 0 ? ( am = (wv * 14); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = CHB + ii * 513; );
+    loop(32,
+      m = 0;
+      phv += fr; phv >= 4294967296 ? phv -= 4294967296;
+      p = phv + m; p >= 4294967296 ? p -= 4294967296;
+      tv = (tv + ti); wv = (wv + wi);
+      am = tv * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wi !== 0 ? ( am = (wv * 14); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1 + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * fr2));
+      fv = (fv + fi); smp = (smp * fv);
+      mv = (mv + mi);
+      OUT[i] = (OUT[i] + (smp * amp));
+      i += 1;
+    )
+  ) :
+  (
+    wi === 0 ? ( am = (wv * 7); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = TRI + ii * 9; );
+    loop(32,
+      m = 0;
+      phv += fr; phv >= 4294967296 ? phv -= 4294967296;
+      p = phv + m; p >= 4294967296 ? p -= 4294967296;
+      tv = (tv + ti); wv = (wv + wi);
+      am = tv * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wi !== 0 ? ( am = (wv * 7); ii = am < 0 ? -floor(-am) : floor(am); fr2 = (am - ii); R1 = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1 + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * fr2));
+      fv = (fv + fi); smp = (smp * fv);
+      mv = (mv + mi);
+      OUT[i] = (OUT[i] + (smp * amp));
+      i += 1;
+    )
+  );
+  PH[o] = phv; LPS[o] = lp;
+  FDV[o] = fv; WAV[o] = wv; MDV[o] = mv; TWV[o] = q_tw;
+);
+
+function pair_loop(o, f1, f2, fade1, fade2, amp, MODIN, MOUT, wout, OUT)
+  local(pha, phb, fra, frb, lpa, lpb, fva, fvb, fia, fib, tva, tvb, tia, tib, wva, wvb, wia, wib, mva, mvb, mia, mib, twa, twb,
+        fma, fmb, gra, grb, R1a, R1b, mz, m, i, p, x, e, k, q, fbv, t, smp, sma, smb, ii, fr2, ip, a, b, v, am, u, g, sf, C1, C2, sla, slb)
+(
+  tva = TWV[o]; wva = WAV[o]; mva = MDV[o]; fva = FDV[o];
+  osc_prep(f1, fade1, p_twist, p_warp, p_mod, tva, wva, mva, fva);
+  tia = q_ti; wia = q_wi; mia = q_mi; fia = q_fi; fra = q_fr; twa = q_tw;
+  tvb = TWV[o + 1]; wvb = WAV[o + 1]; mvb = MDV[o + 1]; fvb = FDV[o + 1];
+  osc_prep(f2, fade2, p_twist, p_warp, p_mod, tvb, wvb, mvb, fvb);
+  tib = q_ti; wib = q_wi; mib = q_mi; fib = q_fi; frb = q_fr; twb = q_tw;
+  pha = PH[o]; lpa = LPS[o]; phb = PH[o + 1]; lpb = LPS[o + 1];
+  mz = MODIN === ZB;
+  sla = fva === 0 && fia === 0; slb = fvb === 0 && fib === 0;
+  i = 0;
+  o_tm === 0 && o_wm === 0 ? (
+    sla ? ( slb ? (
+
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+
+      i += 1;
+    );
+    ) : (
+     wib === 0 && wvb > K_0005 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      wvb <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wvb * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wib !== 0 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fmb);
+      );
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (smb * amp));
+      i += 1;
+    );
+    ) ) : ( slb ? (
+    wia === 0 && wva > K_0005 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      wva <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wva * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wia !== 0 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fma);
+      );
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (sma * amp));
+      i += 1;
+    );
+    ) : (
+    wia === 0 && wva > K_0005 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); ); wib === 0 && wvb > K_0005 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      wva <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wva * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wia !== 0 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fma);
+      );
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      wvb <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wvb * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wib !== 0 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fmb);
+      );
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = ((OUT[i] + (sma * amp)) + (smb * amp));
+      i += 1;
+    );
+    ) );
+  ) :
+  o_tm === 0 && o_wm === 1 ? (
+    sla ? ( slb ? (
+
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+
+      i += 1;
+    );
+    ) : (
+     wib === 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      wib !== 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1b + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (smb * amp));
+      i += 1;
+    );
+    ) ) : ( slb ? (
+    wia === 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      wia !== 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1a + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (sma * amp));
+      i += 1;
+    );
+    ) : (
+    wia === 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; ); wib === 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      wia !== 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1a + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      wib !== 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1b + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = ((OUT[i] + (sma * amp)) + (smb * amp));
+      i += 1;
+    );
+    ) );
+  ) :
+  o_tm === 0 && o_wm === 2 ? (
+    sla ? ( slb ? (
+
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+
+      i += 1;
+    );
+    ) : (
+     wib === 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      wib !== 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1b + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (smb * amp));
+      i += 1;
+    );
+    ) ) : ( slb ? (
+    wia === 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      wia !== 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1a + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (sma * amp));
+      i += 1;
+    );
+    ) : (
+    wia === 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; ); wib === 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      fbv = tva * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpa * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpa = lpa + floor(x / 4) - floor(lpa / 4);
+      wia !== 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1a + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      fbv = tvb * 65536; fbv = fbv < 0 ? -floor(-fbv) : floor(fbv);
+      p = p + lpb * floor(fbv / 2) * 4 + fbv * 65536; p = p - 4294967296 * floor(p / 4294967296);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      lpb = lpb + floor(x / 4) - floor(lpb / 4);
+      wib !== 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1b + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = ((OUT[i] + (sma * amp)) + (smb * amp));
+      i += 1;
+    );
+    ) );
+  ) :
+  o_tm === 1 && o_wm === 0 ? (
+    sla ? ( slb ? (
+    pha = u32w(pha + 32 * fra); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+
+      i += 1;
+    );
+    ) : (
+    pha = u32w(pha + 32 * fra); wib === 0 && wvb > K_0005 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      q = floor(p / 65536) * floor((tvb * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wvb <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wvb * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wib !== 0 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fmb);
+      );
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (smb * amp));
+      i += 1;
+    );
+    ) ) : ( slb ? (
+    wia === 0 && wva > K_0005 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); ); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      q = floor(p / 65536) * floor((tva * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wva <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wva * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wia !== 0 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fma);
+      );
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (sma * amp));
+      i += 1;
+    );
+    ) : (
+    wia === 0 && wva > K_0005 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); ); wib === 0 && wvb > K_0005 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      q = floor(p / 65536) * floor((tva * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wva <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wva * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wia !== 0 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fma);
+      );
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      q = floor(p / 65536) * floor((tvb * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wvb <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wvb * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wib !== 0 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fmb);
+      );
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = ((OUT[i] + (sma * amp)) + (smb * amp));
+      i += 1;
+    );
+    ) );
+  ) :
+  o_tm === 1 && o_wm === 1 ? (
+    sla ? ( slb ? (
+    pha = u32w(pha + 32 * fra); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+
+      i += 1;
+    );
+    ) : (
+    pha = u32w(pha + 32 * fra); wib === 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      q = floor(p / 65536) * floor((tvb * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wib !== 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1b + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (smb * amp));
+      i += 1;
+    );
+    ) ) : ( slb ? (
+    wia === 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; ); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      q = floor(p / 65536) * floor((tva * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wia !== 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1a + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (sma * amp));
+      i += 1;
+    );
+    ) : (
+    wia === 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; ); wib === 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      q = floor(p / 65536) * floor((tva * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wia !== 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1a + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      q = floor(p / 65536) * floor((tvb * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wib !== 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1b + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = ((OUT[i] + (sma * amp)) + (smb * amp));
+      i += 1;
+    );
+    ) );
+  ) :
+  o_tm === 1 && o_wm === 2 ? (
+    sla ? ( slb ? (
+    pha = u32w(pha + 32 * fra); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+
+      i += 1;
+    );
+    ) : (
+    pha = u32w(pha + 32 * fra); wib === 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      q = floor(p / 65536) * floor((tvb * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wib !== 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1b + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (smb * amp));
+      i += 1;
+    );
+    ) ) : ( slb ? (
+    wia === 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; ); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      q = floor(p / 65536) * floor((tva * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wia !== 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1a + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (sma * amp));
+      i += 1;
+    );
+    ) : (
+    wia === 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; ); wib === 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      q = floor(p / 65536) * floor((tva * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wia !== 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1a + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      q = floor(p / 65536) * floor((tvb * 512)); q > 33554432 ? q = 33554432;
+      p = q * 128; p >= 4294967296 ? p -= 4294967296;
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wib !== 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1b + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = ((OUT[i] + (sma * amp)) + (smb * amp));
+      i += 1;
+    );
+    ) );
+  ) :
+  o_tm === 2 && o_wm === 0 ? (
+    sla ? ( slb ? (
+    pha = u32w(pha + 32 * fra); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+
+      i += 1;
+    );
+    ) : (
+    pha = u32w(pha + 32 * fra); wib === 0 && wvb > K_0005 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      am = tvb * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wvb <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wvb * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wib !== 0 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fmb);
+      );
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (smb * amp));
+      i += 1;
+    );
+    ) ) : ( slb ? (
+    wia === 0 && wva > K_0005 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); ); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      am = tva * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wva <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wva * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wia !== 0 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fma);
+      );
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (sma * amp));
+      i += 1;
+    );
+    ) : (
+    wia === 0 && wva > K_0005 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); ); wib === 0 && wvb > K_0005 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      am = tva * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wva <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wva * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wia !== 0 ? ( ip = (wva * 512); ii = floor(ip); fma = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fma);
+      );
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      am = tvb * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wvb <= K_0005 ? smp = (x / 32767) : (
+        sf = x * floor((wvb * 32768)) * 2 + 2147483648; sf >= 4294967296 ? sf -= 4294967296 : sf < 0 ? sf += 4294967296;
+        k = floor(sf / 4194304);
+        smp = (FA[k] + (FD[k] * ((sf - k * 4194304) * (1 / 4194304))));
+        wib !== 0 ? ( ip = (wvb * 512); ii = floor(ip); fmb = (FMX[ii] + ((FMX[ii + 1] - FMX[ii]) * (ip - ii))); );
+        smp = (smp * fmb);
+      );
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = ((OUT[i] + (sma * amp)) + (smb * amp));
+      i += 1;
+    );
+    ) );
+  ) :
+  o_tm === 2 && o_wm === 1 ? (
+    sla ? ( slb ? (
+    pha = u32w(pha + 32 * fra); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+
+      i += 1;
+    );
+    ) : (
+    pha = u32w(pha + 32 * fra); wib === 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      am = tvb * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wib !== 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1b + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (smb * amp));
+      i += 1;
+    );
+    ) ) : ( slb ? (
+    wia === 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; ); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      am = tva * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wia !== 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1a + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (sma * amp));
+      i += 1;
+    );
+    ) : (
+    wia === 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; ); wib === 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      am = tva * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wia !== 0 ? ( am = (wva * 14); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1a + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      am = tvb * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wib !== 0 ? ( am = (wvb * 14); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = CHB + ii * 513; );
+      u = x + 32768; k = floor(u / 128); g = (u - k * 128) * (1 / 128);
+      C1 = R1b + k; C2 = C1 + 513;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = ((OUT[i] + (sma * amp)) + (smb * amp));
+      i += 1;
+    );
+    ) );
+  ) :
+  (
+    sla ? ( slb ? (
+    pha = u32w(pha + 32 * fra); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+
+      i += 1;
+    );
+    ) : (
+    pha = u32w(pha + 32 * fra); wib === 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      wva = (wva + wia); mva = (mva + mia); sma = 0;
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      am = tvb * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wib !== 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1b + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (smb * amp));
+      i += 1;
+    );
+    ) ) : ( slb ? (
+    wia === 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; ); phb = u32w(phb + 32 * frb);
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      am = tva * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wia !== 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1a + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      wvb = (wvb + wib); mvb = (mvb + mib); smb = 0;
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = (OUT[i] + (sma * amp));
+      i += 1;
+    );
+    ) : (
+    wia === 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; ); wib === 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+    loop(32,
+      m = mz ? 0 : MODIN[i] * 65536;
+      pha += fra; pha >= 4294967296 ? pha -= 4294967296;
+      p = pha + m; p >= 4294967296 ? p -= 4294967296;
+      tva = (tva + tia); wva = (wva + wia);
+      am = tva * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wia !== 0 ? ( am = (wva * 7); ii = am < 0 ? -floor(-am) : floor(am); gra = (am - ii); R1a = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1a + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * gra));
+      fva = (fva + fia); sma = (smp * fva);
+      mva = (mva + mia);
+      phb += frb; phb >= 4294967296 ? phb -= 4294967296;
+      p = phb + m; p >= 4294967296 ? p -= 4294967296;
+      tvb = (tvb + tib); wvb = (wvb + wib);
+      am = tvb * 65536; am = am < 0 ? -floor(-am) : floor(am);
+      p = p ~ (floor(p / 65536) * am) ~ (16384 * am);
+      k = floor(p / 8388608); t = floor((p - k * 8388608) / 256);
+      e = SAD[k]; a = floor(e / 65536);
+      x = a - 32768 + floor((e - a * 65536 - 32768) * t * (1 / 32768));
+      wib !== 0 ? ( am = (wvb * 7); ii = am < 0 ? -floor(-am) : floor(am); grb = (am - ii); R1b = TRI + ii * 9; );
+      u = x + 32768; k = floor(u / 8192); g = (u - k * 8192) * (1 / 8192);
+      C1 = R1b + k; C2 = C1 + 9;
+      a = (C1[0] + ((C1[1] - C1[0]) * g));
+      b = (C2[0] + ((C2[1] - C2[0]) * g));
+      smp = (a + ((b - a) * grb));
+      fvb = (fvb + fib); smb = (smp * fvb);
+      mvb = (mvb + mib);
+      wout ? (
+        v = ((sma + 1) * mva) * 65536; v = v < 0 ? -floor(-v) : floor(v);
+        u = ((smb + 1) * mvb) * 65536; u = u < 0 ? -floor(-u) : floor(u);
+        v += u + MOUT[i]; MOUT[i] = v - 65536 * floor(v / 65536);
+      );
+      OUT[i] = ((OUT[i] + (sma * amp)) + (smb * amp));
+      i += 1;
+    );
+    ) );
+  );
+  PH[o] = pha; LPS[o] = lpa; FDV[o] = fva; WAV[o] = wva; MDV[o] = mva; TWV[o] = twa;
+  PH[o + 1] = phb; LPS[o + 1] = lpb; FDV[o + 1] = fvb; WAV[o + 1] = wvb; MDV[o + 1] = mvb; TWV[o + 1] = twb;
+);
+
+function pair_run(pi, frozen, fq1, fq2, scf, amp, MODIN, MOUT, wout, OUT) local(cf, d, x, oa, ob, xf)
+(
+  cf = frozen ? 0 : 1;
+  d = (cf - SLC[pi]); d > K_1O1024 ? d = K_1O1024;
+  SLC[pi] = (SLC[pi] + d); cf = SLC[pi];
+  F1S[pi] = (F1S[pi] + ((fq1 - F1S[pi]) * cf));
+  F2S[pi] = (F2S[pi] + ((fq2 - F2S[pi]) * cf));
+  XFS[pi] = (XFS[pi] + ((scf - XFS[pi]) * cf));
+  x = ((XFS[pi] - p_xff) / (1 - (2 * p_xff))); x > 1 ? x = 1; x < 0 ? x = 0;
+  XLP[pi] = (XLP[pi] + ((x - XLP[pi]) * K_01));
+  xf = XLP[pi];
+  oa = pi * 2; ob = oa + 1;
+  j_tw ? ( TWV[oa] = TWV[ob] = p_twist; );
+  j_wa ? ( WAV[oa] = WAV[ob] = p_warp; );
+  j_md ? ( MDV[oa] = MDV[ob] = p_mod; );
+  xf === 0 ? PH[ob] = PH[oa];
+  xf === 1 ? PH[oa] = PH[ob];
+  wout ? memset(MOUT, 0, 32);
+  pair_loop(oa, F1S[pi], F2S[pi], (1 - xf), xf, amp, MODIN, MOUT, wout, OUT);
+);
+
+function split(m, i, n) ( m === 0 ? !(i & 1) : m === 1 ? i < floor(n / 2) : i === 0; );
+
+function osc_main() local(chans, nosc, base, c, nc, O1, O2, aa, asum, an, r, root, pitch, det, dacc, i, p1, p2, f1, f2, obuf, MODIN, MOUT, wout, fz, at, at1, at2, bal, ni, k, SCP)
+(
+  chans = poly_chans < 1 ? 1 : poly_chans > 4 ? 4 : poly_chans;
+  nosc = p_numosc < 32 ? p_numosc : 32;
+  o_tm = p_tm; o_wm = p_wm;
+  j_tw = 0; p_tm !== prev_tm ? ( prev_tm = p_tm; j_tw = 1; );
+  j_wa = 0; p_wm !== prev_wm ? ( prev_wm = p_wm; j_wa = 1; );
+  j_md = 0; p_mm !== prev_mm ? ( prev_mm = p_mm; j_md = 1; );
+  SCP = cur_scale;
+  base = 0; c = 0;
+  loop(chans,
+    O1 = OB1 + c * 32; O2 = OB2 + c * 32;
+    memset(O1, 0, 32); memset(O2, 0, 32);
+    nc = floor(nosc / chans) + (c < nosc % chans ? 1 : 0);
+    nc > 0 ? (
+      aa = 1; asum = 0; an = nc;
+      root = ROOTC[c]; pitch = PITCHC[c]; det = p_detune; dacc = 0;
+      c === 0 ? (
+        scale_proc(SCP, root);
+        lowest_pitch = (((sp_cf < 0.5 ? sp_p1 : sp_p2) + pitch) + dacc);
+      );
+      i = 0;
+      loop(nc,
+        scale_proc(SCP, root);
+        p1 = (sp_p1 + (pitch + dacc));
+        p2 = (sp_p2 + (pitch + dacc));
+        f1 = of_pitch(p1); f2 = of_pitch(p2);
+        root = (root + p_spread);
+        det = (det * K_M12);
+        dacc = (dacc + det);
+        r = an > 1 ? aa : an > 0 ? (aa * an) : 0;
+        asum = (asum + r); aa = (aa * p_balance); an = (an - 1);
+        obuf = split(p_stm, i, nc) ? O1 : O2;
+        p_mm === 0 ? (
+          i === 0 ? ( MODIN = ZB; MOUT = MODB + base * 32; wout = 1; ) : ( MODIN = MODB + base * 32; MOUT = ZB; wout = 0; );
+        ) : p_mm === 1 ? (
+          MOUT = MODB + (base + i + 1) * 32; wout = 1;
+          MODIN = i === 0 ? ZB : MODB + (base + i) * 32;
+        ) : (
+          i === nc - 1 ? ( MODIN = ZB; MOUT = MODB + base * 32; wout = 1; ) : ( MODIN = MODB + base * 32; MOUT = ZB; wout = 0; );
+        );
+        fz = (split(p_fzm, i, nc) && frozen) || temp_frozen;
+        pair_run(base + i, fz, f1, f2, sp_cf, r, MODIN, MOUT, wout, obuf);
+        i += 1;
+      );
+      at = (1 / asum);
+      bal = p_balance <= 1 ? p_balance : (1 / p_balance);
+      ni = nc < 16 ? nc : 16;
+      at = (at * (0.5 + ((0.5 + NF[ni]) * bal)));
+      at1 = at2 = at;
+      p_stm === 2 ? ( at1 = K_07; at2 = (K_06 * at); );
+      k = 0;
+      loop(32, O1[k] = (O1[k] * at1); O2[k] = (O2[k] * at2); k += 1; );
+      base += nc;
+    );
+    c += 1;
+  );
+  temp_frozen = 0;
+);
+
+function osc_prelisten() local(ssz, aa, asum, an, r, i, f, at, k, c)
+(
+  memset(OB1, 0, 32); memset(OB2, 0, 32);
+  o_tm = p_tm; o_wm = p_wm;
+  amp_lp = (amp_lp + ((ps_size - amp_lp) * K_005));
+  aa = 1; asum = 0; an = amp_lp;
+  i = 0;
+  loop(32,
+    f = of_pitch(PSV[i]);
+    r = an > 1 ? aa : an > 0 ? (aa * an) : 0;
+    asum = (asum + r); an = (an - 1);
+    osc_run(64 + i, f, 1, r, p_twist, p_warp, 0, OB1);
+    i += 1;
+  );
+  at = (0.5 / asum);
+  at = (at * (1 + NF[16]));
+  k = 0;
+  loop(32, OB2[k] = OB1[k] = (OB1[k] * at); k += 1; );
+  c = 1;
+  loop(poly_chans - 1, memset(OB1 + c * 32, 0, 32); memset(OB2 + c * 32, 0, 32); c += 1; );
+);
+
+function osc_process() local(c, k, x1, x2, y, I1, I2, dx1, dy1, dx2, dy2)
+(
+  pre_listen ? osc_prelisten() : (
+    prev_scale_idx !== p_scale ? ( temp_frozen = 1; prev_scale_idx = p_scale; );
+    cur_scale = scl_base(p_scm, p_scale);
+    osc_main();
+  );
+  memset(FRL, 0, 32); memset(FRR, 0, 32);
+  c = 0;
+  loop(poly_chans,
+    I1 = OB1 + c * 32; I2 = OB2 + c * 32;
+    dx1 = DCX1[c]; dy1 = DCY1[c]; dx2 = DCX2[c]; dy2 = DCY2[c];
+    k = 0;
+    loop(32,
+      x1 = I1[k]; x2 = I2[k];
+      y = ((K_DCG * (x1 - dx1)) + (K_DCC * dy1)); dx1 = x1; dy1 = y; x1 = y;
+      y = ((K_DCG * (x2 - dx2)) + (K_DCC * dy2)); dx2 = x2; dy2 = y; x2 = y;
+      x1 < -1 ? x1 = -1; x1 > 1 ? x1 = 1;
+      x2 < -1 ? x2 = -1; x2 > 1 ? x2 = 1;
+      FRL[k] += ((trunc((x1 * 8388607)) / 8388607) * 9);
+      FRR[k] += ((trunc((x2 * 8388607)) / 8388607) * 9);
+      k += 1;
+    );
+    DCX1[c] = dx1; DCY1[c] = dy1; DCX2[c] = dx2; DCY2[c] = dy2;
+    c += 1;
+  );
+);
+
+function ev_put(t, d) ( ev_cur += 1; EVT[ev_cur & 63] = t; EVD[ev_cur & 63] = d; ev_pend += 1; );
+
+function avg_pitch(c, x) local(RB, y, s, z)
+(
+  PCC[c] += 1; RB = PCR + c * 16; y = x; s = 0;
+  loop(4, RB[s * 4 + (PCC[c] & 3)] = y; y -= RB[s * 4 + ((PCC[c] + 1) & 3)]; s += 1; );
+  PCI[c * 4] += y; PCI[c * 4 + 1] += PCI[c * 4]; PCI[c * 4 + 2] += PCI[c * 4 + 1]; PCI[c * 4 + 3] += PCI[c * 4 + 2];
+);
+function avg_root(c, x) local(RB, y, s)
+(
+  RCC[c] += 1; RB = RCR + c * 8; y = x; s = 0;
+  loop(2, RB[s * 4 + (RCC[c] & 3)] = y; y -= RB[s * 4 + ((RCC[c] + 1) & 3)]; s += 1; );
+  RCI[c * 2] += y; RCI[c * 2 + 1] += RCI[c * 2];
+);
+function last_pitch(c) local(z) ( z = floor(u32w(PCI[c * 4 + 3]) / 81); z = z - 65536 * floor(z / 65536); (((z / 65535) - 0.5) * -192); );
+function last_root(c) local(z) ( z = floor(u32w(RCI[c * 2 + 1]) / 9); z = z - 65536 * floor(z / 65536); (((z / 65535) - 0.5) * -192); );
+
+function led_solid(l, col) ( LEDC[l * 8 + 1] = col; );
+function led_flash(l, col, fr) ( LEDC[l * 8 + 2] = col; LEDC[l * 8 + 3] = 65535; LEDC[l * 8 + 4] = trunc(((fr / 60) * 65536)); );
+function led_update(l) local(col, fl, a)
+(
+  col = LEDC[l * 8 + 1] !== LED_BLACK ? LEDC[l * 8 + 1] : LED_LEMON;
+  fl = LEDC[l * 8 + 2]; a = floor(LEDC[l * 8 + 3] / 256) / 256;
+  LEDC[l * 8 + 5] = (floor(col / 65536) & 255) * (1 - a) + (floor(fl / 65536) & 255) * a;
+  LEDC[l * 8 + 6] = (floor(col / 256) & 255) * (1 - a) + (floor(fl / 256) & 255) * a;
+  LEDC[l * 8 + 7] = (col & 255) * (1 - a) + (fl & 255) * a;
+  LEDC[l * 8 + 3] > LEDC[l * 8 + 4] ? LEDC[l * 8 + 3] -= LEDC[l * 8 + 4] : LEDC[l * 8 + 3] = 0;
+);
+
+function quadf(st, x, fact) local(d) ( d = (x - st); (st + ((abs(d) * d) * fact)); );
+function pot_proc(inp, filt) local(x, d)
+(
+  x = (ADC[inp] / 65535);
+  x = ((x - K_001) / K_098); x > 1 ? x = 1; x < 0 ? x = 0;
+  filt ? ( POTF[inp] = quadf(POTF[inp], x, 1); x = POTF[inp]; );
+  d = abs((x - POTP[inp]));
+  d > K_001 ? ( POTP[inp] = x; ev_put(7, inp); );
+  x;
+);
+function cv_proc(inp) ( ((ADC[inp] - 32768) / 32767); );
+function comb_proc(pot, filt, cv, fact) local(x)
+(
+  x = pot_proc(pot, filt);
+  x = (x - (cv >= 0 ? cv_proc(cv) : 0));
+  x < 0 ? x = 0; x > 1 ? x = 1;
+  SUMF[pot] = quadf(SUMF[pot], x, fact);
+);
+function crop_down(x) local(y) ( y = ((x - K_001) / K_099); y < 0 ? 0 : y; );
+
+function control_poll() local(x, c, cv, r, g, h, d)
+(
+  gl_s = ((gl_s * 2) + gl_jack) & 255;
+  gf_s = ((gf_s * 2) + gf_jack) & 255;
+  gf_s === 128 ? frozen = !frozen : gf_s === 127 ? frozen = !frozen;
+  gl_s === 128 && learn_on ? ev_put(9, 0);
+
+  x = comb_proc(1, 0, -1, 1);
+  x = ((x * x) * (x * x));
+  p_detune = (x * 0.625);
+
+  x = comb_proc(7, 1, 12, 0.5);
+  x = ((x * 2) - 1);
+  x = (x * (x * x));
+  x = (x * 4);
+  p_balance = fexp2(x);
+  x = cf_raw;
+  x > 0 ? ( x = (x * x); x = (1 - x); x = (x * 0.5); p_xff = x; );
+
+  x = comb_proc(8, 1, 11, 1);
+  x = crop_down(x);
+  p_tm === 0 ? x = (x * (x * K_07)) : p_tm === 1 ? ( x = (x * x); x = fexp2((x * 6)); ) : x = (x * (x * 0.5));
+  p_twist = x;
+  p_fzm = fzm_raw;
+
+  x = comb_proc(0, 1, 10, 1);
+  x = crop_down(x);
+  p_wm === 0 ? ( x = (x * x); x = (x * K_09); x = (x + K_0004); );
+  p_warp = x;
+  p_stm = stm_raw;
+
+  x = comb_proc(2, 0, 14, 1);
+  x = crop_down(x);
+  x = (x * (6 / p_numosc));
+  x = p_mm === 0 ? (x * 6) : p_mm === 1 ? (x * K_09) : (x * 4);
+  p_mod = x;
+
+  x = comb_proc(6, 0, 9, 1);
+  x = (x * 0.625);
+  p_spread = (x * 12);
+  p_numosc = nosc_raw;
+
+  x = comb_proc(4, 0, 13, 1);
+  x = (x * 9); x = (x + 0.5);
+  g = trunc(x);
+  g !== p_scale ? ev_put(10, g);
+  p_scale = g;
+
+  x = pot_proc(5, 1);
+  x = (x * 72); x = (x - 36);
+  p_fine = fine_raw > 0 ? ((fine_raw - 0.5) * 4) : 0;
+  c = 0;
+  loop(4,
+    cv = last_pitch(c);
+    cv = cv_hold ? PSB[c] : (PSB[c] = cv);
+    PITCHC[c] = ((x + cv) + p_fine);
+    c += 1;
+  );
+
+  x = pot_proc(3, 1);
+  x = (x * 108);
+  c = 0;
+  loop(4,
+    r = last_root(c);
+    d = (r - RHY[c]);
+    h = d; h < K_M01 ? h = K_M01; h > K_01 ? h = K_01;
+    RHY[c] = (RHY[c] + (d - h));
+    r = (x + RHY[c]);
+    ROOTC[c] = r < 0 ? 0 : r;
+    c += 1;
+  );
+);
+
+function sw_poll(k, ty) local(st)
+(
+  st = SWN[k];
+  SWL[k] = SWS[k]; SWS[k] = st;
+  st === 1 && SWL[k] !== 1 ? ev_put(ty, 1) : st === 3 && SWL[k] !== 3 ? ev_put(ty, 3) : st === 2 && SWL[k] !== 2 ? ev_put(ty, 2);
+);
+
+function ui_poll() local(c)
+(
+  ext_chan ? ( c = 0; loop(4, avg_pitch(c, SPIP[c]); c += 1; ); ) : ( c = 0; loop(4, avg_root(c, SPIR[c]); c += 1; ); );
+  ext_chan = !ext_chan;
+  bl_h = ((bl_h * 2) + (bt_learn ? 0 : 1)) & 255;
+  bf_h = ((bf_h * 2) + (bt_freeze ? 0 : 1)) & 255;
+  bl_h === 128 ? ev_put(0, 0) : bl_h === 127 ? ev_put(1, 0);
+  bf_h === 128 ? ev_put(0, 1) : bf_h === 127 ? ev_put(1, 1);
+  sw_poll(0, 3); sw_poll(1, 4); sw_poll(2, 5); sw_poll(3, 6);
+  to0_c >= 0 ? ( to0_c -= 1; to0_c === -1 ? ev_put(2, 0); );
+  to1_c >= 0 ? ( to1_c -= 1; to1_c === -1 ? ev_put(2, 1); );
+  control_poll();
+  nn_c >= 0 ? ( nn_c -= 1; nn_c === -1 ? ev_put(8, 0); );
+  led_solid(1, frozen ? LED_BLUE : LED_BLACK);
+);
+
+function push_cvs() local(c, pc, v)
+(
+  c = 0;
+  loop(4,
+    pc = pitch_chans ? (c < pitch_chans - 1 ? c : pitch_chans - 1) : 0;
+    v = (((PVOLT[pc] / 8) * -0.5) + 0.5); v < 0 ? v = 0; v > 1 ? v = 1;
+    SPIP[c] = trunc((v * 65535));
+    SPIR[c] = K_SPI0;
+    c += 1;
+  );
+);
+
+function ps_sort() local(i, j, t)
+(
+  i = 1;
+  while (i < ps_size) (
+    t = PSV[i]; j = i - 1;
+    while (j >= 0 && PSV[j] > t) ( PSV[j + 1] = PSV[j]; j -= 1; );
+    PSV[j + 1] = t;
+    i += 1;
+  );
+);
+
+function disable_learn() local(SCP, i, base, mx, j, ok)
+(
+  learn_on = 0; pre_listen = 0;
+  SCP = scl_base(p_scm, p_scale);
+  p_scm === 0 ? ( i = 0; loop(ps_size, PSV[i] = trunc(PSV[i]); i += 1; ); );
+  ps_sort();
+  base = PSV[0];
+  i = 0; loop(32, i < ps_size ? PSV[i] = (PSV[i] - base) : PSV[i] = 0; i += 1; );
+  p_scm === 1 ? (
+    mx = PSV[ps_size - 1];
+    PSV[ps_size] = ((trunc((mx / 12)) + 1) * 12);
+    ps_size += 1;
+  );
+  j = 1; i = 1;
+  loop(ps_size - 1, (PSV[i] - PSV[i - 1]) > K_01 ? ( PSV[j] = PSV[i]; j += 1; ); i += 1; );
+  ps_size = j;
+  ok = ps_size > 1;
+  ok ? ( memcpy(SCP, PSV, 32); SCP[32] = ps_size; scl_dirty += 1; );
+  ok;
+);
+
+function ev_handle(t1, d1, t2, d2) local(ok, SCP, x)
+(
+  t1 === 10 ? ( ui_mode === 0 || ui_mode === 2 || ui_mode === 3 ? led_flash(0, LED_WHITE, 10); );
+  t1 === 0 ? ( d1 === 0 ? to0_c = 6000 : to1_c = 6000; );
+  t1 === 3 ? p_scm = d1 === 1 ? 0 : d1 === 3 ? 1 : 2;
+  t1 === 4 ? p_mm = d1 === 1 ? 0 : d1 === 3 ? 1 : 2;
+  t1 === 5 ? p_tm = d1 === 1 ? 0 : d1 === 3 ? 1 : 2;
+  t1 === 6 ? p_wm = d1 === 1 ? 0 : d1 === 3 ? 1 : 2;
+  ui_mode === 0 ? (
+    t1 === 1 ? (
+      t2 === 0 && d1 === d2 && d1 === 0 ? (
+        ui_mode = 2;
+        led_solid(0, LED_DRED);
+        cached_base = (lowest_pitch - last_pitch(0));
+        learn_on = 1; ps_size = 0;
+        cv_hold = 1;
+      );
+    ) : t1 === 2 ? (
+      d1 === 0 && t2 === 0 && d2 === 0 ? (
+        SCP = scl_base(p_scm, p_scale);
+        memcpy(SCP, DSCL + (SCP - SCL), 33);
+        scl_dirty += 1;
+        led_flash(0, LED_BLUE, 2);
+      );
+    ) : t1 === 0 ? (
+      d1 === 1 ? ui_mode = 1;
+    );
+  ) : ui_mode === 1 ? (
+    t1 === 1 && d1 === 1 ? ( frozen = !frozen; led_solid(1, frozen ? LED_BLUE : LED_BLACK); ui_mode = 0; );
+  ) : ui_mode === 2 ? (
+    t1 === 9 ? nn_c = K_NNDELAY
+    : t1 === 8 ? (
+      ok = 0;
+      x = (last_pitch(0) + cached_base);
+      p_scm === 0 ? x = trunc(x);
+      ps_size < 30 ? ( PSV[ps_size] = x; ps_size += 1; ok = 1; );
+      pre_listen = 1;
+      led_flash(0, ok ? LED_WHITE : LED_BLACK, 10);
+    ) : t1 === 1 ? (
+      d1 === 0 && t2 === 0 && d2 === 0 ? (
+        ui_mode = 0;
+        disable_learn() ? led_flash(0, LED_GREEN, 2);
+        cv_hold = 0;
+        led_solid(0, LED_BLACK);
+      ) : d1 === 1 && t2 === 0 && d2 === 1 ? (
+        ps_size > 1 ? ( ps_size -= 1; led_flash(1, LED_BLACK, 10); );
+      );
+    );
+  );
+);
+
+function ev_process() local(k1, k2)
+(
+  while (ev_pend >= 0) (
+    k1 = (ev_cur - ev_pend) & 63; k2 = (ev_cur - ev_pend - 1) & 63;
+    ev_handle(EVT[k1], EVD[k1], EVT[k2], EVD[k2]);
+    ev_pend -= 1;
+  );
+);
+
+function eng_update()
+(
+  led_c > led_thr ? ( led_c = 0; led_update(0); led_update(1); ) : led_c += 1;
+  poll_c > poll_thr ? ( poll_c = 0; push_cvs(); ui_poll(); ) : poll_c += 1;
+  proc_c > proc_thr ? ( proc_c = 0; ev_process(); ) : proc_c += 1;
+  blk_c += 1;
+  blk_c >= 32 ? (
+    blk_c = 0;
+    poly_chans = pitch_chans < 1 ? 1 : pitch_chans > 4 ? 4 : pitch_chans;
+    nosc_raw = nosc_pv * poly_chans; nosc_raw > 32 ? nosc_raw = 32;
+    osc_process();
+    out_chans = poly_chans;
+  );
+  eo_l = FRL[blk_c]; eo_r = FRR[blk_c];
+);
+
+function eng_set_sr(sr) ( p_sr = f32k(sr); proc_thr = floor(sr / 20); led_thr = floor(sr / 60); poll_thr = floor(sr / 6000); );
+
+function eng_init() local(i)
+(
+  tables_init();
+  rnd = 0;
+  i = 0; loop(96, rnd = rnd * 1664525 + 1013904223; rnd = u32w(rnd); PH[i] = rnd; i += 1; );
+  p_sr = 48000; proc_thr = 2400; led_thr = 800; poll_thr = 8;
+  proc_c = 2400; led_c = 800; poll_c = 8; blk_c = 32;
+  p_numosc = 32; p_stm = 0; p_fzm = 1; p_xff = K_0125;
+  nosc_pv = 16; cf_raw = K_04; nosc_raw = 16; fzm_raw = 0; stm_raw = 0; fine_raw = 0;
+  poly_chans = 1; out_chans = 1;
+  bl_h = bf_h = 255;
+  to0_c = to1_c = nn_c = -1;
+  ev_cur = 64; ev_pend = -1;
+  SWN = alloc(4); SWS = alloc(4); SWL = alloc(4);
+  i = 0; loop(4, SWN[i] = SWS[i] = SWL[i] = 3; i += 1; );
+  ev_put(3, 3); ev_put(4, 3); ev_put(5, 3); ev_put(6, 3);
+  ev_process();
+  ui_mode = 0;
+  i = 0; loop(16, ADC[i] = 0; i += 1; );
+  i = 9; loop(6, ADC[i] = 32767; i += 1; );
+  K_SPI0 = trunc(f32k(f32k(f32k(f32k(0 / 8) * -0.5) + 0.5) * 65535));
+);
+
+ext_noinit = gfx_ext_retina = 1;
+MQ = alloc(4096);
+OBL = alloc(16384); OBR = alloc(16384);
+VN = alloc(4); NH = alloc(128); NT = alloc(128);
+eng_init();
+i = 0; loop(4, VN[i] = -1; i += 1; );
+cur_sr = 0;
+bpos = 0;
+
+function set_inputs() local(sw)
+(
+  ADC[0] = trunc(f32k(f32k(k_warp) * 65535));
+  ADC[1] = trunc(f32k(f32k(k_detune) * 65535));
+  ADC[2] = trunc(f32k(f32k(k_xfm) * 65535));
+  ADC[3] = trunc(f32k(f32k(k_root) * 65535));
+  ADC[4] = trunc(f32k(f32k(k_scale) * 65535));
+  ADC[5] = trunc(f32k(f32k(k_pitch) * 65535));
+  ADC[6] = trunc(f32k(f32k(k_spread) * 65535));
+  ADC[7] = trunc(f32k(f32k(k_balance) * 65535));
+  ADC[8] = trunc(f32k(f32k(k_twist) * 65535));
+  SWN[0] = sw_scale === 0 ? 2 : sw_scale === 1 ? 3 : 1;
+  SWN[1] = sw_xfm === 0 ? 2 : sw_xfm === 1 ? 3 : 1;
+  SWN[2] = sw_twist === 0 ? 2 : sw_twist === 1 ? 3 : 1;
+  SWN[3] = sw_warp === 0 ? 2 : sw_warp === 1 ? 3 : 1;
+  fzm_raw = a_fzs; stm_raw = a_sts;
+  cf_raw = f32k(a_xf);
+  nosc_pv = a_nosc < 1 ? 1 : a_nosc > 16 ? 16 : floor(a_nosc);
+  fine_raw = f32k(a_fine);
+  bt_learn = g_lrnb; bt_freeze = g_frzb;
+  pitch_chans = voices < 1 ? 1 : voices > 4 ? 4 : floor(voices);
+);
+
+function upd_gates() ( gf_jack = frz_held > 0; gl_jack = lrn_held > 0 || (note_lrn && held_n > 0); );
+
+function mono_top() local(i, b, bt) ( b = -1; bt = -1; i = 0; loop(128, NH[i] && NT[i] > bt ? ( b = i; bt = NT[i]; ); i += 1; ); b; );
+
+function note_on(n) local(c, k, cc, nv)
+(
+  n === frz_note ? ( frz_held += 1; ) : n === lrn_note ? ( lrn_held += 1; ) : (
+    !NH[n] ? held_n += 1;
+    NH[n] = 1; ntc += 1; NT[n] = ntc;
+    nv = pitch_chans;
+    learn_on || nv <= 1 ? c = 0 : (
+      c = -1; k = 1;
+      loop(nv, cc = (rot + k) % nv; c < 0 && VN[cc] < 0 ? c = cc; k += 1; );
+      c < 0 ? c = (rot + 1) % nv;
+      rot = c;
+    );
+    VN[c] = n; PVOLT[c] = f32k((n - 60) / 12);
+  );
+  upd_gates();
+);
+
+function note_off(n) local(c, t)
+(
+  n === frz_note ? ( frz_held > 0 ? frz_held -= 1; ) : n === lrn_note ? ( lrn_held > 0 ? lrn_held -= 1; ) : NH[n] ? (
+    NH[n] = 0; held_n -= 1;
+    c = 0; loop(4, VN[c] === n ? VN[c] = -1; c += 1; );
+    pitch_chans <= 1 && !learn_on ? (
+      t = mono_top();
+      t >= 0 ? ( VN[0] = t; PVOLT[0] = f32k((t - 60) / 12); );
+    );
+  );
+  upd_gates();
+);
+
+function all_off() local(i)
+(
+  i = 0; loop(128, NH[i] = 0; i += 1; );
+  i = 0; loop(4, VN[i] = -1; i += 1; );
+  held_n = frz_held = lrn_held = 0;
+  upd_gates();
+);
+
+@slider
+
+srate !== cur_sr ? ( cur_sr = srate; eng_set_sr(srate); );
+set_inputs();
+
+@block
+
+srate !== cur_sr ? ( cur_sr = srate; eng_set_sr(srate); );
+set_inputs();
+mq_n = 0;
+while (midirecv(mofs, m1, m2, m3)) (
+  mq_n < 1300 ? ( MQ[mq_n * 3] = mofs; MQ[mq_n * 3 + 1] = m1; MQ[mq_n * 3 + 2] = m2 + m3 * 256; mq_n += 1; );
+  midisend(mofs, m1, m2, m3);
+);
+mq_p = 0; s = 0;
+loop(samplesblock,
+  while (mq_p < mq_n && MQ[mq_p * 3] <= s) (
+    m1 = MQ[mq_p * 3]; mt = MQ[mq_p * 3 + 1] & 240; m2 = MQ[mq_p * 3 + 2] & 255; m3 = floor(MQ[mq_p * 3 + 2] / 256);
+    mt === 144 && m3 > 0 ? note_on(m2) : (mt === 128 || mt === 144) ? note_off(m2) : mt === 176 && (m2 === 123 || m2 === 120) ? all_off();
+    mq_p += 1;
+  );
+  eng_update();
+  OBL[s] = eo_l * 0.1; OBR[s] = eo_r * 0.1;
+  s += 1;
+);
+bpos = 0;
+
+@sample
+
+spl0 = OBL[bpos]; spl1 = OBR[bpos];
+bpos += 1;
+
+@serialize
+
+sv_ver = 1;
+file_var(0, sv_ver);
+file_mem(0, SCL, 3 * 10 * 33);
+
+@gfx 820 630
+
+UDW = 820;
+UDH = 630;
+uscale = max(0.5, min(gfx_w / UDW, gfx_h / UDH));
+uox = floor((gfx_w - UDW * uscale) * 0.5);
+uoy = 0;
+
+function automate(s, e)
+(
+<?
+  max_sliders > 22 ? printf("slider_automate(2^(s-1), e);") :
+    printf("s == 1 ? slider_automate(k_scale, e) : s == 2 ? slider_automate(k_spread, e) : s == 3 ? slider_automate(k_pitch, e) : s == 4 ? slider_automate(k_balance, e) : s == 5 ? slider_automate(k_root, e) : s == 6 ? slider_automate(k_xfm, e) : s == 7 ? slider_automate(k_twist, e) : s == 8 ? slider_automate(k_detune, e) : s == 9 ? slider_automate(k_warp, e) : s == 10 ? slider_automate(sw_scale, e) : s == 11 ? slider_automate(sw_xfm, e) : s == 12 ? slider_automate(sw_twist, e) : s == 13 ? slider_automate(sw_warp, e) : s == 14 ? slider_automate(a_fzs, e) : s == 15 ? slider_automate(a_sts, e) : s == 16 ? slider_automate(a_xf, e) : s == 17 ? slider_automate(a_nosc, e) : s == 18 ? slider_automate(a_fine, e) : s == 19 ? slider_automate(voices, e) : s == 20 ? slider_automate(frz_note, e) : s == 21 ? slider_automate(lrn_note, e) : s == 22 ? slider_automate(note_lrn, e) :");
+?> 0;
+);
+
+function sdef(s)
+(
+  s == 1 ? 0.453125 : s == 2 ? 0.375 : (s == 3 || s == 4 || s == 5 || s == 16 || s == 18) ? 0.5 : (s == 10 || s == 11 || s == 13) ? 2 :
+  s == 17 ? 16 : s == 19 ? 4 : s == 20 ? 36 : s == 21 ? 37 : s == 22 ? 1 : 0;
+);
+function set_slider(s, x) ( slider(s) = x; automate(s, 0); automate(s, 1); );
+function hit_circle(mx, my, cx, cy, rad) ( sqr(mx - cx) + sqr(my - cy) <= sqr(rad); );
+function hit_rect(mx, my, x, y, w, h) ( mx >= x && mx <= x + w && my >= y && my <= y + h; );
+function px(x) ( floor(uox + x * uscale + 0.5); );
+function py(y) ( floor(uoy + y * uscale + 0.5); );
+function pl(v) ( floor(v * uscale + 0.5); );
+function qx(t) ( 12 + t * 2.4; );
+function qy(t) ( 12 + t * 2.4; );
+function set_norm(s, x) local(old, nv)
+(
+  old = slider(s);
+  nv = max(0, min(1, x));
+  nv = floor(nv * 1000 + 0.5) / 1000;
+  slider(s) = nv;
+  slider(s) !== old ? automate(s, 0);
+);
+function ctextm(str, cx, cy, fz, fl) local(tw, th)
+(
+  gfx_setfont(1, "Arial", floor(fz * uscale + 0.5), fl);
+  gfx_measurestr(str, tw, th);
+  gfx_x = floor(cx - tw * 0.5 + 0.5); gfx_y = floor(cy - th * 0.5 + 0.5);
+  gfx_drawstr(str);
+);
+function ltext(str, x, y, fz, fl)
+(
+  gfx_setfont(1, "Arial", floor(fz * uscale + 0.5), fl);
+  gfx_x = px(x); gfx_y = py(y);
+  gfx_drawstr(str);
+);
+function rtext(str, x, y, fz, fl) local(tw, th)
+(
+  gfx_setfont(1, "Arial", floor(fz * uscale + 0.5), fl);
+  gfx_measurestr(str, tw, th);
+  gfx_x = px(x) - tw; gfx_y = py(y);
+  gfx_drawstr(str);
+);
+function notename(n) local(o, k)
+(
+  o = floor(n / 12) - 1; k = n - 12 * floor(n / 12);
+  sprintf(#unn, "%s%d", k == 0 ? "C" : k == 1 ? "C#" : k == 2 ? "D" : k == 3 ? "D#" : k == 4 ? "E" : k == 5 ? "F" : k == 6 ? "F#" : k == 7 ? "G" : k == 8 ? "G#" : k == 9 ? "A" : k == 10 ? "A#" : "B", o);
+  #unn;
+);
+function bankname(m) ( m == 0 ? "12TET" : m == 1 ? "Octave" : "Free"; );
+
+function memcmp(MA, MB, n) local(i, d) ( d = 0; i = 0; loop(n, MA[i] !== MB[i] ? d = 1; i += 1; ); d; );
+
+function scname(m, i)
+(
+  m == 0 ? (
+    i == 0 ? "Octaves" : i == 1 ? "Octaves + fifths" : i == 2 ? "Major triad" : i == 3 ? "Minor triad" : i == 4 ? "Minor triad+" : i == 5 ? "Bluesy 1" : i == 6 ? "Major 7th 3rd inv." : i == 7 ? "Circle of fifths" : i == 8 ? "Bluesy 2" : "Semitones";
+  ) : m == 1 ? (
+    i == 0 ? "Harmonics 2-3" : i == 1 ? "Harmonics 4-7" : i == 2 ? "Harmonics 8-15" : i == 3 ? "Odd harmonics 1-8" : i == 4 ? "Do Fa So" : i == 5 ? "Do Re Fa So La" : i == 6 ? "Just ratios 1" : i == 7 ? "Just ratios 2" : i == 8 ? "5-TET" : "7-TET";
+  ) : (
+    i == 0 ? "Fifths spiral" : i == 1 ? "Whole tones" : i == 2 ? "Messiaen 2" : i == 3 ? "Messiaen 3" : i == 4 ? "Messiaen 4" : i == 5 ? "Bohlen-Pierce" : i == 6 ? "B-P major triad" : i == 7 ? "B-P minor triad" : i == 8 ? "Wendy Carlos alpha" : "Wendy Carlos beta";
+  );
+);
+
+function scshort(m, i)
+(
+  m == 0 ? (
+    i == 0 ? "Octaves" : i == 1 ? "Oct + fifths" : i == 2 ? "Major triad" : i == 3 ? "Minor triad" : i == 4 ? "Minor triad+" : i == 5 ? "Bluesy 1" : i == 6 ? "Maj 7 inv." : i == 7 ? "Fifths" : i == 8 ? "Bluesy 2" : "Semitones";
+  ) : m == 1 ? (
+    i == 0 ? "Harm. 2-3" : i == 1 ? "Harm. 4-7" : i == 2 ? "Harm. 8-15" : i == 3 ? "Odd harm." : i == 4 ? "Do Fa So" : i == 5 ? "Do Re Fa So La" : i == 6 ? "Just 1" : i == 7 ? "Just 2" : i == 8 ? "5-TET" : "7-TET";
+  ) : (
+    i == 0 ? "Fifths spiral" : i == 1 ? "Whole tones" : i == 2 ? "Messiaen 2" : i == 3 ? "Messiaen 3" : i == 4 ? "Messiaen 4" : i == 5 ? "Bohlen-Pierce" : i == 6 ? "B-P major" : i == 7 ? "B-P minor" : i == 8 ? "Carlos alpha" : "Carlos beta";
+  );
+);
+
+function sclearned(m, i) local(SB) ( SB = SCL + (m * 10 + i) * 33; memcmp(SB, DSCL + (SB - SCL), 33); );
+
+
+function knob_name(s)
+(
+  s == 1 ? "Scale" : s == 2 ? "Spread" : s == 3 ? "Pitch" : s == 4 ? "Balance" : s == 5 ? "Root" : s == 6 ? "Cross FM" :
+  s == 7 ? "Twist" : s == 8 ? "Detune" : s == 9 ? "Warp" : s == 16 ? "Crossfade" : "Fine Tune";
+);
+function knob_value(s) local(x)
+(
+  x = slider(s);
+  s == 1 ? (sclearned(p_scm, p_scale) ? strcpy(#uval, "Learned") : strcpy(#uval, scshort(p_scm, p_scale)))
+  : s == 2 ? sprintf(#uval, "%.2f st", p_spread)
+  : s == 3 ? sprintf(#uval, "%+.1f st", x * 72 - 36)
+  : s == 4 ? sprintf(#uval, "%s%.0f%%", x >= 0.5 ? "high " : "low ", abs(x - 0.5) * 200)
+  : s == 5 ? strcpy(#uval, notename(floor(x * 108 + 0.5)))
+  : s == 18 ? sprintf(#uval, "%+.2f st", (x - 0.5) * 4)
+  : sprintf(#uval, "%.0f%%", x * 100);
+  #uval;
+);
+function hint_text(h)
+(
+  h == 1 ? strcpy(#uhint, "Scale: picks one of ten scales in the bank set by the Scale switch")
+  : h == 2 ? strcpy(#uhint, "Spread: how far apart the oscillators are along the scale")
+  : h == 3 ? strcpy(#uhint, "Pitch: transposes everything by up to three octaves (MIDI notes add to it)")
+  : h == 4 ? strcpy(#uhint, "Balance: left = low oscillators louder, right = high oscillators louder")
+  : h == 5 ? strcpy(#uhint, "Root: the lowest note the scale is built on")
+  : h == 6 ? strcpy(#uhint, "Cross FM: oscillators modulate each other (switch: Up, All or Down the chain)")
+  : h == 7 ? strcpy(#uhint, "Twist: Ramp = feedback, Pulsar = squeezed cycles, Crush = bit mangling")
+  : h == 8 ? strcpy(#uhint, "Detune: spreads the oscillators slightly out of tune for beating")
+  : h == 9 ? strcpy(#uhint, "Warp: Fold = wavefolder, Cheb = Chebyshev harmonics, Segment = piecewise shapes")
+  : h == 10 ? strcpy(#uhint, "Scale switch: 12TET, Octave (just, harmonic, N-TET) or Free (non-octave) bank")
+  : h == 11 ? strcpy(#uhint, "Cross FM switch: each oscillator modulates the next one up, all in a chain, or down")
+  : h == 12 ? strcpy(#uhint, "Twist mode: Ramp (feedback), Pulsar or Crush")
+  : h == 13 ? strcpy(#uhint, "Warp mode: Fold, Cheb or Segment")
+  : h == 14 ? strcpy(#uhint, "Freeze split: which oscillators Freeze holds")
+  : h == 15 ? strcpy(#uhint, "Stereo split: which oscillators go to Out A (left) and Out B (right)")
+  : h == 16 ? strcpy(#uhint, "Crossfade: how smoothly each oscillator glides between scale notes")
+  : h == 17 ? strcpy(#uhint, "Oscillators: pairs per voice (32 pairs shared by all voices)")
+  : h == 18 ? strcpy(#uhint, "Fine tune: +/- 2 semitones")
+  : h == 19 ? strcpy(#uhint, "Voices: how many MIDI notes play at once (each voice gets its share of the oscillators)")
+  : h == 20 ? strcpy(#uhint, "Freeze note: hold this MIDI note to toggle Freeze (like the Freeze gate)")
+  : h == 21 ? strcpy(#uhint, "Learn note: works like the Learn gate jack (a note is learned when it is released)")
+  : h == 22 ? strcpy(#uhint, "Notes gate Learn: every played note also gates Learn, so learning needs no extra note")
+  : h == 30 ? strcpy(#uhint, learn_on ? "Learn: click again to save the scale (needs two notes or more)" : "Learn: click, play notes, click again to save your own scale; hold 1 s = factory scale")
+  : h == 31 ? strcpy(#uhint, learn_on ? "Freeze while learning: deletes the last learned note" : "Freeze: holds the pitches of some oscillators (see Freeze split)")
+  : strcpy(#uhint, "An always-on drone: MIDI notes transpose it  ·  drag knobs, Ctrl = fine, double-click = default");
+  #uhint;
+);
+
+function stripe(cx, y) local(w, h, g, x0)
+(
+  w = pl(13); h = max(2, pl(3)); g = pl(4);
+  x0 = floor(px(cx) - (3 * w + 2 * g) * 0.5);
+  gfx_set(0.91, 0.12, 0.15, 1); gfx_rect(x0, py(y), w, h, 1);
+  gfx_set(0.15, 0.64, 0.88, 1); gfx_rect(x0 + w + g, py(y), w, h, 1);
+  gfx_set(0.0, 0.62, 0.32, 1); gfx_rect(x0 + 2 * (w + g), py(y), w, h, 1);
+);
+
+function arcw(cx, cy, r, a0, a1, th) local(k, n)
+(
+  n = max(1, ceil(th * 2));
+  k = 0;
+  loop(n, gfx_arc(cx, cy, r - th * 0.5 + k * th / n, a0, a1, 1); k += 1; );
+);
+
+function knob(s, x, y, rb0, cr, cg, cb, lab) local(cx, cy, hov, kn, a, ca, sa, kr, ra, k, d)
+(
+  cx = px(x); cy = py(y);
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, (rb0 + 9) * uscale);
+  hov ? u_hov = s;
+  (u_click && hov) ? (
+    (u_ctarget == s && time_precise() - u_ctime < 0.3) ? (
+      set_slider(s, sdef(s));
+      u_drag = 0;
+    ) : (
+      u_drag = s; u_dy0 = mouse_y; u_dv0 = slider(s); u_dfine = mouse_cap & 4;
+      automate(s, 0);
+    );
+    u_ctarget = s; u_ctime = time_precise();
+    u_click = 0;
+  );
+  (hov && u_wheel != 0 && u_drag == 0) ? (
+    set_norm(s, slider(s) + (u_wheel / 120) * ((mouse_cap & 4) ? 0.004 : 0.02));
+    automate(s, 1);
+    u_wheel = 0;
+  );
+  kn = max(0, min(1, slider(s)));
+  ra = (rb0 + 6.5) * uscale; kr = rb0 * uscale;
+  a = (-150 + 300 * kn) * $pi / 180;
+  gfx_set(0.78, 0.78, 0.79, 1);
+  arcw(cx, cy, ra, -150 * $pi / 180, 150 * $pi / 180, 3 * uscale);
+  gfx_set(cr, cg, cb, 1);
+  kn > 0.002 ? arcw(cx, cy, ra, -150 * $pi / 180, a, 3 * uscale);
+  gfx_set(0.05, 0.05, 0.055, 1);
+  gfx_circle(cx, cy, kr, 1, 1);
+  gfx_set((hov || u_drag == s) ? 0.42 : 0.26, (hov || u_drag == s) ? 0.42 : 0.26, (hov || u_drag == s) ? 0.44 : 0.27, 1);
+  gfx_circle(cx, cy, kr, 0, 1);
+  ca = cos(a); sa = sin(a);
+  gfx_set(0.98, 0.98, 0.98, 1);
+  d = -1.2;
+  loop(9,
+    k = d * uscale;
+    gfx_line(cx + sa * 5 * uscale + ca * k, cy - ca * 5 * uscale + sa * k, cx + sa * (kr - 3.5 * uscale) + ca * k, cy - ca * (kr - 3.5 * uscale) + sa * k, 1);
+    d += 0.3;
+  );
+  s == 1 ? (
+    k = 0;
+    loop(10,
+      a = (-150 + 300 * k / 9) * $pi / 180;
+      k == p_scale ? gfx_set(0.09, 0.09, 0.10, 1) : gfx_set(0.42, 0.43, 0.45, 1);
+      sprintf(#usn, "%d", k + 1);
+      ctextm(#usn, cx + sin(a) * (ra + 10 * uscale), cy - cos(a) * (ra + 10 * uscale), 11, k == p_scale ? 'b' : 0);
+      k += 1;
+    );
+  );
+  lab ? (
+    gfx_set(0.09, 0.09, 0.10, 1);
+    d = s == 1 ? 9 : 0;
+    ctextm(knob_name(s), cx, py(y + rb0 + 19 + d), 14, 'b');
+    gfx_set(0.38, 0.39, 0.41, 1);
+    ctextm(knob_value(s), cx, py(y + rb0 + 34 + d), 12, 0);
+  ) : (
+    gfx_set(0.86, 0.87, 0.89, 1);
+    ctextm(knob_name(s), cx, py(y + rb0 + 17), 12, 'b');
+    gfx_set(0.62, 0.64, 0.68, 1);
+    ctextm(knob_value(s), cx, py(y + rb0 + 31), 11, 0);
+  );
+);
+
+function tswitch(s, x, y, l2, l1, l0, left) local(i, on, hov, yy, lab, v)
+(
+  v = floor(slider(s) + 0.5);
+  gfx_set(0.58, 0.58, 0.60, 1);
+  gfx_roundrect(px(x - 7), py(y - 26), pl(14), pl(52), pl(6), 1);
+  gfx_set(0.20, 0.20, 0.21, 1);
+  gfx_rect(px(x - 6) + 1, py(y - 25) + 1, pl(12) - 1, pl(50) - 1, 1);
+  gfx_set(0.86, 0.86, 0.87, 1);
+  gfx_circle(px(x), py(y + (1 - v) * 16), 5.5 * uscale, 1, 1);
+  i = 0;
+  loop(3,
+    yy = y + (1 - i) * 16;
+    lab = i == 2 ? l2 : i == 1 ? l1 : l0;
+    hov = left ? hit_rect(mouse_x, mouse_y, px(x - 64), py(yy - 8), pl(72), pl(16)) : hit_rect(mouse_x, mouse_y, px(x - 8), py(yy - 8), pl(72), pl(16));
+    hov ? u_hov = s;
+    (u_click && hov) ? ( v != i ? set_slider(s, i); u_click = 0; );
+    on = v == i;
+    on ? gfx_set(0.09, 0.09, 0.10, 1) : gfx_set(hov ? 0.22 : 0.40, hov ? 0.22 : 0.41, hov ? 0.24 : 0.43, 1);
+    left ? rtext(lab, x - 12, yy - 7, 12, 'b') : ltext(lab, x + 12, yy - 7, 12, 'b');
+    i += 1;
+  );
+);
+
+function lbutton(id, x, y, r0, l, lab) local(cx, cy, r, hov, dn, cr, cg, cb)
+(
+  cx = px(x); cy = py(y); r = r0 * uscale;
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, r + 4 * uscale);
+  hov ? u_hov = id;
+  (u_click && hov) ? ( u_btn = id; u_click = 0; );
+  dn = u_btn == id && u_down;
+  cr = LEDC[l * 8 + 5] / 255; cg = LEDC[l * 8 + 6] / 255; cb = LEDC[l * 8 + 7] / 255;
+  gfx_set(0.09, 0.09, 0.10, 1); gfx_circle(cx, cy, r + 3 * uscale, 1, 1);
+  gfx_set(0.15 + 0.85 * cr, 0.15 + 0.85 * cg, 0.15 + 0.85 * cb, 1);
+  dn ? gfx_set(0.10 + 0.6 * cr, 0.10 + 0.6 * cg, 0.10 + 0.6 * cb, 1);
+  gfx_circle(cx, cy, r, 1, 1);
+  !dn ? ( gfx_set(1, 1, 1, hov ? 0.45 : 0.3); gfx_circle(cx - r * 0.3, cy - r * 0.3, r * 0.3, 1, 1); );
+  gfx_set(0.09, 0.09, 0.10, 1);
+  ctextm(lab, cx, py(y - r0 - 13), 14, 'b');
+);
+
+function gcol(c, n) ( px(592 + c * 200 / n); );
+function cells(s, y, n, l0, l1, l2, l3) local(y0, y1, i, on, hov, xa, xb, lb)
+(
+  y0 = py(y); y1 = py(y + 24);
+  i = 0;
+  loop(n,
+    xa = gcol(i, n); xb = gcol(i + 1, n);
+    on = floor(slider(s) + 0.5) == i + (s == 19 ? 1 : 0);
+    hov = hit_rect(mouse_x, mouse_y, xa, y0, xb - xa, y1 - y0);
+    hov ? u_hov = s;
+    (u_click && hov) ? ( !on ? set_slider(s, i + (s == 19 ? 1 : 0)); u_click = 0; );
+    gfx_set(0.06, 0.06, 0.07, 1);
+    gfx_rect(xa, y0, xb - xa + 1, y1 - y0 + 1, 0);
+    on ? gfx_set(0.15, 0.64, 0.88, 1) : gfx_set(hov ? 0.27 : 0.21, hov ? 0.27 : 0.21, hov ? 0.29 : 0.23, 1);
+    gfx_rect(xa + 1, y0 + 1, xb - xa - 1, y1 - y0 - 1, 1);
+    on ? gfx_set(0.03, 0.06, 0.09, 1) : gfx_set(0.86, 0.87, 0.89, 1);
+    lb = i == 0 ? l0 : i == 1 ? l1 : i == 2 ? l2 : l3;
+    ctextm(lb, (xa + xb) * 0.5, (y0 + y1) * 0.5, 12, 'b');
+    i += 1;
+  );
+);
+
+function stepper(s, x, y, w, h, lo, hi, isnote) local(ux, uy, uw, uh, hl, hr, v)
+(
+  ux = px(x); uy = py(y); uw = pl(w); uh = pl(h);
+  v = floor(slider(s) + 0.5);
+  hl = hit_rect(mouse_x, mouse_y, ux, uy, pl(24), uh);
+  hr = hit_rect(mouse_x, mouse_y, ux + uw - pl(24), uy, pl(24), uh);
+  hit_rect(mouse_x, mouse_y, ux, uy, uw, uh) ? u_hov = s;
+  (u_click && hl) ? ( set_slider(s, max(lo, v - 1)); u_click = 0; );
+  (u_click && hr) ? ( set_slider(s, min(hi, v + 1)); u_click = 0; );
+  (hit_rect(mouse_x, mouse_y, ux, uy, uw, uh) && u_wheel != 0) ? ( set_slider(s, max(lo, min(hi, v + (u_wheel > 0 ? 1 : -1)))); u_wheel = 0; );
+  gfx_set(0.06, 0.06, 0.07, 1);
+  gfx_roundrect(ux - 1, uy - 1, uw + 2, uh + 2, pl(5), 1);
+  gfx_set(0.21, 0.21, 0.23, 1);
+  gfx_rect(ux + 1, uy + 1, uw - 2, uh - 2, 1);
+  gfx_set(hl ? 0.32 : 0.26, hl ? 0.32 : 0.26, hl ? 0.34 : 0.28, 1); gfx_rect(ux + 1, uy + 1, pl(24) - 1, uh - 2, 1);
+  gfx_set(hr ? 0.32 : 0.26, hr ? 0.32 : 0.26, hr ? 0.34 : 0.28, 1); gfx_rect(ux + uw - pl(24), uy + 1, pl(24) - 1, uh - 2, 1);
+  gfx_set(0.86, 0.87, 0.89, 1);
+  ctextm("-", ux + pl(12), uy + uh * 0.5, 14, 'b');
+  ctextm("+", ux + uw - pl(12), uy + uh * 0.5, 14, 'b');
+  isnote ? strcpy(#ustp, notename(v)) : sprintf(#ustp, "%d", v);
+  ctextm(#ustp, ux + uw * 0.5, uy + uh * 0.5, 12, 'b');
+);
+
+function glabel(str, x, y)
+(
+  gfx_set(0.62, 0.64, 0.68, 1);
+  ltext(str, x, y, 12, 'b');
+);
+
+function scale_view(x, y, w, h) local(ux, uy, uw, uh, SB, n, mx, i, tx, v)
+(
+  ux = px(x); uy = py(y); uw = pl(w); uh = pl(h);
+  gfx_set(0.06, 0.06, 0.07, 1);
+  gfx_rect(ux, uy, uw, uh, 1);
+  learn_on ? (
+    n = ps_size;
+    gfx_set(0.98, 0.42, 0.36, 1);
+    sprintf(#usv, "Learning: %d note%s", n, n == 1 ? "" : "s");
+    ctextm(#usv, ux + uw * 0.5, uy + uh * 0.5 - pl(8), 13, 'b');
+    gfx_set(0.62, 0.64, 0.68, 1);
+    ctextm("play notes, then click Learn", ux + uw * 0.5, uy + uh * 0.5 + pl(10), 11, 0);
+  ) : (
+    SB = SCL + (p_scm * 10 + p_scale) * 33;
+    n = SB[32]; mx = SB[n - 1];
+    gfx_set(0.30, 0.31, 0.33, 1);
+    gfx_rect(ux + pl(8), uy + uh - pl(14), uw - pl(16), 1, 1);
+    i = 0;
+    loop(n,
+      v = SB[i];
+      tx = ux + pl(8) + floor((uw - pl(16)) * (mx > 0 ? v / mx : 0));
+      i == 0 || i == n - 1 ? gfx_set(0.15, 0.64, 0.88, 1) : gfx_set(0.92, 0.93, 0.95, 1);
+      gfx_rect(tx - max(1, pl(1)), uy + pl(22), max(2, pl(3)), uh - pl(36), 1);
+      i += 1;
+    );
+    gfx_set(0.86, 0.87, 0.89, 1);
+    sclearned(p_scm, p_scale) ? sprintf(#usv, "%s %d: learned scale", bankname(p_scm), p_scale + 1)
+    : sprintf(#usv, "%s %d: %s", bankname(p_scm), p_scale + 1, scname(p_scm, p_scale));
+    ctextm(#usv, ux + uw * 0.5, uy + pl(11), 11, 'b');
+  );
+);
+
+
+u_down = mouse_cap & 1;
+u_click = u_down && !u_pstate;
+u_wheel = mouse_wheel;
+mouse_wheel = 0;
+u_hov = 0;
+
+gfx_set(0.10, 0.10, 0.105, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_set(0.70, 0.70, 0.71, 1);
+gfx_roundrect(px(12), py(12), pl(553), pl(576), pl(6), 1);
+gfx_set(0.925, 0.925, 0.93, 1);
+gfx_rect(px(12) + 1, py(12) + 1, pl(553) - 1, pl(576) - 1, 1);
+stripe(qx(115.4), 26);
+gfx_set(0.09, 0.09, 0.10, 1);
+ctextm("ENSEMBLE OSCILLATOR", px(qx(115.4)), py(48), 17, 'b');
+
+lbutton(30, qx(21.63), qy(42.53), 12, 0, "Learn");
+lbutton(31, qx(209.56), qy(42.53), 12, 1, "Freeze");
+
+knob(1, qx(54.1), qy(78.08), 22, 0.15, 0.64, 0.88, 1);
+knob(2, qx(115.27), qy(61.62), 26, 0.15, 0.64, 0.88, 1);
+knob(3, qx(176.96), qy(78.07), 26, 0.15, 0.64, 0.88, 1);
+knob(4, qx(32.72), qy(144.14), 26, 0.0, 0.62, 0.32, 1);
+knob(5, qx(115.56), qy(140.93), 34, 0.91, 0.12, 0.15, 1);
+knob(6, qx(198.23), qy(144.14), 26, 0.0, 0.62, 0.32, 1);
+knob(7, qx(61.77), qy(208.21), 26, 0.98, 0.62, 0.10, 1);
+knob(8, qx(115.49), qy(207.86), 16, 0.15, 0.64, 0.88, 1);
+knob(9, qx(168.87), qy(208.21), 26, 0.98, 0.62, 0.10, 1);
+
+tswitch(10, qx(16.93), qy(116), "12TET", "Oct.", "Free", 0);
+tswitch(11, qx(214.23), qy(116), "Up", "All", "Down", 1);
+tswitch(12, qx(16.93), qy(214), "Ramp", "Pulsar", "Crush", 0);
+tswitch(13, qx(214.23), qy(214), "Fold", "Cheb", "Segment", 1);
+
+gfx_set(0.15, 0.155, 0.165, 1);
+gfx_roundrect(px(576), py(12), pl(232), pl(576), pl(7), 1);
+gfx_set(0.95, 0.95, 0.96, 1);
+ltext("Ensemble Cast", 592, 26, 24, 'b');
+gfx_set(0.15, 0.64, 0.88, 1);
+ltext("4ms Ensemble Oscillator", 593, 58, 12, 0);
+gfx_set(0.62, 0.64, 0.68, 1);
+ltext("by chmaha", 593, 74, 12, 0);
+
+glabel("SCALE", 592, 96);
+scale_view(592, 113, 200, 54);
+
+glabel("VOICES", 592, 176);
+cells(19, 193, 4, "1", "2", "3", "4");
+u_i = 0;
+loop(4,
+  u_i < pitch_chans ? (
+    gfx_set(VN[u_i] >= 0 ? 0.92 : 0.56, VN[u_i] >= 0 ? 0.93 : 0.58, VN[u_i] >= 0 ? 0.95 : 0.62, 1);
+    u_nv = PVOLT[u_i] * 12 + 60;
+    ctextm(notename(floor(u_nv + 0.5)), (gcol(u_i, 4) + gcol(u_i + 1, 4)) * 0.5, py(229), 11, 0);
+  );
+  u_i += 1;
+);
+
+glabel("OSCILLATORS PER VOICE", 592, 244);
+stepper(17, 592, 261, 200, 24, 1, 16, 0);
+
+glabel("FREEZE SPLIT", 592, 294);
+cells(14, 311, 3, "Even/Odd", "Low/High", "Root", "");
+glabel("STEREO SPLIT", 592, 344);
+cells(15, 361, 3, "Even/Odd", "Low/High", "Root", "");
+
+knob(16, 640, 422, 16, 0.15, 0.64, 0.88, 0);
+knob(18, 744, 422, 16, 0.15, 0.64, 0.88, 0);
+
+glabel("FREEZE NOTE", 592, 490);
+stepper(20, 592, 507, 96, 24, 0, 127, 1);
+glabel("LEARN NOTE", 696, 490);
+stepper(21, 696, 507, 96, 24, 0, 127, 1);
+glabel("NOTES GATE LEARN", 592, 541);
+cells(22, 558, 2, "Off", "On", "", "");
+
+u_btn > 0 ? (
+  u_down ? (
+    u_btn == 30 ? g_lrnb = 1 : g_frzb = 1;
+  ) : (
+    g_lrnb = g_frzb = 0;
+    u_btn = 0;
+  );
+);
+
+u_drag > 0 ? (
+  u_down ? (
+    mouse_cap |= 65536;
+    u_fine = mouse_cap & 4;
+    u_fine != u_dfine ? ( u_dy0 = mouse_y; u_dv0 = slider(u_drag); u_dfine = u_fine; );
+    set_norm(u_drag, u_dv0 + (u_dy0 - mouse_y) / (150 * uscale) * (u_fine ? 0.1 : 1));
+  ) : (
+    automate(u_drag, 1);
+    u_drag = 0;
+  );
+);
+
+gfx_set(0.17, 0.17, 0.18, 1);
+gfx_rect(px(0), py(600), pl(UDW), pl(30), 1);
+gfx_setfont(1, "Arial", floor(13 * uscale + 0.5));
+gfx_set(0.82, 0.83, 0.85, 1);
+hint_text(u_drag > 0 ? u_drag : u_hov);
+gfx_measurestr(#uhint, u_tw, u_th);
+u_tw > (UDW - 20) * uscale ? ( gfx_setfont(1, "Arial", 13 * uscale * (UDW - 20) * uscale / u_tw); gfx_measurestr(#uhint, u_tw, u_th); );
+gfx_x = floor(uox + (UDW * uscale - u_tw) * 0.5); gfx_y = floor(py(600) + (30 * uscale - u_th) * 0.5);
+gfx_drawstr(#uhint);
+
+u_pstate = u_down;
