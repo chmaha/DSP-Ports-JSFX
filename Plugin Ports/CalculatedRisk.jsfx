@@ -1,0 +1,1811 @@
+desc: Calculated Risk (Casio VL-1 / KoniSynth port) by chmaha
+tags: instrument synthesizer casio vl-1 vl-tone
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  Casio VL-1 (VL-Tone, 1979): monophonic pocket keyboard with a digital ADSR sound code, a rhythm box and a calculator.
+  Sound engine ported from the Casio VL-1 engine of KoniSynth by k0n1m4k1, https://github.com/k0n1m4k1/KoniSynth (AGPL-3.0),
+  which draws its waveforms, envelope, output stage and rhythm sounds from the PolyValens VL-1 emulator (2006, CC0/MIT),
+  https://github.com/linuxmao-org/VL1-emulator.
+  Casio and VL-Tone are trademarks of Casio Computer Co., Ltd.; no affiliation.
+  JSFX version released under the GNU Affero General Public License v3.0
+  Claude generated some of this code
+
+slider1:vol=0.5<0,1,0.01>-Volume
+slider2:balance=0.5<0,1,0.01>-Balance (rhythm - melody)
+slider3:octave=1<0,2,1{Low,Middle,High}>-Octave
+slider4:prog=0<0,5,1{Piano,Fantasy,Violin,Flute,Guitar,ADSR}>-Sound
+slider5:mode=0<0,3,1{Play,Rec,Cal,Off}>-Mode
+slider6:tempo=0<-9,9,1>-Tempo
+slider7:rhythm=0<0,10,1{Off,March,Waltz,4 Beat,Swing,Rock 1,Rock 2,Bossanova,Samba,Rhumba,Beguine}>-Rhythm
+slider8:c_snd=0<0,9,1{Piano,Fantasy,Violin,Flute,Guitar 1,Guitar 2,English Horn,Electro 1,Electro 2,Electro 3}>-ADSR Sound
+slider9:c_a=0<0,9,1>-ADSR Attack
+slider10:c_d=4<0,9,1>-ADSR Decay
+slider11:c_sl=5<0,9,1>-ADSR Sustain Level
+slider12:c_st=3<0,9,1>-ADSR Sustain Time
+slider13:c_r=2<0,9,1>-ADSR Release
+slider14:c_v=0<0,9,1>-ADSR Vibrato
+slider15:c_t=0<0,9,1>-ADSR Tremolo
+slider16:bendrange=2<0,24,1>-Pitch Bend Range
+
+in_pin:none
+out_pin:Left
+out_pin:Right
+options:no_meter
+
+@init
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+function f32(x) local(c) ( c = x * 536870913; c - (c - x); );
+function f32k(x) local(c) ( c = x * 536870913; c - (c - x); );
+
+function vl_pblep(t, dt) (
+  t < dt ? ( t /= dt; (((t + t) - (t * t)) - 1); ) :
+  t > 1 - dt ? ( t = (t - 1) / dt; ((((t * t) + t) + t) + 1); ) : 0;
+);
+
+function vl_prepare(sr) (
+  v_sr = sr;
+  v_unit = 0.012 * sr;
+  v_chg = exp(-1 / ((sr * 600) * 0.0000033));
+  v_dis = exp(-1 / ((sr * 33000) * 0.0000033));
+  v_lp8c = (1 - (exp(((-(2 * $pi)) * 800) / sr)));
+  v_lp6c = (1 - (exp(((-(2 * $pi)) * 65) / sr)));
+  v_bendc = f32k(1 - f32k(exp(-1 / (0.005 * sr))));
+);
+
+function vl_reset() (
+  v_nheld = 0;
+  v_stage = 0;
+  v_level = 0;
+  v_phase = 0;
+  v_cap = 0;
+  v_lp8 = v_lp6 = 0;
+  v_tick = 0;
+  v_ecount = 8;
+  v_ehalf = 0;
+  v_rhythm = -1;
+  v_dtime = -1;
+  v_lfsr = 0;
+  v_nph = 0;
+  v_shown = 0;
+  v_pulse = -1;
+);
+
+function vl_startline(st, target, span, units) (
+  v_stage = st;
+  v_ltarget = target;
+  v_ly = v_level;
+  v_cd = v_unit;
+  v_ldone = 0;
+  v_lrate = 0;
+  units === 0 ? (
+    v_level = target;
+    v_ldone = 1;
+  ) : units > 0 ? (
+    v_lrate = (target > v_level ? span : -span) / (units * v_unit);
+  );
+);
+
+function vl_sustain() ( vl_startline(3, 0, 15, VL_SUS_U[v_dst]); );
+
+function vl_startnote(note, pmul) (
+  v_inc = (((440 * VL_EXP2[note - 69 + 200]) * 1) * pmul) / v_sr;
+  v_stage === 0 ? (
+    v_phase = 0;
+    v_cap = 0;
+  );
+  v_ntime = 0;
+  v_relp = 0;
+  v_level = VL_ATK_B[v_da];
+  vl_startline(1, 15, 15 - VL_ATK_B[v_da], VL_ATK_U[v_da]);
+);
+
+function vl_gateoff() (
+  v_stage === 1 ? v_relp = 1 :
+  v_stage !== 0 ? vl_startline(4, 0, 14, VL_REL_U[v_dr]);
+);
+
+function vl_remove(note) local(j, k) (
+  j = 0; k = 0;
+  loop(v_nheld,
+    VL_HELD[k] !== note ? ( VL_HELD[j] = VL_HELD[k]; j += 1; );
+    k += 1;
+  );
+  v_nheld = j;
+);
+
+function vl_midi(b0, b1, b2, pmul) local(t, last) (
+  t = b0 & 0xF0;
+  t === 0x90 && b2 > 0 ? (
+    vl_remove(b1);
+    v_nheld < 16 ? ( VL_HELD[v_nheld] = b1; v_nheld += 1; );
+    vl_startnote(b1, pmul);
+    v_shown = ((v_shown * 256) + (b1 + 1)) & 0xFFFFFF;
+  ) : t === 0x80 || (t === 0x90 && b2 === 0) ? (
+    last = v_nheld > 0 && VL_HELD[v_nheld - 1] === b1;
+    vl_remove(b1);
+    last ? (
+      v_nheld > 0 ? vl_startnote(VL_HELD[v_nheld - 1], pmul) : vl_gateoff();
+    );
+  ) : t === 0xB0 && (b1 === 123 || b1 === 120) ? (
+    v_nheld = 0;
+    vl_gateoff();
+  );
+);
+
+function vl_env() local(up) (
+  v_stage === 0 ? 0 : (
+    v_ldone === 0 && v_lrate !== 0 ? (
+      v_ly += v_lrate;
+      up = v_lrate > 0;
+      (up ? v_ly >= v_ltarget : v_ly <= v_ltarget) ? (
+        v_level = v_ltarget;
+        v_ldone = 1;
+      ) : (v_cd -= 1) <= 0 ? (
+        v_cd += v_unit;
+        up && v_level < v_ly ? v_level = ceil(v_ly);
+        !up && v_level > v_ly ? v_level = floor(v_ly);
+      );
+    );
+    v_stage === 1 ? (
+      v_ldone ? (
+        v_relp ? vl_startline(4, 0, 14, VL_REL_U[v_dr]) :
+        v_dd > 0 ? vl_startline(2, 0, 15, VL_DEC_U[v_dd]) :
+        ( v_level = VL_SUS_L[v_dsl]; vl_sustain(); );
+      );
+    ) : v_stage === 2 ? (
+      v_level <= VL_SUS_L[v_dsl] ? vl_sustain();
+    ) : v_stage >= 3 ? (
+      v_level <= 0 ? v_stage = 0;
+    );
+    v_level;
+  );
+);
+
+function vl_drum() local(tau, steps, bit, f, dt, per, lvl, t, s, t2, r) (
+  v_dtime < 0 ? 0 : (
+    tau = v_dtime / v_sr;
+    v_dtime += 1;
+    v_drum === 2 ? (
+      r = -1;
+      tau < 0.040 ? steps = floor(tau / 0.005) :
+      tau < 0.160 ? steps = 8 + floor((tau - 0.040) / 0.020) :
+      ( v_dtime = -1; r = 0; );
+      r < 0 ? (
+        v_nph += 50000 / v_sr;
+        while (v_nph >= 1) (
+          v_nph -= 1;
+          bit = ((v_lfsr >> 15) ~ (v_lfsr >> 14) ~ (v_lfsr >> 12) ~ (v_lfsr >> 3) ~ 1) & 1;
+          v_lfsr = ((v_lfsr << 1) | bit) & 0xFFFF;
+        );
+        r = ((1 - steps / 15) * ((v_lfsr >> 15) & 1));
+      );
+      r;
+    ) : (
+      f = v_drum === 0 ? 780 : 1560;
+      dt = f / v_sr;
+      per = tau * f;
+      per >= 30 ? (
+        v_dtime = -1;
+        0;
+      ) : (
+        lvl = 1 - floor(per / 2) / 15;
+        t = per - floor(per);
+        s = t < 0.5 ? lvl : 0;
+        per >= dt ? (
+          t2 = t - 0.5;
+          t2 < 0 ? t2 += 1;
+          s += (0.5 * lvl) * (vl_pblep(t, dt) - vl_pblep(t2, dt));
+        );
+        (s);
+      );
+    );
+  );
+);
+
+function vl_block(sound, oct, a, d, sl, st, r, vib, trem, rhy, tempo, bal) local(nr) (
+  v_sound = sound;
+  v_w = sound < 7 ? sound : sound - 7;
+  v_electro = sound >= 7;
+  !v_electro ? v_ehalf = 0;
+  v_da = a; v_dd = d; v_dsl = sl; v_dst = st; v_dr = r;
+  v_pmul = VL_PSCALE[v_w] * (2 ^ oct);
+  v_vibhz = vib > 0 ? 15 / vib : 0;
+  v_vibd = vib > 0 ? 0.7056 / ((2 * $pi) * v_vibhz) : 0;
+  v_tremhz = trem > 0 ? 35 / trem : 0;
+  v_tper = (0.0055 + (9 - tempo) * 0.00098) * v_sr;
+  bal = (bal);
+  v_bal = (0.5 * (bal - 0.5));
+  v_mg = ((2 * (0.5 + v_bal)) * (0.1954));
+  v_rg = ((2 * (0.5 - v_bal)) * (0.3571));
+  v_ne = VL_NEDGE[v_w];
+  v_eb = VL_EDGES + v_w * 10;
+  nr = rhy - 1;
+  nr !== v_rhythm ? (
+    v_rhythm = nr;
+    v_beat = 0;
+    v_scount = 1;
+    v_tick = v_tper;
+    v_dtime = -1;
+    v_bticks = -1;
+  );
+);
+
+function vl_sample() local(y, env, tg, dt, below, e, high, drive, vin, h, s, t, sum, pb, pat) (
+  v_tick += 1;
+  v_tick >= v_tper ? (
+    v_tick -= v_tper;
+    (v_ecount -= 1) === 0 ? (
+      v_ecount = 8;
+      v_ehalf = v_electro && !v_ehalf;
+    );
+    v_bticks = (v_bticks + 1) % 32;
+    v_rhythm >= 0 && v_rhythm < 10 ? (
+      (v_scount -= 1) === 0 ? (
+        pat = VL_PAT + v_rhythm * 40;
+        v_drum = pat[2 + v_beat * 2];
+        v_scount = pat[3 + v_beat * 2];
+        v_beat = (v_beat + 1) % pat[0];
+        v_dtime = 0;
+      );
+    );
+  );
+
+  y = 0;
+  env = (vl_env() / 15);
+  v_stage !== 0 ? (
+    v_ntime += 1 / v_sr;
+    tg = v_tremhz > 0 ? 0.5 + 0.5 * cos(((2 * $pi) * v_tremhz) * v_ntime) : 1;
+    pb = f32k(v_pbend);
+    v_bs = f32k(v_bs + f32k(f32k(v_bendc) * f32k(pb - v_bs)));
+    dt = (v_inc * (1 + (v_vibd * sin(((2 * $pi) * v_vibhz) * v_ntime)))) * (v_bs === 0 ? 1 : 2 ^ (v_bs / 12));
+    v_ehalf ? dt *= 0.5;
+
+    below = 0; e = 0;
+    loop(v_ne, v_eb[e] <= v_phase ? below += 1; e += 1;);
+    high = below & 1;
+
+    drive = tg * env;
+    vin = high ? 5 * drive - 0.6 : -0.6;
+    v_cap = vin > v_cap ? vin + (v_cap - vin) * v_chg : v_cap * v_dis;
+    h = drive > 0.000000000000001 ? max(0, (((0.131033183 * v_cap) * v_cap) + (0.246632173 * v_cap)) - 0.219399434) : 0;
+
+    s = high ? h : 0;
+    e = 0;
+    loop(v_ne,
+      t = v_phase - v_eb[e];
+      t < 0 ? t += 1;
+      s += (((e & 1) === 0 ? 0.5 : -0.5) * h) * vl_pblep(t, dt);
+      e += 1;
+    );
+    y = (s);
+
+    v_phase += dt;
+    v_phase >= 1 ? v_phase -= 1;
+  );
+  v_lp8 = (v_lp8 + (v_lp8c * ((v_mg * y) - v_lp8)));
+  sum = (v_lp8 + (v_rg * vl_drum()));
+  v_lp6 = (v_lp6 + (v_lp6c * (sum - v_lp6)));
+  (sum - v_lp6);
+);
+
+function vl_voicereset() (
+  v_nheld = 0;
+  v_stage = 0;
+  v_level = 0;
+  v_relp = 0;
+);
+
+function rh_select(r, beat) (
+  rhythm = r + 1;
+  v_rhythm = -2;
+  rh_start = beat;
+  sliderchange(64);
+);
+
+function rh_stop() (
+  rhythm !== 0 ? ( rhythm = 0; sliderchange(64); );
+);
+
+function set_tempo(t) (
+  t = max(-9, min(9, t));
+  tempo !== t ? ( tempo = t; sliderchange(32); );
+);
+
+function lcd_clear() (
+  memset(L1, 0, 10);
+  memset(L2, 0, 9);
+  l_cursor = 8;
+  l_dot = 0;
+  l_neg = 0;
+  l_func = 0;
+  l_reinit = 0;
+);
+
+function lcd_settempo() (
+  pmode <= 1 ? (
+    lcd_clear();
+    L2[3] = '[';
+    tempo < 0 ? L2[4] = '-';
+    L2[5] = '0' + abs(tempo);
+    L2[6] = ']';
+    l_reinit = 1;
+  );
+);
+
+function lcd_scroll() local(i) (
+  pmode <= 1 ? (
+    L1[1] = L1[5];
+    L1[5] = L1[9];
+    L1[9] = 0;
+    i = 0;
+    loop(6, L2[i] = L2[i + 3]; i += 1;);
+    loop(3, L2[i] = 0; i += 1;);
+    L2[8] = 0;
+    1;
+  ) : 0;
+);
+
+function lcd_setchar(ch, oct, sharp, n, scroll) local(ok) (
+  ok = n >= 0 && n < 9;
+  ok ? (
+    l_reinit ? lcd_clear();
+    scroll ? ok = lcd_scroll();
+    ok ? (
+      L2[n] = ch;
+      pmode <= 1 ? (
+        n - 1 >= 0 ? L2[n - 1] = oct === 1 ? '~' : oct === -1 ? '_' : 0;
+        sharp ? L1[n === 8 ? 9 : n === 5 ? 5 : 1] = '#';
+      );
+    );
+  );
+  ok;
+);
+
+function lcd_input(key, pos, scroll) local(k) (
+  pmode <= 1 && key >= 55 && key <= 83 ? (
+    k = key - 55;
+    lcd_setchar(KCH[k], KOCT[k], KSH[k], pos, scroll);
+  );
+);
+
+function lcd_shownote(note) ( lcd_input(note, 8, 1); );
+
+function lcd_scrollright(note) local(i) (
+  L1[9] = L1[5];
+  L1[5] = L1[1];
+  L1[1] = 0;
+  i = 8;
+  while (i > 3) ( L2[i] = L2[i - 3]; i -= 3; );
+  note < 55 || note > 83 ? (
+    L2[1] = 0;
+    L2[2] = 0;
+  ) : (
+    lcd_input(note, 2, 0);
+  );
+);
+
+function lcd_tick() (
+  l_clock += 1;
+  l_clock >= 32 ? l_clock = 0;
+  pmode <= 1 ? L2[0] = l_clock >= 16 ? '-' : 0;
+);
+
+function vs_clear(s) ( strcpy(s, ""); SIDX[s - 200] = 0; );
+function vs_zero(s) ( strcpy(s, " 0"); SIDX[s - 200] = 1; );
+function vs_copy(d, s) ( strcpy(d, s); SIDX[d - 200] = strlen(d); );
+function vs_empty(s) ( strlen(s) === 0; );
+
+function vs_dotpos(s) local(i, n, f) (
+  n = strlen(s); i = 0; f = -1;
+  while (i < n && f < 0) ( str_getchar(s, i) === '.' ? f = i; i += 1; );
+  f;
+);
+
+function vs_lenwd(s) ( strlen(s) - (vs_dotpos(s) >= 0); );
+
+function vs_setc(s, i, ch) (
+  i < strlen(s) ? str_setchar(s, i, ch) : (
+    sprintf(207, "%c", ch);
+    strcat(s, 207);
+  );
+);
+
+function vs_add(s, ch) local(ix) (
+  ix = SIDX[s - 200];
+  ix < 79 ? (
+    ix === 1 && ch === '.' ? ix += 1;
+    vs_setc(s, ix, ch);
+    SIDX[s - 200] = ix + 1;
+  );
+);
+
+function vs_invsign(s) (
+  strlen(s) === 0 ? strcpy(s, "-") : str_setchar(s, 0, str_getchar(s, 0) === '-' ? ' ' : '-');
+);
+
+function vs_getd(s) local(i, n, c, neg, v, fr, sc, go) (
+  n = strlen(s); i = 0; neg = 0; v = 0; sc = 1; fr = 0;
+  while (i < n && (str_getchar(s, i) === ' ' || str_getchar(s, i) === 9)) ( i += 1; );
+  i < n && (str_getchar(s, i) === '-' || str_getchar(s, i) === '+') ? ( neg = str_getchar(s, i) === '-'; i += 1; );
+  go = 1;
+  while (go && i < n) (
+    c = str_getchar(s, i);
+    c >= '0' && c <= '9' ? (
+      v = v * 10 + (c - '0');
+      fr ? sc *= 10;
+    ) : c === '.' && !fr ? fr = 1 : go = 0;
+    i += 1;
+  );
+  v = v / sc;
+  neg ? -v : v;
+);
+
+function vs_stripz(s) local(j) (
+  j = strlen(s);
+  while (j > 0 && str_getchar(s, j - 1) === '0') ( j -= 1; );
+  j > 0 ? str_setlen(s, j);
+  j -= 1;
+  j > 0 && str_getchar(s, j) === '.' ? str_setlen(s, j);
+  SIDX[s - 200] = strlen(s);
+);
+
+function vs_stripdot(s) local(i, n, d) (
+  n = strlen(s); i = 0; d = -1;
+  strcpy(206, "");
+  while (i < n) (
+    str_getchar(s, i) === '.' ? d = i : ( sprintf(207, "%c", str_getchar(s, i)); strcat(206, 207); );
+    i += 1;
+  );
+  strcpy(s, 206);
+  SIDX[s - 200] = strlen(s);
+  d;
+);
+
+function vs_setd(s, d, strip) local(dg, d2) (
+  dg = 0;
+  abs(d) < 1 ? dg = 1 : (
+    d2 = 1;
+    while (abs(d) > d2) ( dg += 1; d2 *= 10; );
+  );
+  sprintf(206, "%% 0%d.%df", 9, max(0, 9 - dg));
+  sprintf(s, 206, d);
+  str_setlen(s, strlen(s) - 1);
+  strip ? vs_stripz(s) : SIDX[s - 200] = strlen(s);
+);
+
+function calc_check(n) (
+  abs(n) > 99999999 ? (
+    n /= 100000000;
+    cl_err = 1;
+  );
+  n;
+);
+
+function calc_clrk() ( vs_clear(202); cl_bk = 0; cl_opk = 0; );
+function calc_clrm() ( vs_clear(203); );
+function calc_getm() ( !vs_empty(203) && vs_getd(203) !== 0; );
+
+function calc_clear(clrk, refuse) (
+  refuse && cl_err ? 0 : (
+    vs_clear(200); vs_zero(200);
+    vs_clear(201);
+    vs_clear(204);
+    cl_op = 0;
+    cl_mode = 0;
+    cl_err = 0;
+    cl_pclr = 0;
+    cl_pstrip = 0;
+    clrk ? calc_clrk();
+  );
+);
+
+function calc_mem(s, sgn) local(n1) (
+  n1 = vs_getd(203) + sgn * vs_getd(s);
+  n1 = calc_check(n1);
+  !cl_err ? ( vs_setd(203, n1, 1); 1; ) : 0;
+);
+
+function calc_operands() (
+  cl_bk && !vs_empty(201) ? cl_n1 = vs_getd(201) : cl_n1 = vs_getd(200);
+  cl_bk ? cl_n2 = vs_getd(202) : (
+    vs_empty(201) ? (
+      cl_op === '-' || cl_op === '+' ? cl_n2 = 0 : cl_n2 = vs_getd(200);
+    ) : cl_n2 = vs_getd(201);
+  );
+  cl_bk ? cl_opk : cl_op;
+);
+
+function calc_finish(clrk, stripok) (
+  cl_n1 = calc_check(cl_n1);
+  vs_setd(200, cl_n1, stripok);
+  clrk ? cl_bk = 0;
+  cl_bk ? vs_setd(201, cl_n1, 1) : (
+    vs_clear(201);
+    calc_clrk();
+    cl_op = 0;
+  );
+  cl_mode = 0;
+  200;
+);
+
+function calc_calculate(clrk) local(op) (
+  vs_empty(200) ? ( vs_zero(200); 200; ) : (
+    op = calc_operands();
+    op === '+' ? cl_n1 += cl_n2 :
+    op === '-' ? cl_n1 -= cl_n2 :
+    op === '/' ? ( cl_n2 !== 0 ? cl_n1 /= cl_n2 : ( cl_n1 = 0; cl_err = 1; ); ) :
+    op === '*' ? cl_n1 *= cl_n2;
+    calc_finish(clrk, !cl_err);
+  );
+);
+
+function calc_percent(clrk) local(op) (
+  vs_empty(200) ? ( vs_zero(200); 200; ) : (
+    op = calc_operands();
+    op === '+' ? cl_n1 /= (1 - (cl_n2 / 100)) :
+    op === '-' ? cl_n1 = (100 * (cl_n1 - cl_n2)) / cl_n2 :
+    op === '/' ? ( cl_n2 !== 0 ? cl_n1 /= (0.01 * cl_n2) : ( cl_n1 = 0; cl_err = 1; ); ) :
+    op === '*' ? cl_n1 *= (0.01 * cl_n2);
+    calc_finish(clrk, 1);
+  );
+);
+
+function calc_sqrt(s) local(n) (
+  vs_empty(s) ? vs_zero(s) : (
+    n = vs_getd(s);
+    n < 0 ? cl_err = 1;
+    vs_setd(s, sqrt(abs(n)), 1);
+  );
+);
+
+function calc_isnum(ch) ( ch === '.' || (ch >= '0' && ch <= '9'); );
+function calc_isop(ch) ( ch === '/' || ch === '*' || ch === '-' || ch === '+'; );
+
+function calc_addchar(ch) local(r) (
+  r = 200;
+  calc_isnum(ch) ? (
+    cl_mode === 3 ? cl_mode = 0;
+    cl_mode === 0 ? (
+      cl_pclr ? calc_clear(0, 1);
+      vs_empty(200) ? vs_zero(200);
+      vs_lenwd(200) <= 8 ? vs_add(200, ch);
+    ) : (
+      cl_mode === 1 ? ( vs_clear(201); cl_mode = 2; );
+      vs_empty(201) ? vs_zero(201);
+      vs_lenwd(201) <= 8 ? vs_add(201, ch);
+      r = 201;
+    );
+  ) : calc_isop(ch) ? (
+    r = -1;
+    cl_mode === 3 ? (
+      cl_mode = 1;
+      cl_opp === '*' && (ch === '+' || ch === '-') ? (
+        vs_copy(201, 204);
+        ch === '-' ? vs_invsign(200);
+        cl_op = '+';
+        r = calc_calculate(1);
+      ) : cl_opp === '+' && ch === '-' ? (
+        vs_copy(201, 204);
+        cl_op = ch;
+        r = calc_calculate(1);
+      );
+    ) : cl_mode === 0 ? (
+      cl_bk = 0;
+      cl_mode = 1;
+    ) : cl_mode === 2 ? (
+      calc_calculate(1);
+      cl_mode = 1;
+    ) : cl_mode === 1 ? (
+      ch === cl_op ? (
+        cl_bk = !cl_bk;
+        cl_bk ? ( vs_copy(202, 200); cl_opk = cl_op; ) : vs_copy(201, 202);
+      ) : cl_bk = 0;
+    );
+    r < 0 ? (
+      cl_op = ch;
+      cl_mode === 2 ? r = 201 : (
+        cl_pstrip ? ( cl_pstrip = 0; vs_stripz(200); );
+        r = 200;
+      );
+    );
+  );
+  r;
+);
+
+function calc_input(key) local(r) (
+  r = 200;
+  cl_err && key !== K_RESET && key !== K_DEL ? 200 : (
+    key === 55 ? (
+      cl_mode === 0 || cl_mode === 1 ? vs_invsign(200) :
+      cl_mode === 2 ? ( vs_invsign(201); r = 201; );
+    ) :
+    key === 57 ? r = calc_addchar('.') :
+    key >= 59 && key <= 74 && KDIG[key - 55] >= 0 ? r = calc_addchar('0' + KDIG[key - 55]) :
+    key === 76 ? r = calc_addchar('/') :
+    key === 77 ? r = calc_addchar('*') :
+    key === 79 ? r = calc_addchar('-') :
+    key === 81 ? r = calc_addchar('+') :
+    key === 83 ? ( cl_pclr = 1; r = calc_calculate(0); ) :
+    key === K_RESET ? ( calc_clear(1, 0); vs_zero(200); ) :
+    key === K_DEL ? (
+      cl_err ? ( cl_err = 0; cl_pstrip = 1; ) :
+      cl_mode === 0 ? vs_zero(200) :
+      cl_mode === 2 ? ( vs_zero(201); r = 201; );
+    ) :
+    key === K_SQRT ? (
+      cl_mode === 0 ? ( cl_pclr = 1; calc_sqrt(200); ) :
+      cl_mode === 1 ? ( vs_empty(201) ? ( vs_copy(201, 200); calc_sqrt(201); r = 201; ); ) :
+      cl_mode === 2 ? ( calc_sqrt(201); r = 201; );
+    ) :
+    key === K_PERC ? (
+      cl_mode === 1 ? vs_copy(201, 200);
+      cl_mode !== 0 ? (
+        vs_copy(204, 200);
+        cl_opp = cl_op;
+        cl_pclr = 1;
+        calc_percent(0);
+        cl_mode = 3;
+      );
+    ) :
+    key === K_MC ? calc_clrm() :
+    key === K_MR ? (
+      vs_empty(203) ? vs_zero(203);
+      cl_mode === 0 ? ( cl_pclr = 1; vs_copy(200, 203); ) : cl_mode === 1 || cl_mode === 2 ? ( vs_copy(201, 203); r = 201; );
+    ) :
+    key === K_MMINUS || key === K_MPLUS ? (
+      cl_pclr = 1;
+      calc_calculate(1);
+      !cl_err ? ( !calc_mem(200, key === K_MPLUS ? 1 : -1) ? vs_zero(200); );
+    );
+    r;
+  );
+);
+
+function lcd_showstring(s, op, err, m, k) local(dot, len, off, i) (
+  lcd_clear();
+  vs_copy(205, s);
+  strlen(205) > 0 ? (
+    dot = vs_stripdot(205);
+    len = strlen(205);
+    l_dot = dot > 0 ? (2 ^ (len - dot)) & 255 : 1;
+    off = 9 - len;
+    i = 0;
+    loop(len, off + i >= 0 ? L2[off + i] = str_getchar(205, i); i += 1;);
+  );
+  L1[8] = op === '+' ? '+' : 0;
+  L1[7] = op === '-' ? 's' : 0;
+  L1[6] = op === '*' ? 'x' : 0;
+  L1[4] = op === '/' ? ':' : 0;
+  L1[0] = err ? 'e' : 0;
+  L1[2] = m ? 'm' : 0;
+  L1[3] = k ? 'k' : 0;
+);
+
+function calc_key(key) local(r) (
+  r = calc_input(key);
+  lcd_showstring(r, cl_bk ? cl_opk : cl_op, cl_err, calc_getm(), cl_bk);
+);
+
+function calc_memadsr() local(i, j, ch, go) (
+  memset(ADSR, 0, 8);
+  calc_getm() ? (
+    vs_copy(205, 203);
+    vs_stripdot(205);
+    j = 7; i = strlen(205) - 1; go = 1;
+    while (go && i >= 0 && j >= 0) (
+      ch = str_getchar(205, i);
+      ch < '0' || ch > '9' ? go = 0 : ( ADSR[j] = ch - '0'; j -= 1; i -= 1; );
+    );
+  );
+  c_snd = ADSR[0]; c_a = ADSR[1]; c_d = ADSR[2]; c_sl = ADSR[3];
+  c_st = ADSR[4]; c_r = ADSR[5]; c_v = ADSR[6]; c_t = ADSR[7];
+  sliderchange(128 + 256 + 512 + 1024 + 2048 + 4096 + 8192 + 16384);
+);
+
+
+function lcd_setmode() (
+  lcd_clear();
+  l_reinit = 1;
+  pmode <= 1 ? (
+    lcd_settempo();
+  ) : pmode === 2 ? (
+    l_k = 0;
+    l_m = calc_getm();
+    L1[2] = l_m ? 'm' : 0;
+    L2[8] = '0';
+  ) : (
+    lcd_clear();
+  );
+);
+
+function arr_move(first, last, shift) local(i) (
+  i = first;
+  while (i < last) (
+    SONG[i * 4] += shift;
+    SONG[i * 4] < 0 ? SONG[i * 4] = 0;
+    i += 1;
+  );
+);
+
+function arr_clear() (
+  arr_cur = 0;
+  arr_last = 0;
+  memset(SONG, 0, 101 * 4);
+  SONG[100 * 4] = -1;
+  SONG[0] = -1;
+);
+
+function arr_add(t, b0, b1, b2) (
+  arr_last >= 100 ? 0 : (
+    arr_cur < arr_last ? (
+      memcpy(SONG + (arr_cur + 1) * 4, SONG + arr_cur * 4, (arr_last - arr_cur) * 4);
+      t = SONG[(arr_cur + 1) * 4];
+      arr_move(arr_cur + 1, arr_last + 1, 50);
+    );
+    SONG[arr_cur * 4] = t;
+    SONG[arr_cur * 4 + 1] = b0;
+    SONG[arr_cur * 4 + 2] = b1;
+    SONG[arr_cur * 4 + 3] = b2;
+    arr_cur += 1;
+    arr_last += 1;
+    SONG[arr_last * 4] = -1;
+    1;
+  );
+);
+
+function arr_removecur() local(prev, dt) (
+  prev = arr_cur - 1;
+  prev < 0 ? 0 : (
+    prev < arr_last ? (
+      dt = SONG[arr_cur * 4] - SONG[prev * 4];
+      arr_move(arr_cur, arr_last, -dt);
+      memcpy(SONG + prev * 4, SONG + arr_cur * 4, (arr_last - arr_cur) * 4);
+    );
+    arr_cur = prev;
+    arr_last > 1 ? arr_last -= 1;
+    SONG[arr_last * 4] = -1;
+    1;
+  );
+);
+
+function arr_retime(start, newt) local(off, i) (
+  off = newt - SONG[start * 4];
+  i = start;
+  while (i < arr_last) ( SONG[i * 4] += off; i += 1; );
+);
+
+function seq_setptr(i) ( sq_ptr = max(i, 0); arr_cur = sq_ptr; );
+
+function seq_rewind() (
+  sq_playing = 0;
+  sq_paused = 0;
+  seq_setptr(0);
+  sq_time = 0;
+);
+
+function seq_reset() (
+  seq_rewind();
+  sq_start = 0;
+  sq_song = SONG;
+  sq_playing = 0;
+  sq_paused = 1;
+);
+
+function seq_clear() (
+  arr_clear();
+  sq_dirty = 0;
+  sq_rec = 1;
+);
+
+function seq_load(src) ( sq_song = src; seq_rewind(); );
+
+function seq_doevent(b0, b1, b2) local(t) (
+  t = b0 & 0xF0;
+  t === 0x90 || t === 0x80 ? (
+    vl_midi(b0, b1, b2, v_pmul);
+    t === 0x90 && b2 > 0 ? lcd_shownote(b1);
+  ) : t === 0xB0 ? (
+    b1 === 0x50 ? rh_sel = b2 :
+    b1 === 0x51 ? rh_select(rh_sel, b2) :
+    b1 === 0x52 ? rh_stop() :
+    b1 >= 0x78 ? vl_midi(0xB0, 123, 0, v_pmul);
+  ) : t === 0xC0 ? (
+    demo_prog = b1;
+  );
+);
+
+function seq_pause(p) (
+  sq_paused = p;
+  p ? vl_midi(0xB0, 123, 0, v_pmul);
+);
+
+function seq_stop() (
+  seq_pause(1);
+  sq_clock = 0;
+  seq_rewind();
+);
+
+function seq_play() (
+  sq_playing = 1;
+  sq_clock = 1;
+);
+
+function seq_rectime() ( ms_count - sq_start; );
+
+function seq_step(retime) local(e) (
+  e = sq_song + sq_ptr * 4;
+  e[0] < 0 ? (
+    sq_playing = 0;
+    0;
+  ) : (
+    retime && sq_song === SONG ? (
+      sq_ptr === 0 ? sq_start = ms_count;
+      arr_retime(sq_ptr, seq_rectime());
+    );
+    seq_doevent(e[1], e[2], e[3]);
+    seq_setptr(sq_ptr + 1);
+    1;
+  );
+);
+
+function seq_tickclock() local(ok) (
+  ok = 1;
+  !sq_paused ? (
+    sq_time += 1;
+    while (ok && sq_time >= sq_song[sq_ptr * 4]) ( ok = seq_step(0); );
+  );
+  ok;
+);
+
+function seq_gotonoteon() local(go) (
+  go = 1;
+  while (go && sq_song[sq_ptr * 4 + 1] !== 0x90) (
+    sq_song[sq_ptr * 4] < 0 ? seq_rewind() : seq_setptr(sq_ptr + 1);
+    arr_last === 0 && sq_song === SONG ? go = 0;
+  );
+  sq_time = sq_song[sq_ptr * 4];
+);
+
+function seq_addevent(b0, b1, b2) (
+  arr_last >= 100 ? 0 : (
+    arr_last === 0 ? sq_start = ms_count;
+    arr_add(seq_rectime(), b0, b1, b2) ? (
+      seq_setptr(sq_ptr + 1);
+      sq_time = sq_song[sq_ptr * 4];
+      sq_dirty = 1;
+      1;
+    );
+  );
+);
+
+function seq_removeevents(n) (
+  arr_last ? (
+    loop(n, arr_removecur(); seq_setptr(sq_ptr - 1););
+  );
+);
+
+function p_resetsound() (
+  vl_voicereset();
+  rh_stop();
+  lcd_settempo();
+);
+
+function p_init() (
+  p_demo = 0;
+  okp = 0;
+  okp_ignore = 0;
+  demo_prog = -1;
+  seq_reset();
+  showtempo = 1;
+  sq_clock = 0;
+  ms_count = 0;
+  calc_clear(1, 0);
+  lcd_setmode();
+);
+
+function p_reset() (
+  ms_count = 0;
+  p_demo = 0;
+  okp = 0;
+  okp_ignore = 0;
+  demo_prog = -1;
+  vl_voicereset();
+  seq_reset();
+  rh_stop();
+  showtempo = 1;
+  sq_clock = 0;
+  calc_clear(1, 0);
+  lcd_setmode();
+);
+
+function p_tick() (
+  ms_count += 1;
+  sq_clock ? (
+    !seq_tickclock() ? (
+      rh_stop();
+      seq_stop();
+      demo_prog = -1;
+      showtempo = 1;
+    );
+  );
+  showtempo && v_stage === 0 ? (
+    showtempo = 0;
+    lcd_settempo();
+  );
+  lcd_tick();
+);
+
+function p_note(on, k) (
+  pmode === 1 ? seq_addevent(on ? 0x90 : 0x80, k, on ? 127 : 0);
+  vl_midi(on ? 0x90 : 0x80, k, on ? 127 : 0, v_pmul);
+  on ? lcd_shownote(k);
+);
+
+function p_onekeyplay() (
+  sq_playing && p_demo ? 0 :
+  okp_ignore ? okp_ignore = 0 :
+  sq_rec ? (
+    okp_ignore = 1;
+    p_resetsound();
+    sq_dirty ? sq_rec = 0;
+  ) : (
+    !sq_playing ? (
+      p_demo = 0;
+      demo_prog = -1;
+      seq_load(SONG);
+      sq_paused = 1;
+      seq_play();
+    );
+    sq_paused ? (
+      !seq_step(pmode === 1) ? (
+        okp_ignore = 1;
+        p_resetsound();
+      ) : okp = 1;
+    );
+  );
+);
+
+function p_autoplay() (
+  vl_voicereset();
+  sq_dirty && sq_rec ? sq_rec = 0;
+  sq_playing && p_demo ? (
+    p_reset();
+    seq_load(SONG);
+  );
+  !sq_playing ? (
+    lcd_clear();
+    seq_rewind();
+    seq_play();
+  ) : !sq_paused ? (
+    seq_pause(1);
+  ) : (
+    seq_gotonoteon();
+    okp ? okp = 0;
+    seq_pause(0);
+  );
+);
+
+function p_del() local(i, n) (
+  pmode === 1 ? (
+    (!sq_playing || sq_paused) && arr_last ? (
+      seq_removeevents(2);
+      i = sq_ptr;
+      i === 0 ? lcd_settempo() : (
+        n = i - 5 >= 0 ? SONG[(i - 5) * 4 + 2] & 0x7F : 0;
+        lcd_scrollright(n);
+      );
+    );
+  ) : pmode === 2 ? calc_key(K_DEL);
+);
+
+function p_cmd(c, a) (
+  c === 1 || c === 2 ? (
+    rh_wait && c === 1 ? (
+      rh_wait = 0;
+      a >= 59 && a <= 74 && KDIG[a - 55] >= 0 ? (
+        pmode <= 1 ? rh_select(KDIG[a - 55], 0);
+      );
+    ) : !rh_wait ? (
+      !(sq_playing && (!sq_paused || p_demo)) ? (
+        pmode <= 1 ? p_note(c === 1, a) :
+        pmode === 2 && c === 1 ? calc_key(a);
+      );
+    );
+  ) : c === 3 ? (
+    pmode <= 1 ? (
+      p_reset();
+      pmode === 1 && sq_dirty ? sq_rec = 0;
+    ) : pmode === 2 ? calc_key(K_RESET);
+  ) : c === 4 ? (
+    p_del();
+  ) : c === 5 || c === 6 ? (
+    pmode <= 1 ? set_tempo(tempo + (c === 5 ? 1 : -1)) :
+    pmode === 2 ? calc_key(c === 5 ? K_SQRT : K_PERC);
+  ) : c === 7 ? (
+    rh_wait = 1;
+  ) : c === 8 ? (
+    pmode === 1 ? (
+      !(sq_playing && p_demo) ? (
+        p_reset();
+        seq_clear();
+        set_tempo(0);
+      );
+    ) : pmode === 2 ? calc_key(K_MC);
+  ) : c === 9 ? (
+    set_tempo(4);
+    pmode <= 1 ? (
+      p_reset();
+      seq_load(DEMO);
+      p_demo = 1;
+      seq_play();
+    ) : pmode === 2 ? calc_key(K_MR);
+  ) : c === 10 ? (
+    pmode <= 1 ? p_autoplay() : pmode === 2 ? calc_key(K_MMINUS);
+  ) : c === 11 ? (
+    pmode <= 1 ? p_onekeyplay() :
+    pmode === 2 && a ? (
+      calc_key(K_MPLUS);
+      prog === 5 ? calc_memadsr();
+    );
+  ) : c === 12 ? (
+    pmode <= 1 ? p_onekeyplay();
+  );
+);
+
+function vl_tables() (
+VL_EXP2[0] = 0.00000961243476787469543795409954167752175635541789233684539794921875; VL_EXP2[1] = 0.000010184019883499416183627282739276864731436944566667079925537109375; VL_EXP2[2] = 0.000010789593218788872875020003194723727801829227246344089508056640625; VL_EXP2[3] = 0.00001143117581845611715964279586632557084158179350197315216064453125; VL_EXP2[4] = 0.00001211090890478668742114877476812040413278737105429172515869140625; VL_EXP2[5] = 0.000012831061023768837006165700886928249246921041049063205718994140625; VL_EXP2[6] = 0.000013594035616155069091394967661923232071785605512559413909912109375; VL_EXP2[7] = 0.000014402379038722142108228628509802859980482026003301143646240234375; VL_EXP2[8] = 0.0000152587890625; VL_EXP2[9] = 0.00001616612387633202749530510200504096474105608649551868438720703125; VL_EXP2[10] = 0.0000171274116258144008351042841820088824533740989863872528076171875; VL_EXP2[11] = 0.00001814586051945069926296001672216817723892745561897754669189453125; VL_EXP2[12] = 0.00001922486953574941459283072220376453742574085481464862823486328125; VL_EXP2[13] = 0.000020368039766998808650332042358144235549843870103359222412109375; VL_EXP2[14] = 0.00002157918643757774575004000638944745560365845449268817901611328125; VL_EXP2[15] = 0.00002286235163691226481247169288746334814277361147105693817138671875; VL_EXP2[16] = 0.0000242218178095733477372432373986299580792547203600406646728515625; VL_EXP2[17] = 0.00002566212204753767401233140177385649849384208209812641143798828125; VL_EXP2[18] = 0.00002718807123231017206410782549586002687647123821079730987548828125; VL_EXP2[19] = 0.00002880475807744424694700757783039080095477402210235595703125; VL_EXP2[20] = 0.000030517578125; VL_EXP2[21] = 0.0000323322477526640549906102040100819294821121729910373687744140625; VL_EXP2[22] = 0.000034254823251628801670208568364017764906748197972774505615234375; VL_EXP2[23] = 0.0000362917210389013985259200334443363544778549112379550933837890625; VL_EXP2[24] = 0.0000384497390714988291856614444075290748514817096292972564697265625; VL_EXP2[25] = 0.00004073607953399761730066408471628847109968774020671844482421875; VL_EXP2[26] = 0.0000431583728751554915000800127788949112073169089853763580322265625; VL_EXP2[27] = 0.0000457247032738245296249433857749266962855472229421138763427734375; VL_EXP2[28] = 0.000048443635619146695474486474797259916158509440720081329345703125; VL_EXP2[29] = 0.0000513242440950753480246628035477129969876841641962528228759765625; VL_EXP2[30] = 0.0000543761424646203441282156509917200537529424764215946197509765625; VL_EXP2[31] = 0.0000576095161548884938940151556607816019095480442047119140625; VL_EXP2[32] = 0.00006103515625; VL_EXP2[33] = 0.000064664495505328109981220408020163858964224345982074737548828125; VL_EXP2[34] = 0.00006850964650325760334041713672803552981349639594554901123046875; VL_EXP2[35] = 0.000072583442077802797051840066888672708955709822475910186767578125; VL_EXP2[36] = 0.000076899478142997658371322888815058149702963419258594512939453125; VL_EXP2[37] = 0.0000814721590679952346013281694325769421993754804134368896484375; VL_EXP2[38] = 0.000086316745750310983000160025557789822414633817970752716064453125; VL_EXP2[39] = 0.000091449406547649059249886771549853392571094445884227752685546875; VL_EXP2[40] = 0.00009688727123829339094897294959451983231701888144016265869140625; VL_EXP2[41] = 0.000102648488190150696049325607095425993975368328392505645751953125; VL_EXP2[42] = 0.000108752284929240688256431301983440107505884952843189239501953125; VL_EXP2[43] = 0.000115219032309776987788030311321563203819096088409423828125; VL_EXP2[44] = 0.0001220703125; VL_EXP2[45] = 0.00012932899101065621996244081604032771792844869196414947509765625; VL_EXP2[46] = 0.0001370192930065152066808342734560710596269927918910980224609375; VL_EXP2[47] = 0.00014516688415560559410368013377734541791141964495182037353515625; VL_EXP2[48] = 0.00015379895628599531674264577763011629940592683851718902587890625; VL_EXP2[49] = 0.000162944318135990469202656338865153884398750960826873779296875; VL_EXP2[50] = 0.00017263349150062196600032005111557964482926763594150543212890625; VL_EXP2[51] = 0.00018289881309529811849977354309970678514218889176845550537109375; VL_EXP2[52] = 0.0001937745424765867818979458991890396646340377628803253173828125; VL_EXP2[53] = 0.00020529697638030139209865121419085198795073665678501129150390625; VL_EXP2[54] = 0.00021750456985848137651286260396688021501176990568637847900390625; VL_EXP2[55] = 0.00023043806461955397557606062264312640763819217681884765625; VL_EXP2[56] = 0.000244140625; VL_EXP2[57] = 0.0002586579820213124399248816320806554358568973839282989501953125; VL_EXP2[58] = 0.000274038586013030413361668546912142119253985583782196044921875; VL_EXP2[59] = 0.0002903337683112111882073602675546908358228392899036407470703125; VL_EXP2[60] = 0.0003075979125719906334852915552602325988118536770343780517578125; VL_EXP2[61] = 0.00032588863627198093840531267773030776879750192165374755859375; VL_EXP2[62] = 0.0003452669830012439320006401022311592896585352718830108642578125; VL_EXP2[63] = 0.0003657976261905962369995470861994135702843777835369110107421875; VL_EXP2[64] = 0.000387549084953173563795891798378079329268075525760650634765625; VL_EXP2[65] = 0.0004105939527606027841973024283817039759014733135700225830078125; VL_EXP2[66] = 0.0004350091397169627530257252079337604300235398113727569580078125; VL_EXP2[67] = 0.0004608761292391079511521212452862528152763843536376953125; VL_EXP2[68] = 0.00048828125; VL_EXP2[69] = 0.000517315964042624879849763264161310871713794767856597900390625; VL_EXP2[70] = 0.00054807717202606082672333709382428423850797116756439208984375; VL_EXP2[71] = 0.000580667536622422376414720535109381671645678579807281494140625; VL_EXP2[72] = 0.000615195825143981266970583110520465197623707354068756103515625; VL_EXP2[73] = 0.0006517772725439618768106253554606155375950038433074951171875; VL_EXP2[74] = 0.000690533966002487864001280204462318579317070543766021728515625; VL_EXP2[75] = 0.000731595252381192473999094172398827140568755567073822021484375; VL_EXP2[76] = 0.00077509816990634712759178359675615865853615105152130126953125; VL_EXP2[77] = 0.000821187905521205568394604856763407951802946627140045166015625; VL_EXP2[78] = 0.000870018279433925506051450415867520860047079622745513916015625; VL_EXP2[79] = 0.000921752258478215902304242490572505630552768707275390625; VL_EXP2[80] = 0.0009765625; VL_EXP2[81] = 0.00103463192808524975969952652832262174342758953571319580078125; VL_EXP2[82] = 0.0010961543440521216534466741876485684770159423351287841796875; VL_EXP2[83] = 0.00116133507324484475282944107021876334329135715961456298828125; VL_EXP2[84] = 0.00123039165028796253394116622104093039524741470813751220703125; VL_EXP2[85] = 0.001303554545087923753621250710921231075190007686614990234375; VL_EXP2[86] = 0.00138106793200497572800256040892463715863414108753204345703125; VL_EXP2[87] = 0.00146319050476238494799818834479765428113751113414764404296875; VL_EXP2[88] = 0.0015501963398126942551835671935123173170723021030426025390625; VL_EXP2[89] = 0.00164237581104241113678920971352681590360589325428009033203125; VL_EXP2[90] = 0.00174003655886785101210290083173504172009415924549102783203125; VL_EXP2[91] = 0.00184350451695643180460848498114501126110553741455078125; VL_EXP2[92] = 0.001953125; VL_EXP2[93] = 0.0020692638561704995193990530566452434868551790714263916015625; VL_EXP2[94] = 0.002192308688104243306893348375297136954031884670257568359375; VL_EXP2[95] = 0.0023226701464896895056588821404375266865827143192291259765625; VL_EXP2[96] = 0.0024607833005759250678823324420818607904948294162750244140625; VL_EXP2[97] = 0.00260710909017584750724250142184246215038001537322998046875; VL_EXP2[98] = 0.0027621358640099514560051208178492743172682821750640869140625; VL_EXP2[99] = 0.0029263810095247698959963766895953085622750222682952880859375; VL_EXP2[100] = 0.003100392679625388510367134387024634634144604206085205078125; VL_EXP2[101] = 0.0032847516220848222735784194270536318072117865085601806640625; VL_EXP2[102] = 0.0034800731177357020242058016634700834401883184909820556640625; VL_EXP2[103] = 0.0036870090339128636092169699622900225222110748291015625; VL_EXP2[104] = 0.00390625; VL_EXP2[105] = 0.00413852771234099643671289214807984535582363605499267578125; VL_EXP2[106] = 0.004384617376208489215871910715804915525950491428375244140625; VL_EXP2[107] = 0.004645340292979379011317764280875053373165428638458251953125; VL_EXP2[108] = 0.00492156660115184753367945091895307996310293674468994140625; VL_EXP2[109] = 0.005214218180351697616570216808895565918646752834320068359375; VL_EXP2[110] = 0.005524271728019902912010241635698548634536564350128173828125; VL_EXP2[111] = 0.005852762019049536322545801425576428300701081752777099609375; VL_EXP2[112] = 0.00620078535925078049018122072766345809213817119598388671875; VL_EXP2[113] = 0.006569503244169644547156838854107263614423573017120361328125; VL_EXP2[114] = 0.006960146235471399711602913384922430850565433502197265625; VL_EXP2[115] = 0.007374018067825731555242629866597781074233353137969970703125; VL_EXP2[116] = 0.0078125; VL_EXP2[117] = 0.0082770554246819928734257842961596907116472721099853515625; VL_EXP2[118] = 0.00876923475241697843174382143160983105190098285675048828125; VL_EXP2[119] = 0.00929068058595875802263552856175010674633085727691650390625; VL_EXP2[120] = 0.0098431332023036950673589018379061599262058734893798828125; VL_EXP2[121] = 0.01042843636070339523314043361779113183729350566864013671875; VL_EXP2[122] = 0.01104854345603980582402048327139709726907312870025634765625; VL_EXP2[123] = 0.01170552403809907264509160285115285660140216350555419921875; VL_EXP2[124] = 0.0124015707185015609803624414553269161842763423919677734375; VL_EXP2[125] = 0.01313900648833928909431367770821452722884714603424072265625; VL_EXP2[126] = 0.01392029247094279942320582676984486170113086700439453125; VL_EXP2[127] = 0.01474803613565146311048525973319556214846670627593994140625; VL_EXP2[128] = 0.015625; VL_EXP2[129] = 0.016554110849363985746851568592319381423294544219970703125; VL_EXP2[130] = 0.0175384695048339568634876428632196621038019657135009765625; VL_EXP2[131] = 0.0185813611719175160452710571235002134926617145538330078125; VL_EXP2[132] = 0.019686266404607390134717803675812319852411746978759765625; VL_EXP2[133] = 0.0208568727214067904662808672355822636745870113372802734375; VL_EXP2[134] = 0.0220970869120796116480409665427941945381462574005126953125; VL_EXP2[135] = 0.0234110480761981452901832057023057132028043270111083984375; VL_EXP2[136] = 0.024803141437003121960724882910653832368552684783935546875; VL_EXP2[137] = 0.0262780129766785781886273554164290544576942920684814453125; VL_EXP2[138] = 0.0278405849418855988464116535396897234022617340087890625; VL_EXP2[139] = 0.0294960722713029262209705194663911242969334125518798828125; VL_EXP2[140] = 0.03125; VL_EXP2[141] = 0.03310822169872797149370313718463876284658908843994140625; VL_EXP2[142] = 0.035076939009667913726975285726439324207603931427001953125; VL_EXP2[143] = 0.037162722343835032090542114247000426985323429107666015625; VL_EXP2[144] = 0.03937253280921478026943560735162463970482349395751953125; VL_EXP2[145] = 0.041713745442813580932561734471164527349174022674560546875; VL_EXP2[146] = 0.044194173824159223296081933085588389076292514801025390625; VL_EXP2[147] = 0.046822096152396290580366411404611426405608654022216796875; VL_EXP2[148] = 0.04960628287400624392144976582130766473710536956787109375; VL_EXP2[149] = 0.052556025953357156377254710832858108915388584136962890625; VL_EXP2[150] = 0.055681169883771197692823307079379446804523468017578125; VL_EXP2[151] = 0.058992144542605852441941038932782248593866825103759765625; VL_EXP2[152] = 0.0625; VL_EXP2[153] = 0.06621644339745595686519408218373428098857402801513671875; VL_EXP2[154] = 0.07015387801933579969837495582396513782441616058349609375; VL_EXP2[155] = 0.07432544468767006418108422849400085397064685821533203125; VL_EXP2[156] = 0.07874506561842957441665902251770603470504283905029296875; VL_EXP2[157] = 0.08342749088562713410954785331341554410755634307861328125; VL_EXP2[158] = 0.08838834764831844659216386617117677815258502960205078125; VL_EXP2[159] = 0.09364419230479260891630843843813636340200901031494140625; VL_EXP2[160] = 0.099212565748012460087323916013701818883419036865234375; VL_EXP2[161] = 0.10511205190671431275450942166571621783077716827392578125; VL_EXP2[162] = 0.1113623397675424231412222297876724041998386383056640625; VL_EXP2[163] = 0.11798428908521167712830646223665098659694194793701171875; VL_EXP2[164] = 0.125; VL_EXP2[165] = 0.1324328867949119137303881643674685619771480560302734375; VL_EXP2[166] = 0.1403077560386715993967499116479302756488323211669921875; VL_EXP2[167] = 0.1486508893753401283621684569880017079412937164306640625; VL_EXP2[168] = 0.1574901312368591488333180450354120694100856781005859375; VL_EXP2[169] = 0.1668549817712542682190957066268310882151126861572265625; VL_EXP2[170] = 0.1767766952966368931843277323423535563051700592041015625; VL_EXP2[171] = 0.1872883846095852178326168768762727268040180206298828125; VL_EXP2[172] = 0.19842513149602492017464783202740363776683807373046875; VL_EXP2[173] = 0.2102241038134286255090188433314324356615543365478515625; VL_EXP2[174] = 0.222724679535084846282444459575344808399677276611328125; VL_EXP2[175] = 0.2359685781704233542566129244733019731938838958740234375; VL_EXP2[176] = 0.25; VL_EXP2[177] = 0.264865773589823827460776328734937123954296112060546875; VL_EXP2[178] = 0.280615512077343254304651054553687572479248046875; VL_EXP2[179] = 0.297301778750680256724336913976003415882587432861328125; VL_EXP2[180] = 0.314980262473718297666636090070824138820171356201171875; VL_EXP2[181] = 0.33370996354250859194934264451148919761180877685546875; VL_EXP2[182] = 0.353553390593273786368655464684707112610340118408203125; VL_EXP2[183] = 0.37457676921917038015408252249471843242645263671875; VL_EXP2[184] = 0.396850262992049895860446895312634296715259552001953125; VL_EXP2[185] = 0.420448207626857251018037686662864871323108673095703125; VL_EXP2[186] = 0.445449359070169637053737687892862595617771148681640625; VL_EXP2[187] = 0.4719371563408467640243770802044309675693511962890625; VL_EXP2[188] = 0.5; VL_EXP2[189] = 0.52973154717964765492155265746987424790859222412109375; VL_EXP2[190] = 0.56123102415468650860930210910737514495849609375; VL_EXP2[191] = 0.59460355750136051344867382795200683176517486572265625; VL_EXP2[192] = 0.62996052494743659533327218014164827764034271240234375; VL_EXP2[193] = 0.6674199270850171838986852890229783952236175537109375; VL_EXP2[194] = 0.70710678118654757273731092936941422522068023681640625; VL_EXP2[195] = 0.7491535384383407603081650449894368648529052734375; VL_EXP2[196] = 0.79370052598409979172089379062526859343051910400390625; VL_EXP2[197] = 0.84089641525371450203607537332572974264621734619140625; VL_EXP2[198] = 0.89089871814033927410747537578572519123554229736328125; VL_EXP2[199] = 0.943874312681693528048754160408861935138702392578125; VL_EXP2[200] = 1; VL_EXP2[201] = 1.0594630943592953098431053149397484958171844482421875; VL_EXP2[202] = 1.1224620483093730172186042182147502899169921875; VL_EXP2[203] = 1.1892071150027210268973476559040136635303497314453125; VL_EXP2[204] = 1.2599210498948731906665443602832965552806854248046875; VL_EXP2[205] = 1.334839854170034367797370578045956790447235107421875; VL_EXP2[206] = 1.4142135623730951454746218587388284504413604736328125; VL_EXP2[207] = 1.498307076876681520616330089978873729705810546875; VL_EXP2[208] = 1.58740105196819936139718265621922910213470458984375; VL_EXP2[209] = 1.6817928305074290040721507466514594852924346923828125; VL_EXP2[210] = 1.7817974362806785482149507515714503824710845947265625; VL_EXP2[211] = 1.88774862536338705609750832081772387027740478515625; VL_EXP2[212] = 2; VL_EXP2[213] = 2.118926188718590619686210629879496991634368896484375; VL_EXP2[214] = 2.244924096618746034437208436429500579833984375; VL_EXP2[215] = 2.378414230005442053794695311808027327060699462890625; VL_EXP2[216] = 2.519842099789746381333088720566593110561370849609375; VL_EXP2[217] = 2.66967970834006873559474115609191358089447021484375; VL_EXP2[218] = 2.828427124746190290949243717477656900882720947265625; VL_EXP2[219] = 2.99661415375336304123266017995774745941162109375; VL_EXP2[220] = 3.174802103936399166883575162501074373722076416015625; VL_EXP2[221] = 3.363585661014858008144301493302918970584869384765625; VL_EXP2[222] = 3.563594872561357096429901503142900764942169189453125; VL_EXP2[223] = 3.7754972507267741121950166416354477405548095703125; VL_EXP2[224] = 4; VL_EXP2[225] = 4.23785237743718123937242125975899398326873779296875; VL_EXP2[226] = 4.48984819323749118069599717273376882076263427734375; VL_EXP2[227] = 4.75682846001088410758939062361605465412139892578125; VL_EXP2[228] = 5.03968419957949276266617744113318622112274169921875; VL_EXP2[229] = 5.33935941668013658301106261205859482288360595703125; VL_EXP2[230] = 5.65685424949238058189848743495531380176544189453125; VL_EXP2[231] = 5.99322830750672697064374006004072725772857666015625; VL_EXP2[232] = 6.349604207872797445588730624876916408538818359375; VL_EXP2[233] = 6.72717132202971601628860298660583794116973876953125; VL_EXP2[234] = 7.1271897451227150810382227064110338687896728515625; VL_EXP2[235] = 7.55099450145354733621161358314566314220428466796875; VL_EXP2[236] = 8; VL_EXP2[237] = 8.4757047548743624787448425195179879665374755859375; VL_EXP2[238] = 8.9796963864749823613919943454675376415252685546875; VL_EXP2[239] = 9.5136569200217682151787812472321093082427978515625; VL_EXP2[240] = 10.0793683991589855253323548822663724422454833984375; VL_EXP2[241] = 10.6787188333602731660221252241171896457672119140625; VL_EXP2[242] = 11.3137084989847611637969748699106276035308837890625; VL_EXP2[243] = 11.9864566150134539412874801200814545154571533203125; VL_EXP2[244] = 12.69920841574559489117746124975383281707763671875; VL_EXP2[245] = 13.4543426440594320325772059732116758823394775390625; VL_EXP2[246] = 14.254379490245430162076445412822067737579345703125; VL_EXP2[247] = 15.1019890029070946724232271662913262844085693359375; VL_EXP2[248] = 16; VL_EXP2[249] = 16.95140950974872140477600623853504657745361328125; VL_EXP2[250] = 17.959392772949971828211346291936933994293212890625; VL_EXP2[251] = 19.027313840043536430357562494464218616485595703125; VL_EXP2[252] = 20.15873679831796749795103096403181552886962890625; VL_EXP2[253] = 21.357437666720553437471608049236238002777099609375; VL_EXP2[254] = 22.627416997969522327593949739821255207061767578125; VL_EXP2[255] = 23.972913230026900777147602639161050319671630859375; VL_EXP2[256] = 25.39841683149119688778228010050952434539794921875; VL_EXP2[257] = 26.908685288118864065154411946423351764678955078125; VL_EXP2[258] = 28.508758980490853218725533224642276763916015625; VL_EXP2[259] = 30.203978005814196450273811933584511280059814453125; VL_EXP2[260] = 32; VL_EXP2[261] = 33.9028190194974428095520124770700931549072265625; VL_EXP2[262] = 35.91878554589994365642269258387386798858642578125; VL_EXP2[263] = 38.05462768008707286071512498892843723297119140625; VL_EXP2[264] = 40.3174735966359349959020619280636310577392578125; VL_EXP2[265] = 42.71487533344110687494321609847247600555419921875; VL_EXP2[266] = 45.25483399593904465518789947964251041412353515625; VL_EXP2[267] = 47.94582646005380155429520527832210063934326171875; VL_EXP2[268] = 50.7968336629823937755645602010190486907958984375; VL_EXP2[269] = 53.81737057623772813030882389284670352935791015625; VL_EXP2[270] = 57.01751796098170643745106644928455352783203125; VL_EXP2[271] = 60.40795601162839290054762386716902256011962890625; VL_EXP2[272] = 64; VL_EXP2[273] = 67.805638038994885619104024954140186309814453125; VL_EXP2[274] = 71.8375710917998873128453851677477359771728515625; VL_EXP2[275] = 76.1092553601741457214302499778568744659423828125; VL_EXP2[276] = 80.634947193271869991804123856127262115478515625; VL_EXP2[277] = 85.4297506668822137498864321969449520111083984375; VL_EXP2[278] = 90.5096679918780893103757989592850208282470703125; VL_EXP2[279] = 95.8916529201076031085904105566442012786865234375; VL_EXP2[280] = 101.593667325964787551129120402038097381591796875; VL_EXP2[281] = 107.6347411524754562606176477856934070587158203125; VL_EXP2[282] = 114.0350359219634128749021328985691070556640625; VL_EXP2[283] = 120.8159120232567858010952477343380451202392578125; VL_EXP2[284] = 128; VL_EXP2[285] = 135.61127607798977123820804990828037261962890625; VL_EXP2[286] = 143.675142183599774625690770335495471954345703125; VL_EXP2[287] = 152.218510720348291442860499955713748931884765625; VL_EXP2[288] = 161.26989438654373998360824771225452423095703125; VL_EXP2[289] = 170.859501333764427499772864393889904022216796875; VL_EXP2[290] = 181.019335983756178620751597918570041656494140625; VL_EXP2[291] = 191.783305840215206217180821113288402557373046875; VL_EXP2[292] = 203.18733465192957510225824080407619476318359375; VL_EXP2[293] = 215.269482304950912521235295571386814117431640625; VL_EXP2[294] = 228.070071843926825749804265797138214111328125; VL_EXP2[295] = 241.631824046513571602190495468676090240478515625; VL_EXP2[296] = 256; VL_EXP2[297] = 271.22255215597971300667268224060535430908203125; VL_EXP2[298] = 287.3502843671993787211249582469463348388671875; VL_EXP2[299] = 304.43702144069658288572099991142749786376953125; VL_EXP2[300] = 322.53978877308765049747307784855365753173828125; VL_EXP2[301] = 341.719002667528684469289146363735198974609375; VL_EXP2[302] = 362.03867196751235724150319583714008331298828125; VL_EXP2[303] = 383.56661168043063980803708545863628387451171875; VL_EXP2[304] = 406.3746693038589228308410383760929107666015625; VL_EXP2[305] = 430.53896460990182504247059114277362823486328125; VL_EXP2[306] = 456.14014368785393571670283563435077667236328125; VL_EXP2[307] = 483.26364809302685898728668689727783203125; VL_EXP2[308] = 512; VL_EXP2[309] = 542.4451043119594260133453644812107086181640625; VL_EXP2[310] = 574.700568734398757442249916493892669677734375; VL_EXP2[311] = 608.8740428813931657714419998228549957275390625; VL_EXP2[312] = 645.0795775461753009949461556971073150634765625; VL_EXP2[313] = 683.43800533505736893857829272747039794921875; VL_EXP2[314] = 724.0773439350247144830063916742801666259765625; VL_EXP2[315] = 767.1332233608612796160741709172725677490234375; VL_EXP2[316] = 812.749338607717845661682076752185821533203125; VL_EXP2[317] = 861.0779292198036500849411822855472564697265625; VL_EXP2[318] = 912.2802873757078714334056712687015533447265625; VL_EXP2[319] = 966.5272961860537179745733737945556640625; VL_EXP2[320] = 1024; VL_EXP2[321] = 1084.890208623918852026690728962421417236328125; VL_EXP2[322] = 1149.40113746879751488449983298778533935546875; VL_EXP2[323] = 1217.748085762786331542883999645709991455078125; VL_EXP2[324] = 1290.159155092350601989892311394214630126953125; VL_EXP2[325] = 1366.8760106701147378771565854549407958984375; VL_EXP2[326] = 1448.154687870049428966012783348560333251953125; VL_EXP2[327] = 1534.266446721722559232148341834545135498046875; VL_EXP2[328] = 1625.49867721543569132336415350437164306640625; VL_EXP2[329] = 1722.155858439607300169882364571094512939453125; VL_EXP2[330] = 1824.560574751415742866811342537403106689453125; VL_EXP2[331] = 1933.054592372107435949146747589111328125; VL_EXP2[332] = 2048; VL_EXP2[333] = 2169.78041724783770405338145792484283447265625; VL_EXP2[334] = 2298.8022749375950297689996659755706787109375; VL_EXP2[335] = 2435.49617152557266308576799929141998291015625; VL_EXP2[336] = 2580.31831018470120397978462278842926025390625; VL_EXP2[337] = 2733.752021340229475754313170909881591796875; VL_EXP2[338] = 2896.30937574009885793202556669712066650390625; VL_EXP2[339] = 3068.53289344344511846429668366909027099609375; VL_EXP2[340] = 3250.9973544308713826467283070087432861328125; VL_EXP2[341] = 3444.31171687921460033976472914218902587890625; VL_EXP2[342] = 3649.12114950283148573362268507480621337890625; VL_EXP2[343] = 3866.10918474421487189829349517822265625; VL_EXP2[344] = 4096; VL_EXP2[345] = 4339.5608344956754081067629158496856689453125; VL_EXP2[346] = 4597.604549875190059537999331951141357421875; VL_EXP2[347] = 4870.9923430511453261715359985828399658203125; VL_EXP2[348] = 5160.6366203694024079595692455768585205078125; VL_EXP2[349] = 5467.50404268045895150862634181976318359375; VL_EXP2[350] = 5792.6187514801977158640511333942413330078125; VL_EXP2[351] = 6137.0657868868902369285933673381805419921875; VL_EXP2[352] = 6501.994708861742765293456614017486572265625; VL_EXP2[353] = 6888.6234337584292006795294582843780517578125; VL_EXP2[354] = 7298.2422990056629714672453701496124267578125; VL_EXP2[355] = 7732.2183694884297437965869903564453125; VL_EXP2[356] = 8192; VL_EXP2[357] = 8679.121668991350816213525831699371337890625; VL_EXP2[358] = 9195.20909975038011907599866390228271484375; VL_EXP2[359] = 9741.984686102290652343071997165679931640625; VL_EXP2[360] = 10321.273240738804815919138491153717041015625; VL_EXP2[361] = 10935.0080853609179030172526836395263671875; VL_EXP2[362] = 11585.237502960395431728102266788482666015625; VL_EXP2[363] = 12274.131573773780473857186734676361083984375; VL_EXP2[364] = 13003.98941772348553058691322803497314453125; VL_EXP2[365] = 13777.246867516858401359058916568756103515625; VL_EXP2[366] = 14596.484598011325942934490740299224853515625; VL_EXP2[367] = 15464.436738976859487593173980712890625; VL_EXP2[368] = 16384; VL_EXP2[369] = 17358.24333798270163242705166339874267578125; VL_EXP2[370] = 18390.4181995007602381519973278045654296875; VL_EXP2[371] = 19483.96937220458130468614399433135986328125; VL_EXP2[372] = 20642.54648147760963183827698230743408203125; VL_EXP2[373] = 21870.016170721835806034505367279052734375; VL_EXP2[374] = 23170.47500592079086345620453357696533203125; VL_EXP2[375] = 24548.26314754756094771437346935272216796875; VL_EXP2[376] = 26007.9788354469710611738264560699462890625; VL_EXP2[377] = 27554.49373503371680271811783313751220703125; VL_EXP2[378] = 29192.96919602265188586898148059844970703125; VL_EXP2[379] = 30928.87347795371897518634796142578125; VL_EXP2[380] = 32768; VL_EXP2[381] = 34716.4866759654032648541033267974853515625; VL_EXP2[382] = 36780.836399001520476303994655609130859375; VL_EXP2[383] = 38967.9387444091626093722879886627197265625; VL_EXP2[384] = 41285.0929629552192636765539646148681640625; VL_EXP2[385] = 43740.03234144367161206901073455810546875; VL_EXP2[386] = 46340.9500118415817269124090671539306640625; VL_EXP2[387] = 49096.5262950951218954287469387054443359375; VL_EXP2[388] = 52015.957670893942122347652912139892578125; VL_EXP2[389] = 55108.9874700674336054362356662750244140625; VL_EXP2[390] = 58385.9383920453037717379629611968994140625; VL_EXP2[391] = 61857.7469559074379503726959228515625; VL_EXP2[392] = 65536; VL_EXP2[393] = 69432.973351930719218216836452484130859375; VL_EXP2[394] = 73561.6727980031282640993595123291015625; VL_EXP2[395] = 77935.877488818325218744575977325439453125; VL_EXP2[396] = 82570.18592591033666394650936126708984375; VL_EXP2[397] = 87480.064682887445087544620037078857421875; VL_EXP2[398] = 92681.900023683163453824818134307861328125; VL_EXP2[399] = 98193.05259019011282362043857574462890625; VL_EXP2[400] = 104031.91534178800066001713275909423828125;
+VL_PSCALE[0] = 1; VL_PSCALE[1] = 2; VL_PSCALE[2] = 1; VL_PSCALE[3] = 1; VL_PSCALE[4] = 0.5; VL_PSCALE[5] = 0.5; VL_PSCALE[6] = 0.5;
+VL_NEDGE[0] = 2; VL_NEDGE[1] = 2; VL_NEDGE[2] = 10; VL_NEDGE[3] = 2; VL_NEDGE[4] = 4; VL_NEDGE[5] = 6; VL_NEDGE[6] = 2;
+VL_EDGES[0] = 0; VL_EDGES[1] = 0.6875;
+VL_EDGES[10] = 0; VL_EDGES[11] = 0.5;
+VL_EDGES[20] = 0; VL_EDGES[21] = 0.25; VL_EDGES[22] = 0.3125; VL_EDGES[23] = 0.5; VL_EDGES[24] = 0.5625; VL_EDGES[25] = 0.6875; VL_EDGES[26] = 0.75; VL_EDGES[27] = 0.8125; VL_EDGES[28] = 0.875; VL_EDGES[29] = 0.9375;
+VL_EDGES[30] = 0; VL_EDGES[31] = 0.5;
+VL_EDGES[40] = 0; VL_EDGES[41] = 0.0625; VL_EDGES[42] = 0.4375; VL_EDGES[43] = 0.5;
+VL_EDGES[50] = 0; VL_EDGES[51] = 0.0625; VL_EDGES[52] = 0.125; VL_EDGES[53] = 0.375; VL_EDGES[54] = 0.5; VL_EDGES[55] = 0.625;
+VL_EDGES[60] = 0; VL_EDGES[61] = 0.142857142857142849212692681248881854116916656494140625;
+VL_ATK_B[0] = 15; VL_ATK_B[1] = 11; VL_ATK_B[2] = 7; VL_ATK_B[3] = 5; VL_ATK_B[4] = 4; VL_ATK_B[5] = 4; VL_ATK_B[6] = 3; VL_ATK_B[7] = 3; VL_ATK_B[8] = 3; VL_ATK_B[9] = 3;
+VL_ATK_U[0] = 0; VL_ATK_U[1] = 1; VL_ATK_U[2] = 4; VL_ATK_U[3] = 7; VL_ATK_U[4] = 10; VL_ATK_U[5] = 13; VL_ATK_U[6] = 16; VL_ATK_U[7] = 19; VL_ATK_U[8] = 22; VL_ATK_U[9] = 25;
+VL_DEC_U[0] = 0; VL_DEC_U[1] = 9; VL_DEC_U[2] = 18; VL_DEC_U[3] = 27; VL_DEC_U[4] = 39; VL_DEC_U[5] = 48; VL_DEC_U[6] = 58; VL_DEC_U[7] = 67; VL_DEC_U[8] = 78; VL_DEC_U[9] = 87;
+VL_SUS_L[0] = 1; VL_SUS_L[1] = 2; VL_SUS_L[2] = 4; VL_SUS_L[3] = 6; VL_SUS_L[4] = 8; VL_SUS_L[5] = 10; VL_SUS_L[6] = 12; VL_SUS_L[7] = 13; VL_SUS_L[8] = 14; VL_SUS_L[9] = 15;
+VL_SUS_U[0] = 0; VL_SUS_U[1] = 79; VL_SUS_U[2] = 154; VL_SUS_U[3] = 231; VL_SUS_U[4] = 312; VL_SUS_U[5] = 389; VL_SUS_U[6] = 467; VL_SUS_U[7] = 543; VL_SUS_U[8] = 615; VL_SUS_U[9] = -1;
+VL_REL_U[0] = 0; VL_REL_U[1] = 26; VL_REL_U[2] = 48; VL_REL_U[3] = 73; VL_REL_U[4] = 96; VL_REL_U[5] = 116; VL_REL_U[6] = 142; VL_REL_U[7] = 167; VL_REL_U[8] = 193; VL_REL_U[9] = 217;
+VL_PAT[0] = 2; VL_PAT[1] = 0; VL_PAT[2] = 0; VL_PAT[3] = 32; VL_PAT[4] = 2; VL_PAT[5] = 32;
+VL_PAT[40] = 3; VL_PAT[41] = 0; VL_PAT[42] = 0; VL_PAT[43] = 32; VL_PAT[44] = 2; VL_PAT[45] = 32; VL_PAT[46] = 2; VL_PAT[47] = 32;
+VL_PAT[80] = 4; VL_PAT[81] = 0; VL_PAT[82] = 0; VL_PAT[83] = 32; VL_PAT[84] = 2; VL_PAT[85] = 32; VL_PAT[86] = 2; VL_PAT[87] = 32; VL_PAT[88] = 2; VL_PAT[89] = 32;
+VL_PAT[120] = 3; VL_PAT[121] = 0; VL_PAT[122] = 1; VL_PAT[123] = 32; VL_PAT[124] = 2; VL_PAT[125] = 24; VL_PAT[126] = 1; VL_PAT[127] = 8;
+VL_PAT[160] = 8; VL_PAT[161] = 0; VL_PAT[162] = 0; VL_PAT[163] = 16; VL_PAT[164] = 1; VL_PAT[165] = 16; VL_PAT[166] = 2; VL_PAT[167] = 16; VL_PAT[168] = 2; VL_PAT[169] = 16; VL_PAT[170] = 0; VL_PAT[171] = 16; VL_PAT[172] = 1; VL_PAT[173] = 16; VL_PAT[174] = 2; VL_PAT[175] = 16; VL_PAT[176] = 1; VL_PAT[177] = 16;
+VL_PAT[200] = 9; VL_PAT[201] = 0; VL_PAT[202] = 0; VL_PAT[203] = 16; VL_PAT[204] = 1; VL_PAT[205] = 16; VL_PAT[206] = 2; VL_PAT[207] = 16; VL_PAT[208] = 1; VL_PAT[209] = 8; VL_PAT[210] = 0; VL_PAT[211] = 8; VL_PAT[212] = 0; VL_PAT[213] = 16; VL_PAT[214] = 0; VL_PAT[215] = 16; VL_PAT[216] = 2; VL_PAT[217] = 16; VL_PAT[218] = 1; VL_PAT[219] = 16;
+VL_PAT[240] = 16; VL_PAT[241] = 0; VL_PAT[242] = 1; VL_PAT[243] = 16; VL_PAT[244] = 2; VL_PAT[245] = 16; VL_PAT[246] = 2; VL_PAT[247] = 16; VL_PAT[248] = 1; VL_PAT[249] = 16; VL_PAT[250] = 0; VL_PAT[251] = 16; VL_PAT[252] = 2; VL_PAT[253] = 16; VL_PAT[254] = 1; VL_PAT[255] = 16; VL_PAT[256] = 2; VL_PAT[257] = 16; VL_PAT[258] = 0; VL_PAT[259] = 16; VL_PAT[260] = 2; VL_PAT[261] = 16; VL_PAT[262] = 1; VL_PAT[263] = 16; VL_PAT[264] = 0; VL_PAT[265] = 16; VL_PAT[266] = 0; VL_PAT[267] = 16; VL_PAT[268] = 1; VL_PAT[269] = 16; VL_PAT[270] = 2; VL_PAT[271] = 16; VL_PAT[272] = 0; VL_PAT[273] = 16;
+VL_PAT[280] = 16; VL_PAT[281] = 0; VL_PAT[282] = 1; VL_PAT[283] = 16; VL_PAT[284] = 2; VL_PAT[285] = 16; VL_PAT[286] = 1; VL_PAT[287] = 16; VL_PAT[288] = 2; VL_PAT[289] = 16; VL_PAT[290] = 0; VL_PAT[291] = 16; VL_PAT[292] = 0; VL_PAT[293] = 16; VL_PAT[294] = 2; VL_PAT[295] = 16; VL_PAT[296] = 1; VL_PAT[297] = 16; VL_PAT[298] = 2; VL_PAT[299] = 16; VL_PAT[300] = 1; VL_PAT[301] = 16; VL_PAT[302] = 2; VL_PAT[303] = 16; VL_PAT[304] = 1; VL_PAT[305] = 16; VL_PAT[306] = 0; VL_PAT[307] = 16; VL_PAT[308] = 0; VL_PAT[309] = 16; VL_PAT[310] = 0; VL_PAT[311] = 16; VL_PAT[312] = 2; VL_PAT[313] = 16;
+VL_PAT[320] = 18; VL_PAT[321] = 0; VL_PAT[322] = 1; VL_PAT[323] = 16; VL_PAT[324] = 2; VL_PAT[325] = 8; VL_PAT[326] = 2; VL_PAT[327] = 8; VL_PAT[328] = 2; VL_PAT[329] = 16; VL_PAT[330] = 1; VL_PAT[331] = 16; VL_PAT[332] = 2; VL_PAT[333] = 16; VL_PAT[334] = 2; VL_PAT[335] = 16; VL_PAT[336] = 1; VL_PAT[337] = 16; VL_PAT[338] = 2; VL_PAT[339] = 16; VL_PAT[340] = 2; VL_PAT[341] = 16; VL_PAT[342] = 2; VL_PAT[343] = 8; VL_PAT[344] = 2; VL_PAT[345] = 8; VL_PAT[346] = 1; VL_PAT[347] = 16; VL_PAT[348] = 2; VL_PAT[349] = 16; VL_PAT[350] = 1; VL_PAT[351] = 16; VL_PAT[352] = 2; VL_PAT[353] = 16; VL_PAT[354] = 0; VL_PAT[355] = 16; VL_PAT[356] = 0; VL_PAT[357] = 16;
+VL_PAT[360] = 9; VL_PAT[361] = 0; VL_PAT[362] = 0; VL_PAT[363] = 16; VL_PAT[364] = 2; VL_PAT[365] = 8; VL_PAT[366] = 2; VL_PAT[367] = 8; VL_PAT[368] = 2; VL_PAT[369] = 16; VL_PAT[370] = 2; VL_PAT[371] = 16; VL_PAT[372] = 1; VL_PAT[373] = 16; VL_PAT[374] = 2; VL_PAT[375] = 16; VL_PAT[376] = 0; VL_PAT[377] = 16; VL_PAT[378] = 2; VL_PAT[379] = 16;
+VL_CODES[0] = 0; VL_CODES[1] = 0; VL_CODES[2] = 4; VL_CODES[3] = 5; VL_CODES[4] = 3; VL_CODES[5] = 2; VL_CODES[6] = 0; VL_CODES[7] = 0;
+VL_CODES[8] = 1; VL_CODES[9] = 0; VL_CODES[10] = 0; VL_CODES[11] = 9; VL_CODES[12] = 9; VL_CODES[13] = 6; VL_CODES[14] = 3; VL_CODES[15] = 0;
+VL_CODES[16] = 2; VL_CODES[17] = 3; VL_CODES[18] = 0; VL_CODES[19] = 9; VL_CODES[20] = 9; VL_CODES[21] = 1; VL_CODES[22] = 3; VL_CODES[23] = 0;
+VL_CODES[24] = 3; VL_CODES[25] = 3; VL_CODES[26] = 0; VL_CODES[27] = 9; VL_CODES[28] = 9; VL_CODES[29] = 1; VL_CODES[30] = 3; VL_CODES[31] = 0;
+VL_CODES[32] = 4; VL_CODES[33] = 1; VL_CODES[34] = 0; VL_CODES[35] = 7; VL_CODES[36] = 1; VL_CODES[37] = 2; VL_CODES[38] = 0; VL_CODES[39] = 0;
+KCH[0] = 53; KCH[1] = 53; KCH[2] = 54; KCH[3] = 54; KCH[4] = 55; KCH[5] = 49; KCH[6] = 49; KCH[7] = 50; KCH[8] = 50; KCH[9] = 51; KCH[10] = 52; KCH[11] = 52; KCH[12] = 53; KCH[13] = 53; KCH[14] = 54; KCH[15] = 54; KCH[16] = 55; KCH[17] = 49; KCH[18] = 49; KCH[19] = 50; KCH[20] = 50; KCH[21] = 51; KCH[22] = 52; KCH[23] = 52; KCH[24] = 53; KCH[25] = 53; KCH[26] = 54; KCH[27] = 54; KCH[28] = 55;
+KOCT[0] = -1; KOCT[1] = -1; KOCT[2] = -1; KOCT[3] = -1; KOCT[4] = -1; KOCT[5] = 0; KOCT[6] = 0; KOCT[7] = 0; KOCT[8] = 0; KOCT[9] = 0; KOCT[10] = 0; KOCT[11] = 0; KOCT[12] = 0; KOCT[13] = 0; KOCT[14] = 0; KOCT[15] = 0; KOCT[16] = 0; KOCT[17] = 1; KOCT[18] = 1; KOCT[19] = 1; KOCT[20] = 1; KOCT[21] = 1; KOCT[22] = 1; KOCT[23] = 1; KOCT[24] = 1; KOCT[25] = 1; KOCT[26] = 1; KOCT[27] = 1; KOCT[28] = 1;
+KSH[0] = 0; KSH[1] = 1; KSH[2] = 0; KSH[3] = 1; KSH[4] = 0; KSH[5] = 0; KSH[6] = 1; KSH[7] = 0; KSH[8] = 1; KSH[9] = 0; KSH[10] = 0; KSH[11] = 1; KSH[12] = 0; KSH[13] = 1; KSH[14] = 0; KSH[15] = 1; KSH[16] = 0; KSH[17] = 0; KSH[18] = 1; KSH[19] = 0; KSH[20] = 1; KSH[21] = 0; KSH[22] = 0; KSH[23] = 1; KSH[24] = 0; KSH[25] = 1; KSH[26] = 0; KSH[27] = 1; KSH[28] = 0;
+KDIG[0] = -1; KDIG[1] = -1; KDIG[2] = -1; KDIG[3] = -1; KDIG[4] = 0; KDIG[5] = 1; KDIG[6] = -1; KDIG[7] = 2; KDIG[8] = -1; KDIG[9] = 3; KDIG[10] = 4; KDIG[11] = -1; KDIG[12] = 5; KDIG[13] = -1; KDIG[14] = 6; KDIG[15] = -1; KDIG[16] = 7; KDIG[17] = 8; KDIG[18] = -1; KDIG[19] = 9; KDIG[20] = -1; KDIG[21] = -1; KDIG[22] = -1; KDIG[23] = -1; KDIG[24] = -1; KDIG[25] = -1; KDIG[26] = -1; KDIG[27] = -1; KDIG[28] = -1;
+DEMO[0] = 0; DEMO[1] = 176; DEMO[2] = 80; DEMO[3] = 3; DEMO[4] = 0; DEMO[5] = 176; DEMO[6] = 81; DEMO[7] = 1; DEMO[8] = 0; DEMO[9] = 192; DEMO[10] = 0; DEMO[11] = 0; DEMO[12] = 0; DEMO[13] = 144; DEMO[14] = 60; DEMO[15] = 127; DEMO[16] = 32; DEMO[17] = 128; DEMO[18] = 60; DEMO[19] = 127; DEMO[20] = 32; DEMO[21] = 144; DEMO[22] = 65; DEMO[23] = 127; DEMO[24] = 64; DEMO[25] = 128; DEMO[26] = 65; DEMO[27] = 127; DEMO[28] = 64; DEMO[29] = 144; DEMO[30] = 65; DEMO[31] = 127; DEMO[32] = 96; DEMO[33] = 128; DEMO[34] = 65; DEMO[35] = 127; DEMO[36] = 96; DEMO[37] = 144; DEMO[38] = 67; DEMO[39] = 127; DEMO[40] = 128; DEMO[41] = 128; DEMO[42] = 67; DEMO[43] = 127; DEMO[44] = 128; DEMO[45] = 144; DEMO[46] = 67; DEMO[47] = 127; DEMO[48] = 160; DEMO[49] = 128; DEMO[50] = 67; DEMO[51] = 127; DEMO[52] = 160; DEMO[53] = 144; DEMO[54] = 69; DEMO[55] = 127; DEMO[56] = 208; DEMO[57] = 128; DEMO[58] = 69; DEMO[59] = 127; DEMO[60] = 208; DEMO[61] = 144; DEMO[62] = 70; DEMO[63] = 127; DEMO[64] = 224; DEMO[65] = 128; DEMO[66] = 70; DEMO[67] = 127; DEMO[68] = 224; DEMO[69] = 144; DEMO[70] = 72; DEMO[71] = 127; DEMO[72] = 256; DEMO[73] = 128; DEMO[74] = 72; DEMO[75] = 127; DEMO[76] = 256; DEMO[77] = 144; DEMO[78] = 70; DEMO[79] = 127; DEMO[80] = 288; DEMO[81] = 128; DEMO[82] = 70; DEMO[83] = 127; DEMO[84] = 288; DEMO[85] = 144; DEMO[86] = 69; DEMO[87] = 127; DEMO[88] = 320; DEMO[89] = 128; DEMO[90] = 69; DEMO[91] = 127; DEMO[92] = 320; DEMO[93] = 144; DEMO[94] = 69; DEMO[95] = 127; DEMO[96] = 352; DEMO[97] = 128; DEMO[98] = 69; DEMO[99] = 127; DEMO[100] = 352; DEMO[101] = 144; DEMO[102] = 67; DEMO[103] = 127; DEMO[104] = 384; DEMO[105] = 128; DEMO[106] = 67; DEMO[107] = 127; DEMO[108] = 384; DEMO[109] = 144; DEMO[110] = 67; DEMO[111] = 127; DEMO[112] = 416; DEMO[113] = 128; DEMO[114] = 67; DEMO[115] = 127; DEMO[116] = 416; DEMO[117] = 144; DEMO[118] = 65; DEMO[119] = 127; DEMO[120] = 512; DEMO[121] = 128; DEMO[122] = 65; DEMO[123] = 127; DEMO[124] = 512; DEMO[125] = 144; DEMO[126] = 60; DEMO[127] = 127; DEMO[128] = 544; DEMO[129] = 128; DEMO[130] = 60; DEMO[131] = 127; DEMO[132] = 544; DEMO[133] = 144; DEMO[134] = 65; DEMO[135] = 127; DEMO[136] = 576; DEMO[137] = 128; DEMO[138] = 65; DEMO[139] = 127; DEMO[140] = 576; DEMO[141] = 144; DEMO[142] = 65; DEMO[143] = 127; DEMO[144] = 608; DEMO[145] = 128; DEMO[146] = 65; DEMO[147] = 127; DEMO[148] = 608; DEMO[149] = 144; DEMO[150] = 67; DEMO[151] = 127; DEMO[152] = 640; DEMO[153] = 128; DEMO[154] = 67; DEMO[155] = 127; DEMO[156] = 640; DEMO[157] = 144; DEMO[158] = 67; DEMO[159] = 127; DEMO[160] = 672; DEMO[161] = 128; DEMO[162] = 67; DEMO[163] = 127; DEMO[164] = 672; DEMO[165] = 144; DEMO[166] = 69; DEMO[167] = 127; DEMO[168] = 720; DEMO[169] = 128; DEMO[170] = 69; DEMO[171] = 127; DEMO[172] = 720; DEMO[173] = 144; DEMO[174] = 70; DEMO[175] = 127; DEMO[176] = 736; DEMO[177] = 128; DEMO[178] = 70; DEMO[179] = 127; DEMO[180] = 736; DEMO[181] = 144; DEMO[182] = 72; DEMO[183] = 127; DEMO[184] = 768; DEMO[185] = 128; DEMO[186] = 72; DEMO[187] = 127; DEMO[188] = 768; DEMO[189] = 144; DEMO[190] = 70; DEMO[191] = 127; DEMO[192] = 800; DEMO[193] = 128; DEMO[194] = 69; DEMO[195] = 127; DEMO[196] = 800; DEMO[197] = 144; DEMO[198] = 69; DEMO[199] = 127; DEMO[200] = 832; DEMO[201] = 128; DEMO[202] = 69; DEMO[203] = 127; DEMO[204] = 832; DEMO[205] = 144; DEMO[206] = 69; DEMO[207] = 127; DEMO[208] = 864; DEMO[209] = 128; DEMO[210] = 69; DEMO[211] = 127; DEMO[212] = 864; DEMO[213] = 144; DEMO[214] = 67; DEMO[215] = 127; DEMO[216] = 896; DEMO[217] = 128; DEMO[218] = 67; DEMO[219] = 127; DEMO[220] = 896; DEMO[221] = 144; DEMO[222] = 67; DEMO[223] = 127; DEMO[224] = 928; DEMO[225] = 128; DEMO[226] = 67; DEMO[227] = 127; DEMO[228] = 928; DEMO[229] = 144; DEMO[230] = 65; DEMO[231] = 127; DEMO[232] = 1024; DEMO[233] = 128; DEMO[234] = 65; DEMO[235] = 127; DEMO[236] = 1024; DEMO[237] = 192; DEMO[238] = 1; DEMO[239] = 0; DEMO[240] = 1024; DEMO[241] = 144; DEMO[242] = 72; DEMO[243] = 127; DEMO[244] = 1040; DEMO[245] = 128; DEMO[246] = 72; DEMO[247] = 127; DEMO[248] = 1040; DEMO[249] = 144; DEMO[250] = 70; DEMO[251] = 127; DEMO[252] = 1056; DEMO[253] = 128; DEMO[254] = 70; DEMO[255] = 127; DEMO[256] = 1056; DEMO[257] = 144; DEMO[258] = 69; DEMO[259] = 127; DEMO[260] = 1088; DEMO[261] = 128; DEMO[262] = 69; DEMO[263] = 127; DEMO[264] = 1088; DEMO[265] = 144; DEMO[266] = 69; DEMO[267] = 127; DEMO[268] = 1120; DEMO[269] = 128; DEMO[270] = 69; DEMO[271] = 127; DEMO[272] = 1120; DEMO[273] = 144; DEMO[274] = 69; DEMO[275] = 127; DEMO[276] = 1152; DEMO[277] = 128; DEMO[278] = 69; DEMO[279] = 127; DEMO[280] = 1152; DEMO[281] = 192; DEMO[282] = 2; DEMO[283] = 0; DEMO[284] = 1152; DEMO[285] = 144; DEMO[286] = 70; DEMO[287] = 127; DEMO[288] = 1168; DEMO[289] = 128; DEMO[290] = 70; DEMO[291] = 127; DEMO[292] = 1168; DEMO[293] = 144; DEMO[294] = 69; DEMO[295] = 127; DEMO[296] = 1184; DEMO[297] = 128; DEMO[298] = 69; DEMO[299] = 127; DEMO[300] = 1184; DEMO[301] = 144; DEMO[302] = 67; DEMO[303] = 127; DEMO[304] = 1216; DEMO[305] = 128; DEMO[306] = 67; DEMO[307] = 127; DEMO[308] = 1216; DEMO[309] = 144; DEMO[310] = 67; DEMO[311] = 127; DEMO[312] = 1248; DEMO[313] = 128; DEMO[314] = 67; DEMO[315] = 127; DEMO[316] = 1248; DEMO[317] = 144; DEMO[318] = 67; DEMO[319] = 127; DEMO[320] = 1280; DEMO[321] = 128; DEMO[322] = 67; DEMO[323] = 127; DEMO[324] = 1280; DEMO[325] = 192; DEMO[326] = 1; DEMO[327] = 0; DEMO[328] = 1280; DEMO[329] = 144; DEMO[330] = 72; DEMO[331] = 127; DEMO[332] = 1296; DEMO[333] = 128; DEMO[334] = 72; DEMO[335] = 127; DEMO[336] = 1296; DEMO[337] = 144; DEMO[338] = 70; DEMO[339] = 127; DEMO[340] = 1312; DEMO[341] = 128; DEMO[342] = 70; DEMO[343] = 127; DEMO[344] = 1312; DEMO[345] = 144; DEMO[346] = 69; DEMO[347] = 127; DEMO[348] = 1344; DEMO[349] = 128; DEMO[350] = 69; DEMO[351] = 127; DEMO[352] = 1344; DEMO[353] = 144; DEMO[354] = 69; DEMO[355] = 127; DEMO[356] = 1376; DEMO[357] = 128; DEMO[358] = 69; DEMO[359] = 127; DEMO[360] = 1376; DEMO[361] = 144; DEMO[362] = 69; DEMO[363] = 127; DEMO[364] = 1408; DEMO[365] = 128; DEMO[366] = 69; DEMO[367] = 127; DEMO[368] = 1408; DEMO[369] = 192; DEMO[370] = 2; DEMO[371] = 0; DEMO[372] = 1408; DEMO[373] = 144; DEMO[374] = 70; DEMO[375] = 127; DEMO[376] = 1424; DEMO[377] = 128; DEMO[378] = 70; DEMO[379] = 127; DEMO[380] = 1424; DEMO[381] = 144; DEMO[382] = 69; DEMO[383] = 127; DEMO[384] = 1440; DEMO[385] = 128; DEMO[386] = 69; DEMO[387] = 127; DEMO[388] = 1440; DEMO[389] = 144; DEMO[390] = 67; DEMO[391] = 127; DEMO[392] = 1472; DEMO[393] = 128; DEMO[394] = 67; DEMO[395] = 127; DEMO[396] = 1472; DEMO[397] = 144; DEMO[398] = 67; DEMO[399] = 127; DEMO[400] = 1504; DEMO[401] = 128; DEMO[402] = 67; DEMO[403] = 127; DEMO[404] = 1504; DEMO[405] = 144; DEMO[406] = 67; DEMO[407] = 127; DEMO[408] = 1536; DEMO[409] = 128; DEMO[410] = 67; DEMO[411] = 127; DEMO[412] = 1536; DEMO[413] = 192; DEMO[414] = 0; DEMO[415] = 0; DEMO[416] = 1536; DEMO[417] = 144; DEMO[418] = 72; DEMO[419] = 127; DEMO[420] = 1568; DEMO[421] = 128; DEMO[422] = 72; DEMO[423] = 127; DEMO[424] = 1568; DEMO[425] = 144; DEMO[426] = 69; DEMO[427] = 127; DEMO[428] = 1600; DEMO[429] = 128; DEMO[430] = 69; DEMO[431] = 127; DEMO[432] = 1600; DEMO[433] = 144; DEMO[434] = 65; DEMO[435] = 127; DEMO[436] = 1632; DEMO[437] = 128; DEMO[438] = 65; DEMO[439] = 127; DEMO[440] = 1632; DEMO[441] = 144; DEMO[442] = 67; DEMO[443] = 127; DEMO[444] = 1664; DEMO[445] = 128; DEMO[446] = 67; DEMO[447] = 127; DEMO[448] = 1664; DEMO[449] = 144; DEMO[450] = 67; DEMO[451] = 127; DEMO[452] = 1696; DEMO[453] = 128; DEMO[454] = 67; DEMO[455] = 127; DEMO[456] = 1696; DEMO[457] = 144; DEMO[458] = 65; DEMO[459] = 127; DEMO[460] = 1792; DEMO[461] = 128; DEMO[462] = 65; DEMO[463] = 127; DEMO[464] = 1792; DEMO[465] = 176; DEMO[466] = 80; DEMO[467] = 4; DEMO[468] = 1792; DEMO[469] = 176; DEMO[470] = 81; DEMO[471] = 6; DEMO[472] = 1792; DEMO[473] = 192; DEMO[474] = 1; DEMO[475] = 0; DEMO[476] = 1792; DEMO[477] = 144; DEMO[478] = 60; DEMO[479] = 127; DEMO[480] = 1824; DEMO[481] = 128; DEMO[482] = 60; DEMO[483] = 127; DEMO[484] = 1824; DEMO[485] = 144; DEMO[486] = 65; DEMO[487] = 127; DEMO[488] = 1856; DEMO[489] = 128; DEMO[490] = 65; DEMO[491] = 127; DEMO[492] = 1856; DEMO[493] = 144; DEMO[494] = 65; DEMO[495] = 127; DEMO[496] = 1888; DEMO[497] = 128; DEMO[498] = 65; DEMO[499] = 127; DEMO[500] = 1888; DEMO[501] = 144; DEMO[502] = 67; DEMO[503] = 127; DEMO[504] = 1920; DEMO[505] = 128; DEMO[506] = 67; DEMO[507] = 127; DEMO[508] = 1920; DEMO[509] = 144; DEMO[510] = 67; DEMO[511] = 127; DEMO[512] = 1952; DEMO[513] = 128; DEMO[514] = 67; DEMO[515] = 127; DEMO[516] = 1952; DEMO[517] = 144; DEMO[518] = 69; DEMO[519] = 127; DEMO[520] = 2000; DEMO[521] = 128; DEMO[522] = 69; DEMO[523] = 127; DEMO[524] = 2000; DEMO[525] = 144; DEMO[526] = 70; DEMO[527] = 127; DEMO[528] = 2016; DEMO[529] = 128; DEMO[530] = 70; DEMO[531] = 127; DEMO[532] = 2016; DEMO[533] = 144; DEMO[534] = 72; DEMO[535] = 127; DEMO[536] = 2048; DEMO[537] = 128; DEMO[538] = 72; DEMO[539] = 127; DEMO[540] = 2048; DEMO[541] = 144; DEMO[542] = 70; DEMO[543] = 127; DEMO[544] = 2080; DEMO[545] = 128; DEMO[546] = 70; DEMO[547] = 127; DEMO[548] = 2080; DEMO[549] = 144; DEMO[550] = 69; DEMO[551] = 127; DEMO[552] = 2112; DEMO[553] = 128; DEMO[554] = 69; DEMO[555] = 127; DEMO[556] = 2112; DEMO[557] = 144; DEMO[558] = 69; DEMO[559] = 127; DEMO[560] = 2144; DEMO[561] = 128; DEMO[562] = 69; DEMO[563] = 127; DEMO[564] = 2144; DEMO[565] = 144; DEMO[566] = 67; DEMO[567] = 127; DEMO[568] = 2176; DEMO[569] = 128; DEMO[570] = 67; DEMO[571] = 127; DEMO[572] = 2176; DEMO[573] = 144; DEMO[574] = 67; DEMO[575] = 127; DEMO[576] = 2208; DEMO[577] = 128; DEMO[578] = 67; DEMO[579] = 127; DEMO[580] = 2208; DEMO[581] = 144; DEMO[582] = 65; DEMO[583] = 127; DEMO[584] = 2304; DEMO[585] = 128; DEMO[586] = 65; DEMO[587] = 127; DEMO[588] = 2304; DEMO[589] = 144; DEMO[590] = 60; DEMO[591] = 127; DEMO[592] = 2336; DEMO[593] = 128; DEMO[594] = 60; DEMO[595] = 127; DEMO[596] = 2336; DEMO[597] = 144; DEMO[598] = 65; DEMO[599] = 127; DEMO[600] = 2368; DEMO[601] = 128; DEMO[602] = 65; DEMO[603] = 127; DEMO[604] = 2368; DEMO[605] = 144; DEMO[606] = 65; DEMO[607] = 127; DEMO[608] = 2400; DEMO[609] = 128; DEMO[610] = 65; DEMO[611] = 127; DEMO[612] = 2400; DEMO[613] = 144; DEMO[614] = 67; DEMO[615] = 127; DEMO[616] = 2432; DEMO[617] = 128; DEMO[618] = 67; DEMO[619] = 127; DEMO[620] = 2432; DEMO[621] = 144; DEMO[622] = 67; DEMO[623] = 127; DEMO[624] = 2464; DEMO[625] = 128; DEMO[626] = 67; DEMO[627] = 127; DEMO[628] = 2464; DEMO[629] = 144; DEMO[630] = 69; DEMO[631] = 127; DEMO[632] = 2512; DEMO[633] = 128; DEMO[634] = 69; DEMO[635] = 127; DEMO[636] = 2512; DEMO[637] = 144; DEMO[638] = 70; DEMO[639] = 127; DEMO[640] = 2528; DEMO[641] = 128; DEMO[642] = 70; DEMO[643] = 127; DEMO[644] = 2528; DEMO[645] = 144; DEMO[646] = 72; DEMO[647] = 127; DEMO[648] = 2560; DEMO[649] = 128; DEMO[650] = 72; DEMO[651] = 127; DEMO[652] = 2560; DEMO[653] = 144; DEMO[654] = 70; DEMO[655] = 127; DEMO[656] = 2592; DEMO[657] = 128; DEMO[658] = 69; DEMO[659] = 127; DEMO[660] = 2592; DEMO[661] = 144; DEMO[662] = 69; DEMO[663] = 127; DEMO[664] = 2624; DEMO[665] = 128; DEMO[666] = 69; DEMO[667] = 127; DEMO[668] = 2624; DEMO[669] = 144; DEMO[670] = 69; DEMO[671] = 127; DEMO[672] = 2656; DEMO[673] = 128; DEMO[674] = 69; DEMO[675] = 127; DEMO[676] = 2656; DEMO[677] = 144; DEMO[678] = 67; DEMO[679] = 127; DEMO[680] = 2688; DEMO[681] = 128; DEMO[682] = 67; DEMO[683] = 127; DEMO[684] = 2688; DEMO[685] = 144; DEMO[686] = 67; DEMO[687] = 127; DEMO[688] = 2720; DEMO[689] = 128; DEMO[690] = 67; DEMO[691] = 127; DEMO[692] = 2720; DEMO[693] = 144; DEMO[694] = 65; DEMO[695] = 127; DEMO[696] = 2816; DEMO[697] = 128; DEMO[698] = 65; DEMO[699] = 127; DEMO[700] = 2816; DEMO[701] = 192; DEMO[702] = 2; DEMO[703] = 0; DEMO[704] = 2816; DEMO[705] = 144; DEMO[706] = 72; DEMO[707] = 127; DEMO[708] = 2832; DEMO[709] = 128; DEMO[710] = 72; DEMO[711] = 127; DEMO[712] = 2832; DEMO[713] = 144; DEMO[714] = 70; DEMO[715] = 127; DEMO[716] = 2848; DEMO[717] = 128; DEMO[718] = 70; DEMO[719] = 127; DEMO[720] = 2848; DEMO[721] = 144; DEMO[722] = 69; DEMO[723] = 127; DEMO[724] = 2880; DEMO[725] = 128; DEMO[726] = 69; DEMO[727] = 127; DEMO[728] = 2880; DEMO[729] = 144; DEMO[730] = 69; DEMO[731] = 127; DEMO[732] = 2912; DEMO[733] = 128; DEMO[734] = 69; DEMO[735] = 127; DEMO[736] = 2912; DEMO[737] = 144; DEMO[738] = 69; DEMO[739] = 127; DEMO[740] = 2944; DEMO[741] = 128; DEMO[742] = 69; DEMO[743] = 127; DEMO[744] = 2944; DEMO[745] = 192; DEMO[746] = 3; DEMO[747] = 0; DEMO[748] = 2944; DEMO[749] = 144; DEMO[750] = 70; DEMO[751] = 127; DEMO[752] = 2960; DEMO[753] = 128; DEMO[754] = 70; DEMO[755] = 127; DEMO[756] = 2960; DEMO[757] = 144; DEMO[758] = 69; DEMO[759] = 127; DEMO[760] = 2976; DEMO[761] = 128; DEMO[762] = 69; DEMO[763] = 127; DEMO[764] = 2976; DEMO[765] = 144; DEMO[766] = 67; DEMO[767] = 127; DEMO[768] = 3008; DEMO[769] = 128; DEMO[770] = 67; DEMO[771] = 127; DEMO[772] = 3008; DEMO[773] = 144; DEMO[774] = 67; DEMO[775] = 127; DEMO[776] = 3040; DEMO[777] = 128; DEMO[778] = 67; DEMO[779] = 127; DEMO[780] = 3040; DEMO[781] = 144; DEMO[782] = 67; DEMO[783] = 127; DEMO[784] = 3072; DEMO[785] = 128; DEMO[786] = 67; DEMO[787] = 127; DEMO[788] = 3072; DEMO[789] = 192; DEMO[790] = 2; DEMO[791] = 0; DEMO[792] = 3072; DEMO[793] = 144; DEMO[794] = 72; DEMO[795] = 127; DEMO[796] = 3088; DEMO[797] = 128; DEMO[798] = 72; DEMO[799] = 127; DEMO[800] = 3088; DEMO[801] = 144; DEMO[802] = 70; DEMO[803] = 127; DEMO[804] = 3104; DEMO[805] = 128; DEMO[806] = 70; DEMO[807] = 127; DEMO[808] = 3104; DEMO[809] = 144; DEMO[810] = 69; DEMO[811] = 127; DEMO[812] = 3136; DEMO[813] = 128; DEMO[814] = 69; DEMO[815] = 127; DEMO[816] = 3136; DEMO[817] = 144; DEMO[818] = 69; DEMO[819] = 127; DEMO[820] = 3168; DEMO[821] = 128; DEMO[822] = 69; DEMO[823] = 127; DEMO[824] = 3168; DEMO[825] = 144; DEMO[826] = 69; DEMO[827] = 127; DEMO[828] = 3200; DEMO[829] = 128; DEMO[830] = 69; DEMO[831] = 127; DEMO[832] = 3200; DEMO[833] = 192; DEMO[834] = 3; DEMO[835] = 0; DEMO[836] = 3200; DEMO[837] = 144; DEMO[838] = 70; DEMO[839] = 127; DEMO[840] = 3216; DEMO[841] = 128; DEMO[842] = 70; DEMO[843] = 127; DEMO[844] = 3216; DEMO[845] = 144; DEMO[846] = 69; DEMO[847] = 127; DEMO[848] = 3232; DEMO[849] = 128; DEMO[850] = 69; DEMO[851] = 127; DEMO[852] = 3232; DEMO[853] = 144; DEMO[854] = 67; DEMO[855] = 127; DEMO[856] = 3264; DEMO[857] = 128; DEMO[858] = 67; DEMO[859] = 127; DEMO[860] = 3264; DEMO[861] = 144; DEMO[862] = 67; DEMO[863] = 127; DEMO[864] = 3296; DEMO[865] = 128; DEMO[866] = 67; DEMO[867] = 127; DEMO[868] = 3296; DEMO[869] = 144; DEMO[870] = 67; DEMO[871] = 127; DEMO[872] = 3328; DEMO[873] = 128; DEMO[874] = 67; DEMO[875] = 127; DEMO[876] = 3328; DEMO[877] = 192; DEMO[878] = 1; DEMO[879] = 0; DEMO[880] = 3328; DEMO[881] = 144; DEMO[882] = 72; DEMO[883] = 127; DEMO[884] = 3360; DEMO[885] = 128; DEMO[886] = 72; DEMO[887] = 127; DEMO[888] = 3360; DEMO[889] = 144; DEMO[890] = 69; DEMO[891] = 127; DEMO[892] = 3392; DEMO[893] = 128; DEMO[894] = 69; DEMO[895] = 127; DEMO[896] = 3392; DEMO[897] = 144; DEMO[898] = 65; DEMO[899] = 127; DEMO[900] = 3424; DEMO[901] = 128; DEMO[902] = 65; DEMO[903] = 127; DEMO[904] = 3424; DEMO[905] = 144; DEMO[906] = 67; DEMO[907] = 127; DEMO[908] = 3456; DEMO[909] = 128; DEMO[910] = 67; DEMO[911] = 127; DEMO[912] = 3456; DEMO[913] = 144; DEMO[914] = 67; DEMO[915] = 127; DEMO[916] = 3488; DEMO[917] = 128; DEMO[918] = 67; DEMO[919] = 127; DEMO[920] = 3488; DEMO[921] = 144; DEMO[922] = 65; DEMO[923] = 127; DEMO[924] = 3584; DEMO[925] = 128; DEMO[926] = 65; DEMO[927] = 127; DEMO[928] = 3584; DEMO[929] = 176; DEMO[930] = 80; DEMO[931] = 5; DEMO[932] = 3584; DEMO[933] = 176; DEMO[934] = 81; DEMO[935] = 7; DEMO[936] = 3584; DEMO[937] = 192; DEMO[938] = 2; DEMO[939] = 0; DEMO[940] = 3584; DEMO[941] = 144; DEMO[942] = 60; DEMO[943] = 127; DEMO[944] = 3616; DEMO[945] = 128; DEMO[946] = 60; DEMO[947] = 127; DEMO[948] = 3616; DEMO[949] = 144; DEMO[950] = 65; DEMO[951] = 127; DEMO[952] = 3648; DEMO[953] = 128; DEMO[954] = 65; DEMO[955] = 127; DEMO[956] = 3648; DEMO[957] = 144; DEMO[958] = 65; DEMO[959] = 127; DEMO[960] = 3680; DEMO[961] = 128; DEMO[962] = 65; DEMO[963] = 127; DEMO[964] = 3680; DEMO[965] = 144; DEMO[966] = 67; DEMO[967] = 127; DEMO[968] = 3712; DEMO[969] = 128; DEMO[970] = 67; DEMO[971] = 127; DEMO[972] = 3712; DEMO[973] = 144; DEMO[974] = 67; DEMO[975] = 127; DEMO[976] = 3744; DEMO[977] = 128; DEMO[978] = 67; DEMO[979] = 127; DEMO[980] = 3744; DEMO[981] = 144; DEMO[982] = 69; DEMO[983] = 127; DEMO[984] = 3792; DEMO[985] = 128; DEMO[986] = 69; DEMO[987] = 127; DEMO[988] = 3792; DEMO[989] = 144; DEMO[990] = 70; DEMO[991] = 127; DEMO[992] = 3808; DEMO[993] = 128; DEMO[994] = 70; DEMO[995] = 127; DEMO[996] = 3808; DEMO[997] = 144; DEMO[998] = 72; DEMO[999] = 127; DEMO[1000] = 3840; DEMO[1001] = 128; DEMO[1002] = 72; DEMO[1003] = 127; DEMO[1004] = 3840; DEMO[1005] = 144; DEMO[1006] = 70; DEMO[1007] = 127; DEMO[1008] = 3872; DEMO[1009] = 128; DEMO[1010] = 70; DEMO[1011] = 127; DEMO[1012] = 3872; DEMO[1013] = 144; DEMO[1014] = 69; DEMO[1015] = 127; DEMO[1016] = 3904; DEMO[1017] = 128; DEMO[1018] = 69; DEMO[1019] = 127; DEMO[1020] = 3904; DEMO[1021] = 144; DEMO[1022] = 69; DEMO[1023] = 127; DEMO[1024] = 3936; DEMO[1025] = 128; DEMO[1026] = 69; DEMO[1027] = 127; DEMO[1028] = 3936; DEMO[1029] = 144; DEMO[1030] = 67; DEMO[1031] = 127; DEMO[1032] = 3968; DEMO[1033] = 128; DEMO[1034] = 67; DEMO[1035] = 127; DEMO[1036] = 3968; DEMO[1037] = 144; DEMO[1038] = 67; DEMO[1039] = 127; DEMO[1040] = 4000; DEMO[1041] = 128; DEMO[1042] = 67; DEMO[1043] = 127; DEMO[1044] = 4000; DEMO[1045] = 144; DEMO[1046] = 65; DEMO[1047] = 127; DEMO[1048] = 4096; DEMO[1049] = 128; DEMO[1050] = 65; DEMO[1051] = 127; DEMO[1052] = 4096; DEMO[1053] = 144; DEMO[1054] = 60; DEMO[1055] = 127; DEMO[1056] = 4128; DEMO[1057] = 128; DEMO[1058] = 60; DEMO[1059] = 127; DEMO[1060] = 4128; DEMO[1061] = 144; DEMO[1062] = 65; DEMO[1063] = 127; DEMO[1064] = 4160; DEMO[1065] = 128; DEMO[1066] = 65; DEMO[1067] = 127; DEMO[1068] = 4160; DEMO[1069] = 144; DEMO[1070] = 65; DEMO[1071] = 127; DEMO[1072] = 4192; DEMO[1073] = 128; DEMO[1074] = 65; DEMO[1075] = 127; DEMO[1076] = 4192; DEMO[1077] = 144; DEMO[1078] = 67; DEMO[1079] = 127; DEMO[1080] = 4224; DEMO[1081] = 128; DEMO[1082] = 67; DEMO[1083] = 127; DEMO[1084] = 4224; DEMO[1085] = 144; DEMO[1086] = 67; DEMO[1087] = 127; DEMO[1088] = 4256; DEMO[1089] = 128; DEMO[1090] = 67; DEMO[1091] = 127; DEMO[1092] = 4256; DEMO[1093] = 144; DEMO[1094] = 69; DEMO[1095] = 127; DEMO[1096] = 4304; DEMO[1097] = 128; DEMO[1098] = 69; DEMO[1099] = 127; DEMO[1100] = 4304; DEMO[1101] = 144; DEMO[1102] = 70; DEMO[1103] = 127; DEMO[1104] = 4320; DEMO[1105] = 128; DEMO[1106] = 70; DEMO[1107] = 127; DEMO[1108] = 4320; DEMO[1109] = 144; DEMO[1110] = 72; DEMO[1111] = 127; DEMO[1112] = 4352; DEMO[1113] = 128; DEMO[1114] = 72; DEMO[1115] = 127; DEMO[1116] = 4352; DEMO[1117] = 144; DEMO[1118] = 70; DEMO[1119] = 127; DEMO[1120] = 4384; DEMO[1121] = 128; DEMO[1122] = 69; DEMO[1123] = 127; DEMO[1124] = 4384; DEMO[1125] = 144; DEMO[1126] = 69; DEMO[1127] = 127; DEMO[1128] = 4416; DEMO[1129] = 128; DEMO[1130] = 69; DEMO[1131] = 127; DEMO[1132] = 4416; DEMO[1133] = 144; DEMO[1134] = 69; DEMO[1135] = 127; DEMO[1136] = 4448; DEMO[1137] = 128; DEMO[1138] = 69; DEMO[1139] = 127; DEMO[1140] = 4448; DEMO[1141] = 144; DEMO[1142] = 67; DEMO[1143] = 127; DEMO[1144] = 4480; DEMO[1145] = 128; DEMO[1146] = 67; DEMO[1147] = 127; DEMO[1148] = 4480; DEMO[1149] = 144; DEMO[1150] = 67; DEMO[1151] = 127; DEMO[1152] = 4512; DEMO[1153] = 128; DEMO[1154] = 67; DEMO[1155] = 127; DEMO[1156] = 4512; DEMO[1157] = 144; DEMO[1158] = 65; DEMO[1159] = 127; DEMO[1160] = 4608; DEMO[1161] = 128; DEMO[1162] = 65; DEMO[1163] = 127; DEMO[1164] = 4608; DEMO[1165] = 192; DEMO[1166] = 3; DEMO[1167] = 0; DEMO[1168] = 4608; DEMO[1169] = 144; DEMO[1170] = 72; DEMO[1171] = 127; DEMO[1172] = 4624; DEMO[1173] = 128; DEMO[1174] = 72; DEMO[1175] = 127; DEMO[1176] = 4624; DEMO[1177] = 144; DEMO[1178] = 70; DEMO[1179] = 127; DEMO[1180] = 4640; DEMO[1181] = 128; DEMO[1182] = 70; DEMO[1183] = 127; DEMO[1184] = 4640; DEMO[1185] = 144; DEMO[1186] = 69; DEMO[1187] = 127; DEMO[1188] = 4672; DEMO[1189] = 128; DEMO[1190] = 69; DEMO[1191] = 127; DEMO[1192] = 4672; DEMO[1193] = 144; DEMO[1194] = 69; DEMO[1195] = 127; DEMO[1196] = 4704; DEMO[1197] = 128; DEMO[1198] = 69; DEMO[1199] = 127; DEMO[1200] = 4704; DEMO[1201] = 144; DEMO[1202] = 69; DEMO[1203] = 127; DEMO[1204] = 4736; DEMO[1205] = 128; DEMO[1206] = 69; DEMO[1207] = 127; DEMO[1208] = 4736; DEMO[1209] = 192; DEMO[1210] = 4; DEMO[1211] = 0; DEMO[1212] = 4736; DEMO[1213] = 144; DEMO[1214] = 70; DEMO[1215] = 127; DEMO[1216] = 4752; DEMO[1217] = 128; DEMO[1218] = 70; DEMO[1219] = 127; DEMO[1220] = 4752; DEMO[1221] = 144; DEMO[1222] = 69; DEMO[1223] = 127; DEMO[1224] = 4768; DEMO[1225] = 128; DEMO[1226] = 69; DEMO[1227] = 127; DEMO[1228] = 4768; DEMO[1229] = 144; DEMO[1230] = 67; DEMO[1231] = 127; DEMO[1232] = 4800; DEMO[1233] = 128; DEMO[1234] = 67; DEMO[1235] = 127; DEMO[1236] = 4800; DEMO[1237] = 144; DEMO[1238] = 67; DEMO[1239] = 127; DEMO[1240] = 4832; DEMO[1241] = 128; DEMO[1242] = 67; DEMO[1243] = 127; DEMO[1244] = 4832; DEMO[1245] = 144; DEMO[1246] = 67; DEMO[1247] = 127; DEMO[1248] = 4864; DEMO[1249] = 128; DEMO[1250] = 67; DEMO[1251] = 127; DEMO[1252] = 4864; DEMO[1253] = 192; DEMO[1254] = 3; DEMO[1255] = 0; DEMO[1256] = 4864; DEMO[1257] = 144; DEMO[1258] = 72; DEMO[1259] = 127; DEMO[1260] = 4880; DEMO[1261] = 128; DEMO[1262] = 72; DEMO[1263] = 127; DEMO[1264] = 4880; DEMO[1265] = 144; DEMO[1266] = 70; DEMO[1267] = 127; DEMO[1268] = 4896; DEMO[1269] = 128; DEMO[1270] = 70; DEMO[1271] = 127; DEMO[1272] = 4896; DEMO[1273] = 144; DEMO[1274] = 69; DEMO[1275] = 127; DEMO[1276] = 4928; DEMO[1277] = 128; DEMO[1278] = 69; DEMO[1279] = 127; DEMO[1280] = 4928; DEMO[1281] = 144; DEMO[1282] = 69; DEMO[1283] = 127; DEMO[1284] = 4960; DEMO[1285] = 128; DEMO[1286] = 69; DEMO[1287] = 127; DEMO[1288] = 4960; DEMO[1289] = 144; DEMO[1290] = 69; DEMO[1291] = 127; DEMO[1292] = 4992; DEMO[1293] = 128; DEMO[1294] = 69; DEMO[1295] = 127; DEMO[1296] = 4992; DEMO[1297] = 192; DEMO[1298] = 4; DEMO[1299] = 0; DEMO[1300] = 4992; DEMO[1301] = 144; DEMO[1302] = 70; DEMO[1303] = 127; DEMO[1304] = 5008; DEMO[1305] = 128; DEMO[1306] = 70; DEMO[1307] = 127; DEMO[1308] = 5008; DEMO[1309] = 144; DEMO[1310] = 69; DEMO[1311] = 127; DEMO[1312] = 5024; DEMO[1313] = 128; DEMO[1314] = 69; DEMO[1315] = 127; DEMO[1316] = 5024; DEMO[1317] = 144; DEMO[1318] = 67; DEMO[1319] = 127; DEMO[1320] = 5056; DEMO[1321] = 128; DEMO[1322] = 67; DEMO[1323] = 127; DEMO[1324] = 5056; DEMO[1325] = 144; DEMO[1326] = 67; DEMO[1327] = 127; DEMO[1328] = 5088; DEMO[1329] = 128; DEMO[1330] = 67; DEMO[1331] = 127; DEMO[1332] = 5088; DEMO[1333] = 144; DEMO[1334] = 67; DEMO[1335] = 127; DEMO[1336] = 5120; DEMO[1337] = 128; DEMO[1338] = 67; DEMO[1339] = 127; DEMO[1340] = 5120; DEMO[1341] = 192; DEMO[1342] = 2; DEMO[1343] = 0; DEMO[1344] = 5120; DEMO[1345] = 144; DEMO[1346] = 72; DEMO[1347] = 127; DEMO[1348] = 5152; DEMO[1349] = 128; DEMO[1350] = 72; DEMO[1351] = 127; DEMO[1352] = 5152; DEMO[1353] = 144; DEMO[1354] = 69; DEMO[1355] = 127; DEMO[1356] = 5184; DEMO[1357] = 128; DEMO[1358] = 69; DEMO[1359] = 127; DEMO[1360] = 5184; DEMO[1361] = 144; DEMO[1362] = 65; DEMO[1363] = 127; DEMO[1364] = 5216; DEMO[1365] = 128; DEMO[1366] = 65; DEMO[1367] = 127; DEMO[1368] = 5216; DEMO[1369] = 144; DEMO[1370] = 67; DEMO[1371] = 127; DEMO[1372] = 5248; DEMO[1373] = 128; DEMO[1374] = 67; DEMO[1375] = 127; DEMO[1376] = 5248; DEMO[1377] = 144; DEMO[1378] = 67; DEMO[1379] = 127; DEMO[1380] = 5280; DEMO[1381] = 128; DEMO[1382] = 67; DEMO[1383] = 127; DEMO[1384] = 5280; DEMO[1385] = 144; DEMO[1386] = 65; DEMO[1387] = 127; DEMO[1388] = 5376; DEMO[1389] = 128; DEMO[1390] = 65; DEMO[1391] = 127; DEMO[1392] = 5376; DEMO[1393] = 176; DEMO[1394] = 80; DEMO[1395] = 9; DEMO[1396] = 5376; DEMO[1397] = 176; DEMO[1398] = 81; DEMO[1399] = 7; DEMO[1400] = 5376; DEMO[1401] = 192; DEMO[1402] = 3; DEMO[1403] = 0; DEMO[1404] = 5376; DEMO[1405] = 144; DEMO[1406] = 60; DEMO[1407] = 127; DEMO[1408] = 5408; DEMO[1409] = 128; DEMO[1410] = 60; DEMO[1411] = 127; DEMO[1412] = 5408; DEMO[1413] = 144; DEMO[1414] = 65; DEMO[1415] = 127; DEMO[1416] = 5440; DEMO[1417] = 128; DEMO[1418] = 65; DEMO[1419] = 127; DEMO[1420] = 5440; DEMO[1421] = 144; DEMO[1422] = 65; DEMO[1423] = 127; DEMO[1424] = 5472; DEMO[1425] = 128; DEMO[1426] = 65; DEMO[1427] = 127; DEMO[1428] = 5472; DEMO[1429] = 144; DEMO[1430] = 67; DEMO[1431] = 127; DEMO[1432] = 5504; DEMO[1433] = 128; DEMO[1434] = 67; DEMO[1435] = 127; DEMO[1436] = 5504; DEMO[1437] = 144; DEMO[1438] = 67; DEMO[1439] = 127; DEMO[1440] = 5536; DEMO[1441] = 128; DEMO[1442] = 67; DEMO[1443] = 127; DEMO[1444] = 5536; DEMO[1445] = 144; DEMO[1446] = 69; DEMO[1447] = 127; DEMO[1448] = 5584; DEMO[1449] = 128; DEMO[1450] = 69; DEMO[1451] = 127; DEMO[1452] = 5584; DEMO[1453] = 144; DEMO[1454] = 70; DEMO[1455] = 127; DEMO[1456] = 5600; DEMO[1457] = 128; DEMO[1458] = 70; DEMO[1459] = 127; DEMO[1460] = 5600; DEMO[1461] = 144; DEMO[1462] = 72; DEMO[1463] = 127; DEMO[1464] = 5632; DEMO[1465] = 128; DEMO[1466] = 72; DEMO[1467] = 127; DEMO[1468] = 5632; DEMO[1469] = 144; DEMO[1470] = 70; DEMO[1471] = 127; DEMO[1472] = 5664; DEMO[1473] = 128; DEMO[1474] = 70; DEMO[1475] = 127; DEMO[1476] = 5664; DEMO[1477] = 144; DEMO[1478] = 69; DEMO[1479] = 127; DEMO[1480] = 5696; DEMO[1481] = 128; DEMO[1482] = 69; DEMO[1483] = 127; DEMO[1484] = 5696; DEMO[1485] = 144; DEMO[1486] = 69; DEMO[1487] = 127; DEMO[1488] = 5728; DEMO[1489] = 128; DEMO[1490] = 69; DEMO[1491] = 127; DEMO[1492] = 5728; DEMO[1493] = 144; DEMO[1494] = 67; DEMO[1495] = 127; DEMO[1496] = 5760; DEMO[1497] = 128; DEMO[1498] = 67; DEMO[1499] = 127; DEMO[1500] = 5760; DEMO[1501] = 144; DEMO[1502] = 67; DEMO[1503] = 127; DEMO[1504] = 5792; DEMO[1505] = 128; DEMO[1506] = 67; DEMO[1507] = 127; DEMO[1508] = 5792; DEMO[1509] = 144; DEMO[1510] = 65; DEMO[1511] = 127; DEMO[1512] = 5888; DEMO[1513] = 128; DEMO[1514] = 65; DEMO[1515] = 127; DEMO[1516] = 5888; DEMO[1517] = 144; DEMO[1518] = 60; DEMO[1519] = 127; DEMO[1520] = 5920; DEMO[1521] = 128; DEMO[1522] = 60; DEMO[1523] = 127; DEMO[1524] = 5920; DEMO[1525] = 144; DEMO[1526] = 65; DEMO[1527] = 127; DEMO[1528] = 5952; DEMO[1529] = 128; DEMO[1530] = 65; DEMO[1531] = 127; DEMO[1532] = 5952; DEMO[1533] = 144; DEMO[1534] = 65; DEMO[1535] = 127; DEMO[1536] = 5984; DEMO[1537] = 128; DEMO[1538] = 65; DEMO[1539] = 127; DEMO[1540] = 5984; DEMO[1541] = 144; DEMO[1542] = 67; DEMO[1543] = 127; DEMO[1544] = 6016; DEMO[1545] = 128; DEMO[1546] = 67; DEMO[1547] = 127; DEMO[1548] = 6016; DEMO[1549] = 144; DEMO[1550] = 67; DEMO[1551] = 127; DEMO[1552] = 6048; DEMO[1553] = 128; DEMO[1554] = 67; DEMO[1555] = 127; DEMO[1556] = 6048; DEMO[1557] = 144; DEMO[1558] = 69; DEMO[1559] = 127; DEMO[1560] = 6096; DEMO[1561] = 128; DEMO[1562] = 69; DEMO[1563] = 127; DEMO[1564] = 6096; DEMO[1565] = 144; DEMO[1566] = 70; DEMO[1567] = 127; DEMO[1568] = 6112; DEMO[1569] = 128; DEMO[1570] = 70; DEMO[1571] = 127; DEMO[1572] = 6112; DEMO[1573] = 144; DEMO[1574] = 72; DEMO[1575] = 127; DEMO[1576] = 6144; DEMO[1577] = 128; DEMO[1578] = 72; DEMO[1579] = 127; DEMO[1580] = 6144; DEMO[1581] = 144; DEMO[1582] = 70; DEMO[1583] = 127; DEMO[1584] = 6176; DEMO[1585] = 128; DEMO[1586] = 69; DEMO[1587] = 127; DEMO[1588] = 6176; DEMO[1589] = 144; DEMO[1590] = 69; DEMO[1591] = 127; DEMO[1592] = 6208; DEMO[1593] = 128; DEMO[1594] = 69; DEMO[1595] = 127; DEMO[1596] = 6208; DEMO[1597] = 144; DEMO[1598] = 69; DEMO[1599] = 127; DEMO[1600] = 6240; DEMO[1601] = 128; DEMO[1602] = 69; DEMO[1603] = 127; DEMO[1604] = 6240; DEMO[1605] = 144; DEMO[1606] = 67; DEMO[1607] = 127; DEMO[1608] = 6272; DEMO[1609] = 128; DEMO[1610] = 67; DEMO[1611] = 127; DEMO[1612] = 6272; DEMO[1613] = 144; DEMO[1614] = 67; DEMO[1615] = 127; DEMO[1616] = 6304; DEMO[1617] = 128; DEMO[1618] = 67; DEMO[1619] = 127; DEMO[1620] = 6304; DEMO[1621] = 144; DEMO[1622] = 65; DEMO[1623] = 127; DEMO[1624] = 6400; DEMO[1625] = 128; DEMO[1626] = 65; DEMO[1627] = 127; DEMO[1628] = 6400; DEMO[1629] = 192; DEMO[1630] = 4; DEMO[1631] = 0; DEMO[1632] = 6400; DEMO[1633] = 144; DEMO[1634] = 72; DEMO[1635] = 127; DEMO[1636] = 6416; DEMO[1637] = 128; DEMO[1638] = 72; DEMO[1639] = 127; DEMO[1640] = 6416; DEMO[1641] = 144; DEMO[1642] = 70; DEMO[1643] = 127; DEMO[1644] = 6432; DEMO[1645] = 128; DEMO[1646] = 70; DEMO[1647] = 127; DEMO[1648] = 6432; DEMO[1649] = 144; DEMO[1650] = 69; DEMO[1651] = 127; DEMO[1652] = 6464; DEMO[1653] = 128; DEMO[1654] = 69; DEMO[1655] = 127; DEMO[1656] = 6464; DEMO[1657] = 144; DEMO[1658] = 69; DEMO[1659] = 127; DEMO[1660] = 6496; DEMO[1661] = 128; DEMO[1662] = 69; DEMO[1663] = 127; DEMO[1664] = 6496; DEMO[1665] = 144; DEMO[1666] = 69; DEMO[1667] = 127; DEMO[1668] = 6528; DEMO[1669] = 128; DEMO[1670] = 69; DEMO[1671] = 127; DEMO[1672] = 6528; DEMO[1673] = 192; DEMO[1674] = 0; DEMO[1675] = 0; DEMO[1676] = 6528; DEMO[1677] = 144; DEMO[1678] = 70; DEMO[1679] = 127; DEMO[1680] = 6544; DEMO[1681] = 128; DEMO[1682] = 70; DEMO[1683] = 127; DEMO[1684] = 6544; DEMO[1685] = 144; DEMO[1686] = 69; DEMO[1687] = 127; DEMO[1688] = 6560; DEMO[1689] = 128; DEMO[1690] = 69; DEMO[1691] = 127; DEMO[1692] = 6560; DEMO[1693] = 144; DEMO[1694] = 67; DEMO[1695] = 127; DEMO[1696] = 6592; DEMO[1697] = 128; DEMO[1698] = 67; DEMO[1699] = 127; DEMO[1700] = 6592; DEMO[1701] = 144; DEMO[1702] = 67; DEMO[1703] = 127; DEMO[1704] = 6624; DEMO[1705] = 128; DEMO[1706] = 67; DEMO[1707] = 127; DEMO[1708] = 6624; DEMO[1709] = 144; DEMO[1710] = 67; DEMO[1711] = 127; DEMO[1712] = 6656; DEMO[1713] = 128; DEMO[1714] = 67; DEMO[1715] = 127; DEMO[1716] = 6656; DEMO[1717] = 192; DEMO[1718] = 4; DEMO[1719] = 0; DEMO[1720] = 6656; DEMO[1721] = 144; DEMO[1722] = 72; DEMO[1723] = 127; DEMO[1724] = 6672; DEMO[1725] = 128; DEMO[1726] = 72; DEMO[1727] = 127; DEMO[1728] = 6672; DEMO[1729] = 144; DEMO[1730] = 70; DEMO[1731] = 127; DEMO[1732] = 6688; DEMO[1733] = 128; DEMO[1734] = 70; DEMO[1735] = 127; DEMO[1736] = 6688; DEMO[1737] = 144; DEMO[1738] = 69; DEMO[1739] = 127; DEMO[1740] = 6720; DEMO[1741] = 128; DEMO[1742] = 69; DEMO[1743] = 127; DEMO[1744] = 6720; DEMO[1745] = 144; DEMO[1746] = 69; DEMO[1747] = 127; DEMO[1748] = 6752; DEMO[1749] = 128; DEMO[1750] = 69; DEMO[1751] = 127; DEMO[1752] = 6752; DEMO[1753] = 144; DEMO[1754] = 69; DEMO[1755] = 127; DEMO[1756] = 6784; DEMO[1757] = 128; DEMO[1758] = 69; DEMO[1759] = 127; DEMO[1760] = 6784; DEMO[1761] = 192; DEMO[1762] = 0; DEMO[1763] = 0; DEMO[1764] = 6784; DEMO[1765] = 144; DEMO[1766] = 70; DEMO[1767] = 127; DEMO[1768] = 6800; DEMO[1769] = 128; DEMO[1770] = 70; DEMO[1771] = 127; DEMO[1772] = 6800; DEMO[1773] = 144; DEMO[1774] = 69; DEMO[1775] = 127; DEMO[1776] = 6816; DEMO[1777] = 128; DEMO[1778] = 69; DEMO[1779] = 127; DEMO[1780] = 6816; DEMO[1781] = 144; DEMO[1782] = 67; DEMO[1783] = 127; DEMO[1784] = 6848; DEMO[1785] = 128; DEMO[1786] = 67; DEMO[1787] = 127; DEMO[1788] = 6848; DEMO[1789] = 144; DEMO[1790] = 67; DEMO[1791] = 127; DEMO[1792] = 6880; DEMO[1793] = 128; DEMO[1794] = 67; DEMO[1795] = 127; DEMO[1796] = 6880; DEMO[1797] = 144; DEMO[1798] = 67; DEMO[1799] = 127; DEMO[1800] = 6912; DEMO[1801] = 128; DEMO[1802] = 67; DEMO[1803] = 127; DEMO[1804] = 6912; DEMO[1805] = 192; DEMO[1806] = 3; DEMO[1807] = 0; DEMO[1808] = 6912; DEMO[1809] = 144; DEMO[1810] = 72; DEMO[1811] = 127; DEMO[1812] = 6944; DEMO[1813] = 128; DEMO[1814] = 72; DEMO[1815] = 127; DEMO[1816] = 6944; DEMO[1817] = 144; DEMO[1818] = 69; DEMO[1819] = 127; DEMO[1820] = 6976; DEMO[1821] = 128; DEMO[1822] = 69; DEMO[1823] = 127; DEMO[1824] = 6976; DEMO[1825] = 144; DEMO[1826] = 65; DEMO[1827] = 127; DEMO[1828] = 7008; DEMO[1829] = 128; DEMO[1830] = 65; DEMO[1831] = 127; DEMO[1832] = 7008; DEMO[1833] = 144; DEMO[1834] = 67; DEMO[1835] = 127; DEMO[1836] = 7040; DEMO[1837] = 128; DEMO[1838] = 67; DEMO[1839] = 127; DEMO[1840] = 7040; DEMO[1841] = 144; DEMO[1842] = 67; DEMO[1843] = 127; DEMO[1844] = 7072; DEMO[1845] = 128; DEMO[1846] = 67; DEMO[1847] = 127; DEMO[1848] = 7072; DEMO[1849] = 144; DEMO[1850] = 65; DEMO[1851] = 127; DEMO[1852] = 7152; DEMO[1853] = 176; DEMO[1854] = 82; DEMO[1855] = 0; DEMO[1856] = 7168; DEMO[1857] = 128; DEMO[1858] = 65; DEMO[1859] = 127; DEMO[1860] = 7168; DEMO[1861] = 176; DEMO[1862] = 123; DEMO[1863] = 0; DEMO[1864] = -1; DEMO[1865] = 0; DEMO[1866] = 0; DEMO[1867] = 0;
+);
+ext_noinit = gfx_ext_retina = 1;
+last_srate = 0;
+
+alloc.mp = 0;
+VL_EXP2 = alloc(401);
+VL_PSCALE = alloc(7);
+VL_NEDGE = alloc(7);
+VL_EDGES = alloc(70);
+VL_ATK_B = alloc(10);
+VL_ATK_U = alloc(10);
+VL_DEC_U = alloc(10);
+VL_SUS_L = alloc(10);
+VL_SUS_U = alloc(10);
+VL_REL_U = alloc(10);
+VL_PAT = alloc(400);
+VL_HELD = alloc(16);
+VL_CODES = alloc(40);
+QOF = alloc(1024);
+QB0 = alloc(1024);
+QB1 = alloc(1024);
+QB2 = alloc(1024);
+L1 = alloc(10);
+L2 = alloc(9);
+KCH = alloc(29);
+KOCT = alloc(29);
+KSH = alloc(29);
+KDIG = alloc(29);
+ADSR = alloc(8);
+SIDX = alloc(16);
+SONG = alloc(101 * 4);
+DEMO = alloc(470 * 4);
+CQ = alloc(512);
+GSEP = alloc(20); GBK = alloc(24); GBKN = alloc(12); GWKN = alloc(17); GBX = alloc(8); GKD = alloc(29);
+GSEP[0] = 285; GSEP[1] = 327; GSEP[2] = 368; GSEP[3] = 409; GSEP[4] = 451; GSEP[5] = 493; GSEP[6] = 534;
+GSEP[7] = 576; GSEP[8] = 618; GSEP[9] = 660; GSEP[10] = 701; GSEP[11] = 742; GSEP[12] = 783; GSEP[13] = 824;
+GSEP[14] = 865; GSEP[15] = 906; GSEP[16] = 947; GSEP[17] = 987;
+GBK[0] = 315; GBK[1] = 334.5; GBK[2] = 357; GBK[3] = 377.5; GBK[4] = 441; GBK[5] = 460.5; GBK[6] = 483; GBK[7] = 502.5;
+GBK[8] = 567; GBK[9] = 586.5; GBK[10] = 609; GBK[11] = 629.5; GBK[12] = 652; GBK[13] = 671.5; GBK[14] = 734; GBK[15] = 754.5;
+GBK[16] = 777; GBK[17] = 796.5; GBK[18] = 857; GBK[19] = 878.5; GBK[20] = 897.5; GBK[21] = 919.5; GBK[22] = 938; GBK[23] = 959.5;
+GBKN[0] = 56; GBKN[1] = 58; GBKN[2] = 61; GBKN[3] = 63; GBKN[4] = 66; GBKN[5] = 68; GBKN[6] = 70; GBKN[7] = 73;
+GBKN[8] = 75; GBKN[9] = 78; GBKN[10] = 80; GBKN[11] = 82;
+GWKN[0] = 55; GWKN[1] = 57; GWKN[2] = 59; GWKN[3] = 60; GWKN[4] = 62; GWKN[5] = 64; GWKN[6] = 65; GWKN[7] = 67;
+GWKN[8] = 69; GWKN[9] = 71; GWKN[10] = 72; GWKN[11] = 74; GWKN[12] = 76; GWKN[13] = 77; GWKN[14] = 79; GWKN[15] = 81; GWKN[16] = 83;
+GBX[0] = 535; GBX[1] = 577; GBX[2] = 619.5; GBX[3] = 661.5; GBX[4] = 703.5; GBX[5] = 745.5; GBX[6] = 787; GBX[7] = 828.5;
+
+vl_tables();
+
+K_RESET = 84; K_DEL = 85; K_SQRT = 86; K_PERC = 87; K_MC = 89; K_MR = 90; K_MMINUS = 91; K_MPLUS = 92;
+v_pbend = 0;
+v_bs = 0;
+v_lastg = vol;
+cur_mode = pmode = mode;
+last_tempo = tempo;
+cq_w = cq_r = 0;
+rh_wait = 0;
+rh_start = -1;
+vl_prepare(srate);
+vl_reset();
+vs_clear(203);
+seq_clear();
+p_init();
+
+@slider
+last_srate != srate ? (
+  last_srate = srate;
+  vl_prepare(srate);
+  vl_reset();
+);
+
+@block
+cur_mode !== mode ? (
+  cur_mode = pmode = mode;
+  vl_reset();
+  p_reset();
+);
+while (cq_r < cq_w) (
+  p_cmd(CQ[(cq_r % 256) * 2], CQ[(cq_r % 256) * 2 + 1]);
+  cq_r += 1;
+);
+last_tempo !== tempo ? (
+  last_tempo = tempo;
+  lcd_settempo();
+);
+e_src = p_demo && demo_prog >= 0 && demo_prog < 5 ? demo_prog : prog;
+e_src < 5 ? (
+  e_snd = VL_CODES[e_src * 8]; e_a = VL_CODES[e_src * 8 + 1]; e_d = VL_CODES[e_src * 8 + 2]; e_sl = VL_CODES[e_src * 8 + 3];
+  e_st = VL_CODES[e_src * 8 + 4]; e_r = VL_CODES[e_src * 8 + 5]; e_v = VL_CODES[e_src * 8 + 6]; e_t = VL_CODES[e_src * 8 + 7];
+) : (
+  e_snd = c_snd; e_a = c_a; e_d = c_d; e_sl = c_sl; e_st = c_st; e_r = c_r; e_v = c_v; e_t = c_t;
+);
+playing = pmode === 0 || pmode === 1;
+q_n = 0;
+while (midirecv(mofs, m1, m2, m3)) (
+  (m1 & 0xF0) === 0xE0 ? (
+    v_pbend = f32k(f32k(f32k((m2 + m3 * 128) - 8192) / 8192) * f32k(bendrange));
+  ) : q_n < 1024 ? (
+    QOF[q_n] = mofs; QB0[q_n] = m1; QB1[q_n] = m2; QB2[q_n] = m3;
+    q_n += 1;
+  );
+);
+vl_block(e_snd, octave - 1, e_a, e_d, e_sl, e_st, e_r, e_v, e_t, rhythm, tempo, balance);
+rh_start >= 0 ? (
+  v_rhythm >= 0 && v_rhythm < 10 ? v_beat = rh_start >= VL_PAT[v_rhythm * 40] ? 0 : rh_start;
+  rh_start = -1;
+);
+q_i = 0;
+s_i = 0;
+v_g = (vol);
+v_ginc = ((v_g - v_lastg) / samplesblock);
+v_gg = v_lastg;
+v_gsame = v_lastg === v_g;
+
+@sample
+playing ? (
+  while (q_i < q_n && QOF[q_i] <= s_i) (
+    vl_midi(QB0[q_i], QB1[q_i], QB2[q_i], v_pmul);
+    (QB0[q_i] & 0xF0) === 0x90 && QB2[q_i] > 0 ? lcd_shownote(QB1[q_i]);
+    q_i += 1;
+  );
+  v_tick + 1 >= v_tper ? p_tick();
+  v_o = vl_sample();
+  v_o = (v_o * (v_gsame ? v_g : v_gg));
+  v_gg = (v_gg + v_ginc);
+) : v_o = 0;
+spl0 = spl1 = v_o;
+s_i += 1;
+s_i === samplesblock ? v_lastg = v_g;
+
+@serialize
+sv_ver = 1;
+file_var(0, sv_ver);
+file_var(0, arr_last);
+sv_i = 0;
+loop(101 * 4, file_var(0, SONG[sv_i]); sv_i += 1;);
+file_string(0, 203);
+file_avail(0) >= 0 ? (
+  SIDX[3] = strlen(203);
+  arr_last > 0 ? ( sq_dirty = 1; sq_rec = 0; arr_cur = 0; ) : seq_clear();
+  pmode === 2 ? lcd_setmode();
+);
+
+@gfx 1600 416
+
+function gx(x) ( g_ox + (x - 7) * g_s; );
+function gy(y) ( g_oy + (y - 7) * g_s; );
+
+function gcol(r, g, b) ( gfx_set(r / 255, g / 255, b / 255, 1); );
+function gcola(r, g, b, a) ( gfx_set(r / 255, g / 255, b / 255, a); );
+
+function grect(x, y, w, h) ( gfx_rect(gx(x), gy(y), max(1, w * g_s), max(1, h * g_s)); );
+
+function grrect(x, y, w, h, r) ( grect(x, y, w, h); );
+
+function gbody(x, y, w, h, r) local(X, Y, W, H, R) (
+  X = gx(x); Y = gy(y); W = w * g_s; H = h * g_s; R = floor(r * g_s);
+  gfx_rect(X + R, Y, W - 2 * R, H);
+  gfx_rect(X, Y + R, R, H - 2 * R);
+  gfx_rect(X + W - R, Y + R, R, H - 2 * R);
+  gfx_circle(X + R, Y + R, R, 1, 1);
+  gfx_circle(X + W - R - 1, Y + R, R, 1, 1);
+  gfx_circle(X + R, Y + H - R - 1, R, 1, 1);
+  gfx_circle(X + W - R - 1, Y + H - R - 1, R, 1, 1);
+);
+
+function gvgrad(x, y, w, h, r1, g1, b1, r2, g2, b2) local(H) (
+  H = max(1, h * g_s);
+  gfx_gradrect(gx(x), gy(y), max(1, w * g_s), H, r1 / 255, g1 / 255, b1 / 255, 1, 0, 0, 0, 0,
+    (r2 - r1) / 255 / H, (g2 - g1) / 255 / H, (b2 - b1) / 255 / H, 0);
+);
+
+function gline(x1, y1, x2, y2) ( gfx_line(gx(x1), gy(y1), gx(x2), gy(y2), 1); );
+
+function ghl(x1, x2, y, t) ( gfx_rect(gx(x1), gy(y - t / 2), max(1, (x2 - x1) * g_s), max(1, t * g_s)); );
+function gvl(x, y1, y2, t) ( gfx_rect(gx(x - t / 2), gy(y1), max(1, t * g_s), max(1, (y2 - y1) * g_s)); );
+
+function gfont(cap, bold) local(sz) (
+  sz = max(6, floor(cap * g_s / 0.72 + 0.5));
+  sz !== g_fsz || bold !== g_fb ? (
+    gfx_setfont(1, "Arial", sz, bold ? 'b' : 0);
+    g_fsz = sz; g_fb = bold;
+  );
+);
+
+function gtext(s, x0, x1, yc, cap, bold) local(w, h, room, sz) (
+  gfont(cap, bold);
+  gfx_measurestr(s, w, h);
+  room = (x1 - x0) * g_s * 1.3;
+  w > room && room > 0 ? (
+    sz = max(6, floor(g_fsz * room / w));
+    gfx_setfont(1, "Arial", sz, bold ? 'b' : 0);
+    g_fsz = sz;
+    gfx_measurestr(s, w, h);
+  );
+  gfx_x = floor(gx((x0 + x1) / 2) - w / 2 + 0.5);
+  gfx_y = floor(gy(yc) - h / 2 + 0.5);
+  gfx_drawstr(s);
+);
+
+function gtextc(s, xc, yc, cap, bold) local(w, h) (
+  gfont(cap, bold);
+  gfx_measurestr(s, w, h);
+  gfx_x = floor(gx(xc) - w / 2 + 0.5);
+  gfx_y = floor(gy(yc) - h / 2 + 0.5);
+  gfx_drawstr(s);
+);
+
+function gtextr(s, xr, yc, cap, bold) local(w, h) (
+  gfont(cap, bold); gfx_measurestr(s, w, h);
+  gfx_x = floor(gx(xr) - w + 0.5); gfx_y = floor(gy(yc) - h / 2 + 0.5); gfx_drawstr(s);
+  xr - w / g_s;
+);
+
+function gtextl(s, xl, yc, cap, bold) local(w, h) (
+  gfont(cap, bold); gfx_measurestr(s, w, h);
+  gfx_x = floor(gx(xl) + 0.5); gfx_y = floor(gy(yc) - h / 2 + 0.5); gfx_drawstr(s);
+  xl + w / g_s;
+);
+
+function gtrio(a, b, c, xc, yc, cap) local(wa, wb, wc, h, d, tot, x) (
+  gfont(cap, 0);
+  gfx_measurestr(a, wa, h); gfx_measurestr(b, wb, h); gfx_measurestr(c, wc, h);
+  wa /= g_s; wb /= g_s; wc /= g_s; d = cap * 2.6;
+  tot = wa + wb + wc + 2 * d;
+  x = xc - tot / 2;
+  gtextl(a, x, yc, cap, 0); x += wa;
+  ghl(x + cap * 0.4, x + d - cap * 0.4, yc, 0.6); x += d;
+  gtextl(b, x, yc, cap, 0); gvl(x + wb / 2, yc + cap * 0.9, 44, 0.6); x += wb;
+  ghl(x + cap * 0.4, x + d - cap * 0.4, yc, 0.6); x += d;
+  gtextl(c, x, yc, cap, 0);
+);
+
+function gpair(a, b, xc, yc, cap, gap) local(wa, wb, h, x) (
+  gfont(cap, 1); gfx_measurestr(a, wa, h);
+  gfont(cap, 0); gfx_measurestr(b, wb, h);
+  wa /= g_s; wb /= g_s;
+  x = xc - (wa + gap + wb) / 2;
+  gtextl(a, x, yc, cap, 1);
+  gtextl(b, x + wa + gap, yc, cap, 0);
+);
+
+function glab() ( gcol(88, 95, 108); );
+
+function g_leader_l(xt, yt, xd) ( glab(); ghl(xt, xd, yt, 0.55); gvl(xd, yt, 46, 0.55); );
+function g_leader_r(xd, yt, xt) ( glab(); ghl(xd, xt, yt, 0.55); gvl(xd, yt, 46, 0.55); );
+
+function g_speaker() local(k, y) (
+  gcol(202, 208, 218); grect(17, 17, 250, 241);
+  gvgrad(17, 17, 250, 14, 234, 240, 249, 206, 212, 222);
+  gvgrad(17, 243, 250, 15, 198, 204, 214, 88, 93, 102);
+  gcol(150, 156, 168); grect(30.5, 28.5, 218.5, 215);
+  gcol(236, 240, 247); grect(31.5, 242.5, 217.5, 1.2); grect(248, 29.5, 1.2, 214);
+  gvgrad(31.5, 29.5, 216.5, 213, 186, 192, 203, 200, 206, 216);
+  gcol(120, 126, 138); grect(31.5, 29.5, 216.5, 1.4); grect(31.5, 29.5, 1.4, 213);
+  gvgrad(32.9, 30.9, 215, 3, 150, 156, 168, 190, 196, 207);
+  k = 0;
+  loop(21,
+    y = 37.5 + 9.95 * k;
+    gvgrad(34, y - 7.6, 212, 6.2, 236, 240, 247, 206, 212, 222);
+    gvgrad(34, y - 1.4, 212, 1.2, 168, 174, 184, 110, 114, 124);
+    gcol(40, 42, 48); grect(34, y - 0.4, 212, 1.6);
+    gvgrad(34, y + 1.2, 212, 1.2, 70, 74, 82, 150, 156, 166);
+    gcol(246, 248, 252); ghl(34, 246, y + 2.6, 0.7);
+    gcol(150, 156, 168); grect(33.5, y - 7.6, 0.8, 10.8); grect(245.7, y - 7.6, 0.8, 10.8);
+    k += 1;
+  );
+  gvgrad(34, 37.5 + 9.95 * 20 + 3, 212, 237 - (37.5 + 9.95 * 20), 236, 240, 247, 214, 220, 230);
+  gcol(176, 182, 193); gvl(266.5, 136, 258, 1);
+);
+
+function g_lcdbody() (
+  gvgrad(268, 17, 185, 3, 214, 220, 236, 236, 240, 250); gvgrad(268, 20, 185, 5, 236, 240, 250, 200, 206, 224); gvgrad(268, 25, 185, 5, 170, 176, 196, 120, 126, 146);
+  gcol(176, 182, 196); ghl(268, 453, 17.3, 0.6);
+  gcol(98, 104, 118); ghl(268, 453, 29.6, 1);
+  gcol(12, 14, 18); grrect(268, 30, 185, 97, 3);
+  grect(268, 30, 185, 5);
+  gcol(26, 29, 36); ghl(269, 452, 30.6, 0.7);
+  gcol(222, 226, 234);
+  gpair("CALCULATED", "RISK", 359.5, 46.2, 9.0, 2.2);
+  gcol(196, 200, 208);
+  gtextl("ELECTRONIC MUSICAL INSTRUMENT", 285, 113.6, 4.8, 0);
+  gtextr("VL-1", 433, 113.6, 4.8, 0);
+  gcol(54, 60, 62); grrect(284.2, 70.4, 149.6, 25.4, 1);
+  gvgrad(285, 71, 148, 24, 112, 126, 122, 98, 112, 110);
+);
+
+function g_slot(x0, x1, ix0, ix1) (
+  gcol(222, 226, 233); grect(x0, 46.5, x1 - x0, 18);
+  gcol(92, 92, 96); grect(x0, 46.5, x1 - x0, 1.6);
+  gcol(170, 172, 178); grect(x0, 48.1, x1 - x0, 1);
+  gcol(150, 154, 162); gvl(x0 + 0.4, 46.5, 64.5, 0.8); gvl(x1 - 0.4, 46.5, 64.5, 0.8);
+  gcol(10, 10, 14); grect(ix0, 50, ix1 - ix0, 13.6);
+  gcol(40, 42, 48); ghl(ix0, ix1, 50.4, 0.8);
+);
+
+function g_sw_frame(x0, x1, o0, o1) (
+  gcol(222, 226, 233); grect(x0, 46.5, x1 - x0, 17);
+  gcol(92, 92, 96); grect(x0, 46.5, x1 - x0, 1.6);
+  gcol(170, 172, 178); grect(x0, 48.1, x1 - x0, 1);
+  gcol(150, 154, 162); gvl(x0 + 0.4, 46.5, 63.5, 0.8); gvl(x1 - 0.4, 46.5, 63.5, 0.8);
+  gcol(10, 10, 14); grect(o0, 49.5, o1 - o0, 13.5);
+);
+
+function g_btnlab(xc, s, s2) (
+  glab(); gtextc(s, xc, 77.2, 5.0, 0);
+  gcol(150, 156, 168); gvl(xc, 83, 89.5, 0.7);
+  s2 !== "" ? ( gcol(70, 76, 88); gtextc(s2, xc, 130.2, 4.2, 1); );
+);
+
+function g_panel() local(i) (
+  gcol(208, 215, 226); grect(266, 17, 735, 119);
+  gvgrad(266, 17, 735, 10, 238, 243, 251, 216, 222, 232);
+  gcol(214, 221, 232); grect(266, 27, 735, 19);
+  gcol(76, 80, 88); ghl(453, 1001, 47.2, 2.2);
+  gcol(210, 216, 226); grect(453, 48.3, 548, 15);
+  gcol(229, 234, 241); grect(453, 63.2, 548, 2.6);
+  gvgrad(453, 65.8, 548, 70, 207, 214, 224, 201, 208, 218);
+  gvgrad(266, 127, 187, 9, 207, 214, 224, 201, 208, 218);
+
+  glab();
+  gtrio("MIN", "VOLUME", "MAX", 530.5, 30.2, 4.6);
+  gtrio("RHYTHM", "BALANCE", "MELODY", 656.5, 30.2, 4.6);
+  g_slot(475.5, 585.5, 485, 576);
+  g_slot(602, 711, 611, 701);
+
+  glab();
+  gtextc("OCTAVE", 765, 30.6, 4.0, 0);
+  gtextc("MIDDLE", 765, 35.8, 4.0, 0);
+  g_t = gtextr("LOW", 755.5, 41.1, 4.0, 0);
+  g_t = gtextl("HIGH", 775, 41.1, 4.0, 0);
+  ghl(756, 757.2, 41.1, 0.55); gvl(757, 41.1, 46, 0.55);
+  gvl(765, 38.4, 46, 0.55);
+  ghl(772.8, 774.4, 41.1, 0.55); gvl(773, 41.1, 46, 0.55);
+  g_sw_frame(737, 793.5, 740, 783);
+
+  glab();
+  gtextr("VIOLIN", 834, 30.6, 4.0, 0);
+  gtextr("FANTASY", 834, 35.8, 4.0, 0);
+  gtextr("PIANO", 834, 41.1, 4.0, 0);
+  gtextl("FLUTE", 881.5, 30.6, 4.0, 0);
+  gtextl("GUITAR", 883.5, 35.8, 4.0, 0);
+  gtextl("ADSR", 882, 41.1, 4.0, 0);
+  g_leader_l(835, 30.6, 853.5);
+  g_leader_l(835, 35.8, 845.7);
+  g_leader_l(835, 41.1, 838);
+  g_leader_r(862, 30.6, 880.5);
+  g_leader_r(869.7, 35.8, 882.5);
+  g_leader_r(877, 41.1, 881);
+  g_sw_frame(817, 899.5, 826, 895);
+
+  glab();
+  gtextr("REC", 935.5, 30.6, 4.0, 0);
+  gtextr("PLAY", 937, 35.8, 4.0, 0);
+  gtextl("CAL", 967.5, 30.6, 4.0, 0);
+  gtextl("OFF", 968.5, 35.8, 4.0, 0);
+  g_leader_l(936, 30.6, 946.2);
+  g_leader_l(937.5, 35.8, 941.2);
+  g_leader_r(956, 30.6, 967);
+  g_leader_r(961, 35.8, 968);
+  g_sw_frame(920, 984, 929, 976);
+  gcol(226, 222, 206); grect(976, 50, 5, 12.5);
+
+  g_btnlab(535, "RESET", "AC");
+  g_btnlab(577, "DEL", "C");
+  g_btnlab(619.5, "", "√");
+  g_btnlab(661.5, "", "%");
+  glab();
+  gline(616, 79.2, 618.2, 75.4); gline(618.2, 75.4, 620.4, 79.2); gline(616, 79.2, 620.4, 79.2);
+  gline(657.8, 75.4, 660, 79.2); gline(660, 79.2, 662.2, 75.4); gline(657.8, 75.4, 662.2, 75.4);
+  gtextc("TEMPO", 640, 77.2, 5.0, 0);
+  g_btnlab(703.5, "RHYTHM", "");
+  g_btnlab(745.5, "ML-C", "MC");
+  g_btnlab(787, "MUSIC", "MR");
+  g_btnlab(828.5, "AUTO PLAY", "M−");
+  glab(); gtextc("ONE KEY PLAY", 948, 77.2, 5.0, 0);
+  grect(922.4, 80.6, 1, 1); grect(925, 80.6, 1, 1); grect(971.8, 80.6, 1, 1);
+  gcol(70, 76, 88); gtextc("M+", 924.2, 130.2, 4.2, 1);
+  gcol(92, 98, 108); ghl(938.6, 956.4, 102.6, 0.8);
+);
+
+function g_keybed() local(i, x0, x1, xc) (
+  gcol(150, 156, 166); grect(266.5, 134.6, 734.5, 1.2); gcol(96, 101, 110); grect(266.5, 135.8, 734.5, 1.6); gcol(70, 74, 82); grect(266.5, 137.4, 734.5, 1.8);
+  gcol(202, 208, 218); grect(267, 139, 18, 106);
+  gcol(202, 208, 218); grect(987, 139, 14, 106);
+  gvgrad(267, 245, 734, 13, 196, 202, 212, 86, 91, 99);
+  gcol(186, 192, 202); gvl(985.8, 139, 258, 0.6);
+  i = 0;
+  loop(17,
+    x0 = GSEP[i]; x1 = GSEP[i + 1];
+    gcol(205, 211, 221); grect(x0, 139, x1 - x0, 106);
+    gvgrad(x0, 139.2, x1 - x0, 6, 160, 166, 176, 205, 211, 221);
+    gcol(184, 190, 200); gvl(x0, 139, 258, 0.7);
+    i += 1;
+  );
+);
+
+function g_whitekey(i, down) local(x0, x1, xc, dy, lab) (
+  x0 = GSEP[i]; x1 = GSEP[i + 1]; xc = (x0 + x1) / 2;
+  dy = down ? 1.2 : 0;
+  down ? (
+    gcol(190, 196, 207); grect(x0 + 0.4, 139, x1 - x0 - 0.6, 106);
+    gvgrad(x0 + 0.4, 139.2, x1 - x0 - 0.6, 9, 120, 126, 136, 190, 196, 207);
+  );
+  gcol(192, 197, 205); grrect(xc - 11.7 + 0.6, 203.5 + dy + 1.2, 23.4, 35, 1.6);
+  gcol(232, 234, 236); grrect(xc - 11.7, 203.5 + dy, 23.4, 35, 1.6);
+  gcol(244, 246, 248); ghl(xc - 10.6, xc + 10.6, 204.2 + dy, 0.8);
+  gcol(206, 209, 214); ghl(xc - 10.6, xc + 10.6, 238 + dy, 0.9);
+  i >= 2 && i <= 11 ? ( glab(); gtextc(i === 2 ? "MARCH" : i === 3 ? "WALTZ" : i === 4 ? "4-BEAT" : i === 5 ? "SWING" :
+    i === 6 ? "ROCK-1" : i === 7 ? "ROCK-2" : i === 8 ? "BOSSANOVA" : i === 9 ? "SAMBA" : i === 10 ? "RHUMBA" : "BEGUINE", xc, 197.2, 4.6, 0); );
+  gcol(80, 86, 98);
+  lab = i === 0 ? "+/−" : i === 1 ? "•" : i <= 11 ? (sprintf(#gdig, "%d", i - 2); #gdig) :
+    i === 12 ? "÷" : i === 13 ? "×" : i === 14 ? "−" : i === 15 ? "+" : "=";
+  gtextc(lab, xc, 243.2, i >= 12 || i <= 1 ? 5.6 : 4.6, 1);
+);
+
+function g_blackkey(j, down) local(x0, x1, w, b) (
+  x0 = GBK[j * 2]; x1 = GBK[j * 2 + 1]; w = x1 - x0;
+  b = down ? 183 : 185.5;
+  gvgrad(x0 - 0.5, b + 1, w + 2, 6, 140, 146, 156, 205, 211, 221);
+  gcol(8, 9, 11); grrect(x0 - 0.3, 137.5, w + 0.6, b - 137.5 + 2.4, 1.6);
+  gcol(down ? 30 : 21, down ? 32 : 22, down ? 37 : 27); grect(x0 + 1.4, 139.4, w - 2.8, b - 143);
+  gcol(58, 60, 68); grrect(x0 + 0.8, b - 2.6, w - 1.6, 2.8, 1.2);
+);
+
+function g_static() local(i) (
+  gcol(28, 29, 32); gfx_rect(0, 0, gfx_w, gfx_h);
+  gcol(18, 19, 21); grect(24, 250, 976, 12);
+  gcol(22, 23, 26); grect(20, 254, 984, 10);
+  gcol(200, 206, 216); gbody(17, 17, 984, 241, 7);
+  g_speaker();
+  g_panel();
+  g_lcdbody();
+  g_keybed();
+  i = 0; loop(17, g_whitekey(i, 0); i += 1;);
+  i = 0; loop(12, g_blackkey(i, 0); i += 1;);
+);
+
+function g_handle_slider(xc) (
+  gcol(36, 38, 44); grrect(xc - 7.4, 52.4, 14.8, 9.2, 4.2);
+  gcol(214, 218, 226); grrect(xc - 7, 52.6, 14, 8.2, 4);
+  gcol(240, 243, 248); grrect(xc - 5.6, 53.2, 11.2, 3.8, 1.9);
+);
+
+function g_handle_switch(xc, w) (
+  gcol(34, 36, 42); grrect(xc - w / 2, 47, w, 20.4, 1.2);
+  gcol(66, 69, 78); grrect(xc - w / 2 + 0.6, 47.2, w - 1.2, 15.4, 1);
+  gcol(84, 88, 98); ghl(xc - w / 2 + 1, xc + w / 2 - 1, 47.8, 0.8);
+  gcol(46, 49, 56); gvl(xc, 47.4, 62.4, 0.9);
+  gcol(40, 42, 48); grect(xc - w / 2 + 0.6, 62.6, w - 1.2, 4.4);
+);
+
+function g_btn(xc, r, g, b, down) local(dy) (
+  dy = down ? 1.5 : 0;
+  gcol(r * 0.45, g * 0.45, b * 0.45); grrect(xc - 6.1, 95.8 + dy, 12.2, 31.4 - dy, 1.6);
+  gcol(r, g, b); grrect(xc - 5.8, 96 + dy, 11.6, 25.2 - dy, 1.4);
+  gcol(min(255, r * 1.18 + 10), min(255, g * 1.18 + 10), min(255, b * 1.18 + 10)); ghl(xc - 5, xc + 5, 96.8 + dy, 0.8);
+  gcol(r * 0.62, g * 0.62, b * 0.62); grect(xc - 5.8, 121.2, 11.6, 5.8);
+);
+
+function g_okp(x0, xc, down) local(dy) (
+  dy = down ? 1.5 : 0;
+  gcol(16, 30, 46); grrect(x0 - 0.4, 81.6 + dy, 27.2, 45 - dy, 3);
+  gcol(30, 58, 85); grrect(x0, 82 + dy, 26.4, 37.4 - dy, 2.8);
+  gcol(44, 76, 106); ghl(x0 + 2, x0 + 24.4, 82.9 + dy, 0.8);
+  gcol(20, 39, 58); grect(x0 + 0.4, 119.4, 25.6, 6.4);
+  gcol(205, 215, 230); gfx_circle(gx(xc), gy(102.6 + dy), 4.7 * g_s, 1, 1);
+  gcol(30, 58, 85); gfx_circle(gx(xc), gy(102.6 + dy), 3.8 * g_s, 1, 1);
+);
+
+function g_seg(x1, y1, x2, y2, t) local(sl, dx, dy, l, nx, ny, ax, ay, bx, by) (
+  dx = x2 - x1; dy = y2 - y1; l = sqrt(dx * dx + dy * dy);
+  dx /= l; dy /= l;
+  nx = -dy * t / 2; ny = dx * t / 2;
+  ax = x1 + dx * t / 2; ay = y1 + dy * t / 2;
+  bx = x2 - dx * t / 2; by = y2 - dy * t / 2;
+  gfx_triangle(gx(x1), gy(y1), gx(ax + nx), gy(ay + ny), gx(bx + nx), gy(by + ny), gx(x2), gy(y2), gx(bx - nx), gy(by - ny), gx(ax - nx), gy(ay - ny));
+);
+
+function g_digit(c, x, segs) local(t, w, h, y0, y1, ym, sl, k, ga, gb) (
+  t = 1.55; w = 8.4; h = 13.6; y0 = 77.6; y1 = y0 + h; ym = y0 + h / 2; sl = 0.17;
+  segs & 1 ? g_seg(x + 0.9 + h * sl, y0, x + w - 0.9 + h * sl, y0, t);
+  segs & 2 ? g_seg(x + w + h * sl, y0 + 0.9, x + w + h / 2 * sl, ym - 0.9, t);
+  segs & 4 ? g_seg(x + w + h / 2 * sl, ym + 0.9, x + w, y1 - 0.9, t);
+  segs & 8 ? g_seg(x + 0.9, y1, x + w - 0.9, y1, t);
+  segs & 16 ? g_seg(x + h / 2 * sl, ym + 0.9, x, y1 - 0.9, t);
+  segs & 32 ? g_seg(x + h * sl, y0 + 0.9, x + h / 2 * sl, ym - 0.9, t);
+  segs & 64 ? g_seg(x + 0.9 + h / 2 * sl, ym, x + w - 0.9 + h / 2 * sl, ym, t);
+);
+
+function g_segs(ch) (
+  ch === '0' ? 63 : ch === '1' ? 6 : ch === '2' ? 91 : ch === '3' ? 79 : ch === '4' ? 102 : ch === '5' ? 109 :
+  ch === '6' ? 125 : ch === '7' ? 7 : ch === '8' ? 127 : ch === '9' ? 111 : ch === '[' ? 57 : ch === ']' ? 15 :
+  ch === '_' ? 8 : ch === '-' ? 64 : ch === '~' ? 1 : 0;
+);
+
+function g_lcd() local(i, x, c, dot, ux) (
+  pmode !== 3 ? (
+    gcol(34, 40, 44);
+    i = 0;
+    loop(9,
+      c = L2[i];
+      c ? g_digit(c, 297.6 + 14.4 * i, g_segs(c));
+      i += 1;
+    );
+    dot = l_dot;
+    pmode === 2 && !dot ? dot = 1;
+    i = 0;
+    loop(8,
+      dot & (128 >> i) ? ( x = 297.6 + 14.4 * (i + 1) + 9.4; grrect(x, 89.8, 1.7, 1.7, 0.8); );
+      i += 1;
+    );
+    ux = 297.6;
+    L1[0] ? gtextc("E", ux + 14.4 * 0.68, 74, 4.2, 1);
+    L1[2] ? gtextc("M", ux + 14.4 * 3.68, 74, 4.2, 1);
+    L1[3] ? gtextc("K", ux + 14.4 * 4.46, 74, 4.2, 1);
+    L1[4] ? gtextc("÷", ux + 14.4 * 5.25, 74, 4.2, 1);
+    L1[6] ? gtextc("×", ux + 14.4 * 6.68, 74, 4.2, 1);
+    L1[7] ? gtextc("−", ux + 14.4 * 7.46, 74, 4.2, 1);
+    L1[8] ? gtextc("+", ux + 14.4 * 8.18, 74, 4.2, 1);
+    L1[1] ? gtextc("#", ux + 14.4 * 3.04, 74, 4.2, 1);
+    L1[5] ? gtextc("#", ux + 14.4 * 6.04, 74, 4.2, 1);
+    L1[9] ? gtextc("#", ux + 14.4 * 8.89, 74, 4.2, 1);
+  );
+);
+
+function g_send(c, a) (
+  CQ[(cq_w % 256) * 2] = c;
+  CQ[(cq_w % 256) * 2 + 1] = a;
+  cq_w += 1;
+);
+
+function g_keyat(mx, my) local(j, i, r) (
+  r = -1;
+  my >= 139 && my <= 258 && mx >= 285 && mx < 987 ? (
+    my <= 190 ? (
+      j = 0;
+      loop(12, mx >= GBK[j * 2] - 0.5 && mx <= GBK[j * 2 + 1] + 0.5 ? r = GBKN[j]; j += 1;);
+    );
+    r < 0 ? (
+      i = 0;
+      loop(17, mx >= GSEP[i] && mx < GSEP[i + 1] ? r = GWKN[i]; i += 1;);
+    );
+  );
+  r;
+);
+
+function g_hit(mx, my) local(r, i) (
+  r = 0;
+  mx >= 476 && mx <= 585 && my >= 45 && my <= 66 ? r = 1 :
+  mx >= 602 && mx <= 711 && my >= 45 && my <= 66 ? r = 2 :
+  mx >= 735 && mx <= 795 && my >= 44 && my <= 68 ? r = 3 :
+  mx >= 815 && mx <= 901 && my >= 44 && my <= 68 ? r = 4 :
+  mx >= 918 && mx <= 986 && my >= 44 && my <= 68 ? r = 5 :
+  my >= 94 && my <= 128 ? (
+    i = 0;
+    loop(8, abs(mx - GBX[i]) <= 7 ? r = 10 + i; i += 1;);
+    my >= 81 && mx >= 910 && mx <= 938 ? r = 20;
+    my >= 81 && mx >= 958 && mx <= 986 ? r = 21;
+  ) :
+  my >= 81 && my <= 128 && mx >= 910 && mx <= 938 ? r = 20 :
+  my >= 81 && my <= 128 && mx >= 958 && mx <= 986 ? r = 21 :
+  (i = g_keyat(mx, my)) >= 0 ? r = 100 + i;
+  r;
+);
+
+function g_tip(t) (
+  t === 1 ? "Volume" :
+  t === 2 ? "Balance between rhythm and melody" :
+  t === 3 ? "Octave: Low, Middle, High" :
+  t === 4 ? "Sound: Piano, Fantasy, Violin, Flute, Guitar or ADSR (your own sound code)" :
+  t === 5 ? "Mode: PLAY, REC (record a melody), CAL (calculator), OFF" :
+  t === 10 ? "RESET: stop rhythm and song (CAL: AC)" :
+  t === 11 ? "DEL: delete the last recorded note in REC (CAL: C)" :
+  t === 12 ? "TEMPO up (CAL: square root)" :
+  t === 13 ? "TEMPO down (CAL: percent)" :
+  t === 14 ? "RHYTHM: press, then a key from MARCH (0) to BEGUINE (9)" :
+  t === 15 ? "ML-C: clear the melody memory in REC (CAL: memory clear)" :
+  t === 16 ? "MUSIC: play the demo song (CAL: memory recall)" :
+  t === 17 ? "AUTO PLAY: play, pause or continue the recorded melody (CAL: M-)" :
+  t === 20 ? "ONE KEY PLAY: step through the recorded melody (CAL: M+; with ADSR selected, M+ stores the 8-digit sound code)" :
+  t === 21 ? "ONE KEY PLAY: step through the recorded melody" :
+  t >= 100 ? "Keys: notes in PLAY/REC, numbers and operators in CAL" : "";
+);
+
+function g_tooltip(t, mx, my) local(s, w, h, x, y) (
+  s = g_tip(t);
+  strlen(s) ? (
+    gfx_setfont(2, "Arial", max(12, floor(4.6 * g_s)));
+    gfx_measurestr(s, w, h);
+    x = min(gfx_w - w - 12, max(4, gx(mx) + 12));
+    y = gy(my) + 18 * g_s / 1.375;
+    y + h + 8 > gfx_h ? y = gy(my) - h - 14;
+    gcola(16, 18, 22, 0.92); gfx_rect(x - 6, y - 4, w + 12, h + 8);
+    gcol(235, 238, 244); gfx_x = x; gfx_y = y; gfx_drawstr(s);
+    g_fsz = -1;
+  );
+);
+
+g_init !== 1 ? (
+  g_init = 1;
+  g_lw = g_lh = -1;
+  g_target = 0; g_key = -1; g_tipt = 0; g_tipc = 0;
+);
+
+g_s = min(gfx_w / 1004, gfx_h / 261);
+g_ox = (gfx_w - 1004 * g_s) / 2;
+g_oy = 0;
+g_fsz = -1;
+
+g_lw !== gfx_w || g_lh !== gfx_h ? (
+  g_lw = gfx_w; g_lh = gfx_h;
+  gfx_setimgdim(1, gfx_w, gfx_h);
+  gfx_dest = 1;
+  g_static();
+  gfx_dest = -1;
+  g_fsz = -1;
+);
+gfx_x = gfx_y = 0;
+gfx_blit(1, 1, 0);
+
+g_mx = 7 + (mouse_x - g_ox) / g_s;
+g_my = 7 + (mouse_y - g_oy) / g_s;
+g_wheel = mouse_wheel; mouse_wheel = 0;
+g_down = mouse_cap & 1;
+
+g_down && !g_was ? (
+  g_target = g_hit(g_mx, g_my);
+  g_now = time_precise();
+  g_target >= 1 && g_target <= 5 && g_target === g_lastt && g_now - g_lastc < 0.35 ? (
+    g_target === 1 ? ( vol = 0.5; slider_automate(1); ) :
+    g_target === 2 ? ( balance = 0.5; slider_automate(2); ) :
+    g_target === 3 ? ( octave = 1; slider_automate(4); ) :
+    g_target === 4 ? ( prog = 0; slider_automate(8); ) :
+    g_target === 5 ? ( mode = 0; slider_automate(16); );
+    g_lastt = 0;
+    g_target = 0;
+  ) : (
+    g_lastt = g_target;
+    g_lastc = g_now;
+  );
+  g_target >= 10 && g_target <= 17 ? g_send(g_target - 7, 1) :
+  g_target === 20 ? g_send(11, 1) :
+  g_target === 21 ? g_send(12, 1) :
+  g_target >= 100 ? ( g_key = g_target - 100; g_send(1, g_key); );
+  g_tipc = 0;
+);
+g_down ? (
+  g_target === 1 ? (
+    vol = max(0, min(1, (g_mx - 492) / 77)); slider_automate(1);
+  ) : g_target === 2 ? (
+    balance = max(0, min(1, (g_mx - 618) / 76)); slider_automate(2);
+  ) : g_target === 3 ? (
+    g_v = g_mx < 761 ? 0 : g_mx < 769 ? 1 : 2;
+    octave !== g_v ? ( octave = g_v; slider_automate(4); );
+  ) : g_target === 4 ? (
+    g_v = max(0, min(5, floor((g_mx - 839.5) / 7.9 + 0.5)));
+    prog !== g_v ? ( prog = g_v; slider_automate(8); );
+  ) : g_target === 5 ? (
+    g_v = g_mx < 945 ? 0 : g_mx < 952.5 ? 1 : g_mx < 960 ? 2 : 3;
+    mode !== g_v ? ( mode = g_v; slider_automate(16); );
+  ) : g_target >= 100 ? (
+    g_v = g_keyat(g_mx, g_my);
+    g_v >= 0 && g_v !== g_key ? (
+      g_send(2, g_key);
+      g_key = g_v;
+      g_send(1, g_key);
+      g_target = 100 + g_key;
+    );
+  );
+);
+!g_down && g_was ? (
+  g_target === 20 ? g_send(11, 0) :
+  g_target === 21 ? g_send(12, 0) :
+  g_target >= 100 && g_key >= 0 ? ( g_send(2, g_key); g_key = -1; );
+  g_target = 0;
+);
+g_was = g_down;
+
+g_wheel !== 0 ? (
+  g_h = g_hit(g_mx, g_my);
+  g_d = g_wheel > 0 ? 1 : -1;
+  g_h === 1 ? ( vol = max(0, min(1, vol + g_d * 0.02)); slider_automate(1); ) :
+  g_h === 2 ? ( balance = max(0, min(1, balance + g_d * 0.02)); slider_automate(2); ) :
+  g_h === 3 ? ( octave = max(0, min(2, octave + g_d)); slider_automate(4); ) :
+  g_h === 4 ? ( prog = max(0, min(5, prog + g_d)); slider_automate(8); ) :
+  g_h === 5 ? ( mode = max(0, min(3, mode + g_d)); slider_automate(16); );
+);
+
+g_handle_slider(492 + vol * 77);
+g_handle_slider(618 + balance * 76);
+g_handle_switch(octave === 0 ? 756.5 : octave === 1 ? 765 : 773.5, 37);
+g_handle_switch(839.5 + 7.9 * prog, 36.4);
+g_handle_switch(mode === 0 ? 942.5 : mode === 1 ? 948 : mode === 2 ? 957.5 : 962.5, 37);
+
+g_i = 0;
+loop(8,
+  g_btn(GBX[g_i], g_i === 0 ? 146 : g_i === 6 ? 172 : g_i === 7 ? 26 : 60, g_i === 0 ? 23 : g_i === 6 ? 108 : g_i === 7 ? 52 : 68,
+    g_i === 0 ? 31 : g_i === 6 ? 37 : g_i === 7 ? 84 : 80, g_target === 10 + g_i && g_down);
+  g_i += 1;
+);
+g_okp(911, 924.6, g_target === 20 && g_down);
+g_okp(959, 972.6, g_target === 21 && g_down);
+
+g_lcd();
+
+memset(GKD, 0, 29);
+g_key >= 0 ? GKD[g_key - 55] = 1;
+g_i = 0;
+loop(min(16, v_nheld), g_n = VL_HELD[g_i]; g_n >= 55 && g_n <= 83 ? GKD[g_n - 55] = 1; g_i += 1;);
+g_i = 0;
+loop(17, GKD[GWKN[g_i] - 55] ? g_whitekey(g_i, 1); g_i += 1;);
+g_i = 0;
+loop(12, g_n = GBKN[g_i]; GKD[g_n - 55] || GKD[g_n - 56] || GKD[g_n - 54] ? g_blackkey(g_i, GKD[g_n - 55]); g_i += 1;);
+
+g_h = g_hit(g_mx, g_my);
+g_h !== g_tipt || g_down || mouse_x < 0 ? ( g_tipt = g_h; g_tipc = 0; ) : g_tipc += 1;
+g_tipt > 0 && g_tipc > 20 && !g_down ? g_tooltip(g_tipt, g_mx, g_my);
