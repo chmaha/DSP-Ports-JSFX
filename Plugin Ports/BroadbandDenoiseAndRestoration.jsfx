@@ -1,0 +1,810 @@
+Version: 1.0
+desc: Broadband Denoise & Restoration by chmaha
+tags: restoration noise reduction
+author: chmaha
+changelog:
+  Initial release.
+about:
+  Broadband Denoise & Restoration: a six-band downward expander for steady broadband noise.
+  The six bands are centred at log-spaced frequencies from Low Freq (first band) to High Freq
+  (last band); each band has its own threshold and Range. Range sets how strongly the band is
+  reduced, not a hard ceiling, and the first and last bands fade out beyond Low Freq and High Freq.
+  Thresholds are manual, or adaptive: the threshold then follows each band's noise
+  floor and the sliders become bias offsets. SLOW slows the adaptation and RESET restarts it.
+  Other controls: HF Bias, stereo link, HP and LP (cutoffs at Low Freq and High Freq), mix and
+  output. The delta-solo buttons (per band) play only the noise removed from that band, and
+  DELTA plays all removed noise and overrides any soloed band.
+  Released under GPLv3+ license
+  Claude generated some of this code
+
+slider1:bypass=0<0,1,1{Off,On}>-Bypass
+slider2:adaptive=0<0,1,1{Off,On}>-Adaptive
+slider3:slow=0<0,1,1{Off,On}>-Slow
+slider4:low_freq=25<20,20000,1:log>-Low Freq (Hz)
+slider5:high_freq=16000<20,20000,1:log>-High Freq (Hz)
+slider6:hp_on=0<0,1,1{Off,On}>-HP
+slider7:lp_on=0<0,1,1{Off,On}>-LP
+slider8:hf_bias=0<-12,12,0.1>-HF Bias (dB)
+slider9:stereo_link=0<0,100,1>-St. Link (%)
+slider10:mix=100<0,100,1>-Mix (%)
+slider11:output_db=0<-24,24,0.1>-Output (dB)
+<?
+  k = 1;
+  loop(6,
+    printf("slider%d:thr%d=-140<-140,0,0.1>-Band %d Threshold (dB)\n", 11 + k, k, k);
+    k += 1);
+  k = 1;
+  loop(6,
+    printf("slider%d:bias%d=0<-24,24,0.1>-Band %d Threshold Bias (dB)\n", 17 + k, k, k);
+    k += 1);
+  k = 1;
+  loop(6,
+    printf("slider%d:rng%d=0<-24,6,0.1>-Band %d Range (dB)\n", 23 + k, k, k);
+    k += 1);
+  k = 1;
+  loop(6,
+    printf("slider%d:solo%d=0<0,1,1{Off,On}>-Band %d Solo Noise\n", 29 + k, k, k);
+    k += 1);
+?>
+slider36:delta=0<0,1,1{Off,On}>-Delta (Removed Noise)
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+
+options:no_meter
+
+@init
+<?
+function gen_freqs() local(k) (
+  k = 1;
+  loop(6,
+    printf("cf%d = exp(ll + (lh - ll) * %d / 5);\n", k, k - 1);
+    k += 1);
+  k = 1;
+  loop(5,
+    printf("fx%d = sqrt(cf%d * cf%d);\n", k, k, k + 1);
+    k += 1);
+  printf("fx0 = cf1 * cf1 / fx1;\n");
+  printf("fx6 = cf6 * cf6 / fx5;\n");
+);
+function gen_filters(ch) local(k, m) (
+  k = 0;
+  loop(7,
+    printf("%sx%d.lp1.bq_design(BQ_LP, fx%d); %sx%d.lp2.bq_design(BQ_LP, fx%d);\n", ch, k, k, ch, k, k);
+    printf("%sx%d.hp1.bq_design(BQ_HP, fx%d); %sx%d.hp2.bq_design(BQ_HP, fx%d);\n", ch, k, k, ch, k, k);
+    m = k + 1;
+    loop(6 - k,
+      printf("%sa%d_%d.bq_design(BQ_AP, fx%d);\n", ch, k, m, m);
+      m += 1);
+    k += 1);
+  printf("%shf.hp1.bq_design(BQ_H1, lo_f); %shf.hp2.bq_design(BQ_HQ, lo_f);\n", ch, ch);
+  printf("%slf.lp1.bq_design(BQ_L1, hi_f);\n", ch);
+);
+function gen_weights() local(k) (
+  k = 1;
+  loop(6,
+    printf("hfw%d = min(max(log(cf%d / 1000) / log(2), 0), 4) / 4;\n", k, k);
+    printf("ec%d = tc(max(0.003, 4 / cf%d), 1);\n", k, k);
+    k += 1);
+);
+function gen_offsets() local(k, off) (
+  k = 1;
+  loop(6,
+    off = k == 1 ? 14 : k == 2 ? 13.6 : k == 3 ? 12.4 : k == 4 ? 12 : k == 5 ? 8.9 : 4.9;
+    printf("fo%d = %g;\n", k, off);
+    k += 1);
+);
+function gen_floor_reset() local(k) (
+  k = 1;
+  loop(6,
+    printf("Lfl%d.fl = Rfl%d.fl = -140;\n", k, k);
+    k += 1);
+);
+function gen_meter_init() local(k) (
+  k = 1;
+  loop(6,
+    printf("lev%d = mlev%d = disp_lev%d = -140; disp_gr%d = 0; lvlo%d = lvhi%d = grlo%d = grhi%d = 999;\n", k, k, k, k, k, k, k, k);
+    k += 1);
+);
+function gen_split(ch) local(k, m) (
+  printf("rem%s = in%s;\n", ch, ch);
+  k = 0;
+  loop(7,
+    printf("lo = %sx%d.lp1.bq_run(rem%s); lo = %sx%d.lp2.bq_run(lo);\n", ch, k, ch, ch, k);
+    printf("hi = %sx%d.hp1.bq_run(rem%s); rem%s = %sx%d.hp2.bq_run(hi);\n", ch, k, ch, ch, ch, k);
+    m = k + 1;
+    loop(6 - k,
+      printf("lo = %sa%d_%d.bq_run(lo);\n", ch, k, m);
+      m += 1);
+    printf("b%s%d = lo;\n", ch, k);
+    k += 1);
+  printf("b%s7 = rem%s;\n", ch, ch);
+);
+function gen_nudge(kind) local(k) (
+  k = 1;
+  loop(6,
+    kind == 0 ? printf("ns%d = slider(base + %d);\n", k, k) :
+    kind == 1 ? printf("set_sl(base + %d, ns%d + d, mn, mx, 0.1);\n", k, k) :
+                printf("tap_sl(base + %d, df, mn, mx, 0.1);\n", k);
+    k += 1);
+);
+function gen_dyn(ch, k) (
+  printf("own = abs(b%s%d); lv%s = %senv%d.env_db(own + link_amt * (avg - own), ec%d);\n", ch, k, ch, ch, k, k);
+  printf("th = adaptive ? %sfl%d.floor_run(lv%s, fo%d) + bias%d : thr%d;\n", ch, k, ch, k, k, k);
+  printf("gn = %sgc%d.gain_run(lv%s + hf_bias * hfw%d, th, reff%d);\n", ch, k, ch, k, k);
+  printf("nz%s%d = b%s%d * (1 - gn); b%s%d *= gn;\n", ch, k, ch, k, ch, k);
+);
+function gen_bands() local(k) (
+  k = 1;
+  loop(6,
+    printf("avg = (abs(bL%d) + abs(bR%d)) * 0.5;\n", k, k);
+    gen_dyn("L", k);
+    gen_dyn("R", k);
+    printf("lev%d = max(lvL, lvR);\n", k);
+    printf("mlev%d = adaptive ? lev%d - max(Lfl%d.fl, Rfl%d.fl) : lev%d;\n", k, k, k, k, k);
+    k += 1);
+);
+function gen_wet(ch) local(k) (
+  printf("wg%s = b%s0", ch, ch);
+  k = 1;
+  loop(6,
+    printf(" + b%s%d", ch, k);
+    k += 1);
+  printf(" + b%s7;\n", ch);
+  printf("wh%s = %shf.hp2.bq_run(%shf.hp1.bq_run(wg%s));\n", ch, ch, ch, ch);
+  printf("wo%s = hp_on ? wh%s : wg%s;\n", ch, ch, ch);
+  printf("wl%s = %slf.lp1.bq_run(wo%s);\n", ch, ch, ch);
+  printf("wet%s = lp_on ? wl%s : wo%s;\n", ch, ch, ch);
+);
+function gen_range() local(k) (
+  k = 1;
+  loop(6,
+    printf("reff%d = rng%d < -6 ? -24 * (1 + 0.4328 * log(-rng%d / 24)) : rng%d < 0 ? -24 * pow(-rng%d / 24, 0.66) : rng%d;\n", k, k, k, k, k, k);
+    k += 1);
+);
+function gen_any_solo() local(k) (
+  printf("any_solo = solo1");
+  k = 2;
+  loop(5,
+    printf(" || solo%d", k);
+    k += 1);
+  printf(";\n");
+);
+function gen_solo(ch) local(k) (
+  printf("mon%s = nz%s1 * solo1", ch, ch);
+  k = 2;
+  loop(5,
+    printf(" + nz%s%d * solo%d", ch, k, k);
+    k += 1);
+  printf(";\n");
+);
+function gen_delta(ch) local(k) (
+  printf("mon%s = wg%s - wet%s", ch, ch, ch);
+  k = 1;
+  loop(6,
+    printf(" + nz%s%d", ch, k);
+    k += 1);
+  printf(";\n");
+);
+function gen_close() local(k) (
+  k = 1;
+  loop(6,
+    printf("Lgc%d.cur = Rgc%d.cur = reff%d;\n", k, k, k);
+    k += 1);
+);
+function gen_meters() local(k) (
+  k = 1;
+  loop(6,
+    printf("g = active ? min(Lgc%d.cur, Rgc%d.cur) : 0;\n", k, k);
+    printf("disp_lev%d += (mlev%d - disp_lev%d) * (1 - disp_c);\n", k, k, k);
+    printf("disp_gr%d += (g - disp_gr%d) * (1 - disp_c);\n", k, k);
+    printf("active ? (\n");
+    printf("  lvlo%d = follow(lvlo%d, mlev%d, mlev%d < lvlo%d);\n", k, k, k, k, k);
+    printf("  lvhi%d = follow(lvhi%d, mlev%d, mlev%d > lvhi%d);\n", k, k, k, k, k);
+    printf("  grlo%d = follow(grlo%d, g, g < grlo%d);\n", k, k, k);
+    printf("  grhi%d = follow(grhi%d, g, g > grhi%d);\n", k, k, k);
+    printf(");\n");
+    k += 1);
+);
+?>
+ext_noinit = gfx_ext_retina = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+alloc.mp = 0;
+
+crv = alloc(20);
+
+BQ_LP = 0;
+BQ_HP = 1;
+BQ_AP = 2;
+BQ_HQ = 3;
+BQ_H1 = 4;
+BQ_L1 = 5;
+
+function tc(sec, n) ( exp(-n / (sec * srate)); );
+function db_gain(db) ( exp(db * 0.11512925464970229); );
+
+function bq_design(kind, f) instance(b0, b1, b2, a1, a2) local(w, c, al, a0, k, n) (
+  w = 2 * $pi * min(max(f, 1), srate * 0.49) / srate;
+  kind >= BQ_H1 ? (
+    k = tan(w * 0.5);
+    n = 1 / (1 + k);
+    kind == BQ_H1 ? ( b0 = n; b1 = -n; ) : ( b0 = k * n; b1 = k * n; );
+    b2 = a2 = 0;
+    a1 = (k - 1) * n;
+  ) : (
+    c = cos(w);
+    al = sin(w) / (kind == BQ_HQ ? 2 : 1.4142135623730951);
+    a0 = 1 + al;
+    kind == BQ_LP ? (
+      b0 = (1 - c) * 0.5 / a0;
+      b1 = (1 - c) / a0;
+      b2 = b0;
+    ) : kind == BQ_HP || kind == BQ_HQ ? (
+      b0 = (1 + c) * 0.5 / a0;
+      b1 = -(1 + c) / a0;
+      b2 = b0;
+    ) : (
+      b0 = (1 - al) / a0;
+      b1 = -2 * c / a0;
+      b2 = (1 + al) / a0;
+    );
+    a1 = -2 * c / a0;
+    a2 = (1 - al) / a0;
+  );
+);
+
+function bq_run(x) instance(b0, b1, b2, a1, a2, s1, s2) local(y) (
+  y = b0 * x + s1;
+  s1 = b1 * x - a1 * y + s2;
+  s2 = b2 * x - a2 * y;
+  y;
+);
+
+function env_db(x, c) instance(v) (
+  v == 0 ? v = x;
+  v = x + c * (v - x);
+  20 * log10(max(v, 0.0000001));
+);
+
+function floor_run(level, off) instance(fl) local(l) (
+  l = level + off;
+  fl_hold > 0 ? ( l > fl ? fl = l + 6 : fl = l + fl_fast * (fl - l); ) : fl = l + fl_c * (fl - l);
+  fl;
+);
+
+function gain_run(level, thr, range) instance(cur) local(target, c) (
+  target = level >= thr ? 0 : range * min(1, (thr - level) * 0.0625);
+  c = target > cur || fl_hold > 0 ? att_coef : rel_coef;
+  cur = target + c * (cur - target);
+  db_gain(cur);
+);
+
+function follow(cur, v, attack) (
+  cur > 500 ? v : v + (attack ? disp_c : rng_rel_c) * (cur - v);
+);
+
+function update_filters() local(lo_f, hi_f, ll, lh) (
+  lo_f = max(cur_low, 1);
+  hi_f = max(cur_high, lo_f * 1.01);
+  ll = log(lo_f);
+  lh = log(hi_f);
+  <? gen_freqs(); gen_filters("L"); gen_filters("R"); gen_weights(); ?>
+);
+
+function glide(cur, target) local(n) (
+  n = exp(log(cur) + (log(target) - log(cur)) * freq_c);
+  abs(log(n / target)) < 0.0001 ? target : n;
+);
+
+function reset_floors() (
+  <? gen_offsets(); ?>
+  fl_primed = fl_hold = 0;
+  <? gen_floor_reset(); ?>
+);
+
+function reset_meters() (
+  <? gen_meter_init(); ?>
+);
+
+function rate_change() (
+  att_coef = tc(0.002, 1);
+  rel_coef = tc(0.08, 1);
+  fl_fast = tc(0.05, 1);
+  og_coef = 1 - tc(0.02, 1);
+  og_db = output_db;
+  cur_low = low_freq;
+  cur_high = high_freq;
+  update_filters();
+);
+
+reset_floors();
+reset_meters();
+
+@slider
+last_srate != srate ? (
+  last_srate = srate;
+  rate_change();
+);
+
+@block
+<? gen_range(); ?>
+link_amt = stereo_link * 0.01;
+mix_amt = mix * 0.01;
+fl_c = tc(slow ? 2.5 : 0.5, 1);
+
+freq_c = 1 - tc(0.05, samplesblock);
+cur_low != low_freq || cur_high != high_freq ? (
+  cur_low = glide(cur_low, low_freq);
+  cur_high = glide(cur_high, high_freq);
+  update_filters();
+);
+
+reset_floor ? (
+  reset_floors();
+  reset_floor = 0;
+);
+
+<? gen_any_solo(); ?>
+monitor = delta || any_solo;
+play_state != last_play ? (
+  last_play = play_state;
+  fl_primed = 0;
+);
+
+adaptive != last_adaptive ? (
+  last_adaptive = adaptive;
+  reset_meters();
+);
+
+active = blk_peak > 0.0000001;
+blk_peak = 0;
+last_block = time_precise();
+disp_c = tc(0.06, samplesblock);
+rng_rel_c = tc(1.5, samplesblock);
+!bypass ? (
+  <? gen_meters(); ?>
+);
+
+@sample
+og_db += (output_db - og_db) * og_coef;
+fl_hold > 0 ? fl_hold -= 1;
+og = db_gain(og_db);
+!bypass ? (
+  inL = spl0;
+  inR = spl1;
+  blk_peak = max(blk_peak, max(abs(inL), abs(inR)));
+  peak_in = max(abs(inL), abs(inR));
+  peak_in > 0.0000001 ? silent_n = 0 : silent_n += 1;
+  silent_n > 0.05 * srate ? fl_primed = 0;
+  !fl_primed && peak_in > 0.0000001 ? (
+    fl_primed = 1;
+    fl_hold = 0.25 * srate;
+    adaptive ? (
+      <? gen_close(); ?>
+    );
+  );
+  <? gen_split("L"); gen_split("R"); gen_bands(); gen_wet("L"); gen_wet("R"); ?>
+  monitor ? (
+    delta ? (
+      <? gen_delta("L"); gen_delta("R"); ?>
+    ) : (
+      <? gen_solo("L"); gen_solo("R"); ?>
+    );
+    spl0 = monL * og;
+    spl1 = monR * og;
+  ) : (
+    spl0 = (inL * (1 - mix_amt) + wetL * mix_amt) * og;
+    spl1 = (inR * (1 - mix_amt) + wetR * mix_amt) * og;
+  );
+);
+
+@gfx 960 664
+
+W0 = 960;
+H0 = 664;
+z = max(0.4, min(gfx_w / W0, gfx_h / H0));
+ox = floor((gfx_w - W0 * z) * 0.5);
+oy = 0;
+now = time_precise();
+idle = now - last_block > 0.3;
+down = mouse_cap & 1;
+mouse_click = down && !prev_down;
+
+FY = 376;
+FH = 240;
+FHR = 7;
+FW = 28;
+PX = 56;
+PY = 56;
+PW = 880;
+PH = 120;
+thr_base = adaptive ? 17 : 11;
+thr_mn = adaptive ? -24 : -140;
+thr_mx = adaptive ? 24 : 0;
+thr_df = adaptive ? 0 : -140;
+thr_tfirst = adaptive ? 24 : 0;
+thr_tstep = adaptive ? -8 : -20;
+thr_tn = adaptive ? 7 : 8;
+rng_base = 23;
+rng_mn = -24;
+rng_mx = 6;
+rng_df = 0;
+rng_tfirst = 6;
+rng_tstep = -6;
+rng_tn = 6;
+
+function automate(s, e)
+(
+<?
+  max_sliders > 36 ? printf("slider_automate(2^(s-1),e);") :
+    loop(i = 1; 36,
+      printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function sx(x) ( ox + x * z; );
+function sy(y) ( oy + y * z; );
+function hit(x, y, w, h) ( mouse_x >= sx(x) && mouse_x < sx(x + w) && mouse_y >= sy(y) && mouse_y < sy(y + h); );
+function hitc(x, y, r) ( sqr(mouse_x - sx(x)) + sqr(mouse_y - sy(y)) <= sqr(r * z); );
+function clamp01(x) ( max(0, min(1, x)); );
+function bound(x, cur) ( max(min(cur, 0), min(max(cur, 0), x)); );
+function to_pos(lg, mn, mx, v) ( lg ? log(v / mn) / log(mx / mn) : (v - mn) / (mx - mn); );
+function from_pos(lg, mn, mx, p) ( lg ? mn * pow(mx / mn, p) : mn + p * (mx - mn); );
+function dbl_click(key) local(r) (
+  r = last_click_i == key && now - last_click_t < 0.3;
+  last_click_i = key;
+  last_click_t = now;
+  r;
+);
+function font(sz, fl) ( gfx_setfont(1, "Arial", sz * z, fl); );
+function small_text() ( font(12, 0); gfx_set(0.70, 0.72, 0.76, 1); );
+function head_text() ( font(13, 'b'); gfx_set(0.88, 0.89, 0.92, 1); );
+
+function text_c(str, cx, y) local(tw, th) ( gfx_measurestr(str, tw, th); gfx_x = sx(cx) - tw * 0.5; gfx_y = sy(y); gfx_drawstr(str); );
+function text_r(str, rx, y) local(tw, th) ( gfx_measurestr(str, tw, th); gfx_x = sx(rx) - tw; gfx_y = sy(y); gfx_drawstr(str); );
+function text_l(str, lx, y) ( gfx_x = sx(lx); gfx_y = sy(y); gfx_drawstr(str); );
+
+function box(x, y, w, h, fill) ( gfx_rect(sx(x), sy(y), w * z, h * z, fill); );
+function panel(x, y, w, h) (
+  gfx_set(0.12, 0.13, 0.15, 1);
+  box(x, y, w, h, 1);
+  gfx_set(0.30, 0.31, 0.35, 1);
+  box(x, y, w, h, 0);
+);
+function fader_y(t) ( FY + FHR + (FH - 2 * FHR) * (1 - t); );
+
+function set_sl(i, v, mn, mx, st) (
+  v = max(mn, min(mx, v));
+  st > 0 ? v = floor(v / st + 0.5) * st;
+  slider(i) !== v ? ( slider(i) = v; automate(i, 0); );
+);
+function tap_sl(i, v, mn, mx, st) ( set_sl(i, v, mn, mx, st); automate(i, 1); );
+
+function fmt_val(kind, v) (
+  kind == 1 ? ( v >= 1000 ? sprintf(#fmt, "%.1f kHz", v * 0.001) : sprintf(#fmt, "%.0f Hz", v) ) :
+  kind == 2 ? sprintf(#fmt, "%.0f %%", v) :
+  sprintf(#fmt, "%+.1f dB", v);
+);
+
+function button(x, y, w, h, label, on, dim) local(hov, cr, cg, cb, gap) (
+  hov = hit(x, y, w, h);
+  on ? ( cr = 0.82; cg = 0.42; cb = 0.15; ) : ( cr = 0.22; cg = 0.22; cb = 0.25; );
+  gap = max(1, z);
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(sx(x) - gap, sy(y) - gap, w * z + 2 * gap, h * z + 2 * gap, 1);
+  gfx_set(cr * 0.6, cg * 0.6, cb * 0.6, 1);
+  box(x, y, w, h, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_rect(sx(x) + gap, sy(y) + gap, w * z - 2 * gap, h * z * 0.5, 1);
+  gfx_set(1, 1, 1, on ? 0.22 : 0.10);
+  gfx_rect(sx(x) + gap, sy(y) + gap, w * z - 2 * gap, h * z * 0.32, 1);
+  gfx_set(1, 1, 1, on ? 0.4 : 0.22);
+  gfx_rect(sx(x), sy(y), w * z, gap, 1);
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(sx(x), sy(y) + h * z - gap, w * z, gap, 1);
+  hov ? ( gfx_set(1, 1, 1, 0.08); box(x, y, w, h, 1); );
+  gfx_set(0.03, 0.03, 0.04, 1);
+  gfx_rect(sx(x) - gap, sy(y) - gap, w * z + 2 * gap, h * z + 2 * gap, 0);
+  font(14, 0);
+  gfx_set(1, 1, 1, dim ? 0.45 : 0.9);
+  text_c(label, x + w * 0.5, y + (h - 14) * 0.5);
+  hov && mouse_click ? ( mouse_click = 0; 1; ) : 0;
+);
+
+function knob(x, y, r, i, mn, mx, df, st, lg, kind, cr, cg, cb, lmin, lmax, label)
+local(pos, hov, a, a0, a1, k, v, QX, QY, QR)
+(
+  hov = hitc(x, y, r + 6);
+  pos = clamp01(to_pos(lg, mn, mx, slider(i)));
+  mouse_click && hov ? (
+    dbl_click(i) ? ( tap_sl(i, df, mn, mx, st); drag_i = 0; ) : (
+      drag_i = i; drag_n = 1; drag_y0 = mouse_y; drag_p0 = pos;
+    );
+    mouse_click = 0;
+  );
+  drag_i == i && drag_n == 1 && down ? (
+    mouse_cap |= 65536;
+    pos = clamp01(drag_p0 + (drag_y0 - mouse_y) / (200 * z) * ((mouse_cap & 12) ? 0.12 : 1));
+    set_sl(i, from_pos(lg, mn, mx, pos), mn, mx, st);
+  );
+  hov && mouse_wheel != 0 && !drag_i ? (
+    pos = clamp01(pos + sign(mouse_wheel) * ((mouse_cap & 4) ? 0.004 : 0.03));
+    tap_sl(i, from_pos(lg, mn, mx, pos), mn, mx, st);
+    mouse_wheel = 0;
+  );
+  QX = sx(x); QY = sy(y); QR = r * z;
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(QX, QY, QR + 2 * z, 1, 1);
+  gfx_set(cr * 0.55, cg * 0.55, cb * 0.55, 1);
+  gfx_circle(QX, QY, QR, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(QX, QY, QR * 0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(QX - QR * 0.28, QY - QR * 0.28, QR * 0.42, 1, 1);
+  a0 = -2.35619;
+  a1 = 2.35619;
+  k = 0;
+  loop(9,
+    v = a0 + (a1 - a0) * k / 8;
+    gfx_set(0.85, 0.85, 0.85, 0.7);
+    gfx_line(QX + sin(v) * QR * 0.82, QY - cos(v) * QR * 0.82, QX + sin(v) * QR * 0.98, QY - cos(v) * QR * 0.98);
+    k += 1;
+  );
+  a = a0 + (a1 - a0) * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(QX, QY, QX + sin(a) * QR * 0.85, QY - cos(a) * QR * 0.85, 1);
+  font(14, 0);
+  gfx_set(0.85, 0.85, 0.85, 1);
+  text_c(fmt_val(kind, slider(i)), x, y - r - 18);
+  font(12, 0);
+  gfx_set(0.70, 0.70, 0.73, 1);
+  text_l(lmin, x - r - 4, y + r + 4);
+  text_r(lmax, x + r + 4, y + r + 4);
+  font(14, 0);
+  gfx_set(0.88, 0.88, 0.90, 1);
+  text_c(label, x, y + r + 18);
+);
+
+function fillbar(cxm, oT, tv) local(yo, ye) (
+  yo = fader_y(oT);
+  ye = fader_y(tv);
+  box(cxm - 3, min(yo, ye), 6, max(1.5, abs(yo - ye)), 1);
+);
+
+function fader(x, i, mn, mx, df, lo, hi, live, bnd, tfirst, tstep, tn)
+local(cxm, hov, t, oT, cur, hv, hot, k, cy)
+(
+  cxm = x + FW * 0.5;
+  hov = hit(x - 4, FY, FW + 8, FH);
+  t = clamp01(to_pos(0, mn, mx, slider(i)));
+  mouse_click && hov ? (
+    (dbl_click(i) || (mouse_cap & 4)) ? ( tap_sl(i, df, mn, mx, 0.1); drag_i = 0; ) : (
+      drag_i = i; drag_n = 1; drag_y0 = mouse_y; drag_p0 = t;
+    );
+    mouse_click = 0;
+  );
+  drag_i == i && drag_n == 1 ? (
+    t = clamp01(drag_p0 + (drag_y0 - mouse_y) / ((FH - 2 * FHR) * z) * ((mouse_cap & 8) ? 0.1 : 1));
+    set_sl(i, from_pos(0, mn, mx, t), mn, mx, 0.1);
+  );
+  hov && mouse_wheel != 0 && !drag_i ? (
+    tap_sl(i, slider(i) + sign(mouse_wheel) * 0.02 * (mx - mn), mn, mx, 0.1);
+    mouse_wheel = 0;
+  );
+  t = clamp01(to_pos(0, mn, mx, slider(i)));
+  cur = slider(i);
+  hot = (drag_i == i && drag_n == 1) || (!drag_i && hov);
+
+  gfx_set(0.8, 0.8, 0.8, 0.8);
+  k = 0;
+  loop(tn,
+    box(cxm - 16, fader_y(to_pos(0, mn, mx, tfirst + tstep * k)), 8, 1, 1);
+    k += 1;
+  );
+
+  gfx_set(0.02, 0.02, 0.03, 1);
+  box(cxm - 4, FY, 8, FH, 1);
+  gfx_set(1, 1, 1, 0.08);
+  box(cxm + 4, FY, 1, FH, 1);
+  oT = bnd ? clamp01(to_pos(0, mn, mx, 0)) : 0;
+  gfx_set(0.11, 0.55, 0.60, 0.55);
+  fillbar(cxm, oT, t);
+  lo < 500 && lo > -140 && hi < 500 && hi > -140 ? (
+    bnd ? ( lo = bound(lo, cur); hi = bound(hi, cur); );
+    lo = clamp01(to_pos(0, mn, mx, lo));
+    hi = clamp01(to_pos(0, mn, mx, hi));
+    hv = abs(hi - oT) >= abs(lo - oT) ? hi : lo;
+    gfx_set(0.30, 0.60, 0.72, 0.45);
+    fillbar(cxm, oT, hv);
+  );
+  live > -140 && live < 500 ? (
+    bnd ? live = bound(live, cur);
+    gfx_set(0.35, 0.90, 0.55, 0.85);
+    fillbar(cxm, oT, clamp01(to_pos(0, mn, mx, live)));
+  );
+
+  cy = fader_y(t) - FHR;
+  gfx_set(0, 0, 0, 0.45);
+  box(cxm - 13 + 2, cy + 2, 26, 14, 1);
+  gfx_set(0.60, 0.62, 0.64, 1);
+  box(cxm - 13, cy, 26, 14, 1);
+  hot ? gfx_set(1, 1, 1, 1) : gfx_set(0.90, 0.92, 0.93, 1);
+  box(cxm - 12, cy + 1, 24, 7.7, 1);
+  gfx_set(0.80, 0.82, 0.84, 1);
+  box(cxm - 12, cy + 7.7, 24, 5.3, 1);
+  gfx_set(0.11, 0.55, 0.60, 1);
+  box(cxm - 11, cy + 6, 22, 2, 1);
+);
+
+function axis(xa, right, mn, mx, first, step, n) local(k, v) (
+  small_text();
+  k = 0;
+  loop(n,
+    v = first + step * k;
+    right ? text_r(sprintf(#, "%d", v), xa, fader_y(to_pos(0, mn, mx, v)) - 6) :
+            text_l(sprintf(#, "%d", v), xa, fader_y(to_pos(0, mn, mx, v)) - 6);
+    k += 1;
+  );
+);
+
+function nudge(x, base, mn, mx, df, key) local(hov, d, cxm, cym) (
+  hov = hit(x, FY + 14, 40, FH - 28);
+  mouse_click && hov ? (
+    dbl_click(key) ? (
+      <? gen_nudge(2); ?>
+      drag_i = 0;
+    ) : (
+      drag_i = base + 1; drag_n = 6; drag_y0 = mouse_y;
+      <? gen_nudge(0); ?>
+    );
+    mouse_click = 0;
+  );
+  drag_i == base + 1 && drag_n == 6 && down ? (
+    mouse_cap |= 65536;
+    d = (drag_y0 - mouse_y) / z * 0.0035 * (mx - mn);
+    <? gen_nudge(1); ?>
+  );
+  gfx_set(0.13, 0.14, 0.16, 1);
+  box(x, FY + 14, 40, FH - 28, 1);
+  gfx_set(hov ? 0.55 : 0.30, hov ? 0.57 : 0.31, hov ? 0.62 : 0.35, 1);
+  box(x, FY + 14, 40, FH - 28, 0);
+  cxm = x + 20;
+  cym = FY + FH * 0.5;
+  gfx_set(0.70, 0.72, 0.76, 1);
+  gfx_triangle(sx(cxm), sy(cym - 18), sx(cxm - 8), sy(cym - 6), sx(cxm + 8), sy(cym - 6));
+  gfx_triangle(sx(cxm), sy(cym + 18), sx(cxm - 8), sy(cym + 6), sx(cxm + 8), sy(cym + 6));
+  head_text();
+  text_c("All", cxm, FY - 4);
+);
+
+function band_col(b, x0, f, lo, hi, live, glo, ghi, glive) (
+  head_text();
+  text_c(fmt_val(1, f), x0 + 56, FY - 38);
+  small_text();
+  text_c(adaptive ? "Bias" : "Thres.", x0 + 34, FY - 20);
+  text_c("Range", x0 + 78, FY - 20);
+  fader(x0 + 20, thr_base + b, thr_mn, thr_mx, thr_df, lo, hi, live, 0, thr_tfirst, thr_tstep, thr_tn);
+  fader(x0 + 64, rng_base + b, rng_mn, rng_mx, rng_df, glo, ghi, glive, 1, rng_tfirst, rng_tstep, rng_tn);
+  button(x0 + 20, 622, 72, 22, "Δ SOLO", slider(29 + b), delta) ? tap_sl(29 + b, !slider(29 + b), 0, 1, 1);
+);
+
+function xfrac(f) ( clamp01((log(max(f, 20)) - 2.995732) / 6.907755); );
+function ftick(str, f) ( text_c(str, min(PX + PW * xfrac(f), PX + PW - 8), PY + PH + 4); );
+
+function curve() local(i, n, t, p1x, p1y, p2x, p2y, x1, x2, col, lx, ly, ty, any) (
+  gfx_set(0.10, 0.11, 0.13, 1);
+  box(PX, PY, PW, PH, 1);
+  gfx_set(1, 1, 1, 0.10);
+  box(PX, PY + PH / 3, PW, 1, 1);
+  box(PX, PY + PH * 2 / 3, PW, 1, 1);
+  gfx_set(0.30, 0.31, 0.35, 1);
+  box(PX, PY, PW, PH, 0);
+
+  crv[0] = 0; crv[1] = 0;
+  crv[2] = xfrac(fx0); crv[3] = 0;
+  <?
+  loop(k = 0; 6,
+    printf("crv[%d] = xfrac(cf%d); crv[%d] = idle ? 0 : clamp01(-disp_gr%d / 24);\n", 4 + 2 * k, k + 1, 5 + 2 * k, k + 1);
+    k += 1);
+  ?>
+  crv[16] = xfrac(fx6); crv[17] = 0;
+  crv[18] = 1; crv[19] = 0;
+
+  any = 0;
+  i = 0;
+  loop(10, crv[2 * i + 1] > 0.001 ? any = 1; i += 1; );
+  any ? (
+    i = 0;
+    loop(9,
+      p1x = crv[2 * i]; p1y = crv[2 * i + 1];
+      p2x = crv[2 * (i + 1)]; p2y = crv[2 * (i + 1) + 1];
+      x1 = floor(sx(PX + p1x * PW));
+      x2 = floor(sx(PX + p2x * PW));
+      n = x2 - x1;
+      col = x1;
+      lx = x1;
+      ly = sy(PY + p1y * PH);
+      loop(max(n, 0),
+        t = (col + 1 - x1) / n;
+        ty = sy(PY + (p1y + (p2y - p1y) * (0.5 - 0.5 * cos($pi * t))) * PH);
+        gfx_set(0.95, 0.55, 0.20, 0.35);
+        gfx_rect(col, sy(PY), 1, ty - sy(PY), 1);
+        gfx_set(1.0, 0.65, 0.25, 1);
+        gfx_line(lx, ly, col + 1, ty, 1);
+        lx = col + 1;
+        ly = ty;
+        col += 1;
+      );
+      i += 1;
+    );
+  );
+);
+
+gfx_set(0.13, 0.13, 0.15, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+font(20, 'b');
+gfx_set(0.85, 0.35, 0.35, 1);
+text_l("BROADBAND DENOISE & RESTORATION", 24, 8);
+font(13, 0);
+gfx_set(0.60, 0.60, 0.63, 1);
+text_l("by chmaha", 26, 30);
+button(836, 12, 100, 28, "BYPASS", bypass, 0) ? tap_sl(1, !bypass, 0, 1, 1);
+button(724, 12, 100, 28, "DELTA", delta, 0) ? tap_sl(36, !delta, 0, 1, 1);
+
+curve();
+small_text();
+k = 0;
+loop(5,
+  text_l(sprintf(#, "%d", 0 - 6 * k), 24, PY + PH * k / 4 - 6);
+  k += 1;
+);
+ftick("50", 50);
+ftick("100", 100);
+ftick("500", 500);
+ftick("1k", 1000);
+ftick("2k", 2000);
+ftick("5k", 5000);
+ftick("10k", 10000);
+ftick("20k", 20000);
+head_text();
+text_c("GAIN REDUCTION", PX + PW * 0.5, PY + PH + 20);
+
+panel(24, 222, 912, 106);
+knob(80, 268, 22, 4, 20, 20000, 25, 1, 1, 1, 0.20, 0.42, 0.75, "20", "20k", "Low Freq");
+knob(180, 268, 22, 5, 20, 20000, 16000, 1, 1, 1, 0.20, 0.55, 0.28, "20", "20k", "High Freq");
+knob(280, 268, 22, 8, -12, 12, 0, 0.1, 0, 0, 0.70, 0.18, 0.20, "-12", "+12", "HF Bias");
+knob(380, 268, 22, 9, 0, 100, 0, 1, 0, 2, 0.85, 0.55, 0.15, "0", "100", "St. Link");
+knob(480, 268, 22, 10, 0, 100, 100, 1, 0, 2, 0.62, 0.60, 0.22, "0", "100", "Mix");
+knob(580, 268, 22, 11, -24, 24, 0, 0.1, 0, 0, 0.50, 0.50, 0.55, "-24", "+24", "Output");
+button(680, 236, 70, 30, "HP", hp_on, 0) ? tap_sl(6, !hp_on, 0, 1, 1);
+button(758, 236, 70, 30, "LP", lp_on, 0) ? tap_sl(7, !lp_on, 0, 1, 1);
+button(836, 236, 92, 30, "ADAPTIVE", adaptive, 0) ? tap_sl(2, !adaptive, 0, 1, 1);
+button(680, 276, 70, 30, "SLOW", slow, !adaptive) ? tap_sl(3, !slow, 0, 1, 1);
+button(758, 276, 70, 30, "RESET", 0, !adaptive) ? reset_floor = 1;
+
+panel(24, 334, 912, 322);
+nudge(32, thr_base, thr_mn, thr_mx, thr_df, 1001);
+small_text();
+text_r(adaptive ? "Bias (dB)" : "Threshold (dB)", 122, FY - 22);
+axis(120, 1, thr_mn, thr_mx, thr_tfirst, thr_tstep, thr_tn);
+<?
+loop(k = 1; 6,
+  printf("band_col(%d, 126 + 112 * %d, cf%d, lvlo%d, lvhi%d, idle ? -999 : disp_lev%d, grlo%d, grhi%d, idle ? -999 : disp_gr%d);\n", k, k - 1, k, k, k, k, k, k, k);
+  k += 1);
+?>
+text_l("Range (dB)", 804, FY - 22);
+axis(806, 0, rng_mn, rng_mx, rng_tfirst, rng_tstep, rng_tn);
+nudge(868, rng_base, rng_mn, rng_mx, rng_df, 1002);
+
+!down && drag_i ? (
+  j = 0;
+  loop(drag_n, automate(drag_i + j, 1); j += 1; );
+  drag_i = 0;
+);
+prev_down = down;

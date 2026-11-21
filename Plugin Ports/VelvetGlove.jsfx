@@ -1,0 +1,821 @@
+Version: 1.0
+desc: Velvet Glove Lookahead Compressor/Limiter (lamb port) by chmaha
+tags: compressor limiter lookahead leveler clipper dynamics mastering
+author: chmaha
+changelog:
+  Initial release.
+about:
+  A lookahead compressor/limiter that is "soft as a lamb": a brickwall limiter, a compressor, a leveler,
+  a clipper or anything in between. The gain reduction never changes direction abruptly, the attack and
+  release curves can be shaped, release hold stops the gain from coming back up just before it has to go
+  down again, and adaptive release prevents pumping after big peaks. Attack and release times are exact.
+  Stereo link is adjustable, latency is fixed (about 100 ms) or minimal, and a Dry/Wet control makes parallel
+  compression quick and easy.
+  Ported from lamb by Bart Brouns (magnetophon)
+  https://github.com/magnetophon/lamb-rs (AGPLv3)
+  JSFX version released under AGPLv3 license
+  Claude generated some of this code
+
+slider1:p_ingain=0<-24,24,0.1>-Input Gain (dB)
+slider2:p_strength=100<0,100,1>-Strength (%)
+slider3:p_thresh=-1<-30,0,0.1>-Threshold (dB)
+slider4:p_attack=9<0,50,0.01>-Attack (ms)
+slider5:p_ashape=0<0,1,0.01>-Attack Shape
+slider6:p_release=60<1,500,0.01>-Release (ms)
+slider7:p_rshape=0.5<0,1,0.01>-Release Shape
+slider8:p_hold=50<0,50,0.01>-Release Hold (ms)
+slider9:p_knee=1<0,72,0.1>-Knee (dB)
+slider10:p_link=0<0,100,1>-Stereo Link (%)
+slider11:p_adapt=50<0,100,1>-Adaptive Release (%)
+slider12:p_look=100<0,100,1>-Lookahead (%)
+slider13:p_outgain=0<-24,24,0.1>-Output Gain (dB)
+slider14:p_mix=100<0,100,0.1>-Dry/Wet (%)
+slider15:p_latfix=1<0,1,1{Minimal,Fixed}>-Latency
+slider16:p_bypass=0<0,1,1{Off,On}>-Bypass
+
+in_pin:Left input
+in_pin:Right input
+out_pin:Left output
+out_pin:Right output
+options:no_meter
+
+@init
+
+ext_noinit = gfx_ext_retina = 1;
+ext_nodenorm = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+
+LMIN = 20 * log10(pow(2, -1022));
+EPS = 2 ^ -52;
+
+function lk_rel(x) local(fx, ix, k, a, d) global(TB, NR1, s_i, s_f) (
+  fx = NR1 * x;
+  ix = fx | 0;
+  k = TB + s_i + 7 * max(0, min(ix, NR1));
+  a = k[0];
+  d = k[1] - a;
+  (a + s_f * d) + (fx - ix) * (k[7] - (a + s_f * (d - (k[8] - k[7]))));
+);
+
+function lk_att(x) local(fx, ix, k, a, d) global(TB, NR1, s_i, s_f) (
+  fx = NR1 * (1 - x);
+  ix = fx | 0;
+  k = TB + s_i + 7 * max(0, min(ix, NR1));
+  a = k[0];
+  d = k[1] - a;
+  1 - ((a + s_f * d) + (fx - ix) * (k[7] - (a + s_f * (d - (k[8] - k[7])))));
+);
+
+function winf_sign(rel) local(k, a, d, v) global(TB, NR1, s_i, s_f) (
+  rel ? (
+    k = TB + s_i + 7 * NR1;
+    a = k[0];
+    d = k[1] - a;
+    v = k[7] - (a + s_f * d);
+  ) : (
+    k = TB + s_i;
+    a = k[0];
+    d = k[1] - a;
+    v = k[7] - (a + s_f * (d - (k[8] - k[7])));
+  );
+  v > 0 ? 1 : v < 0 ? -1 : 0;
+);
+
+function build_table() local(s, i, sc, sp, sd, xr) global(TB, NROWS, TMAXI, K1, K2) (
+  s = 0;
+  loop(7,
+    sc = 0.16666666666666666 * s;
+    sp = pow(sc, 0.06999999999999999 * s + 1);
+    sd = 1 - exp(-(2.42 * sp));
+    i = s;
+    sc === 0 ? (
+      loop(NROWS,
+        xr = (0.14285714285714285 * i) | 0;
+        TB[i] = min(1, max(0, 0.5 * (sin(K1 * xr + 4.71238898038469) + 1)));
+        i += 7;
+      );
+    ) : (
+      loop(NROWS,
+        xr = (0.14285714285714285 * i) | 0;
+        TB[i] = min(1, max(0, 0.5 * (sin(3.141592653589793 * ((1 - exp(-(K2 * sp * xr))) / sd) + 4.71238898038469) + 1)));
+        i += 7;
+      );
+    );
+    s += 1;
+  );
+  i = 1;
+  loop(8, TB[TMAXI + i] = TB[TMAXI]; i += 1);
+);
+
+function dq_init(vbuf, ibuf, sz) instance(dv, di, h, t, m, n) (
+  dv = vbuf; di = ibuf; m = sz - 1; n = 1;
+  dv[0] = 0; di[0] = -1; h = 0; t = 1;
+);
+
+function dq_push(x, ts) instance(dv, di, h, t, m, n) (
+  while (t > h && dv[(t - 1) & m] >= x) ( t -= 1; );
+  dv[t & m] = x; di[t & m] = ts; t += 1;
+  while (di[h & m] < ts - n + 1) ( h += 1; );
+  h > 1073741824 ? ( h -= 1073741824; t -= 1073741824; );
+  dv[h & m];
+);
+
+function dq_rebuild(hist, hm, ts, nn) instance(dv, di, h, t, m, n) local(j, x) (
+  n = nn; h = t = 0;
+  ts - n + 1 <= -1 ? ( dv[0] = 0; di[0] = -1; t = 1; );
+  j = max(0, ts - n + 1);
+  while (j <= ts) (
+    x = hist[j & hm];
+    while (t > h && dv[(t - 1) & m] >= x) ( t -= 1; );
+    dv[t & m] = x; di[t & m] = j; t += 1;
+    j += 1;
+  );
+);
+
+function ch_init(n_hist) instance(HX, R3, rmp, gn, rh, difp, shp, durp, lw0, lw1, gnk, gnl) (
+  HX = alloc(n_hist);
+  R3 = alloc(n_hist);
+  this.hq.dq_init(alloc(n_hist), alloc(n_hist), n_hist);
+  this.aq.dq_init(alloc(n_hist), alloc(n_hist), n_hist);
+  rmp = gn = rh = difp = shp = durp = 0;
+  gnk = 0; gnl = 1;
+);
+
+function sin_step(raw) instance(HX, R3, rmp, gn, rh, difp, shp, durp, lw0, lw1, gnk, gnl)
+  local(hmin, hd, dif, rel, att, shape, dur, stp, stp2, wp, cs, st, en, mid, w0, w1, nr, w648, g, cls, ci, cf, tbs, fx, ix, k, a, c, d, nd, sl)
+  global(TB, NR1, CRV, CRS, CAV, CAS, gen_r, gen_a, IOTA, HMASK, hold_d, NCMP, RAMP0, RAMP1, sh_a, sh_r, at_ms, re_ms, FC10, s_i, s_f) (
+  HX[IOTA & HMASK] = raw;
+  hmin = this.hq.dq_push(raw, IOTA);
+  hd = HX[(IOTA - hold_d) & HMASK];
+  rh = max(min(rh, hd), hmin);
+  R3[IOTA & HMASK] = rh;
+  dif = this.aq.dq_push(rh, IOTA) - gn;
+  rel = dif > 0;
+  att = dif < 0;
+  shape = rel ? sh_r : sh_a;
+  ci = (6 * shape) | 0;
+  cf = 6 * shape - ci;
+  ci = max(0, min(ci, 6));
+  dur = at_ms * att + re_ms * rel;
+  dur === 0 ? (
+    nr = RAMP0;
+    g = gn + dif;
+  ) : (
+    stp = FC10 / dur;
+    durp === 0 ? (
+      difp === 0 ? nr = RAMP0 : (
+        s_i = ci; s_f = cf;
+        cls = winf_sign(rel) * (difp > 0 ? 1 : -1) * (dif > 0 ? 1 : -1);
+        nr = cls > 0 ? RAMP1 : RAMP0;
+      );
+    ) : (
+      stp2 = rmp + FC10 * (1 / dur + 1 / durp);
+      s_i = (6 * shp) | 0;
+      s_f = 6 * shp - s_i;
+      s_i = max(0, min(s_i, 6));
+      rel ? (
+        wp = difp > 0 ? lw0 : lk_rel(rmp);
+        s_i = ci; s_f = cf;
+        cs = ((lk_rel(stp2) - (difp > 0 && shape === shp && dur === durp ? lw1 : lk_rel(rmp + stp))) * difp) / (dif * (1 - wp));
+        st = 0; en = 1; nd = 1;
+        tbs = TB + ci;
+        loop(NCMP,
+          mid = 0.5 * (st + en);
+          CRS[nd] === gen_r ? sl = CRV[nd] : (
+            fx = NR1 * mid; ix = fx | 0; k = tbs + 7 * ix; a = k[0]; d = k[1] - a; c = k[7];
+            w0 = (a + cf * d) + (fx - ix) * (c - (a + cf * (d - (k[8] - c))));
+            fx = NR1 * (stp + mid); ix = fx | 0; k = tbs + 7 * min(ix, NR1); a = k[0]; d = k[1] - a; c = k[7];
+            w1 = (a + cf * d) + (fx - ix) * (c - (a + cf * (d - (k[8] - c))));
+            sl = (w1 - w0) / (1 - w0);
+            CRV[nd] = sl; CRS[nd] = gen_r;
+          );
+          cs > sl ? ( st = mid; nd = 2 * nd + 1; ) : ( en = mid; nd *= 2; );
+        );
+      ) : (
+        wp = difp > 0 ? lk_att(rmp) : lw0;
+        s_i = ci; s_f = cf;
+        cs = ((lk_att(stp2) - (difp < 0 && shape === shp && dur === durp ? lw1 : lk_att(rmp + stp))) * difp) / (dif * (1 - wp));
+        st = 0; en = 1; nd = 1;
+        tbs = TB + ci;
+        loop(NCMP,
+          mid = 0.5 * (st + en);
+          CAS[nd] === gen_a ? sl = CAV[nd] : (
+            fx = NR1 * (1 - mid); ix = fx | 0; k = tbs + 7 * ix; a = k[0]; d = k[1] - a; c = k[7];
+            w0 = 1 - ((a + cf * d) + (fx - ix) * (c - (a + cf * (d - (k[8] - c)))));
+            fx = NR1 * (1 - (stp + mid)); ix = fx | 0; k = tbs + 7 * max(0, ix); a = k[0]; d = k[1] - a; c = k[7];
+            w1 = 1 - ((a + cf * d) + (fx - ix) * (c - (a + cf * (d - (k[8] - c)))));
+            sl = (w1 - w0) / (1 - w0);
+            CAV[nd] = sl; CAS[nd] = gen_a;
+          );
+          cs > sl ? ( st = mid; nd = 2 * nd + 1; ) : ( en = mid; nd *= 2; );
+        );
+      );
+      nr = min(1, max(0, 0.5 * (st + en)));
+    );
+    s_i = ci; s_f = cf;
+    rel ? (
+      lw0 = lk_rel(nr);
+      lw1 = lk_rel(stp + nr);
+    ) : (
+      lw0 = lk_att(nr);
+      lw1 = lk_att(stp + nr);
+    );
+    g = gn + (dif * (lw1 - lw0)) / (1 - lw0);
+  );
+  rmp = nr;
+  gn = att ? min(g, gn) : max(g, gn);
+  difp = dif;
+  shp = shape;
+  durp = dur;
+  gn !== gnk ? ( gnk = gn; gnl = pow(10, 0.05 * gn); );
+  gnl;
+);
+
+function update_params() local(nh, na, f2) (
+  f2 = p_attack * p_look;
+  na = floor(FC2 * f2 + 1);
+  t_k = p_knee;
+  t_hk = 0.5 * t_k;
+  t_th = p_thresh;
+  t_hi = t_th + t_hk;
+  t_lo = t_th - t_hk;
+  t_kq = 0.5 / max(EPS, t_k);
+  ig_t = FC3 * pow(10, 0.05 * p_ingain);
+  og_t = FC3 * pow(10, 0.05 * p_outgain);
+  ad_t = FC5 * p_adapt;
+  re_ms = p_release;
+  at_ms = p_attack;
+  rel14 = 0.001 * re_ms;
+  st16 = 0.04 * p_strength;
+  st18 = 0.01 * p_strength;
+  lk17 = 0.01 * p_link;
+  hold_f = FC9 * p_hold;
+  hold_d = hold_f | 0;
+  nh = floor(hold_f + 1);
+  sh_a = p_ashape;
+  sh_r = p_rshape;
+  sh_r !== ck_rs || re_ms !== ck_ra ? ( gen_r += 1; ck_rs = sh_r; ck_ra = re_ms; );
+  sh_a !== ck_as || at_ms !== ck_aa ? ( gen_a += 1; ck_as = sh_a; ck_aa = at_ms; );
+  lat_min = FC0 * (0.001 * p_hold + 0.00001 * f2);
+  lat_diff = max(0, p_latfix * (LATMAX - lat_min)) | 0;
+  lat = (p_latfix ? LATMAX : lat_min) | 0;
+  nh !== n_hold ? (
+    n_hold = nh;
+    c0.hq.dq_rebuild(c0.HX, HMASK, IOTA - 1, n_hold);
+    c1.hq.dq_rebuild(c1.HX, HMASK, IOTA - 1, n_hold);
+  );
+  na !== n_att ? (
+    n_att = na;
+    c0.aq.dq_rebuild(c0.R3, HMASK, IOTA - 1, n_att);
+    c1.aq.dq_rebuild(c1.R3, HMASK, IOTA - 1, n_att);
+  );
+);
+
+function engine_prepare() local(sr) (
+  alloc.mp = 0;
+  sr = min(192000, max(1, srate));
+  FC0 = sr;
+  srate <= 48000 ? (
+    BUILD = 0; NROWS = 131072; NR1 = 131071; NCMP = 17; LATMAX = 4800;
+    K1 = 0.00002396863267686821; K2 = 0.000018463275629239114;
+  ) : srate <= 96000 ? (
+    BUILD = 1; NROWS = 262144; NR1 = 262143; NCMP = 18; LATMAX = 9600;
+    K1 = 0.000011984270621720943; K2 = 0.000009231602598581689;
+  ) : (
+    BUILD = 2; NROWS = 524288; NR1 = 524287; NCMP = 19; LATMAX = 19200;
+    K1 = 0.000005992123881747579; K2 = 0.000004615792495331755;
+  );
+  RAMP0 = 0.5 * pow(2, -NCMP);
+  RAMP1 = 1 - RAMP0;
+  TMAXI = 7 * NROWS - 1;
+  TB = alloc(7 * NROWS + 16);
+  build_table();
+  CRV = alloc(2 ^ NCMP);
+  CRS = alloc(2 ^ NCMP);
+  CAV = alloc(2 ^ NCMP);
+  CAS = alloc(2 ^ NCMP);
+  gen_r = gen_a = 1;
+  ck_ra = ck_rs = ck_aa = ck_as = -1;
+  FC1 = 100 / FC0;
+  FC2 = 0.00001 * FC0;
+  FC3 = 44.1 / FC0;
+  FC4 = 1 - FC3;
+  FC5 = 0.441 / FC0;
+  FC7 = 6.283185307179586 / FC0;
+  FC9 = 0.001 * FC0;
+  FC10 = 1000 / FC0;
+  DMASK = 32767;
+  HMASK = 16383;
+  DRY0 = alloc(DMASK + 1);
+  DRY1 = alloc(DMASK + 1);
+  WET0 = alloc(DMASK + 1);
+  WET1 = alloc(DMASK + 1);
+  GV0 = alloc(DMASK + 1);
+  GV1 = alloc(DMASK + 1);
+  HB = alloc(4096);
+  h_w = h_n = h_lv = h_pre = 0;
+  h_g0 = h_g1 = 1;
+  h_spp = max(1, floor(4 * srate / 600));
+  c0.ch_init(HMASK + 1);
+  c1.ch_init(HMASK + 1);
+  IOTA = 0;
+  byp_r = ig_s = og_s = ad_s = 0;
+  dj10 = dj12 = dj5 = dj6 = 0;
+  dj10k = dj12k = dj30k = -1000000;
+  byp_k = -1;
+  mix_s = p_mix * 0.01;
+  n_hold = n_att = -1;
+  update_params();
+);
+
+@slider
+
+last_srate != srate ? (
+  last_srate = srate;
+  engine_prepare();
+) : update_params();
+
+@block
+
+update_params();
+mix_t = p_mix * 0.01;
+pdc_delay = lat;
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+
+@sample
+
+byp_a = byp_r + FC1;
+byp_b = byp_r - FC1;
+byp_r = byp_a < p_bypass ? byp_a : byp_b > p_bypass ? byp_b : p_bypass;
+byp_r !== byp_k ? (
+  byp_k = byp_r;
+  byp_2 = sin(6.283185307179586 * (0.5 * byp_r + 0.75)) + 1;
+  byp_3 = 0.5 * byp_2;
+  byp_4 = 1 - byp_3;
+);
+
+ad_s = ad_t + FC4 * ad_s;
+dj_5 = max(0.5, ad_s) - 0.5;
+dj_6 = 4 * dj_5;
+dj_7 = 10.588235294117647 * (max(0.15, ad_s) - 0.15);
+dj_8 = 15 - (dj_7 + dj_6);
+dj_9 = 12 - dj_7;
+dj_10 = dj_7 - 12;
+dj_11 = 3 - dj_6;
+
+ig_s = ig_t + FC4 * ig_s;
+x0 = spl0;
+x1 = spl1;
+DRY0[IOTA & DMASK] = x0;
+DRY1[IOTA & DMASK] = x1;
+w0 = x0 * ig_s;
+w1 = x1 * ig_s;
+WET0[IOTA & DMASK] = w0;
+WET1[IOTA & DMASK] = w1;
+a0 = abs(w0);
+a1 = abs(w1);
+
+mx = max(a0, a1);
+lv = mx > 0 ? 20 * log10(mx) : LMIN;
+gc_n = (lv > t_lo) + (lv > t_hi);
+gc_d = lv - t_th;
+dj_20 = max(0, gc_n === 0 ? 0 : gc_n === 1 ? t_kq * sqr(t_hk + gc_d) : gc_d);
+dj_21 = dj_20 > 0 ? pow(10, -(0.05 * dj_20)) : 1;
+
+dj_22 = 3 * dj_5;
+dj_23 = 4 * (max(0.25, ad_s) - 0.25);
+dj_24 = 9 - dj_23;
+dj_25 = dj5 - dj6;
+dj_26 = IOTA >= LATMAX ? 1 : 0;
+dj_27 = dj_21 > dj10 ? exp(-(FC7 / max(EPS, rel14 * (dj_26 / max(1 - (max(dj_23 - 9, min(2 - dj_22, dj_25)) + dj_24) / (11 - (dj_23 + dj_22)), EPS))))) : 0;
+dj10 = dj10 * dj_27 + dj_21 * (1 - dj_27);
+dj10 !== dj10k ? ( dj10k = dj10; dj5n = dj10 > 0 ? 20 * log10(dj10) : LMIN; );
+dj_30 = 0.05 * (dj5 + dj_24);
+dj_30 !== dj30k ? ( dj30k = dj_30; dj_31 = pow(10, dj_30); );
+dj_32 = dj_31 > dj12 ? exp(-(FC7 / max(EPS, (dj_26 * (0.8161290322580644 * (max(0.69, ad_s) - 0.69) + 0.05)) * pow(2, 52 * (1 - (max(dj_10, min(dj_11, dj_25)) + dj_9) / dj_8))))) : 0;
+dj12 = dj12 * dj_32 + dj_31 * (1 - dj_32);
+dj5 = dj5n;
+dj12 !== dj12k ? ( dj12k = dj12; dj6v = dj12 > 0 ? 20 * log10(dj12) : LMIN; );
+dj6 = dj6v;
+dj_33 = dj5 - dj6;
+dj_34 = (st16 * min(0.25, ad_s)) * (dj6 + (dj_33 * (max(dj_10, min(dj_11, dj_33)) + dj_9)) / dj_8);
+
+l0 = a0 > 0 ? 20 * log10(a0) : LMIN;
+l1 = a1 > 0 ? 20 * log10(a1) : LMIN;
+lmx = max(l0, l1);
+
+lv = l0 + lk17 * (lmx - l0);
+gc_n = (lv > t_lo) + (lv > t_hi);
+gc_d = lv - t_th;
+r0 = min(dj_34, -(st18 * max(0, gc_n === 0 ? 0 : gc_n === 1 ? t_kq * sqr(t_hk + gc_d) : gc_d)));
+lv = l1 + lk17 * (lmx - l1);
+gc_n = (lv > t_lo) + (lv > t_hi);
+gc_d = lv - t_th;
+r1 = min(dj_34, -(st18 * max(0, gc_n === 0 ? 0 : gc_n === 1 ? t_kq * sqr(t_hk + gc_d) : gc_d)));
+
+GV0[IOTA & DMASK] = c0.sin_step(r0);
+GV1[IOTA & DMASK] = c1.sin_step(r1);
+g0 = GV0[(IOTA - lat_diff) & DMASK];
+g1 = GV1[(IOTA - lat_diff) & DMASK];
+
+og_s = og_t + FC4 * og_s;
+mix_s += (mix_t - mix_s) * 0.001;
+abs(mix_t - mix_s) < 0.00001 ? mix_s = mix_t;
+d0 = DRY0[(IOTA - lat) & DMASK];
+d1 = DRY1[(IOTA - lat) & DMASK];
+o0 = (0.5 * d0) * byp_2 + ((og_s * WET0[(IOTA - lat) & DMASK]) * g0) * byp_4;
+o1 = (0.5 * byp_2) * d1 + ((og_s * byp_4) * WET1[(IOTA - lat) & DMASK]) * g1;
+gr0 = byp_3 + g0 * byp_4;
+gr1 = byp_3 + byp_4 * g1;
+mix_s === 1 ? (
+  spl0 = o0;
+  spl1 = o1;
+) : (
+  spl0 = d0 + (o0 - d0) * mix_s;
+  spl1 = d1 + (o1 - d1) * mix_s;
+);
+h_lv = max(h_lv, max(abs(spl0), abs(spl1)));
+h_pre = max(h_pre, max(abs(d0), abs(d1)));
+h_g0 = min(h_g0, gr0);
+h_g1 = min(h_g1, gr1);
+h_n += 1;
+h_n >= h_spp ? (
+  h_p = HB + 4 * h_w;
+  h_p[0] = h_lv; h_p[1] = h_g0; h_p[2] = h_g1; h_p[3] = h_pre;
+  h_w = (h_w + 1) & 1023;
+  h_n = h_lv = h_pre = 0;
+  h_g0 = h_g1 = 1;
+);
+IOTA += 1;
+
+@gfx 900 612
+
+DW = 900;
+DH = 612;
+scale = max(0.5, min(gfx_w / DW, gfx_h / DH));
+ox = floor((gfx_w - DW * scale) * 0.5);
+oy = 0;
+
+function automate(s, e)
+(
+<?
+  max_sliders > 16 ? printf("slider_automate(2^(s-1), e);") :
+    loop(i = 1; 16,
+      printf("  s == %d ? slider_automate(slider%d, e) :\n", i, i);
+      i += 1;
+    );
+?> 0;
+);
+
+function set_slider(s, v) ( slider(s) = v; automate(s, 0); automate(s, 1); );
+
+function px(x) ( ox + x * scale; );
+function py(y) ( oy + y * scale; );
+
+function hit_circle(mx_, my_, cx, cy, rad) ( sqr(mx_ - cx) + sqr(my_ - cy) <= sqr(rad); );
+function hit_rect(mx_, my_, x, y, w, h) ( mx_ >= x && mx_ <= x + w && my_ >= y && my_ <= y + h; );
+
+function k_min(s) ( s == 1 || s == 13 ? -24 : s == 3 ? -30 : s == 6 ? 1 : 0; );
+function k_max(s) (
+  s == 1 || s == 13 ? 24 : s == 3 ? 0 : s == 4 || s == 8 ? 50 : s == 6 ? 500 : s == 5 || s == 7 ? 1 : s == 9 ? 72 : 100;
+);
+function k_def(s) (
+  s == 2 || s == 12 || s == 14 ? 100 : s == 3 ? -1 : s == 4 ? 9 : s == 6 ? 60 : s == 7 ? 0.5 : s == 8 || s == 11 ? 50 : s == 9 ? 1 : 0;
+);
+function k_skew(s) ( s == 4 || s == 6 || s == 9; );
+function k_pos(s) local(lo, hi, t) (
+  lo = k_min(s); hi = k_max(s);
+  t = max(0, min(1, (slider(s) - lo) / (hi - lo)));
+  k_skew(s) ? sqrt(t) : t;
+);
+function k_set(s, pos) local(lo, hi) (
+  lo = k_min(s); hi = k_max(s);
+  pos = max(0, min(1, pos));
+  slider(s) = lo + (hi - lo) * (k_skew(s) ? pos * pos : pos);
+  automate(s, 0);
+);
+
+function ctext(str, cx, y) local(tw, th) (
+  gfx_measurestr(str, tw, th);
+  gfx_x = cx - tw * 0.5; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function rtext(str, rx, y) local(tw, th) (
+  gfx_measurestr(str, tw, th);
+  gfx_x = rx - tw; gfx_y = y;
+  gfx_drawstr(str);
+);
+
+function draw_knob(cx, cy, rad, pos, cr, cg, cb, valtext, minlabel, maxlabel, name)
+local(ang0, ang1, ang, i, tx, ty)
+(
+  ang0 = -2.35619;
+  ang1 = 2.35619;
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(cx, cy, rad + 2 * scale, 1, 1);
+  gfx_set(cr * 0.55, cg * 0.55, cb * 0.55, 1);
+  gfx_circle(cx, cy, rad, 1, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rad * 0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(cx - rad * 0.28, cy - rad * 0.28, rad * 0.42, 1, 1);
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.85, 0.85, 0.85, 0.7);
+    gfx_line(cx + sin(ang) * rad * 0.82, cy - cos(ang) * rad * 0.82, cx + sin(ang) * rad * 0.98, cy - cos(ang) * rad * 0.98);
+    i += 1;
+  );
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(cx, cy, cx + sin(ang) * rad * 0.85, cy - cos(ang) * rad * 0.85, 1);
+  gfx_setfont(1, "Arial", 15 * scale);
+  gfx_set(0.88, 0.88, 0.9, 1);
+  gfx_measurestr(valtext, tx, ty);
+  gfx_x = cx - tx * 0.5; gfx_y = cy - rad - 19 * scale;
+  gfx_drawstr(valtext);
+  gfx_setfont(1, "Arial", 12 * scale);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_x = cx - rad - 6 * scale; gfx_y = cy + rad + 3 * scale;
+  gfx_drawstr(minlabel);
+  gfx_measurestr(maxlabel, tx, ty);
+  gfx_x = cx + rad - tx + 6 * scale; gfx_y = cy + rad + 3 * scale;
+  gfx_drawstr(maxlabel);
+  gfx_setfont(1, "Arial", 14 * scale, 'b');
+  gfx_set(0.82, 0.82, 0.85, 1);
+  gfx_measurestr(name, tx, ty);
+  gfx_x = cx - tx * 0.5; gfx_y = cy + rad + 17 * scale;
+  gfx_drawstr(name);
+);
+
+function knob_ui(s, cx, cy, rad)
+local(hov)
+(
+  hov = hit_circle(mouse_x, mouse_y, cx, cy, rad + 6 * scale);
+  hov ? g_hover = s;
+  mouse_just_down && hov ? (
+    (click_target == s && time_precise() - click_time < 0.3) ? (
+      set_slider(s, k_def(s));
+      drag_target = 0;
+    ) : (
+      drag_target = s; drag_start_y = mouse_y; drag_start_pos = k_pos(s);
+    );
+    click_target = s; click_time = time_precise();
+    mouse_just_down = 0;
+  );
+  wheel != 0 && hov && drag_target == 0 ? (
+    k_set(s, k_pos(s) + wheel / 120 * ((mouse_cap & 4) ? 0.002 : 0.02));
+    automate(s, 1);
+    wheel = 0;
+  );
+);
+
+function draw_btn(bx, by, bw, bh, txt, active, cr, cg, cb)
+local(tw, th, gap)
+(
+  active ? 0 : ( cr = 0.22; cg = 0.22; cb = 0.25; );
+  gap = max(1, scale);
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(bx - gap, by - gap, bw + 2 * gap, bh + 2 * gap, 1);
+  gfx_set(cr * 0.6, cg * 0.6, cb * 0.6, 1);
+  gfx_rect(bx, by, bw, bh, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_rect(bx + gap, by + gap, bw - 2 * gap, bh * 0.5, 1);
+  gfx_set(1, 1, 1, active ? 0.22 : 0.10);
+  gfx_rect(bx + gap, by + gap, bw - 2 * gap, bh * 0.32, 1);
+  gfx_set(1, 1, 1, active ? 0.4 : 0.22);
+  gfx_rect(bx, by, bw, gap, 1);
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(bx, by + bh - gap, bw, gap, 1);
+  gfx_setfont(1, "Arial", 14 * scale);
+  gfx_set(1, 1, 1, active ? 0.95 : 0.8);
+  gfx_measurestr(txt, tw, th);
+  gfx_x = bx + bw * 0.5 - tw * 0.5; gfx_y = by + bh * 0.5 - th * 0.5;
+  gfx_drawstr(txt);
+  hit_rect(mouse_x, mouse_y, bx, by, bw, bh) ? (
+    mouse_just_down ? ( mouse_just_down = 0; 1; ) : 0;
+  ) : 0;
+);
+
+function panel(x, y, w, h, title)
+(
+  gfx_set(0.12, 0.12, 0.135, 1);
+  gfx_rect(px(x), py(y), w * scale, h * scale, 1);
+  gfx_set(0.22, 0.22, 0.25, 1);
+  gfx_rect(px(x), py(y), w * scale, h * scale, 0);
+  gfx_setfont(1, "Arial", 13 * scale, 'b');
+  gfx_set(0.6, 0.62, 0.66, 1);
+  gfx_x = px(x + 10); gfx_y = py(y + 7);
+  gfx_drawstr(title);
+);
+
+function db_y(v, top, h) ( top + h * min(1, max(0, -v / 24)); );
+
+function curve_f(c, x) local(k, p) (
+  x = max(0, min(1, x));
+  c === 0 ? p = x : (
+    k = -2.42 * pow(c, 1 + 0.42 * c);
+    p = (1 - exp(k * x)) / (1 - exp(k));
+  );
+  max(0, min(1, sin(p * $pi + 1.5 * $pi) * 0.5 + 0.5));
+);
+
+function ratio_text(st)
+(
+  st >= 100 ? strcpy(#g_rt, "inf:1") : (
+    g_ra = 1 / (1 - st * 0.01);
+    g_ra <= 10 ? sprintf(#g_rt, "%.2f:1", g_ra) : g_ra <= 100 ? sprintf(#g_rt, "%.1f:1", g_ra) : strcpy(#g_rt, "100:1");
+  );
+  #g_rt;
+);
+
+mouse_down = mouse_cap & 1;
+mouse_just_down = mouse_down && !g_mouse_last;
+wheel = mouse_wheel; mouse_wheel = 0;
+g_hover = 0;
+
+gfx_set(0.09, 0.09, 0.10, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+gfx_setfont(1, "Arial", 24 * scale, 'b');
+gfx_set(0.93, 0.80, 0.55, 1);
+gfx_x = px(16); gfx_y = py(8);
+gfx_drawstr("VELVET GLOVE");
+gfx_setfont(1, "Arial", 14 * scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = px(18); gfx_y = py(36);
+gfx_drawstr("by chmaha  ·  based on lamb by magnetophon");
+
+gfx_setfont(1, "Arial", 13 * scale, 'b');
+gfx_set(0.6, 0.62, 0.66, 1);
+gfx_x = px(472); gfx_y = py(10); gfx_drawstr("LATENCY");
+draw_btn(px(472), py(28), 84 * scale, 26 * scale, "Minimal", p_latfix < 0.5, 0.40, 0.62, 0.85) ? set_slider(15, 0);
+draw_btn(px(560), py(28), 84 * scale, 26 * scale, "Fixed", p_latfix >= 0.5, 0.40, 0.62, 0.85) ? set_slider(15, 1);
+hit_rect(mouse_x, mouse_y, px(472), py(28), 172 * scale, 26 * scale) ? g_hover = 15;
+gfx_setfont(1, "Arial", 14 * scale);
+gfx_set(0.62, 0.62, 0.66, 1);
+sprintf(#g_lat, "%d samples (%.1f ms)", pdc_delay, pdc_delay * 1000 / srate);
+gfx_x = px(652); gfx_y = py(33); gfx_drawstr(#g_lat);
+draw_btn(px(800), py(28), 84 * scale, 26 * scale, "Bypass", p_bypass >= 0.5, 0.85, 0.40, 0.35) ? set_slider(16, p_bypass >= 0.5 ? 0 : 1);
+hit_rect(mouse_x, mouse_y, px(800), py(28), 84 * scale, 26 * scale) ? g_hover = 16;
+
+panel(14, 66, 640, 210, "GAIN REDUCTION  (last 4 s)");
+g_gx = px(24); g_gy = py(92); g_gw = 600 * scale; g_gh = 172 * scale;
+gfx_set(0.06, 0.06, 0.07, 1);
+gfx_rect(g_gx, g_gy, g_gw, g_gh, 1);
+gfx_setfont(1, "Arial", 12 * scale);
+gi = 0;
+loop(5,
+  g_yy = g_gy + g_gh * gi / 4;
+  gfx_set(0.22, 0.22, 0.25, 1);
+  gfx_line(g_gx, g_yy, g_gx + g_gw, g_yy);
+  gfx_set(0.6, 0.6, 0.63, 1);
+  gfx_x = g_gx + g_gw + 4 * scale; gfx_y = g_yy - 6 * scale;
+  gfx_drawstr(sprintf(#g_tmp, "%d", -6 * gi));
+  gi += 1;
+);
+g_hw = h_w;
+g_cw = g_gw / 600;
+gi = 0;
+loop(600,
+  g_p = HB + 4 * ((g_hw - 600 + gi) & 1023);
+  g_x0 = g_gx + gi * g_cw;
+  g_lp = g_p[3];
+  g_lp > 0.0000001 ? (
+    g_yy = db_y(20 * log10(g_lp), g_gy, g_gh);
+    gfx_set(0.30, 0.30, 0.33, 1);
+    gfx_rect(g_x0, g_yy, max(1, g_cw), g_gy + g_gh - g_yy, 1);
+  );
+  g_lo = g_p[0];
+  g_lo > 0.0000001 ? (
+    g_yy = db_y(20 * log10(g_lo), g_gy, g_gh);
+    gfx_set(0.52, 0.52, 0.56, 1);
+    gfx_rect(g_x0, g_yy, max(1, g_cw), g_gy + g_gh - g_yy, 1);
+  );
+  gi > 0 ? (
+    gfx_set(0.95, 0.35, 0.30, 1);
+    gfx_line(g_x0 - g_cw, db_y(20 * log10(max(0.0000001, g_pl0)), g_gy, g_gh), g_x0, db_y(20 * log10(max(0.0000001, g_p[1])), g_gy, g_gh), 1);
+    gfx_set(0.40, 0.62, 0.95, 1);
+    gfx_line(g_x0 - g_cw, db_y(20 * log10(max(0.0000001, g_pl1)), g_gy, g_gh), g_x0, db_y(20 * log10(max(0.0000001, g_p[2])), g_gy, g_gh), 1);
+  );
+  g_pl0 = g_p[1]; g_pl1 = g_p[2];
+  gi += 1;
+);
+g_p = HB + 4 * ((g_hw - 1) & 1023);
+gfx_setfont(1, "Arial", 13 * scale);
+gfx_set(0.95, 0.45, 0.40, 1);
+gfx_x = px(420); gfx_y = py(73);
+gfx_drawstr(sprintf(#g_tmp, "L %.1f dB", 20 * log10(max(0.0000001, g_p[1]))));
+gfx_set(0.50, 0.68, 0.98, 1);
+gfx_x = px(510); gfx_y = py(73);
+gfx_drawstr(sprintf(#g_tmp, "R %.1f dB", 20 * log10(max(0.0000001, g_p[2]))));
+gfx_set(0.6, 0.6, 0.63, 1);
+rtext("dB", px(650), py(73));
+
+panel(666, 66, 220, 210, "GAIN CURVE");
+g_ux = px(678); g_uy = py(96); g_uw = 196 * scale; g_uh = 150 * scale;
+gfx_set(0.06, 0.06, 0.07, 1);
+gfx_rect(g_ux, g_uy, g_uw, g_uh, 1);
+g_tot = max(0.001, p_attack + p_hold + p_release);
+g_ax = g_uw * p_attack / g_tot;
+g_hx = g_uw * p_hold / g_tot;
+gfx_set(0.22, 0.22, 0.25, 1);
+gfx_line(g_ux + g_ax, g_uy, g_ux + g_ax, g_uy + g_uh);
+gfx_line(g_ux + g_ax + g_hx, g_uy, g_ux + g_ax + g_hx, g_uy + g_uh);
+gfx_set(0.93, 0.80, 0.55, 1);
+g_lx = g_ux; g_ly = g_uy + 4 * scale;
+gi = 1;
+loop(196,
+  g_t = gi / 196 * g_tot;
+  g_v = g_t < p_attack ? 1 - curve_f(p_ashape, 1 - g_t / max(0.0001, p_attack)) :
+        g_t < p_attack + p_hold ? 1 :
+        1 - curve_f(p_rshape, (g_t - p_attack - p_hold) / p_release);
+  g_cx = g_ux + gi * scale;
+  g_cy = g_uy + 4 * scale + g_v * (g_uh - 8 * scale);
+  gfx_line(g_lx, g_ly, g_cx, g_cy, 1);
+  g_lx = g_cx; g_ly = g_cy;
+  gi += 1;
+);
+gfx_setfont(1, "Arial", 12 * scale);
+gfx_set(0.6, 0.6, 0.63, 1);
+gfx_x = g_ux; gfx_y = g_uy + g_uh + 6 * scale; gfx_drawstr("attack");
+ctext("hold", g_ux + g_ax + g_hx * 0.5, g_uy + g_uh + 6 * scale);
+rtext("release", g_ux + g_uw, g_uy + g_uh + 6 * scale);
+
+KR = 24 * scale;
+panel(14, 288, 466, 136, "LEVEL");
+panel(492, 288, 394, 136, "OUTPUT");
+panel(14, 436, 340, 136, "ATTACK");
+panel(366, 436, 520, 136, "RELEASE");
+g_ky1 = py(360); g_ky2 = py(508);
+
+knob_ui(1, px(72), g_ky1, KR);
+knob_ui(3, px(184), g_ky1, KR);
+knob_ui(2, px(296), g_ky1, KR);
+knob_ui(9, px(408), g_ky1, KR);
+knob_ui(10, px(558), g_ky1, KR);
+knob_ui(13, px(688), g_ky1, KR);
+knob_ui(14, px(818), g_ky1, KR);
+knob_ui(4, px(72), g_ky2, KR);
+knob_ui(5, px(184), g_ky2, KR);
+knob_ui(12, px(296), g_ky2, KR);
+knob_ui(8, px(430), g_ky2, KR);
+knob_ui(6, px(558), g_ky2, KR);
+knob_ui(7, px(688), g_ky2, KR);
+knob_ui(11, px(818), g_ky2, KR);
+
+draw_knob(px(72), g_ky1, KR, k_pos(1), 0.55, 0.72, 0.35, sprintf(#g_tmp, "%+.1f dB", p_ingain), "-24", "+24", "Input");
+draw_knob(px(184), g_ky1, KR, k_pos(3), 0.85, 0.55, 0.30, sprintf(#g_tmp, "%.1f dB", p_thresh), "-30", "0", "Threshold");
+draw_knob(px(296), g_ky1, KR, k_pos(2), 0.85, 0.40, 0.40, ratio_text(p_strength), "1:1", "inf", "Ratio");
+draw_knob(px(408), g_ky1, KR, k_pos(9), 0.70, 0.60, 0.30, sprintf(#g_tmp, "%.1f dB", p_knee), "0", "72", "Knee");
+draw_knob(px(558), g_ky1, KR, k_pos(10), 0.45, 0.60, 0.80, sprintf(#g_tmp, "%.0f %%", p_link), "0", "100", "Stereo Link");
+draw_knob(px(688), g_ky1, KR, k_pos(13), 0.55, 0.72, 0.35, sprintf(#g_tmp, "%+.1f dB", p_outgain), "-24", "+24", "Output");
+draw_knob(px(818), g_ky1, KR, k_pos(14), 0.75, 0.55, 0.85, sprintf(#g_tmp, "%.0f %%", p_mix), "Dry", "Wet", "Dry/Wet");
+draw_knob(px(72), g_ky2, KR, k_pos(4), 0.35, 0.70, 0.90, sprintf(#g_tmp, "%.2f ms", p_attack), "0", "50", "Attack");
+draw_knob(px(184), g_ky2, KR, k_pos(5), 0.35, 0.70, 0.90, sprintf(#g_tmp, "%.2f", p_ashape), "0", "1", "Shape");
+draw_knob(px(296), g_ky2, KR, k_pos(12), 0.45, 0.60, 0.80, sprintf(#g_tmp, "%.0f %%", p_look), "0", "100", "Lookahead");
+draw_knob(px(430), g_ky2, KR, k_pos(8), 0.93, 0.80, 0.55, sprintf(#g_tmp, "%.1f ms", p_hold), "0", "50", "Hold");
+draw_knob(px(558), g_ky2, KR, k_pos(6), 0.40, 0.75, 0.60, p_release < 10 ? sprintf(#g_tmp, "%.2f ms", p_release) : sprintf(#g_tmp, "%.1f ms", p_release), "1", "500", "Release");
+draw_knob(px(688), g_ky2, KR, k_pos(7), 0.40, 0.75, 0.60, sprintf(#g_tmp, "%.2f", p_rshape), "0", "1", "Shape");
+draw_knob(px(818), g_ky2, KR, k_pos(11), 0.75, 0.55, 0.85, sprintf(#g_tmp, "%.0f %%", p_adapt), "0", "100", "Adaptive");
+
+drag_target > 0 ? (
+  mouse_down ? (
+    mouse_cap |= 65536;
+    k_set(drag_target, drag_start_pos + (drag_start_y - mouse_y) / (((mouse_cap & 4) ? 1500 : 150) * scale));
+    g_hover = drag_target;
+  ) : (
+    automate(drag_target, 1);
+    drag_target = 0;
+  );
+);
+
+gfx_set(0.12, 0.12, 0.135, 1);
+gfx_rect(px(14), py(584), 872 * scale, 22 * scale, 1);
+gfx_set(0.22, 0.22, 0.25, 1);
+gfx_rect(px(14), py(584), 872 * scale, 22 * scale, 0);
+gfx_setfont(1, "Arial", 14 * scale);
+gfx_set(0.66, 0.66, 0.7, 1);
+gfx_x = px(22); gfx_y = py(587);
+g_hover == 1 ? gfx_drawstr("Input gain: drives the signal into the compressor. Use Output to compensate.") :
+g_hover == 2 ? gfx_drawstr("Ratio (strength): inf:1 with 100 % lookahead and 0 dB output never exceeds the threshold.") :
+g_hover == 3 ? gfx_drawstr("Threshold: level above which gain reduction starts.") :
+g_hover == 4 ? gfx_drawstr("Attack: exact time to reach full gain reduction. All times at minimum turn it into a clipper.") :
+g_hover == 5 ? gfx_drawstr("Attack shape: curve of the attack, 0 is a slice of a pure sine.") :
+g_hover == 6 ? gfx_drawstr("Release: exact release time (500 ms = a quarter note at 120 BPM).") :
+g_hover == 7 ? gfx_drawstr("Release shape: curve of the release.") :
+g_hover == 8 ? gfx_drawstr("Release hold: keeps the gain down if it would have to go down again within this time.") :
+g_hover == 9 ? gfx_drawstr("Knee: width of the soft knee around the threshold.") :
+g_hover == 10 ? gfx_drawstr("Stereo link for transients; slow adaptive release changes are always fully linked.") :
+g_hover == 11 ? gfx_drawstr("Adaptive release: the first dBs release at the set speed, then slower. 100 % = leveler, 0 = pumping.") :
+g_hover == 12 ? gfx_drawstr("Lookahead: how much of the attack happens before the peak (latency in Minimal mode).") :
+g_hover == 13 ? gfx_drawstr("Output gain of the processed (wet) signal.") :
+g_hover == 14 ? gfx_drawstr("Dry/Wet: blend with the latency-aligned dry signal for parallel compression.") :
+g_hover == 15 ? gfx_drawstr("Latency: Fixed keeps it constant (about 100 ms); Minimal follows attack, lookahead and hold.") :
+g_hover == 16 ? gfx_drawstr("Bypass: click-free, latency-compensated bypass.") :
+gfx_drawstr("Drag or scroll knobs (Ctrl = fine), double-click to reset.");
+
+g_mouse_last = mouse_down;

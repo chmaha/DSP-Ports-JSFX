@@ -1,0 +1,743 @@
+desc: Mixed Messages (SWH Hermes Filter port) by chmaha
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+tags: filter ring modulator oscillator distortion delay swh
+about:
+  Mixed Messages: Steve Harris's Hermes Filter, a sound mangler built from two oscillators, two LFOs, three
+  ring modulators and a three-band crossover, each band with its own distortion, modulated filter and delay. The
+  input, both oscillators and three ring modulators (Osc 1 x Osc 2, Input x Osc 2, Osc 1 x Input) are mixed and soft
+  clipped, then split at the two crossover frequencies into Band 1 (above the upper frequency), Band 2 (between) and
+  Band 3 (below the lower frequency). Each band runs drive, a state-variable filter (LP, HP, BP, BR or AP, cutoff
+  swept by both LFOs), a feedback delay of up to 2 s and a gain, and the bands are summed and soft clipped. Ring mod
+  depth 0 passes the first signal at +6 dB, 1 is amplitude modulation and 2 is ring modulation. Stereo runs two
+  identical engines, one per channel (only the noise oscillator differs between them).
+  Drag a knob to change it, hold Shift for fine steps, use the mouse wheel, and double-click to reset.
+  Ported from Steve Harris's swh-plugins, https://github.com/swh/lv2 (GPL-3). Upstream bugs fixed in this version:
+  the filters never ran (so the filter section and both LFOs did nothing); every band used Band 1's drive in the
+  distortion; LFO 2's sample-and-hold ran at LFO 1's rate, and both sample-and-hold LFOs ran 16 times slow; the noise
+  oscillator and sample-and-hold only gave -1 to -0.5; the filter cutoff jumped at every audio block, so the sound
+  depended on the block size; delay time 0 gave a 2 s echo (now no delay); the "3x oversampled" filters fed each pass
+  back as the next input instead of oversampling, so the crossover and filters self-oscillated (now real 3x
+  oversampling with an interpolated input). Drive defaults to 1 (about unity) rather than upstream's 0, which
+  lowers and distorts the signal.
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/MixedMessages/hermes_dsp.jsfx-inc
+
+slider1:h_lfo1_freq=250<0,1000,0.01>-LFO 1 Frequency (Hz)
+slider2:h_lfo1_wave=0<0,4,1{Sine,Triangle,Saw,Square,S&H}>-LFO 1 Waveform
+slider3:h_lfo2_freq=250<0,1000,0.01>-LFO 2 Frequency (Hz)
+slider4:h_lfo2_wave=0<0,4,1{Sine,Triangle,Saw,Square,S&H}>-LFO 2 Waveform
+slider5:h_osc1_freq=440<0,4000,0.01>-Osc 1 Frequency (Hz)
+slider6:h_osc1_wave=0<0,4,1{Sine,Triangle,Saw,Square,Noise}>-Osc 1 Waveform
+slider7:h_osc2_freq=440<0,4000,0.01>-Osc 2 Frequency (Hz)
+slider8:h_osc2_wave=0<0,4,1{Sine,Triangle,Saw,Square,Noise}>-Osc 2 Waveform
+slider9:h_rm1_depth=0<0,2,0.001>-Ring Mod 1 Depth
+slider10:h_rm2_depth=0<0,2,0.001>-Ring Mod 2 Depth
+slider11:h_rm3_depth=0<0,2,0.001>-Ring Mod 3 Depth
+slider12:h_osc1_gain_db=-70<-70,20,0.01>-Osc 1 Gain (dB)
+slider13:h_rm1_gain_db=-70<-70,20,0.01>-Ring Mod 1 Gain (dB)
+slider14:h_osc2_gain_db=-70<-70,20,0.01>-Osc 2 Gain (dB)
+slider15:h_rm2_gain_db=-70<-70,20,0.01>-Ring Mod 2 Gain (dB)
+slider16:h_in_gain_db=0<-70,20,0.01>-Input Gain (dB)
+slider17:h_rm3_gain_db=-70<-70,20,0.01>-Ring Mod 3 Gain (dB)
+slider18:h_xover_lfreqp=1537.5<50,6000,0.1>-Crossover Lower Frequency (Hz)
+slider19:h_xover_ufreqp=7750<1000,10000,0.1>-Crossover Upper Frequency (Hz)
+slider20:h_drive1=1<0,3,0.001>-Band 1 Drive
+slider21:h_drive2=1<0,3,0.001>-Band 2 Drive
+slider22:h_drive3=1<0,3,0.001>-Band 3 Drive
+slider23:h_filt1_type=0<0,5,1{Off,LP,HP,BP,BR,AP}>-Band 1 Filter Type
+slider24:h_filt1_freq=440<0,8000,0.01>-Band 1 Filter Frequency (Hz)
+slider25:h_filt1_q=0<0,1,0.001>-Band 1 Filter Q
+slider26:h_filt1_res=0<0,1,0.001>-Band 1 Filter Resonance
+slider27:h_filt1_lfo1=0<-500,500,0.1>-Band 1 Filter LFO 1 Amount (Hz)
+slider28:h_filt1_lfo2=0<-500,500,0.1>-Band 1 Filter LFO 2 Amount (Hz)
+slider29:h_filt2_type=0<0,5,1{Off,LP,HP,BP,BR,AP}>-Band 2 Filter Type
+slider30:h_filt2_freq=440<0,8000,0.01>-Band 2 Filter Frequency (Hz)
+slider31:h_filt2_q=0<0,1,0.001>-Band 2 Filter Q
+slider32:h_filt2_res=0<0,1,0.001>-Band 2 Filter Resonance
+slider33:h_filt2_lfo1=0<-500,500,0.1>-Band 2 Filter LFO 1 Amount (Hz)
+slider34:h_filt2_lfo2=0<-500,500,0.1>-Band 2 Filter LFO 2 Amount (Hz)
+slider35:h_filt3_type=0<0,5,1{Off,LP,HP,BP,BR,AP}>-Band 3 Filter Type
+slider36:h_filt3_freq=440<0,8000,0.01>-Band 3 Filter Frequency (Hz)
+slider37:h_filt3_q=0<0,1,0.001>-Band 3 Filter Q
+slider38:h_filt3_res=0<0,1,0.001>-Band 3 Filter Resonance
+slider39:h_filt3_lfo1=0<-500,500,0.1>-Band 3 Filter LFO 1 Amount (Hz)
+slider40:h_filt3_lfo2=0<-500,500,0.1>-Band 3 Filter LFO 2 Amount (Hz)
+slider41:h_dela1_length=0<0,2,0.0001>-Band 1 Delay Time (s)
+slider42:h_dela1_fb=0<0,1,0.001>-Band 1 Delay Feedback
+slider43:h_dela1_wet=0<0,1,0.001>-Band 1 Delay Wet
+slider44:h_dela2_length=0<0,2,0.0001>-Band 2 Delay Time (s)
+slider45:h_dela2_fb=0<0,1,0.001>-Band 2 Delay Feedback
+slider46:h_dela2_wet=0<0,1,0.001>-Band 2 Delay Wet
+slider47:h_dela3_length=0<0,2,0.0001>-Band 3 Delay Time (s)
+slider48:h_dela3_fb=0<0,1,0.001>-Band 3 Delay Feedback
+slider49:h_dela3_wet=0<0,1,0.001>-Band 3 Delay Wet
+slider50:h_band1_gain_db=0<-70,20,0.01>-Band 1 Gain (dB)
+slider51:h_band2_gain_db=0<-70,20,0.01>-Band 2 Gain (dB)
+slider52:h_band3_gain_db=0<-70,20,0.01>-Band 3 Gain (dB)
+
+import Dependencies/MixedMessages/hermes_dsp.jsfx-inc
+
+in_pin:L
+in_pin:R
+out_pin:L
+out_pin:R
+
+options:no_meter
+@init
+ext_noinit = gfx_ext_retina = 1;
+last_srate = srate;
+mm_reset();
+
+@slider
+last_srate !== srate ? (
+  last_srate = srate;
+  mm_reset();
+);
+
+@block
+mm_block();
+
+@sample
+spl0 = mmL.mm_step(spl0);
+spl1 = mmR.mm_step(spl1);
+
+@gfx 1040 720
+
+function g_auto(s, e)
+(
+<?
+  max_sliders > 52 ? printf("slider_automate(2^(s-1), e);") : (
+    printf("  s == 1 ? slider_automate(h_lfo1_freq, e) :\n");
+    printf("  s == 2 ? slider_automate(h_lfo1_wave, e) :\n");
+    printf("  s == 3 ? slider_automate(h_lfo2_freq, e) :\n");
+    printf("  s == 4 ? slider_automate(h_lfo2_wave, e) :\n");
+    printf("  s == 5 ? slider_automate(h_osc1_freq, e) :\n");
+    printf("  s == 6 ? slider_automate(h_osc1_wave, e) :\n");
+    printf("  s == 7 ? slider_automate(h_osc2_freq, e) :\n");
+    printf("  s == 8 ? slider_automate(h_osc2_wave, e) :\n");
+    printf("  s == 9 ? slider_automate(h_rm1_depth, e) :\n");
+    printf("  s == 10 ? slider_automate(h_rm2_depth, e) :\n");
+    printf("  s == 11 ? slider_automate(h_rm3_depth, e) :\n");
+    printf("  s == 12 ? slider_automate(h_osc1_gain_db, e) :\n");
+    printf("  s == 13 ? slider_automate(h_rm1_gain_db, e) :\n");
+    printf("  s == 14 ? slider_automate(h_osc2_gain_db, e) :\n");
+    printf("  s == 15 ? slider_automate(h_rm2_gain_db, e) :\n");
+    printf("  s == 16 ? slider_automate(h_in_gain_db, e) :\n");
+    printf("  s == 17 ? slider_automate(h_rm3_gain_db, e) :\n");
+    printf("  s == 18 ? slider_automate(h_xover_lfreqp, e) :\n");
+    printf("  s == 19 ? slider_automate(h_xover_ufreqp, e) :\n");
+    printf("  s == 20 ? slider_automate(h_drive1, e) :\n");
+    printf("  s == 21 ? slider_automate(h_drive2, e) :\n");
+    printf("  s == 22 ? slider_automate(h_drive3, e) :\n");
+    printf("  s == 23 ? slider_automate(h_filt1_type, e) :\n");
+    printf("  s == 24 ? slider_automate(h_filt1_freq, e) :\n");
+    printf("  s == 25 ? slider_automate(h_filt1_q, e) :\n");
+    printf("  s == 26 ? slider_automate(h_filt1_res, e) :\n");
+    printf("  s == 27 ? slider_automate(h_filt1_lfo1, e) :\n");
+    printf("  s == 28 ? slider_automate(h_filt1_lfo2, e) :\n");
+    printf("  s == 29 ? slider_automate(h_filt2_type, e) :\n");
+    printf("  s == 30 ? slider_automate(h_filt2_freq, e) :\n");
+    printf("  s == 31 ? slider_automate(h_filt2_q, e) :\n");
+    printf("  s == 32 ? slider_automate(h_filt2_res, e) :\n");
+    printf("  s == 33 ? slider_automate(h_filt2_lfo1, e) :\n");
+    printf("  s == 34 ? slider_automate(h_filt2_lfo2, e) :\n");
+    printf("  s == 35 ? slider_automate(h_filt3_type, e) :\n");
+    printf("  s == 36 ? slider_automate(h_filt3_freq, e) :\n");
+    printf("  s == 37 ? slider_automate(h_filt3_q, e) :\n");
+    printf("  s == 38 ? slider_automate(h_filt3_res, e) :\n");
+    printf("  s == 39 ? slider_automate(h_filt3_lfo1, e) :\n");
+    printf("  s == 40 ? slider_automate(h_filt3_lfo2, e) :\n");
+    printf("  s == 41 ? slider_automate(h_dela1_length, e) :\n");
+    printf("  s == 42 ? slider_automate(h_dela1_fb, e) :\n");
+    printf("  s == 43 ? slider_automate(h_dela1_wet, e) :\n");
+    printf("  s == 44 ? slider_automate(h_dela2_length, e) :\n");
+    printf("  s == 45 ? slider_automate(h_dela2_fb, e) :\n");
+    printf("  s == 46 ? slider_automate(h_dela2_wet, e) :\n");
+    printf("  s == 47 ? slider_automate(h_dela3_length, e) :\n");
+    printf("  s == 48 ? slider_automate(h_dela3_fb, e) :\n");
+    printf("  s == 49 ? slider_automate(h_dela3_wet, e) :\n");
+    printf("  s == 50 ? slider_automate(h_band1_gain_db, e) :\n");
+    printf("  s == 51 ? slider_automate(h_band2_gain_db, e) :\n");
+    printf("  s == 52 ? slider_automate(h_band3_gain_db, e) :\n");
+  );
+?> 0;
+);
+
+// ---------------------------------------------------------------- tables
+
+GT = 20000; GTS = 10; GPAL = 20600;
+
+function g_tables() local(q) (
+  q = GT + 1 * GTS; q[0] = 0; q[1] = 1000; q[2] = 250; q[3] = 2; q[4] = 1; q[5] = "LFO 1 Frequency";
+  q = GT + 2 * GTS; q[0] = 0; q[1] = 4; q[2] = 0; q[3] = 0; q[4] = 6; q[5] = "LFO 1 Waveform"; q[6] = "Sin|Tri|Saw|Sqr|S&H";
+  q = GT + 3 * GTS; q[0] = 0; q[1] = 1000; q[2] = 250; q[3] = 2; q[4] = 1; q[5] = "LFO 2 Frequency";
+  q = GT + 4 * GTS; q[0] = 0; q[1] = 4; q[2] = 0; q[3] = 0; q[4] = 6; q[5] = "LFO 2 Waveform"; q[6] = "Sin|Tri|Saw|Sqr|S&H";
+  q = GT + 5 * GTS; q[0] = 0; q[1] = 4000; q[2] = 440; q[3] = 2; q[4] = 1; q[5] = "Osc 1 Frequency";
+  q = GT + 6 * GTS; q[0] = 0; q[1] = 4; q[2] = 0; q[3] = 0; q[4] = 6; q[5] = "Osc 1 Waveform"; q[6] = "Sin|Tri|Saw|Sqr|Noise";
+  q = GT + 7 * GTS; q[0] = 0; q[1] = 4000; q[2] = 440; q[3] = 2; q[4] = 1; q[5] = "Osc 2 Frequency";
+  q = GT + 8 * GTS; q[0] = 0; q[1] = 4; q[2] = 0; q[3] = 0; q[4] = 6; q[5] = "Osc 2 Waveform"; q[6] = "Sin|Tri|Saw|Sqr|Noise";
+  q = GT + 9 * GTS; q[0] = 0; q[1] = 2; q[2] = 0; q[3] = 0; q[4] = 4; q[5] = "Ring Mod 1 Depth";
+  q = GT + 10 * GTS; q[0] = 0; q[1] = 2; q[2] = 0; q[3] = 0; q[4] = 4; q[5] = "Ring Mod 2 Depth";
+  q = GT + 11 * GTS; q[0] = 0; q[1] = 2; q[2] = 0; q[3] = 0; q[4] = 4; q[5] = "Ring Mod 3 Depth";
+  q = GT + 12 * GTS; q[0] = -70; q[1] = 20; q[2] = -70; q[3] = 0; q[4] = 2; q[5] = "Osc 1 Gain";
+  q = GT + 13 * GTS; q[0] = -70; q[1] = 20; q[2] = -70; q[3] = 0; q[4] = 2; q[5] = "Ring Mod 1 Gain";
+  q = GT + 14 * GTS; q[0] = -70; q[1] = 20; q[2] = -70; q[3] = 0; q[4] = 2; q[5] = "Osc 2 Gain";
+  q = GT + 15 * GTS; q[0] = -70; q[1] = 20; q[2] = -70; q[3] = 0; q[4] = 2; q[5] = "Ring Mod 2 Gain";
+  q = GT + 16 * GTS; q[0] = -70; q[1] = 20; q[2] = 0; q[3] = 0; q[4] = 2; q[5] = "Input Gain";
+  q = GT + 17 * GTS; q[0] = -70; q[1] = 20; q[2] = -70; q[3] = 0; q[4] = 2; q[5] = "Ring Mod 3 Gain";
+  q = GT + 18 * GTS; q[0] = 50; q[1] = 6000; q[2] = 1537.5; q[3] = 1; q[4] = 1; q[5] = "Crossover Lower Frequency";
+  q = GT + 19 * GTS; q[0] = 1000; q[1] = 10000; q[2] = 7750; q[3] = 1; q[4] = 1; q[5] = "Crossover Upper Frequency";
+  q = GT + 20 * GTS; q[0] = 0; q[1] = 3; q[2] = 1; q[3] = 0; q[4] = 4; q[5] = "Band 1 Drive";
+  q = GT + 21 * GTS; q[0] = 0; q[1] = 3; q[2] = 1; q[3] = 0; q[4] = 4; q[5] = "Band 2 Drive";
+  q = GT + 22 * GTS; q[0] = 0; q[1] = 3; q[2] = 1; q[3] = 0; q[4] = 4; q[5] = "Band 3 Drive";
+  q = GT + 23 * GTS; q[0] = 0; q[1] = 5; q[2] = 0; q[3] = 0; q[4] = 6; q[5] = "Band 1 Filter Type"; q[6] = "Off|LP|HP|BP|BR|AP";
+  q = GT + 24 * GTS; q[0] = 0; q[1] = 8000; q[2] = 440; q[3] = 2; q[4] = 1; q[5] = "Band 1 Filter Frequency";
+  q = GT + 25 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 4; q[5] = "Band 1 Filter Q";
+  q = GT + 26 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 5; q[5] = "Band 1 Filter Resonance";
+  q = GT + 27 * GTS; q[0] = -500; q[1] = 500; q[2] = 0; q[3] = 0; q[4] = 7; q[5] = "Band 1 Filter LFO 1 Amount";
+  q = GT + 28 * GTS; q[0] = -500; q[1] = 500; q[2] = 0; q[3] = 0; q[4] = 7; q[5] = "Band 1 Filter LFO 2 Amount";
+  q = GT + 29 * GTS; q[0] = 0; q[1] = 5; q[2] = 0; q[3] = 0; q[4] = 6; q[5] = "Band 2 Filter Type"; q[6] = "Off|LP|HP|BP|BR|AP";
+  q = GT + 30 * GTS; q[0] = 0; q[1] = 8000; q[2] = 440; q[3] = 2; q[4] = 1; q[5] = "Band 2 Filter Frequency";
+  q = GT + 31 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 4; q[5] = "Band 2 Filter Q";
+  q = GT + 32 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 5; q[5] = "Band 2 Filter Resonance";
+  q = GT + 33 * GTS; q[0] = -500; q[1] = 500; q[2] = 0; q[3] = 0; q[4] = 7; q[5] = "Band 2 Filter LFO 1 Amount";
+  q = GT + 34 * GTS; q[0] = -500; q[1] = 500; q[2] = 0; q[3] = 0; q[4] = 7; q[5] = "Band 2 Filter LFO 2 Amount";
+  q = GT + 35 * GTS; q[0] = 0; q[1] = 5; q[2] = 0; q[3] = 0; q[4] = 6; q[5] = "Band 3 Filter Type"; q[6] = "Off|LP|HP|BP|BR|AP";
+  q = GT + 36 * GTS; q[0] = 0; q[1] = 8000; q[2] = 440; q[3] = 2; q[4] = 1; q[5] = "Band 3 Filter Frequency";
+  q = GT + 37 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 4; q[5] = "Band 3 Filter Q";
+  q = GT + 38 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 5; q[5] = "Band 3 Filter Resonance";
+  q = GT + 39 * GTS; q[0] = -500; q[1] = 500; q[2] = 0; q[3] = 0; q[4] = 7; q[5] = "Band 3 Filter LFO 1 Amount";
+  q = GT + 40 * GTS; q[0] = -500; q[1] = 500; q[2] = 0; q[3] = 0; q[4] = 7; q[5] = "Band 3 Filter LFO 2 Amount";
+  q = GT + 41 * GTS; q[0] = 0; q[1] = 2; q[2] = 0; q[3] = 3; q[4] = 3; q[5] = "Band 1 Delay Time";
+  q = GT + 42 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 5; q[5] = "Band 1 Delay Feedback";
+  q = GT + 43 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 5; q[5] = "Band 1 Delay Wet";
+  q = GT + 44 * GTS; q[0] = 0; q[1] = 2; q[2] = 0; q[3] = 3; q[4] = 3; q[5] = "Band 2 Delay Time";
+  q = GT + 45 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 5; q[5] = "Band 2 Delay Feedback";
+  q = GT + 46 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 5; q[5] = "Band 2 Delay Wet";
+  q = GT + 47 * GTS; q[0] = 0; q[1] = 2; q[2] = 0; q[3] = 3; q[4] = 3; q[5] = "Band 3 Delay Time";
+  q = GT + 48 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 5; q[5] = "Band 3 Delay Feedback";
+  q = GT + 49 * GTS; q[0] = 0; q[1] = 1; q[2] = 0; q[3] = 0; q[4] = 5; q[5] = "Band 3 Delay Wet";
+  q = GT + 50 * GTS; q[0] = -70; q[1] = 20; q[2] = 0; q[3] = 0; q[4] = 2; q[5] = "Band 1 Gain";
+  q = GT + 51 * GTS; q[0] = -70; q[1] = 20; q[2] = 0; q[3] = 0; q[4] = 2; q[5] = "Band 2 Gain";
+  q = GT + 52 * GTS; q[0] = -70; q[1] = 20; q[2] = 0; q[3] = 0; q[4] = 2; q[5] = "Band 3 Gain";
+);
+function g_get(s) ( s <= 26 ? (s <= 13 ? (s <= 7 ? (s <= 4 ? (s <= 2 ? (s <= 1 ? (h_lfo1_freq) : (h_lfo1_wave)) : (s <= 3 ? (h_lfo2_freq) : (h_lfo2_wave))) : (s <= 6 ? (s <= 5 ? (h_osc1_freq) : (h_osc1_wave)) : (h_osc2_freq))) : (s <= 10 ? (s <= 9 ? (s <= 8 ? (h_osc2_wave) : (h_rm1_depth)) : (h_rm2_depth)) : (s <= 12 ? (s <= 11 ? (h_rm3_depth) : (h_osc1_gain_db)) : (h_rm1_gain_db)))) : (s <= 20 ? (s <= 17 ? (s <= 15 ? (s <= 14 ? (h_osc2_gain_db) : (h_rm2_gain_db)) : (s <= 16 ? (h_in_gain_db) : (h_rm3_gain_db))) : (s <= 19 ? (s <= 18 ? (h_xover_lfreqp) : (h_xover_ufreqp)) : (h_drive1))) : (s <= 23 ? (s <= 22 ? (s <= 21 ? (h_drive2) : (h_drive3)) : (h_filt1_type)) : (s <= 25 ? (s <= 24 ? (h_filt1_freq) : (h_filt1_q)) : (h_filt1_res))))) : (s <= 39 ? (s <= 33 ? (s <= 30 ? (s <= 28 ? (s <= 27 ? (h_filt1_lfo1) : (h_filt1_lfo2)) : (s <= 29 ? (h_filt2_type) : (h_filt2_freq))) : (s <= 32 ? (s <= 31 ? (h_filt2_q) : (h_filt2_res)) : (h_filt2_lfo1))) : (s <= 36 ? (s <= 35 ? (s <= 34 ? (h_filt2_lfo2) : (h_filt3_type)) : (h_filt3_freq)) : (s <= 38 ? (s <= 37 ? (h_filt3_q) : (h_filt3_res)) : (h_filt3_lfo1)))) : (s <= 46 ? (s <= 43 ? (s <= 41 ? (s <= 40 ? (h_filt3_lfo2) : (h_dela1_length)) : (s <= 42 ? (h_dela1_fb) : (h_dela1_wet))) : (s <= 45 ? (s <= 44 ? (h_dela2_length) : (h_dela2_fb)) : (h_dela2_wet))) : (s <= 49 ? (s <= 48 ? (s <= 47 ? (h_dela3_length) : (h_dela3_fb)) : (h_dela3_wet)) : (s <= 51 ? (s <= 50 ? (h_band1_gain_db) : (h_band2_gain_db)) : (h_band3_gain_db))))); );
+function g_set(s, v) ( s <= 26 ? (s <= 13 ? (s <= 7 ? (s <= 4 ? (s <= 2 ? (s <= 1 ? (h_lfo1_freq = v) : (h_lfo1_wave = v)) : (s <= 3 ? (h_lfo2_freq = v) : (h_lfo2_wave = v))) : (s <= 6 ? (s <= 5 ? (h_osc1_freq = v) : (h_osc1_wave = v)) : (h_osc2_freq = v))) : (s <= 10 ? (s <= 9 ? (s <= 8 ? (h_osc2_wave = v) : (h_rm1_depth = v)) : (h_rm2_depth = v)) : (s <= 12 ? (s <= 11 ? (h_rm3_depth = v) : (h_osc1_gain_db = v)) : (h_rm1_gain_db = v)))) : (s <= 20 ? (s <= 17 ? (s <= 15 ? (s <= 14 ? (h_osc2_gain_db = v) : (h_rm2_gain_db = v)) : (s <= 16 ? (h_in_gain_db = v) : (h_rm3_gain_db = v))) : (s <= 19 ? (s <= 18 ? (h_xover_lfreqp = v) : (h_xover_ufreqp = v)) : (h_drive1 = v))) : (s <= 23 ? (s <= 22 ? (s <= 21 ? (h_drive2 = v) : (h_drive3 = v)) : (h_filt1_type = v)) : (s <= 25 ? (s <= 24 ? (h_filt1_freq = v) : (h_filt1_q = v)) : (h_filt1_res = v))))) : (s <= 39 ? (s <= 33 ? (s <= 30 ? (s <= 28 ? (s <= 27 ? (h_filt1_lfo1 = v) : (h_filt1_lfo2 = v)) : (s <= 29 ? (h_filt2_type = v) : (h_filt2_freq = v))) : (s <= 32 ? (s <= 31 ? (h_filt2_q = v) : (h_filt2_res = v)) : (h_filt2_lfo1 = v))) : (s <= 36 ? (s <= 35 ? (s <= 34 ? (h_filt2_lfo2 = v) : (h_filt3_type = v)) : (h_filt3_freq = v)) : (s <= 38 ? (s <= 37 ? (h_filt3_q = v) : (h_filt3_res = v)) : (h_filt3_lfo1 = v)))) : (s <= 46 ? (s <= 43 ? (s <= 41 ? (s <= 40 ? (h_filt3_lfo2 = v) : (h_dela1_length = v)) : (s <= 42 ? (h_dela1_fb = v) : (h_dela1_wet = v))) : (s <= 45 ? (s <= 44 ? (h_dela2_length = v) : (h_dela2_fb = v)) : (h_dela2_wet = v))) : (s <= 49 ? (s <= 48 ? (s <= 47 ? (h_dela3_length = v) : (h_dela3_fb = v)) : (h_dela3_wet = v)) : (s <= 51 ? (s <= 50 ? (h_band1_gain_db = v) : (h_band2_gain_db = v)) : (h_band3_gain_db = v))))); );
+
+function g_pal_init() local(q) (
+  q = GPAL;
+  q[0] = 0.973; q[1] = 0.478; q[2] = 0.420;
+  q[3] = 0.976; q[4] = 0.722; q[5] = 0.329;
+  q[6] = 0.365; q[7] = 0.835; q[8] = 0.690;
+  q[9] = 0.408; q[10] = 0.667; q[11] = 0.976;
+  q[12] = 0.690; q[13] = 0.565; q[14] = 0.980;
+  q[15] = 0.910; q[16] = 0.870; q[17] = 0.380;
+  q[18] = 0.957; q[19] = 0.478; q[20] = 0.729;
+  q[21] = 0.329; q[22] = 0.808; q[23] = 0.890;
+  q[24] = 0.386; q[25] = 0.751; q[26] = 0.833;
+  q[27] = 0.549; q[28] = 0.616; q[29] = 0.978;
+  q[30] = 0.527; q[31] = 0.700; q[32] = 0.835;
+);
+
+// ---------------------------------------------------------------- basics
+
+function g_rgb(r, g, b) ( gfx_r = r; gfx_g = g; gfx_b = b; gfx_a = 1; );
+function g_col(c) (
+  c === 0 ? g_rgb(0.063, 0.067, 0.082) :
+  c === 1 ? g_rgb(0.102, 0.110, 0.133) :
+  c === 2 ? g_rgb(0.149, 0.159, 0.188) :
+  c === 3 ? g_rgb(0.212, 0.224, 0.263) :
+  c === 4 ? g_rgb(0.937, 0.941, 0.953) :
+  c === 5 ? g_rgb(0.640, 0.660, 0.705) :
+  c === 6 ? g_rgb(0.580, 0.600, 0.640) :
+  c === 7 ? g_rgb(0.180, 0.192, 0.226) :
+  g_rgb(0.047, 0.051, 0.063);
+);
+function g_acc(a) ( g_rgb(GPAL[a * 3], GPAL[a * 3 + 1], GPAL[a * 3 + 2]); );
+function g_accm(a, t) (
+  g_rgb(0.102 + (GPAL[a * 3] - 0.102) * t, 0.110 + (GPAL[a * 3 + 1] - 0.110) * t, 0.133 + (GPAL[a * 3 + 2] - 0.133) * t);
+);
+function g_sx(x) ( gox + x * gz; );
+function g_sy(y) ( goy + y * gz; );
+function g_font(sz, fl) ( gfx_setfont(1, "Arial", sz * gz, fl); );
+function g_tw(str) local(tw, th) ( gfx_measurestr(str, tw, th); tw / gz; );
+function g_txt(str, x, y, al) local(tw, th) (
+  gfx_measurestr(str, tw, th);
+  gfx_x = al === 1 ? g_sx(x) - tw * 0.5 : al === 2 ? g_sx(x) - tw : g_sx(x);
+  gfx_y = g_sy(y) - th * 0.5;
+  gfx_drawstr(str);
+);
+function g_in(x, y, w, h) ( gmx >= x && gmx < x + w && gmy >= y && gmy < y + h; );
+function g_frect(x, y, w, h) local(rx0, ry0, rx1, ry1) (
+  rx0 = floor(g_sx(x) + 0.5); ry0 = floor(g_sy(y) + 0.5); rx1 = floor(g_sx(x + w) + 0.5); ry1 = floor(g_sy(y + h) + 0.5);
+  gfx_rect(rx0, ry0, max(1, rx1 - rx0), max(1, ry1 - ry0), 1);
+);
+function g_line(x1, y1, x2, y2) ( gfx_line(g_sx(x1), g_sy(y1), g_sx(x2), g_sy(y2), 1); );
+function g_tline(x1, y1, x2, y2, t) local(i, nx, ny, l) (
+  l = sqrt(sqr(x2 - x1) + sqr(y2 - y1)) + 0.0001;
+  nx = -(y2 - y1) / l; ny = (x2 - x1) / l;
+  i = -t / 2;
+  while (i <= t / 2) ( g_line(x1 + nx * i, y1 + ny * i, x2 + nx * i, y2 + ny * i); i += 0.5 / gz; );
+);
+function g_arc(x, y, r, a0, a1, t) local(i) (
+  i = 0; loop(ceil(t * gz / 0.6), gfx_arc(g_sx(x), g_sy(y), r * gz - i * 0.6, a0, a1, 1); i += 1;);
+);
+function g_disc(x, y, r) ( gfx_circle(g_sx(x), g_sy(y), r * gz, 1, 1); );
+
+function g_rrpx(px0, py0, px1, py1, RR) local(a0, j, jm, yc, dy, cov, ext, xl, xr, lc, rc) (
+  a0 = gfx_a;
+  RR = max(0, min(RR, min(px1 - px0, py1 - py0) * 0.5));
+  j = floor(py0);
+  while (j < ceil(py1)) (
+    yc = j + 0.5;
+    yc > py0 + RR && j + 1 < py1 - RR && floor(px0) === px0 && floor(px1) === px1 ? (
+      jm = floor(py1 - RR);
+      gfx_a = a0; gfx_rect(px0, j, px1 - px0, jm - j, 1);
+      j = jm; yc = j + 0.5;
+    );
+    dy = yc < py0 + RR ? py0 + RR - yc : yc > py1 - RR ? yc - (py1 - RR) : 0;
+    cov = max(0, min(1, RR - dy + 0.5));
+    RR < 0.5 ? cov = 1;
+    cov > 0 ? (
+      ext = sqrt(max(0, RR * RR - min(RR, dy) * min(RR, dy)));
+      xl = px0 + RR - ext; xr = px1 - RR + ext;
+      lc = ceil(xl); rc = floor(xr);
+      gfx_a = a0 * cov;
+      rc > lc ? gfx_rect(lc, j, rc - lc, 1, 1);
+      lc - xl > 0 ? ( gfx_a = a0 * cov * (lc - xl); gfx_rect(lc - 1, j, 1, 1, 1); );
+      xr - rc > 0 ? ( gfx_a = a0 * cov * (xr - rc); gfx_rect(rc, j, 1, 1, 1); );
+    );
+    j += 1;
+  );
+  gfx_a = a0;
+);
+function g_snap4(x, y, w, h) (
+  gq0 = floor(g_sx(x) + 0.5); gq1 = floor(g_sy(y) + 0.5); gq2 = floor(g_sx(x + w) + 0.5); gq3 = floor(g_sy(y + h) + 0.5);
+);
+function g_rr(x, y, w, h, r) ( g_snap4(x, y, w, h); g_rrpx(gq0, gq1, gq2, gq3, r * gz); );
+function g_rrb(x, y, w, h, r, fr, fg, fb, br, bg, bb) local(t) (
+  g_snap4(x, y, w, h);
+  t = max(1, floor(gz + 0.5));
+  g_rgb(br, bg, bb); g_rrpx(gq0, gq1, gq2, gq3, r * gz);
+  g_rgb(fr, fg, fb); g_rrpx(gq0 + t, gq1 + t, gq2 - t, gq3 - t, r * gz - t);
+);
+function g_card(x, y, w, h, a, title) (
+  g_rrb(x, y, w, h, 8, 0.102, 0.110, 0.133, 0.212, 0.224, 0.263);
+  g_acc(a); g_frect(x + 14, y + 11, 3, 14);
+  g_font(14, 'b'); g_col(4);
+  g_txt(title, x + 24, y + 18, 0);
+);
+
+// ---------------------------------------------------------------- parameter maps
+
+function g_lo(s) ( GT[s * GTS]; );
+function g_hi(s) ( GT[s * GTS + 1]; );
+function g_def(s) ( GT[s * GTS + 2]; );
+function g_unit(s) ( GT[s * GTS + 4]; );
+function g_u2v(s, u) local(lo, hi, tp) (
+  lo = g_lo(s); hi = g_hi(s); tp = GT[s * GTS + 3];
+  u = max(0, min(1, u));
+  tp === 1 ? lo * (hi / lo) ^ u : tp === 2 ? lo + (hi - lo) * u * u * u : tp === 3 ? lo + (hi - lo) * u * u : lo + (hi - lo) * u;
+);
+function g_v2u(s, v) local(lo, hi, tp) (
+  lo = g_lo(s); hi = g_hi(s); tp = GT[s * GTS + 3];
+  v = max(lo, min(hi, v));
+  tp === 1 ? log(v / lo) / log(hi / lo) : tp === 2 ? ((v - lo) / (hi - lo)) ^ (1 / 3) : tp === 3 ? sqrt((v - lo) / (hi - lo)) : (v - lo) / (hi - lo);
+);
+function g_put(s, v) (
+  g_unit(s) === 6 ? v = floor(v + 0.5);
+  v = max(g_lo(s), min(g_hi(s), v));
+  g_get(s) !== v ? ( g_set(s, v); g_auto(s, 0); );
+);
+function g_touch_end(s) ( g_auto(s, 1); );
+function g_dbl(id) local(r) (
+  r = id === glast_id && gnow - glast_t < 0.32;
+  glast_id = id; glast_t = gnow;
+  r;
+);
+function g_item(list, idx) local(i, n, c, p, st) (
+  n = strlen(list); i = 0; p = 0; st = 0;
+  strcpy(#gitem, "");
+  while (i <= n) (
+    c = i < n ? str_getchar(list, i) : 124;
+    c === 124 ? ( p === idx ? strcpy_substr(#gitem, list, st, i - st); p += 1; st = i + 1; );
+    i += 1;
+  );
+  #gitem;
+);
+function g_fmt(s, v) local(un) (
+  un = g_unit(s);
+  un === 1 ? (
+    v >= 1000 ? sprintf(#gval, "%.2f kHz", v / 1000) : v >= 100 ? sprintf(#gval, "%.0f Hz", v) :
+    v >= 10 ? sprintf(#gval, "%.1f Hz", v) : sprintf(#gval, "%.2f Hz", v);
+  ) : un === 2 ? sprintf(#gval, "%.1f dB", v)
+  : un === 3 ? (
+    floor(v * srate) < 1 ? strcpy(#gval, "Off") : v < 0.01 ? sprintf(#gval, "%.1f ms", v * 1000) :
+    v < 1 ? sprintf(#gval, "%.0f ms", v * 1000) : sprintf(#gval, "%.2f s", v);
+  ) : un === 5 ? sprintf(#gval, "%.0f %%", v * 100)
+  : un === 7 ? (abs(v) < 0.5 ? strcpy(#gval, "0 Hz") : sprintf(#gval, "%+.0f Hz", v))
+  : un === 6 ? strcpy(#gval, g_item(GT[s * GTS + 6], floor(v + 0.5)))
+  : s >= 9 && s <= 11 ? (
+    sprintf(#gval, "%.2f", v);
+    abs(v) < 0.005 ? strcat(#gval, " none") : abs(v - 1) < 0.005 ? strcat(#gval, " AM") : abs(v - 2) < 0.005 ? strcat(#gval, " RM");
+  ) : sprintf(#gval, "%.2f", v);
+  #gval;
+);
+function g_hover(s) ( ghover = s; );
+
+// ---------------------------------------------------------------- knob
+
+function g_knob(s, cx, cy, r, a, label, dim) local(v, u, hit, hot, ang, t, cap, bip, id, nu)
+(
+  id = s;
+  v = g_get(s); u = g_v2u(s, v);
+  hit = sqr(gmx - cx) + sqr(gmy - cy) <= sqr(r + 5) || g_in(cx - r - 8, cy + r, 2 * r + 16, 30);
+  gclick && hit && !gact ? (
+    g_dbl(id) ? ( g_put(s, g_def(s)); g_touch_end(s); ) : ( gact = s; gkind = 1; gdu = u; gdy = gmy; );
+  );
+  gact === s && gkind === 1 && gdown ? (
+    mouse_cap |= 65536;
+    gmy !== gdy ? (
+      nu = gdu + (gdy - gmy) / (gshift ? 1200 : 200);
+      gdu = max(0, min(1, nu)); gdy = gmy;
+      g_put(s, g_u2v(s, gdu));
+    );
+  );
+  hit && gwheel !== 0 && !gdown ? (
+    g_put(s, g_u2v(s, u + gwheel / 120 * (gshift ? 0.004 : 0.02)));
+    g_touch_end(s);
+  );
+  hot = hit || gact === s;
+  hot ? g_hover(s);
+  v = g_get(s); u = g_v2u(s, v);
+  ang = -2.4 + 4.8 * u;
+  t = max(2.6, r * 0.14);
+  g_accm(a, dim ? 0.10 : 0.20);
+  g_arc(cx, cy, r, -2.4, 2.4, t);
+  dim ? g_accm(a, 0.45) : g_acc(a);
+  bip = g_unit(s) === 7;
+  bip ? g_arc(cx, cy, r, min(0, ang), max(0, ang), t) : u > 0.002 ? g_arc(cx, cy, r, -2.4, ang, t);
+  cap = r - t - 3;
+  hot ? g_col(3) : g_col(2);
+  g_disc(cx, cy, cap);
+  dim ? g_col(6) : g_col(4);
+  g_tline(cx + sin(ang) * cap * 0.2, cy - cos(ang) * cap * 0.2, cx + sin(ang) * (cap - 1), cy - cos(ang) * (cap - 1), max(1.6, r * 0.09));
+  g_font(12, 'b'); dim ? g_col(6) : g_col(5);
+  g_txt(label, cx, cy + r + 11, 1);
+  g_font(12, 0); hot ? g_acc(a) : dim ? g_col(6) : g_col(4);
+  g_txt(g_fmt(s, v), cx, cy + r + 24, 1);
+);
+
+// ---------------------------------------------------------------- segmented selector
+
+function g_seg(s, x, y, w, h, a) local(n, i, sw, v, hit, hv, list)
+(
+  list = GT[s * GTS + 6];
+  n = g_hi(s) - g_lo(s) + 1;
+  sw = w / n;
+  v = floor(g_get(s) + 0.5);
+  hit = g_in(x, y, w, h);
+  hv = hit ? floor((gmx - x) / sw) : -1;
+  gclick && hit && !gact ? ( gact = -1; g_put(s, hv); g_touch_end(s); v = hv; );
+  hit && gwheel !== 0 && !gdown ? ( g_put(s, v + (gwheel > 0 ? 1 : -1)); g_touch_end(s); v = floor(g_get(s) + 0.5); );
+  hit ? g_hover(s);
+  g_col(8); g_rr(x, y, w, h, h * 0.5);
+  i = 0;
+  loop(n,
+    i === v ? ( g_acc(a); g_rr(x + i * sw + 2, y + 2, sw - 4, h - 4, (h - 4) * 0.5); )
+    : i === hv ? ( g_col(7); g_rr(x + i * sw + 2, y + 2, sw - 4, h - 4, (h - 4) * 0.5); );
+    g_font(12, 'b');
+    g_tw(g_item(list, i)) > sw - 8 ? g_font(11, 'b');
+    i === v ? g_col(0) : i === hv ? g_col(4) : g_col(5);
+    g_txt(#gitem, x + (i + 0.5) * sw, y + h * 0.5, 1);
+    i += 1;
+  );
+);
+
+// ---------------------------------------------------------------- wave glyph
+
+function g_wave(x, y, w, h, wv, isosc, a) local(i, n, px, py, ph, yv, py0, k)
+(
+  g_col(8); g_rr(x, y, w, h, 6);
+  g_rgb(1, 1, 1); gfx_a = 0.05; g_frect(x + 6, y + h * 0.5, w - 12, 1); gfx_a = 1;
+  g_acc(a);
+  n = floor(w - 12);
+  i = 0; py0 = 0;
+  loop(n + 1,
+    ph = (i / n) * 2;
+    ph -= floor(ph);
+    wv === 0 ? yv = sin(ph * 2 * $pi)
+    : wv === 1 ? yv = ph < 0.25 ? ph * 4 : ph < 0.75 ? 2 - ph * 4 : ph * 4 - 4
+    : wv === 2 ? yv = 1 - 2 * ph
+    : wv === 3 ? yv = ph < 0.5 ? 1 : -1
+    : isosc ? ( k = (floor(i / 3) * 7919 + 13) % 101; yv = (k / 50 - 1) * 0.85; )
+    : ( k = floor(i / n * 6); yv = ((k * 37 + 11) % 13) / 6.5 - 0.95; );
+    px = x + 6 + i; py = y + h * 0.5 - yv * (h * 0.5 - 7);
+    i > 0 ? g_tline(px - 1, py0, px, py, 1.6);
+    py0 = py;
+    i += 1;
+  );
+);
+
+// ---------------------------------------------------------------- filter curve
+
+function g_curve(x, y, w, h, b, a) local(tp, fc, q, rs, sr, qd, qn, i, n, f, wr, dr, di, m, hr, hi, br, bi, nr, ni, ox, oy, px, py, lo, hi2, mg, dd)
+(
+  g_col(8); g_rr(x, y, w, h, 6);
+  tp = floor(g_get(23 + (b - 1) * 6) + 0.5);
+  fc = max(1, g_get(24 + (b - 1) * 6)); q = g_get(25 + (b - 1) * 6); rs = g_get(26 + (b - 1) * 6);
+  sr = max(8000, srate);
+  qd = 2 * cos((q ^ 0.1) * $pi * 0.5);
+  qn = sqrt(qd * 0.5 + 0.01);
+  lo = log(20); hi2 = log(min(20000, sr * 0.5));
+  g_rgb(1, 1, 1); gfx_a = 0.06;
+  g_frect(x + 6, y + h * 0.5, w - 12, 1);
+  gfx_a = 1;
+  tp === 0 ? (
+    g_accm(a, 0.5); g_frect(x + 6, y + h * 0.5 - 1, w - 12, 2);
+    g_font(11, 0); g_col(6); g_txt("filter off", x + w * 0.5, y + h * 0.5 - 9, 1);
+  ) : (
+    n = floor(w - 12);
+    g_acc(a);
+    i = 0;
+    loop(n + 1,
+      f = exp(lo + (hi2 - lo) * i / n);
+      wr = f / fc;
+      dr = 1 - wr * wr; di = qd * wr;
+      dd = dr * dr + di * di + 0.0000000001;
+      br = (wr * di) / dd; bi = (wr * dr) / dd;
+      nr = 1 - qn * rs * br; ni = -qn * rs * bi;
+      tp === 1 ? ( hr = dr / dd; hi = -di / dd; )
+      : tp === 2 ? ( hr = (-wr * wr) * dr / dd; hi = (wr * wr) * di / dd; )
+      : tp === 3 ? ( hr = br; hi = bi; )
+      : tp === 4 ? ( hr = (1 - wr * wr) * dr / dd; hi = -(1 - wr * wr) * di / dd; )
+      : ( hr = (1 + wr * wr) * dr / dd; hi = -(1 + wr * wr) * di / dd; );
+      m = sqrt((hr * hr + hi * hi) / (nr * nr + ni * ni));
+      m *= qn;
+      mg = 20 * log10(max(m, 0.00001));
+      mg = max(-30, min(24, mg));
+      px = x + 6 + i; py = y + h * 0.5 - mg / 30 * (h * 0.5 - 6);
+      i > 0 ? g_tline(ox, oy, px, py, 1.6);
+      ox = px; oy = py;
+      i += 1;
+    );
+  );
+);
+
+// ---------------------------------------------------------------- crossover strip
+
+function g_fx(f) ( GXB0 + (GXB1 - GXB0) * log(f / 40) / log(300); );
+function g_xf(px) ( 40 * 300 ^ ((px - GXB0) / (GXB1 - GXB0)); );
+function g_xover(x, y, w, h) local(lf, uf, ul, el, eu, xl, xu, by, bh, hit, near, s, u, nf, cx)
+(
+  g_card(x, y, w, h, 2, "Crossover");
+  lf = g_get(18); uf = g_get(19);
+  eu = max(200, min(floor(srate / 6), uf)); el = max(0, min(eu, lf));
+  GXB0 = x + 216; GXB1 = x + w - 14;
+  by = y + 12; bh = h - 24;
+  xl = g_fx(max(40, el)); xu = g_fx(max(40, eu));
+  g_accm(7, 0.30); g_frect(GXB0, by, xl - GXB0, bh);
+  g_accm(6, 0.30); g_frect(xl, by, xu - xl, bh);
+  g_accm(5, 0.30); g_frect(xu, by, GXB1 - xu, bh);
+  g_rgb(1, 1, 1); gfx_a = 0.10;
+  cx = 100; loop(3, g_frect(g_fx(cx), by + bh - 6, 1, 6); cx < 10000 ? ( g_frect(g_fx(cx * 2), by + bh - 4, 1, 4); g_frect(g_fx(cx * 5), by + bh - 4, 1, 4); ); cx *= 10;);
+  gfx_a = 1;
+  g_font(11, 0); g_col(6);
+  g_txt("100", g_fx(100) + 3, by + bh - 8, 0); g_txt("1k", g_fx(1000) + 3, by + bh - 8, 0); g_txt("10k", g_fx(10000) + 3, by + bh - 8, 0);
+  g_font(12, 'b');
+  xl - GXB0 > 80 ? ( g_acc(7); g_txt("Band 3", (GXB0 + xl) * 0.5, by + 12, 1); );
+  xu - xl > 80 ? ( g_acc(6); g_txt("Band 2", (xl + xu) * 0.5, by + 12, 1); );
+  GXB1 - xu > 80 ? ( g_acc(5); g_txt("Band 1", (xu + GXB1) * 0.5, by + 12, 1); );
+  g_font(12, 0); g_col(5);
+  g_txt("Lower", x + 24, y + 38, 0); g_txt("Upper", x + 24, y + 54, 0);
+  g_col(4);
+  g_txt(g_fmt(18, lf), x + 124, y + 38, 2); g_txt(g_fmt(19, uf), x + 124, y + 54, 2);
+  g_col(6);
+  el !== lf ? ( g_fmt(18, el); strcpy(#gxs, "is "); strcat(#gxs, #gval); g_txt(#gxs, x + 132, y + 38, 0); );
+  eu !== uf ? ( g_fmt(19, eu); strcpy(#gxs, "max "); strcat(#gxs, #gval); g_txt(#gxs, x + 132, y + 54, 0); );
+  hit = g_in(GXB0 - 6, by, GXB1 - GXB0 + 12, bh);
+  near = abs(gmx - g_fx(max(40, lf))) < abs(gmx - g_fx(max(40, uf))) ? 18 : 19;
+  gclick && hit && !gact ? (
+    g_dbl(100 + near) ? ( g_put(near, g_def(near)); g_touch_end(near); ) : (
+      gact = near; gkind = 2; gdx = gmx;
+      gdu = g_v2u(near, near === 18 ? lf : uf);
+      !gshift ? ( gdu = g_v2u(near, g_xf(gmx)); g_put(near, g_u2v(near, gdu)); );
+    );
+  );
+  (gact === 18 || gact === 19) && gkind === 2 && gdown ? (
+    s = gact;
+    gmx !== gdx ? (
+      gshift ? (
+        nf = g_xf(g_fx(g_u2v(s, gdu)) + (gmx - gdx) / 8);
+      ) : nf = g_xf(gmx);
+      gdu = g_v2u(s, nf); gdx = gmx;
+      g_put(s, g_u2v(s, gdu));
+    );
+  );
+  hit && gwheel !== 0 && !gdown ? (
+    u = g_v2u(near, g_get(near));
+    g_put(near, g_u2v(near, u + gwheel / 120 * (gshift ? 0.004 : 0.02))); g_touch_end(near);
+  );
+  hit || gact === 18 || gact === 19 ? g_hover(gact === 18 || gact === 19 ? gact : near);
+  lf = g_get(18); uf = g_get(19);
+  s = 18;
+  loop(2,
+    cx = g_fx(max(40, s === 18 ? lf : uf));
+    (ghover === s) ? g_col(4) : g_rgb(0.82, 0.84, 0.88);
+    g_frect(cx - 1, by - 3, 2, bh + 6);
+    g_snap4(cx - 5, by - 6, 10, 14); g_rrpx(gq0, gq1, gq2, gq3, 5 * gz);
+    s += 1;
+  );
+);
+
+// ---------------------------------------------------------------- sections
+
+function g_logo(x, y) (
+  g_acc(0); g_disc(x + 14, y + 15, 12);
+  gfx_triangle(g_sx(x + 6), g_sy(y + 22), g_sx(x + 13), g_sy(y + 26), g_sx(x + 3), g_sy(y + 33));
+  g_acc(3); g_disc(x + 30, y + 22, 11);
+  gfx_triangle(g_sx(x + 36), g_sy(y + 29), g_sx(x + 29), g_sy(y + 32), g_sx(x + 41), g_sy(y + 38));
+  g_col(0);
+  g_disc(x + 25, y + 22, 1.6); g_disc(x + 30, y + 22, 1.6); g_disc(x + 35, y + 22, 1.6);
+  g_rgb(0.15, 0.10, 0.10); g_tline(x + 8, y + 12, x + 18, y + 12, 1.6); g_tline(x + 8, y + 17, x + 15, y + 17, 1.6);
+);
+
+function g_title() local(i, n, c, px) (
+  g_logo(14, 4);
+  g_font(22, 'b');
+  strcpy(#gtt, "Mixed Messages");
+  n = strlen(#gtt); px = 64; i = 0;
+  loop(n,
+    c = str_getchar(#gtt, i);
+    strcpy_substr(#gch, #gtt, i, 1);
+    c !== 32 ? g_acc((i * 3) % 8) : 0;
+    g_txt(#gch, px, 23, 0);
+    px += g_tw(#gch);
+    i += 1;
+  );
+  g_font(12, 0); g_col(5);
+  g_txt("SWH Hermes Filter", px + 12, 25, 0);
+  g_txt("Sources  >  Mix  >  Crossover  >  Bands", GW - 14, 25, 2);
+);
+
+function g_src(x, y, w, h, a, title, ws, fs, isosc) (
+  g_card(x, y, w, h, a, title);
+  g_seg(ws, x + 10, y + 32, w - 20, 24, a);
+  g_wave(x + 12, y + 66, w - 92, h - 78, floor(g_get(ws) + 0.5), isosc, a);
+  g_knob(fs, x + w - 40, y + 86, 20, a, isosc ? "Freq" : "Rate", isosc && floor(g_get(ws) + 0.5) === 4);
+);
+
+function g_band(b, x, y, w, h) local(a, o, ft, dl, xc, lf, uf, eu, el) (
+  a = 4 + b;
+  o = (b - 1) * 6;
+  g_card(x, y, w, h, a, b === 1 ? "Band 1" : b === 2 ? "Band 2" : "Band 3");
+  lf = g_get(18); uf = g_get(19);
+  eu = max(200, min(floor(srate / 6), uf)); el = max(0, min(eu, lf));
+  b === 1 ? ( g_fmt(19, eu); strcpy(#gbr, "above "); strcat(#gbr, #gval); )
+  : b === 2 ? ( g_fmt(18, el); strcpy(#gbr, #gval); strcat(#gbr, " - "); g_fmt(19, eu); strcat(#gbr, #gval); )
+  : ( g_fmt(18, el); strcpy(#gbr, "below "); strcat(#gbr, #gval); );
+  g_font(12, 0); g_col(5); g_txt(#gbr, x + w - 14, y + 18, 2);
+  g_knob(19 + b, x + 46, y + 72, 21, a, "Drive", 0);
+  g_seg(23 + o, x + 96, y + 34, w - 110, 24, a);
+  g_curve(x + 96, y + 64, w - 110, 52, b, a);
+  ft = floor(g_get(23 + o) + 0.5) === 0;
+  xc = (w - 24) / 5;
+  g_knob(24 + o, x + 12 + xc * 0.5, y + 154, 17, a, "Freq", ft);
+  g_knob(25 + o, x + 12 + xc * 1.5, y + 154, 17, a, "Q", ft);
+  g_knob(26 + o, x + 12 + xc * 2.5, y + 154, 17, a, "Res", ft);
+  g_knob(27 + o, x + 12 + xc * 3.5, y + 154, 17, 0, "LFO 1", ft);
+  g_knob(28 + o, x + 12 + xc * 4.5, y + 154, 17, 1, "LFO 2", ft);
+  g_col(3); g_frect(x + 12, y + 206, w - 24, 1); g_frect(x + w - 92, y + 214, 1, 68);
+  g_font(11, 'b'); g_col(6);
+  g_txt("DELAY", x + 14, y + 216, 0); g_txt("OUT", x + w - 80, y + 216, 0);
+  dl = floor(g_get(41 + (b - 1) * 3) * srate) < 1;
+  g_knob(41 + (b - 1) * 3, x + 44, y + 242, 17, a, "Time", 0);
+  g_knob(42 + (b - 1) * 3, x + 112, y + 242, 17, a, "Feedback", dl);
+  g_knob(43 + (b - 1) * 3, x + 180, y + 242, 17, a, "Wet", dl);
+  g_knob(49 + b, x + w - 46, y + 242, 17, a, "Gain", 0);
+);
+
+function g_rm(k, x, y, w, h) local(a, s1, s2, tw) (
+  a = 7 + k;
+  g_card(x, y, w, h, a, k === 1 ? "Ring Mod 1" : k === 2 ? "Ring Mod 2" : "Ring Mod 3");
+  s1 = k === 1 ? 2 : k === 2 ? 4 : 2; s2 = k === 1 ? 3 : k === 2 ? 3 : 4;
+  strcpy(#grm, k === 1 ? "Osc 1 × Osc 2" : k === 2 ? "Input × Osc 2" : "Osc 1 × Input");
+  g_font(12, 0); tw = g_tw(#grm);
+  g_acc(s2); g_disc(x + w - 18, y + 18, 4);
+  g_col(5); g_txt(#grm, x + w - 28, y + 18, 2);
+  g_acc(s1); g_disc(x + w - 38 - tw, y + 18, 4);
+  g_knob(8 + k, x + w * 0.3, y + 60, 19, a, "Depth", 0);
+  g_knob(k === 1 ? 13 : k === 2 ? 15 : 17, x + w * 0.7, y + 60, 19, a, "Gain", 0);
+);
+
+function g_sacc(s) local(k) (
+  s <= 2 ? 0 : s <= 4 ? 1 : s <= 6 || s === 12 ? 2 : s <= 8 || s === 14 ? 3 : s === 16 ? 4 :
+  s === 9 || s === 13 ? 8 : s === 10 || s === 15 ? 9 : s === 11 || s === 17 ? 10 : s <= 19 ? 2 : s <= 22 ? s - 15 :
+  s <= 40 ? ( k = (s - 23) % 6; k === 4 ? 0 : k === 5 ? 1 : 5 + floor((s - 23) / 6); ) :
+  s <= 49 ? 5 + floor((s - 41) / 3) : s - 45;
+);
+
+function g_hintbar(y) (
+  g_col(9); g_frect(0, y, GW, GH - y);
+  g_font(12, 0);
+  ghover > 0 ? (
+    g_col(4); g_txt(GT[ghover * GTS + 5], 14, y + 11, 0);
+    g_acc(g_sacc(ghover));
+    g_txt(g_fmt(ghover, g_get(ghover)), 14 + g_tw(GT[ghover * GTS + 5]) + 12, y + 11, 0);
+    g_col(5);
+    ghover >= 9 && ghover <= 11 ? g_txt("0 = none (+6 dB)   1 = AM   2 = RM", GW - 14, y + 11, 2)
+    : g_unit(ghover) === 6 ? g_txt("click a segment, or use the wheel", GW - 14, y + 11, 2)
+    : g_txt("drag   Shift fine   wheel   double-click resets", GW - 14, y + 11, 2);
+  ) : (
+    g_col(5); g_txt("Hermes Filter by Steve Harris, ported to JSFX. Hover a control for details.", 14, y + 11, 0);
+  );
+);
+
+// ---------------------------------------------------------------- frame
+
+GW = 1040; GH = 720;
+!ginit ? ( g_tables(); g_pal_init(); ginit = 1; );
+
+gz = max(0.4, min(gfx_w / GW, gfx_h / GH));
+gox = floor((gfx_w - GW * gz) * 0.5); goy = 0;
+gmx = (mouse_x - gox) / gz; gmy = (mouse_y - goy) / gz;
+gnow = time_precise();
+gdown = mouse_cap & 1;
+gclick = gdown && !gpdown;
+gshift = (mouse_cap & 8) ? 1 : 0;
+gwheel = mouse_wheel; mouse_wheel = 0;
+ghover = 0;
+!gdown && gact ? ( gact > 0 ? g_touch_end(gact); gact = 0; gkind = 0; );
+
+g_col(0); gfx_rect(0, 0, gfx_w, gfx_h, 1);
+g_title();
+
+g_src(12, 52, 214, 140, 0, "LFO 1", 2, 1, 0);
+g_src(236, 52, 214, 140, 1, "LFO 2", 4, 3, 0);
+g_src(460, 52, 214, 140, 2, "Osc 1", 6, 5, 1);
+g_src(684, 52, 214, 140, 3, "Osc 2", 8, 7, 1);
+g_card(908, 52, 120, 140, 4, "Input");
+g_font(12, 0); g_col(5); g_txt("into the mix", 968, 46 + 52, 1);
+g_knob(16, 968, 52 + 86, 22, 4, "Gain", 0);
+
+g_card(12, 200, 196, 112, 2, "Osc Levels");
+g_knob(12, 12 + 54, 200 + 60, 19, 2, "Osc 1", 0);
+g_knob(14, 12 + 142, 200 + 60, 19, 3, "Osc 2", 0);
+g_rm(1, 218, 200, 264, 112);
+g_rm(2, 492, 200, 264, 112);
+g_rm(3, 766, 200, 262, 112);
+
+g_xover(12, 320, 1016, 68);
+
+g_band(1, 12, 396, 332, 292);
+g_band(2, 354, 396, 332, 292);
+g_band(3, 696, 396, 332, 292);
+
+g_hintbar(696);
+
+gpdown = gdown;

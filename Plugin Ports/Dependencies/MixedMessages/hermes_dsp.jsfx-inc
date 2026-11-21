@@ -1,0 +1,519 @@
+@init
+SWH_FIX = 1;
+
+function swh_alloc(n) local(r) global(swh_mp) (
+  r = swh_mp; swh_mp += n; memset(r, 0, n); r;
+);
+
+function swh_round(x) local(r) (
+  r = floor(x + 0.5);
+  (r - x === 0.5) && ((r & 1) !== 0) ? r - 1 : r;
+);
+
+function swh_f_clamp(x, a, b) local(x1, x2) (
+  x1 = abs(x - a); x2 = abs(x - b);
+  x = (x1 + a) + b; x -= x2; x * 0.5;
+);
+
+function swh_db_co(g) ( g > -90 ? 10 ^ (g * 0.05) : 0; );
+
+function swh_rand() local(a, b, x) global(SWH_RT, swh_rp) (
+  a = SWH_RT[(swh_rp - 31) % 34]; b = SWH_RT[(swh_rp - 3) % 34];
+  x = a + b; x >= 4294967296 ? x -= 4294967296;
+  SWH_RT[swh_rp % 34] = x;
+  swh_rp += 1;
+  floor(x / 2);
+);
+
+function swh_srand(seed) local(i, w, hi, lo) global(SWH_RT, swh_rp) (
+  !SWH_RT ? SWH_RT = swh_alloc(34);
+  seed === 0 ? seed = 1;
+  SWH_RT[0] = seed;
+  w = seed;
+  i = 1; loop(30,
+    hi = floor(w / 127773); lo = w - (127773 * hi);
+    w = (16807 * lo) - (2836 * hi);
+    w < 0 ? w += 2147483647;
+    SWH_RT[i] = w;
+    i += 1;
+  );
+  i = 31; loop(3, SWH_RT[i] = SWH_RT[i - 31]; i += 1;);
+  swh_rp = 34;
+  loop(310, swh_rand());
+);
+
+function blo_iround(x) local(r) (
+  r = swh_round(x);
+  r >= 2147483648 || r < -2147483648 || r !== r ? -2147483648 : r;
+);
+
+function blo_tables_build(ts) local(w, h, i, all, tc, tp, t, p, sign, mx, stride) (
+  stride = ts + 4;
+  all = swh_alloc(stride * 126);
+  tp = swh_alloc(256);
+  tc = 0;
+  t = all + (stride * tc); tc += 1;
+  w = 0; loop(4, tp[(w * 64) + 0] = t; w += 1;);
+  t = all + (stride * tc); tc += 1;
+  i = 0; loop(stride, t[i] = sin(((i * 2) * $pi) / ts); i += 1;);
+  w = 0; loop(4, tp[(w * 64) + 1] = t; w += 1;);
+  h = 2; loop(62, tp[h] = t; h += 1;);
+  t = tp[64 + 1];
+  h = 2; loop(62,
+    (h % 2) === 0 ? tp[64 + h] = t : (
+      sign = (h % 4) === 3 ? -1 : 1;
+      t = all + (stride * tc); tc += 1;
+      tp[64 + h] = t;
+      p = tp[64 + (h - 1)];
+      i = 0; loop(stride, t[i] = p[i] + ((sign * sin((((i * h) * 2) * $pi) / ts)) / (h * h)); i += 1;);
+    );
+    h += 1;
+  );
+  t = tp[128 + 1];
+  h = 2; loop(62,
+    (h % 2) === 0 ? tp[128 + h] = t : (
+      t = all + (stride * tc); tc += 1;
+      tp[128 + h] = t;
+      p = tp[128 + (h - 1)];
+      i = 0; loop(stride, t[i] = p[i] + (sin((((i * h) * 2) * $pi) / ts) / h); i += 1;);
+    );
+    h += 1;
+  );
+  h = 2; loop(62,
+    t = all + (stride * tc); tc += 1;
+    tp[192 + h] = t;
+    p = tp[192 + (h - 1)];
+    i = 0; loop(stride, t[i] = p[i] + (sin((((i * h) * 2) * $pi) / ts) / h); i += 1;);
+    h += 1;
+  );
+  h = 1; loop(tc - 1,
+    t = all + (h * stride);
+    mx = 0;
+    i = 0; loop(ts, abs(t[i]) > mx ? mx = abs(t[i]); i += 1;);
+    mx = 1 / mx;
+    i = 0; loop(stride, t[i] *= mx; i += 1;);
+    h += 1;
+  );
+  tp;
+);
+
+function blo_h_tables_new(ts) local(i, r) global(blo_cache) (
+  !blo_cache ? blo_cache = swh_alloc(16);
+  r = 0; i = 0;
+  loop(8, r === 0 && blo_cache[2 * i] === ts ? r = blo_cache[(2 * i) + 1]; i += 1;);
+  r === 0 ? (
+    r = blo_tables_build(ts);
+    i = 0; while (blo_cache[2 * i] !== 0) (i += 1;);
+    blo_cache[2 * i] = ts; blo_cache[(2 * i) + 1] = r;
+  );
+  r;
+);
+
+function blo_h_new(tp, ts, wave, sample_rate) local(o) (
+  o = swh_alloc(16);
+  o[0] = tp;
+  o[1] = wave;
+  o[12] = sample_rate;
+  o[11] = sample_rate * 0.49;
+  o[2] = 0;
+  o[4] = (ts * 65536) / sample_rate;
+  o[5] = (ts * 65536) - 1;
+  o[6] = ts;
+  o[8] = tp[0];
+  o[9] = tp[0];
+  o;
+);
+
+function blo_hd_set_freq(o, f) local(ff, tab_num, tp) (
+  tp = o[0];
+  ff = abs(f) + 0.00001;
+  o[3] = blo_iround(f * o[4]);
+  tab_num = abs(swh_round((o[11] / ff) - 0.5));
+  tab_num >= 64 ? tab_num = 63 : tab_num < 0 ? tab_num = 0;
+  o[8] = tp[(o[1] * 64) + tab_num];
+  o[10] = (o[11] / ff) - tab_num;
+  o[10] > 1 ? o[10] = 1;
+  tab_num -= 1;
+  tab_num < 0 ? tab_num = 0;
+  o[9] = tp[(o[1] * 64) + tab_num];
+);
+
+function hermesFilter_setup_svf(sv, fs, fc, q, t) (
+  sv[0] = 2 * sin(($pi * fc) / (fs * 3));
+  sv[1] = 2 * cos(((q ^ 0.1) * $pi) * 0.5);
+  sv[2] = sqrt((sv[1] * 0.5) + 0.01);
+  sv[8] = t === 1 ? 5 : t === 2 ? 3 : t === 3 ? 4 : t === 4 ? 7 : 6;
+);
+
+function hermesFilter_setup_f_svf(sv, fs, fc) (
+  sv[0] = 2 * sin(($pi * fc) / (fs * 3));
+);
+
+function hermesFilter_wave_tbl(wave) local(w) (
+  w = blo_iround(wave);
+  w === 0 ? 0 : w === 1 ? 1 : w === 2 ? 3 : w === 3 ? 2 : 23;
+);
+
+function hermesFilter_inst(st) local(sample_rate, tp, i) global(swh_sr) (
+  sample_rate = floor(swh_sr);
+  st[21] = sample_rate;
+  st[20] = 0;
+  tp = st[0] = blo_h_tables_new(1024);
+  st[1] = blo_h_new(tp, 1024, 0, swh_sr);
+  st[2] = blo_h_new(tp, 1024, 0, swh_sr);
+  st[3] = blo_h_new(tp, 1024, 0, swh_sr);
+  st[4] = blo_h_new(tp, 1024, 0, swh_sr);
+  st[12] = swh_alloc(10);
+  st[13] = swh_alloc(10);
+  i = 0; loop(3,
+    st[14 + i] = swh_alloc(sample_rate * 2);
+    st[17 + i] = 0;
+    st[9 + i] = swh_alloc(10);
+    i += 1;
+  );
+  st[22] = swh_alloc(14 * 3);
+  st[5] = 0; st[6] = 0; st[7] = 0; st[8] = 0;
+  hermesFilter_setup_svf(st[9], 0, 0, 0, 0);
+  hermesFilter_setup_svf(st[10], 0, 0, 0, 0);
+  hermesFilter_setup_svf(st[11], 0, 0, 0, 0);
+  hermesFilter_setup_svf(st[12], sample_rate, 1000, 0, 2);
+  hermesFilter_setup_svf(st[13], sample_rate, 100, 0, 1);
+);
+
+function mm_params() (
+  MM_PV[0] = h_lfo1_freq;
+  MM_PV[1] = h_lfo1_wave;
+  MM_PV[2] = h_lfo2_freq;
+  MM_PV[3] = h_lfo2_wave;
+  MM_PV[4] = h_osc1_freq;
+  MM_PV[5] = h_osc1_wave;
+  MM_PV[6] = h_osc2_freq;
+  MM_PV[7] = h_osc2_wave;
+  MM_PV[8] = h_rm1_depth;
+  MM_PV[9] = h_rm2_depth;
+  MM_PV[10] = h_rm3_depth;
+  MM_PV[11] = h_osc1_gain_db;
+  MM_PV[12] = h_rm1_gain_db;
+  MM_PV[13] = h_osc2_gain_db;
+  MM_PV[14] = h_rm2_gain_db;
+  MM_PV[15] = h_in_gain_db;
+  MM_PV[16] = h_rm3_gain_db;
+  MM_PV[17] = h_xover_lfreqp;
+  MM_PV[18] = h_xover_ufreqp;
+  MM_PV[19] = h_drive1;
+  MM_PV[20] = h_drive2;
+  MM_PV[21] = h_drive3;
+  MM_PV[22] = h_filt1_type;
+  MM_PV[23] = h_filt1_freq;
+  MM_PV[24] = h_filt1_q;
+  MM_PV[25] = h_filt1_res;
+  MM_PV[26] = h_filt1_lfo1;
+  MM_PV[27] = h_filt1_lfo2;
+  MM_PV[28] = h_filt2_type;
+  MM_PV[29] = h_filt2_freq;
+  MM_PV[30] = h_filt2_q;
+  MM_PV[31] = h_filt2_res;
+  MM_PV[32] = h_filt2_lfo1;
+  MM_PV[33] = h_filt2_lfo2;
+  MM_PV[34] = h_filt3_type;
+  MM_PV[35] = h_filt3_freq;
+  MM_PV[36] = h_filt3_q;
+  MM_PV[37] = h_filt3_res;
+  MM_PV[38] = h_filt3_lfo1;
+  MM_PV[39] = h_filt3_lfo2;
+  MM_PV[40] = h_dela1_length;
+  MM_PV[41] = h_dela1_fb;
+  MM_PV[42] = h_dela1_wet;
+  MM_PV[43] = h_dela2_length;
+  MM_PV[44] = h_dela2_fb;
+  MM_PV[45] = h_dela2_wet;
+  MM_PV[46] = h_dela3_length;
+  MM_PV[47] = h_dela3_fb;
+  MM_PV[48] = h_dela3_wet;
+  MM_PV[49] = h_band1_gain_db;
+  MM_PV[50] = h_band2_gain_db;
+  MM_PV[51] = h_band3_gain_db;
+);
+
+function mm_setup(st, pv) local(lfo1_freq, lfo1_wave, lfo2_freq, lfo2_wave, osc1_freq, osc1_wave,
+    osc2_freq, osc2_wave, rm1_depth, rm2_depth, rm3_depth, osc1_gain_db, rm1_gain_db, osc2_gain_db, rm2_gain_db,
+    in_gain_db, rm3_gain_db, xover_lfreqp, xover_ufreqp, drive1, drive2, drive3, filt1_type, filt1_freq, filt1_q,
+    filt1_res, filt1_lfo1, filt1_lfo2, filt2_type, filt2_freq, filt2_q, filt2_res, filt2_lfo1, filt2_lfo2, filt3_type,
+    filt3_freq, filt3_q, filt3_res, filt3_lfo1, filt3_lfo2, dela1_length, dela1_fb, dela1_wet, dela2_length, dela2_fb,
+    dela2_wet, dela3_length, dela3_fb, dela3_wet, band1_gain_db, band2_gain_db, band3_gain_db, input, output,
+    osc1_d, osc2_d, lfo1_d, lfo2_d, lfo1, lfo2, lfo1_phase, lfo2_phase, xover_b1_data, xover_b2_data, count,
+    sample_rate, osc1_gain, rm1_gain, osc2_gain, rm2_gain, in_gain, rm3_gain, osc1, osc2, in, rm1, rm2, rm3, mixer1,
+    mixer2, xover_ufreq, xover_lfreq, v, x, ax, sv, dl, dp, sr2, ry, pos, i, a, xover, band_gain, dist, drive, filt,
+    filt_freq, filt_res, filt_lfo1, filt_lfo2, filt_t, dela, dela_wet, dela_fb, dela_offset, dn) global(SWH_FIX) (
+  a = st[22];
+  xover = a; band_gain = a + 3; dist = a + 6; drive = a + 9; filt = a + 12; filt_freq = a + 15; filt_res = a + 18;
+  filt_lfo1 = a + 21; filt_lfo2 = a + 24; filt_t = a + 27; dela = a + 30; dela_wet = a + 33; dela_fb = a + 36;
+  dela_offset = a + 39;
+  lfo1_freq = pv[0]; lfo1_wave = pv[1]; lfo2_freq = pv[2]; lfo2_wave = pv[3];
+  osc1_freq = pv[4]; osc1_wave = pv[5]; osc2_freq = pv[6]; osc2_wave = pv[7];
+  rm1_depth = pv[8]; rm2_depth = pv[9]; rm3_depth = pv[10];
+  osc1_gain_db = pv[11]; rm1_gain_db = pv[12]; osc2_gain_db = pv[13]; rm2_gain_db = pv[14]; in_gain_db = pv[15];
+  rm3_gain_db = pv[16];
+  xover_lfreqp = pv[17]; xover_ufreqp = pv[18];
+  drive1 = pv[19]; drive2 = pv[20]; drive3 = pv[21];
+  filt1_type = pv[22]; filt1_freq = pv[23]; filt1_q = pv[24]; filt1_res = pv[25]; filt1_lfo1 = pv[26]; filt1_lfo2 = pv[27];
+  filt2_type = pv[28]; filt2_freq = pv[29]; filt2_q = pv[30]; filt2_res = pv[31]; filt2_lfo1 = pv[32]; filt2_lfo2 = pv[33];
+  filt3_type = pv[34]; filt3_freq = pv[35]; filt3_q = pv[36]; filt3_res = pv[37]; filt3_lfo1 = pv[38]; filt3_lfo2 = pv[39];
+  dela1_length = pv[40]; dela1_fb = pv[41]; dela1_wet = pv[42];
+  dela2_length = pv[43]; dela2_fb = pv[44]; dela2_wet = pv[45];
+  dela3_length = pv[46]; dela3_fb = pv[47]; dela3_wet = pv[48];
+  band1_gain_db = pv[49]; band2_gain_db = pv[50]; band3_gain_db = pv[51];
+  input = pv[52]; output = pv[53];
+  osc1_d = st[1]; osc2_d = st[2]; lfo1_d = st[3]; lfo2_d = st[4];
+  lfo1 = st[5]; lfo2 = st[6]; lfo1_phase = st[7]; lfo2_phase = st[8];
+  xover_b1_data = st[12]; xover_b2_data = st[13];
+  count = st[20]; sample_rate = st[21];
+  sr2 = 2 * sample_rate;
+
+  xover_ufreq = swh_f_clamp(xover_ufreqp, 200, floor(sample_rate / 6));
+  xover_lfreq = swh_f_clamp(xover_lfreqp, 0, xover_ufreq);
+  hermesFilter_setup_f_svf(xover_b1_data, sample_rate, xover_ufreq);
+  hermesFilter_setup_f_svf(xover_b2_data, sample_rate, xover_lfreq);
+
+  dela_offset[0] = dela1_length * sample_rate;
+  dela_offset[1] = dela2_length * sample_rate;
+  dela_offset[2] = dela3_length * sample_rate;
+  i = 0; loop(3,
+    v = dela_offset[i];
+    v = v < 0 ? ceil(v) : floor(v);
+    v > sr2 || v < 0 ? v = 0;
+    dela_offset[i] = v;
+    dela[i] = 0;
+    filt_t[i] = SWH_FIX ? (v = pv[22 + (6 * i)]; v < 0 ? ceil(v) : floor(v)) : 0;
+    i += 1;
+  );
+
+  osc1_gain = swh_db_co(osc1_gain_db);
+  osc2_gain = swh_db_co(osc2_gain_db);
+  in_gain = swh_db_co(in_gain_db);
+  rm1_gain = swh_db_co(rm1_gain_db);
+  rm2_gain = swh_db_co(rm2_gain_db);
+  rm3_gain = swh_db_co(rm3_gain_db);
+  band_gain[0] = swh_db_co(band1_gain_db);
+  band_gain[1] = swh_db_co(band2_gain_db);
+  band_gain[2] = swh_db_co(band3_gain_db);
+
+  osc1_d[1] = hermesFilter_wave_tbl(osc1_wave);
+  osc2_d[1] = hermesFilter_wave_tbl(osc2_wave);
+  lfo1_d[1] = hermesFilter_wave_tbl(lfo1_wave);
+  lfo2_d[1] = hermesFilter_wave_tbl(lfo2_wave);
+  blo_hd_set_freq(osc1_d, osc1_freq);
+  blo_hd_set_freq(osc2_d, osc2_freq);
+  blo_hd_set_freq(lfo1_d, lfo1_freq * 16);
+  blo_hd_set_freq(lfo2_d, lfo2_freq * 16);
+
+  hermesFilter_setup_svf(st[9], sample_rate, filt1_freq, filt1_q, filt1_type < 0 ? ceil(filt1_type) : floor(filt1_type));
+  hermesFilter_setup_svf(st[10], sample_rate, filt2_freq, filt2_q, filt2_type < 0 ? ceil(filt2_type) : floor(filt2_type));
+  hermesFilter_setup_svf(st[11], sample_rate, filt3_freq, filt3_q, filt3_type < 0 ? ceil(filt3_type) : floor(filt3_type));
+  filt_freq[0] = filt1_freq; filt_freq[1] = filt2_freq; filt_freq[2] = filt3_freq;
+  filt_res[0] = filt1_res; filt_res[1] = filt2_res; filt_res[2] = filt3_res;
+  filt_lfo1[0] = filt1_lfo1; filt_lfo1[1] = filt2_lfo1; filt_lfo1[2] = filt3_lfo1;
+  filt_lfo2[0] = filt1_lfo2; filt_lfo2[1] = filt2_lfo2; filt_lfo2[2] = filt3_lfo2;
+  SWH_FIX ? (
+    i = 0; loop(3,
+      hermesFilter_setup_f_svf(st[9 + i], sample_rate, filt_freq[i] + ((filt_lfo1[i] * lfo1) + (filt_lfo2[i] * lfo2)));
+      i += 1;
+    );
+  );
+
+  drive[0] = drive1; drive[1] = drive2; drive[2] = drive3;
+
+  dela_wet[0] = dela1_wet; dela_wet[1] = dela2_wet; dela_wet[2] = dela3_wet;
+  dela_fb[0] = dela1_fb; dela_fb[1] = dela2_fb; dela_fb[2] = dela3_fb;
+
+  ry = SWH_FIX ? 2 / 2147483647 : 0.5 / 2147483647;
+  st[40] = osc1_gain; st[41] = osc2_gain; st[42] = in_gain; st[43] = rm1_gain; st[44] = rm2_gain;
+  st[45] = rm3_gain; st[46] = rm1_depth; st[47] = rm2_depth; st[48] = rm3_depth; st[49] = lfo1_freq;
+  st[50] = lfo2_freq; st[51] = ry; st[52] = sr2;
+);
+
+function mm_load(st) instance(cnt, lf1, lf2, lp1, lp2, srt, ry, sr2, lx1, lx2, r1h, r1c, r2h, r2c, r3h, r3c, go1, go2, gin, gr1, gr2, gr3, o1_nz, o1_ph, o1_st, o1_mk, o1_tl, o1_th, o1_xf, o2_nz, o2_ph, o2_st, o2_mk, o2_tl, o2_th, o2_xf, l1_nz, l1_ph, l1_st, l1_mk, l1_tl, l1_th, l1_xf, l2_nz, l2_ph, l2_st, l2_mk, l2_tl, l2_th, l2_xf, xh_f, xh_q, xh_n, xh_b, xh_l, xh_x, xl_f, xl_q, xl_n, xl_b, xl_l, xl_x, f1_f, f1_q, f1_n, f1_b, f1_l, f1_x, f2_f, f2_q, f2_n, f2_b, f2_l, f2_x, f3_f, f3_q, f3_n, f3_b, f3_l, f3_x, dr1, dm1, ft1, op1, ff1, fa1, fb1, rs1, do1, dw1, dk1, bg1, dl1, dp1, dr2, dm2, ft2, op2, ff2, fa2, fb2, rs2, do2, dw2, dk2, bg2, dl2, dp2, dr3, dm3, ft3, op3, ff3, fa3, fb3, rs3, do3, dw3, dk3, bg3, dl3, dp3) local(o, sv, a) (
+  a = st[22];
+  cnt = st[20]; lf1 = st[5]; lf2 = st[6]; lp1 = st[7]; lp2 = st[8]; srt = st[21];
+  go1 = st[40]; go2 = st[41]; gin = st[42]; gr1 = st[43]; gr2 = st[44]; gr3 = st[45];
+  r1h = st[46] * 0.5; r1c = 2 - st[46]; r2h = st[47] * 0.5; r2c = 2 - st[47]; r3h = st[48] * 0.5; r3c = 2 - st[48];
+  lx1 = st[49] * 16; lx2 = st[50] * 16; ry = st[51]; sr2 = st[52];
+  o = st[1]; o1_nz = o[1] === 23; o1_ph = o[2]; o1_st = o[3]; o1_mk = o[5]; o1_tl = o[9]; o1_th = o[8]; o1_xf = o[10];
+  o = st[2]; o2_nz = o[1] === 23; o2_ph = o[2]; o2_st = o[3]; o2_mk = o[5]; o2_tl = o[9]; o2_th = o[8]; o2_xf = o[10];
+  o = st[3]; l1_nz = o[1] === 23; l1_ph = o[2]; l1_st = o[3]; l1_mk = o[5]; l1_tl = o[9]; l1_th = o[8]; l1_xf = o[10];
+  o = st[4]; l2_nz = o[1] === 23; l2_ph = o[2]; l2_st = o[3]; l2_mk = o[5]; l2_tl = o[9]; l2_th = o[8]; l2_xf = o[10];
+  sv = st[12]; xh_f = sv[0]; xh_q = sv[1]; xh_n = sv[2]; xh_b = sv[4]; xh_l = sv[5]; xh_x = sv[9];
+  sv = st[13]; xl_f = sv[0]; xl_q = sv[1]; xl_n = sv[2]; xl_b = sv[4]; xl_l = sv[5]; xl_x = sv[9];
+  sv = st[9]; f1_f = sv[0]; f1_q = sv[1]; f1_n = sv[2]; f1_b = sv[4]; f1_l = sv[5]; f1_x = sv[9];
+  sv = st[10]; f2_f = sv[0]; f2_q = sv[1]; f2_n = sv[2]; f2_b = sv[4]; f2_l = sv[5]; f2_x = sv[9];
+  sv = st[11]; f3_f = sv[0]; f3_q = sv[1]; f3_n = sv[2]; f3_b = sv[4]; f3_l = sv[5]; f3_x = sv[9];
+  dr1 = a[9]; dm1 = a[9] - 1; ft1 = a[27]; op1 = (st[9])[8]; ff1 = a[15]; fa1 = a[21]; fb1 = a[24]; rs1 = a[18];
+  do1 = a[39]; dw1 = a[33]; dk1 = a[36]; bg1 = a[3]; dl1 = st[14]; dp1 = st[17];
+  dr2 = a[10]; dm2 = a[10] - 1; ft2 = a[28]; op2 = (st[10])[8]; ff2 = a[16]; fa2 = a[22]; fb2 = a[25]; rs2 = a[19];
+  do2 = a[40]; dw2 = a[34]; dk2 = a[37]; bg2 = a[4]; dl2 = st[15]; dp2 = st[18];
+  dr3 = a[11]; dm3 = a[11] - 1; ft3 = a[29]; op3 = (st[11])[8]; ff3 = a[17]; fa3 = a[23]; fb3 = a[26]; rs3 = a[20];
+  do3 = a[41]; dw3 = a[35]; dk3 = a[38]; bg3 = a[5]; dl3 = st[16]; dp3 = st[19];
+);
+
+function mm_save(st) instance(cnt, lf1, lf2, lp1, lp2, srt, ry, sr2, lx1, lx2, r1h, r1c, r2h, r2c, r3h, r3c, go1, go2, gin, gr1, gr2, gr3, o1_nz, o1_ph, o1_st, o1_mk, o1_tl, o1_th, o1_xf, o2_nz, o2_ph, o2_st, o2_mk, o2_tl, o2_th, o2_xf, l1_nz, l1_ph, l1_st, l1_mk, l1_tl, l1_th, l1_xf, l2_nz, l2_ph, l2_st, l2_mk, l2_tl, l2_th, l2_xf, xh_f, xh_q, xh_n, xh_b, xh_l, xh_x, xl_f, xl_q, xl_n, xl_b, xl_l, xl_x, f1_f, f1_q, f1_n, f1_b, f1_l, f1_x, f2_f, f2_q, f2_n, f2_b, f2_l, f2_x, f3_f, f3_q, f3_n, f3_b, f3_l, f3_x, dr1, dm1, ft1, op1, ff1, fa1, fb1, rs1, do1, dw1, dk1, bg1, dl1, dp1, dr2, dm2, ft2, op2, ff2, fa2, fb2, rs2, do2, dw2, dk2, bg2, dl2, dp2, dr3, dm3, ft3, op3, ff3, fa3, fb3, rs3, do3, dw3, dk3, bg3, dl3, dp3) local(o, sv) (
+  st[20] = cnt; st[5] = lf1; st[6] = lf2; st[7] = lp1; st[8] = lp2;
+  o = st[1]; o[2] = o1_ph;
+  o = st[2]; o[2] = o2_ph;
+  o = st[3]; o[2] = l1_ph;
+  o = st[4]; o[2] = l2_ph;
+  sv = st[12]; sv[0] = xh_f; sv[4] = xh_b; sv[5] = xh_l; sv[9] = xh_x;
+  sv = st[13]; sv[0] = xl_f; sv[4] = xl_b; sv[5] = xl_l; sv[9] = xl_x;
+  sv = st[9]; sv[0] = f1_f; sv[4] = f1_b; sv[5] = f1_l; sv[9] = f1_x;
+  sv = st[10]; sv[0] = f2_f; sv[4] = f2_b; sv[5] = f2_l; sv[9] = f2_x;
+  sv = st[11]; sv[0] = f3_f; sv[4] = f3_b; sv[5] = f3_l; sv[9] = f3_x;
+  st[17] = dp1; st[18] = dp2; st[19] = dp3;
+);
+
+function mm_step(xin) instance(cnt, lf1, lf2, lp1, lp2, srt, ry, sr2, lx1, lx2, r1h, r1c, r2h, r2c, r3h, r3c, go1, go2, gin, gr1, gr2, gr3, o1_nz, o1_ph, o1_st, o1_mk, o1_tl, o1_th, o1_xf, o2_nz, o2_ph, o2_st, o2_mk, o2_tl, o2_th, o2_xf, l1_nz, l1_ph, l1_st, l1_mk, l1_tl, l1_th, l1_xf, l2_nz, l2_ph, l2_st, l2_mk, l2_tl, l2_th, l2_xf, xh_f, xh_q, xh_n, xh_b, xh_l, xh_x, xl_f, xl_q, xl_n, xl_b, xl_l, xl_x, f1_f, f1_q, f1_n, f1_b, f1_l, f1_x, f2_f, f2_q, f2_n, f2_b, f2_l, f2_x, f3_f, f3_q, f3_n, f3_b, f3_l, f3_x, dr1, dm1, ft1, op1, ff1, fa1, fb1, rs1, do1, dw1, dk1, bg1, dl1, dp1, dr2, dm2, ft2, op2, ff2, fa2, fb2, rs2, do2, dw2, dk2, bg2, dl2, dp2, dr3, dm3, ft3, op3, ff3, fa3, fb3, rs3, do3, dw3, dk3, bg3, dl3, dp3) local(ph, fr, ix, t0, lo, hi, ns1, ns2, xin, m1, m2, q1, q2, q3, xv, ax, ds, fo, dv, u, x0, v, h, c16) (
+  cnt += 1;
+  o1_nz ? ns1 = (swh_rand() * ry) - 1 : (
+      ph = o1_ph; fr = (ph & 65535) * 0.00001525878; ix = floor(ph / 65536); o1_ph = (ph + o1_st) & o1_mk;
+      t0 = o1_tl[ix]; lo = t0 + (fr * (o1_tl[ix + 1] - t0)); t0 = o1_th[ix]; hi = t0 + (fr * (o1_th[ix + 1] - t0));
+      ns1 = lo + (o1_xf * (hi - lo));
+  );
+  o2_nz ? ns2 = (swh_rand() * ry) - 1 : (
+      ph = o2_ph; fr = (ph & 65535) * 0.00001525878; ix = floor(ph / 65536); o2_ph = (ph + o2_st) & o2_mk;
+      t0 = o2_tl[ix]; lo = t0 + (fr * (o2_tl[ix + 1] - t0)); t0 = o2_th[ix]; hi = t0 + (fr * (o2_th[ix + 1] - t0));
+      ns2 = lo + (o2_xf * (hi - lo));
+  );
+  (cnt & 15) === 1 ? (
+    l1_nz ? (
+      lp1 += lx1;
+      lp1 >= srt ? ( lp1 -= srt; lf1 = (swh_rand() * ry) - 1; );
+    ) : (
+      ph = l1_ph; fr = (ph & 65535) * 0.00001525878; ix = floor(ph / 65536); l1_ph = (ph + l1_st) & l1_mk;
+      t0 = l1_tl[ix]; lo = t0 + (fr * (l1_tl[ix + 1] - t0)); t0 = l1_th[ix]; hi = t0 + (fr * (l1_th[ix + 1] - t0));
+      lf1 = lo + (l1_xf * (hi - lo));
+    );
+    l2_nz ? (
+      lp2 += lx2;
+      lp2 >= srt ? ( lp2 -= srt; lf2 = (swh_rand() * ry) - 1; );
+    ) : (
+      ph = l2_ph; fr = (ph & 65535) * 0.00001525878; ix = floor(ph / 65536); l2_ph = (ph + l2_st) & l2_mk;
+      t0 = l2_tl[ix]; lo = t0 + (fr * (l2_tl[ix + 1] - t0)); t0 = l2_th[ix]; hi = t0 + (fr * (l2_th[ix + 1] - t0));
+      lf2 = lo + (l2_xf * (hi - lo));
+    );
+  );
+  q1 = ns2 * ((r1h * ns1) + r1c);
+  q2 = xin * ((r2h * ns2) + r2c);
+  q3 = ns1 * ((r3h * xin) + r3c);
+  m1 = (((((ns1 * go1) + (ns2 * go2)) + (xin * gin)) + (q1 * gr1)) + (q2 * gr2)) + (q3 * gr3);
+  m1 = m1 < 0.8 && m1 > -0.8 ? m1 : m1 > 0 ? 1 - (MM_CA / (MM_CB + m1)) : -(1 - (MM_CA / (MM_CB - m1)));
+    u = xh_n * m1; x0 = xh_x; xh_x = u;
+    v = x0 + ((u - x0) * MM_T1); abs(v) < MM_FTZ ? v = 0; abs(xh_l) < MM_FTZ ? xh_l = 0;
+    xh_b = xh_b - (((xh_b * xh_b) * xh_b) * 0.001); h = (v - xh_l) - (xh_q * xh_b);
+    xh_b = xh_b + (xh_f * h); xh_l = xh_l + (xh_f * xh_b);
+    v = x0 + ((u - x0) * MM_T2); abs(v) < MM_FTZ ? v = 0; abs(xh_l) < MM_FTZ ? xh_l = 0;
+    xh_b = xh_b - (((xh_b * xh_b) * xh_b) * 0.001); h = (v - xh_l) - (xh_q * xh_b);
+    xh_b = xh_b + (xh_f * h); xh_l = xh_l + (xh_f * xh_b);
+    v = x0 + (u - x0); abs(v) < MM_FTZ ? v = 0; abs(xh_l) < MM_FTZ ? xh_l = 0;
+    xh_b = xh_b - (((xh_b * xh_b) * xh_b) * 0.001); h = (v - xh_l) - (xh_q * xh_b);
+    xh_b = xh_b + (xh_f * h); xh_l = xh_l + (xh_f * xh_b);
+  q1 = h;
+    u = xl_n * m1; x0 = xl_x; xl_x = u;
+    v = x0 + ((u - x0) * MM_T1); abs(v) < MM_FTZ ? v = 0; abs(xl_l) < MM_FTZ ? xl_l = 0;
+    xl_b = xl_b - (((xl_b * xl_b) * xl_b) * 0.001); h = (v - xl_l) - (xl_q * xl_b);
+    xl_b = xl_b + (xl_f * h); xl_l = xl_l + (xl_f * xl_b);
+    v = x0 + ((u - x0) * MM_T2); abs(v) < MM_FTZ ? v = 0; abs(xl_l) < MM_FTZ ? xl_l = 0;
+    xl_b = xl_b - (((xl_b * xl_b) * xl_b) * 0.001); h = (v - xl_l) - (xl_q * xl_b);
+    xl_b = xl_b + (xl_f * h); xl_l = xl_l + (xl_f * xl_b);
+    v = x0 + (u - x0); abs(v) < MM_FTZ ? v = 0; abs(xl_l) < MM_FTZ ? xl_l = 0;
+    xl_b = xl_b - (((xl_b * xl_b) * xl_b) * 0.001); h = (v - xl_l) - (xl_q * xl_b);
+    xl_b = xl_b + (xl_f * h); xl_l = xl_l + (xl_f * xl_b);
+  q3 = xl_l;
+  q2 = (m1 - q1) - q3;
+  c16 = cnt % 16 === 1;
+  m2 = 0;
+  xv = q1; ax = abs(xv);
+  ds = (xv * (ax + dr1)) / (((xv * xv) + (dm1 * ax)) + 1);
+  ft1 === 0 ? fo = ds : (
+    c16 ? f1_f = 2 * sin(($pi * (ff1 + ((fa1 * lf1) + (fb1 * lf2)))) / (srt * 3));
+    u = f1_n * (ds + (rs1 * f1_b)); x0 = f1_x; f1_x = u;
+    v = x0 + ((u - x0) * MM_T1); abs(v) < MM_FTZ ? v = 0; abs(f1_l) < MM_FTZ ? f1_l = 0;
+    f1_b = f1_b - (((f1_b * f1_b) * f1_b) * 0.001); h = (v - f1_l) - (f1_q * f1_b);
+    f1_b = f1_b + (f1_f * h); f1_l = f1_l + (f1_f * f1_b);
+    v = x0 + ((u - x0) * MM_T2); abs(v) < MM_FTZ ? v = 0; abs(f1_l) < MM_FTZ ? f1_l = 0;
+    f1_b = f1_b - (((f1_b * f1_b) * f1_b) * 0.001); h = (v - f1_l) - (f1_q * f1_b);
+    f1_b = f1_b + (f1_f * h); f1_l = f1_l + (f1_f * f1_b);
+    v = x0 + (u - x0); abs(v) < MM_FTZ ? v = 0; abs(f1_l) < MM_FTZ ? f1_l = 0;
+    f1_b = f1_b - (((f1_b * f1_b) * f1_b) * 0.001); h = (v - f1_l) - (f1_q * f1_b);
+    f1_b = f1_b + (f1_f * h); f1_l = f1_l + (f1_f * f1_b);
+    fo = op1 === 3 ? h : op1 === 4 ? f1_b : op1 === 5 ? f1_l : op1 === 6 ? f1_l - h : f1_l + h;
+  );
+  do1 === 0 ? ( dv = fo; dl1[dp1] = 0; ) : ( dv = (dl1[dp1] * dw1) + fo; dl1[(dp1 + do1) % sr2] = fo + (dv * dk1); );
+  dp1 = (dp1 + 1) % sr2;
+  m2 += bg1 * dv;
+  xv = q2; ax = abs(xv);
+  ds = (xv * (ax + dr2)) / (((xv * xv) + (dm2 * ax)) + 1);
+  ft2 === 0 ? fo = ds : (
+    c16 ? f2_f = 2 * sin(($pi * (ff2 + ((fa2 * lf1) + (fb2 * lf2)))) / (srt * 3));
+    u = f2_n * (ds + (rs2 * f2_b)); x0 = f2_x; f2_x = u;
+    v = x0 + ((u - x0) * MM_T1); abs(v) < MM_FTZ ? v = 0; abs(f2_l) < MM_FTZ ? f2_l = 0;
+    f2_b = f2_b - (((f2_b * f2_b) * f2_b) * 0.001); h = (v - f2_l) - (f2_q * f2_b);
+    f2_b = f2_b + (f2_f * h); f2_l = f2_l + (f2_f * f2_b);
+    v = x0 + ((u - x0) * MM_T2); abs(v) < MM_FTZ ? v = 0; abs(f2_l) < MM_FTZ ? f2_l = 0;
+    f2_b = f2_b - (((f2_b * f2_b) * f2_b) * 0.001); h = (v - f2_l) - (f2_q * f2_b);
+    f2_b = f2_b + (f2_f * h); f2_l = f2_l + (f2_f * f2_b);
+    v = x0 + (u - x0); abs(v) < MM_FTZ ? v = 0; abs(f2_l) < MM_FTZ ? f2_l = 0;
+    f2_b = f2_b - (((f2_b * f2_b) * f2_b) * 0.001); h = (v - f2_l) - (f2_q * f2_b);
+    f2_b = f2_b + (f2_f * h); f2_l = f2_l + (f2_f * f2_b);
+    fo = op2 === 3 ? h : op2 === 4 ? f2_b : op2 === 5 ? f2_l : op2 === 6 ? f2_l - h : f2_l + h;
+  );
+  do2 === 0 ? ( dv = fo; dl2[dp2] = 0; ) : ( dv = (dl2[dp2] * dw2) + fo; dl2[(dp2 + do2) % sr2] = fo + (dv * dk2); );
+  dp2 = (dp2 + 1) % sr2;
+  m2 += bg2 * dv;
+  xv = q3; ax = abs(xv);
+  ds = (xv * (ax + dr3)) / (((xv * xv) + (dm3 * ax)) + 1);
+  ft3 === 0 ? fo = ds : (
+    c16 ? f3_f = 2 * sin(($pi * (ff3 + ((fa3 * lf1) + (fb3 * lf2)))) / (srt * 3));
+    u = f3_n * (ds + (rs3 * f3_b)); x0 = f3_x; f3_x = u;
+    v = x0 + ((u - x0) * MM_T1); abs(v) < MM_FTZ ? v = 0; abs(f3_l) < MM_FTZ ? f3_l = 0;
+    f3_b = f3_b - (((f3_b * f3_b) * f3_b) * 0.001); h = (v - f3_l) - (f3_q * f3_b);
+    f3_b = f3_b + (f3_f * h); f3_l = f3_l + (f3_f * f3_b);
+    v = x0 + ((u - x0) * MM_T2); abs(v) < MM_FTZ ? v = 0; abs(f3_l) < MM_FTZ ? f3_l = 0;
+    f3_b = f3_b - (((f3_b * f3_b) * f3_b) * 0.001); h = (v - f3_l) - (f3_q * f3_b);
+    f3_b = f3_b + (f3_f * h); f3_l = f3_l + (f3_f * f3_b);
+    v = x0 + (u - x0); abs(v) < MM_FTZ ? v = 0; abs(f3_l) < MM_FTZ ? f3_l = 0;
+    f3_b = f3_b - (((f3_b * f3_b) * f3_b) * 0.001); h = (v - f3_l) - (f3_q * f3_b);
+    f3_b = f3_b + (f3_f * h); f3_l = f3_l + (f3_f * f3_b);
+    fo = op3 === 3 ? h : op3 === 4 ? f3_b : op3 === 5 ? f3_l : op3 === 6 ? f3_l - h : f3_l + h;
+  );
+  do3 === 0 ? ( dv = fo; dl3[dp3] = 0; ) : ( dv = (dl3[dp3] * dw3) + fo; dl3[(dp3 + do3) % sr2] = fo + (dv * dk3); );
+  dp3 = (dp3 + 1) % sr2;
+  m2 += bg3 * dv;
+  m2 < 0.8 && m2 > -0.8 ? m2 : m2 > 0 ? 1 - (MM_CA / (MM_CB + m2)) : -(1 - (MM_CA / (MM_CB - m2)));
+);
+
+function mm_reset() (
+  swh_sr = srate;
+  swh_mp = MM_MEM;
+  blo_cache = 0;
+  SWH_RT = 0;
+  swh_srand(1);
+  MM_PV = swh_alloc(64);
+  MM_STL = swh_alloc(4096);
+  MM_STR = swh_alloc(4096);
+  hermesFilter_inst(MM_STL);
+  hermesFilter_inst(MM_STR);
+  mm_params();
+  mm_setup(MM_STL, MM_PV); mmL.mm_load(MM_STL);
+  mm_setup(MM_STR, MM_PV); mmR.mm_load(MM_STR);
+);
+
+function mm_block() (
+  mm_params();
+  mmL.mm_save(MM_STL); mm_setup(MM_STL, MM_PV); mmL.mm_load(MM_STL);
+  mmR.mm_save(MM_STR); mm_setup(MM_STR, MM_PV); mmR.mm_load(MM_STR);
+);
+
+MM_MEM = 65536;
+MM_T1 = 1 / 3;
+MM_T2 = 2 / 3;
+MM_FTZ = 2 ^ -111;
+MM_CA = (1 - 0.8) * (1 - 0.8);
+MM_CB = 1 - (2 * 0.8);

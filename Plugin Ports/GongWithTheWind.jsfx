@@ -1,0 +1,623 @@
+desc: Gong with the Wind (SWH Gong port) by chmaha
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+tags: instrument gong percussion physical modelling swh
+about:
+  Gong with the Wind: Steve Harris's gong physical model with its gong beater built in. Eight nonlinear
+  waveguides make up the gong: four spokes from the centre to the north, east, south and west points, and four arcs
+  around the rim between those points. The beater feeds the centre and a mic listens between the centre and the south
+  point. The gong is mono and plays on both output channels.
+  Play any MIDI note on any channel to strike it: velocity sets how hard, the note number doesn't change the sound.
+  Click the gong face to strike it from the window (nearer the boss is harder). Audio on the track drives the beater
+  too: transients above 0.05 trigger a strike and the audio passes into the gong at the impulse gain. A strike lasts
+  the strike duration and can't be retriggered until it has finished (as upstream). MIDI passes through.
+  Click a spoke or a rim arc (or its button) to edit its size and stiffness. Stiffness + sets the dispersion of the
+  waveguide; stiffness - takes over only on large negative swings, the nonlinear part. Drag the mic along the south
+  spoke. Double-click a knob to reset it, hold Shift to drag finely, or use the mouse wheel.
+  Ported from Steve Harris's swh-plugins (Gong model and Gong beater), https://github.com/swh/lv2 (GPL-3).
+  Upstream bugs fixed in this version: the waveguide damping filter cut the lows instead of the highs (it now cuts
+  the highs, and the upstream per-pass loss is kept so the low end still decays as before); the beater's strike
+  oscillators were not reset for each strike (alternating polarity, drift and clicks).
+  Defaults differ from upstream so the gong rings audibly: strike duration 9 ms (upstream 100 ms, a subsonic
+  push), inner and outer damping 5 % (upstream 50 %, under a second of ring), mic position 54 % and a longer,
+  stiffer north spoke (size 100 %, stiffness + 0.78, stiffness - 0.23).
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/GongWithTheWind/gong_dsp.jsfx-inc
+
+slider1:inner_damp=0.05<0,1,0.0001>-Inner Damping
+slider2:outer_damp=0.05<0,1,0.0001>-Outer Damping
+slider3:mic_pos=0.54<0,1,0.0001>-Mic Position
+slider4:size1=1<0,1,0.0001>-Spoke N Size
+slider5:stiff_p1=0.78<0,1,0.0001>-Spoke N Stiffness +
+slider6:stiff_m1=0.23<0,1,0.0001>-Spoke N Stiffness -
+slider7:size2=0.5<0,1,0.0001>-Spoke E Size
+slider8:stiff_p2=0.5<0,1,0.0001>-Spoke E Stiffness +
+slider9:stiff_m2=0.5<0,1,0.0001>-Spoke E Stiffness -
+slider10:size3=0.5<0,1,0.0001>-Spoke S Size
+slider11:stiff_p3=0.5<0,1,0.0001>-Spoke S Stiffness +
+slider12:stiff_m3=0.5<0,1,0.0001>-Spoke S Stiffness -
+slider13:size4=0.5<0,1,0.0001>-Spoke W Size
+slider14:stiff_p4=0.5<0,1,0.0001>-Spoke W Stiffness +
+slider15:stiff_m4=0.5<0,1,0.0001>-Spoke W Stiffness -
+slider16:size5=0.5<0,1,0.0001>-Rim NE Size
+slider17:stiff_p5=0.5<0,1,0.0001>-Rim NE Stiffness +
+slider18:stiff_m5=0.5<0,1,0.0001>-Rim NE Stiffness -
+slider19:size6=0.5<0,1,0.0001>-Rim SE Size
+slider20:stiff_p6=0.5<0,1,0.0001>-Rim SE Stiffness +
+slider21:stiff_m6=0.5<0,1,0.0001>-Rim SE Stiffness -
+slider22:size7=0.5<0,1,0.0001>-Rim SW Size
+slider23:stiff_p7=0.5<0,1,0.0001>-Rim SW Stiffness +
+slider24:stiff_m7=0.5<0,1,0.0001>-Rim SW Stiffness -
+slider25:size8=0.5<0,1,0.0001>-Rim NW Size
+slider26:stiff_p8=0.5<0,1,0.0001>-Rim NW Stiffness +
+slider27:stiff_m8=0.5<0,1,0.0001>-Rim NW Stiffness -
+slider28:impulse_db=-70<-70,0,0.01>-Impulse Gain (dB)
+slider29:strike_db=0<-70,0,0.01>-Strike Gain (dB)
+slider30:strike_s=0.009<0.001,0.2,0.0001>-Strike Duration (s)
+
+import Dependencies/GongWithTheWind/gong_dsp.jsfx-inc
+
+in_pin:L
+in_pin:R
+out_pin:L
+out_pin:R
+
+options:no_meter
+@init
+ext_noinit = gfx_ext_retina = ext_nodenorm = 1;
+
+GQO = 0;
+GQA = 1024;
+GMB = 2048;
+GSL = 10240;
+GSH = 10280;
+GSD = 10320;
+GST = 10360;
+GRP = 10400;
+GW_MEM = 16384;
+
+function g_tables() (
+  GSL[1] = 0; GSH[1] = 1; GSD[1] = 0.05; GST[1] = 0.0001;
+  GSL[2] = 0; GSH[2] = 1; GSD[2] = 0.05; GST[2] = 0.0001;
+  GSL[3] = 0; GSH[3] = 1; GSD[3] = 0.54; GST[3] = 0.0001;
+  GSL[4] = 0; GSH[4] = 1; GSD[4] = 1; GST[4] = 0.0001;
+  GSL[5] = 0; GSH[5] = 1; GSD[5] = 0.78; GST[5] = 0.0001;
+  GSL[6] = 0; GSH[6] = 1; GSD[6] = 0.23; GST[6] = 0.0001;
+  GSL[7] = 0; GSH[7] = 1; GSD[7] = 0.5; GST[7] = 0.0001;
+  GSL[8] = 0; GSH[8] = 1; GSD[8] = 0.5; GST[8] = 0.0001;
+  GSL[9] = 0; GSH[9] = 1; GSD[9] = 0.5; GST[9] = 0.0001;
+  GSL[10] = 0; GSH[10] = 1; GSD[10] = 0.5; GST[10] = 0.0001;
+  GSL[11] = 0; GSH[11] = 1; GSD[11] = 0.5; GST[11] = 0.0001;
+  GSL[12] = 0; GSH[12] = 1; GSD[12] = 0.5; GST[12] = 0.0001;
+  GSL[13] = 0; GSH[13] = 1; GSD[13] = 0.5; GST[13] = 0.0001;
+  GSL[14] = 0; GSH[14] = 1; GSD[14] = 0.5; GST[14] = 0.0001;
+  GSL[15] = 0; GSH[15] = 1; GSD[15] = 0.5; GST[15] = 0.0001;
+  GSL[16] = 0; GSH[16] = 1; GSD[16] = 0.5; GST[16] = 0.0001;
+  GSL[17] = 0; GSH[17] = 1; GSD[17] = 0.5; GST[17] = 0.0001;
+  GSL[18] = 0; GSH[18] = 1; GSD[18] = 0.5; GST[18] = 0.0001;
+  GSL[19] = 0; GSH[19] = 1; GSD[19] = 0.5; GST[19] = 0.0001;
+  GSL[20] = 0; GSH[20] = 1; GSD[20] = 0.5; GST[20] = 0.0001;
+  GSL[21] = 0; GSH[21] = 1; GSD[21] = 0.5; GST[21] = 0.0001;
+  GSL[22] = 0; GSH[22] = 1; GSD[22] = 0.5; GST[22] = 0.0001;
+  GSL[23] = 0; GSH[23] = 1; GSD[23] = 0.5; GST[23] = 0.0001;
+  GSL[24] = 0; GSH[24] = 1; GSD[24] = 0.5; GST[24] = 0.0001;
+  GSL[25] = 0; GSH[25] = 1; GSD[25] = 0.5; GST[25] = 0.0001;
+  GSL[26] = 0; GSH[26] = 1; GSD[26] = 0.5; GST[26] = 0.0001;
+  GSL[27] = 0; GSH[27] = 1; GSD[27] = 0.5; GST[27] = 0.0001;
+  GSL[28] = -70; GSH[28] = 0; GSD[28] = -70; GST[28] = 0.01;
+  GSL[29] = -70; GSH[29] = 0; GSD[29] = 0; GST[29] = 0.01;
+  GSL[30] = 0.001; GSH[30] = 0.2; GSD[30] = 0.009; GST[30] = 0.0001;
+);
+
+g_tables();
+gs_req = gs_seen = 0;
+gw_hits = 0; gw_hitlvl = 0;
+gq_n = gq_i = gq_t = 0; gq_next = -1;
+last_srate = 0;
+
+@slider
+last_srate !== srate ? (
+  last_srate = srate;
+  gw_init();
+);
+
+@block
+gw_block();
+!gw_sleep && gw_brun === 0 && gw_qn > gw_mso ? gw_zero();
+gq_n = 0;
+gs_req !== gs_seen ? (
+  gs_seen = gs_req;
+  GQO[0] = 0; GQA[0] = max(0.051, min(1, gs_amp)); gq_n = 1;
+);
+while ((gq_len = midirecv_buf(gq_ofs, GMB, 8192)) > 0) (
+  gq_len === 3 && (GMB[0] & 0xF0) === 0x90 && GMB[2] > 0 ? (
+    gq_a = max(GMB[2] / 127, 0.051);
+    gq_o = max(0, min(samplesblock - 1, gq_ofs | 0));
+    gq_n > 0 && GQO[gq_n - 1] === gq_o ? (
+      GQA[gq_n - 1] = max(GQA[gq_n - 1], gq_a);
+    ) : gq_n < 1024 ? (
+      GQO[gq_n] = gq_o; GQA[gq_n] = gq_a; gq_n += 1;
+    );
+  );
+  midisend_buf(gq_ofs, GMB, gq_len);
+);
+gq_i = 0; gq_t = 0;
+gq_next = gq_n > 0 ? GQO[0] : -1;
+
+@sample
+gq_x = (spl0 + spl1) * 0.5;
+gq_t === gq_next ? (
+  gq_x += GQA[gq_i];
+  gq_i += 1;
+  gq_next = gq_i < gq_n ? GQO[gq_i] : -1;
+);
+gq_t += 1;
+gw_sleep ? (
+  gq_x !== 0 ? ( gw_sleep = 0; gq_y = gw_tick(gq_x); ) : ( gq_y = 0; );
+) : (
+  gq_y = gw_tick(gq_x);
+  abs(gw_al) + abs(gw_be) + abs(gw_ga) + abs(gw_de) + abs(gw_ep) < 0.0000000000001 ? ( gw_qn += 1; ) : ( gw_qn = 0; );
+);
+spl0 = gq_y;
+spl1 = gq_y;
+
+@gfx 940 650
+
+function g_auto(s, e)
+(
+<?
+  max_sliders >= 30 ? printf("slider_automate(2^(s-1), e);") : (
+    printf("  s == 1 ? slider_automate(inner_damp, e) :\n");
+    printf("  s == 2 ? slider_automate(outer_damp, e) :\n");
+    printf("  s == 3 ? slider_automate(mic_pos, e) :\n");
+    printf("  s == 4 ? slider_automate(size1, e) :\n");
+    printf("  s == 5 ? slider_automate(stiff_p1, e) :\n");
+    printf("  s == 6 ? slider_automate(stiff_m1, e) :\n");
+    printf("  s == 7 ? slider_automate(size2, e) :\n");
+    printf("  s == 8 ? slider_automate(stiff_p2, e) :\n");
+    printf("  s == 9 ? slider_automate(stiff_m2, e) :\n");
+    printf("  s == 10 ? slider_automate(size3, e) :\n");
+    printf("  s == 11 ? slider_automate(stiff_p3, e) :\n");
+    printf("  s == 12 ? slider_automate(stiff_m3, e) :\n");
+    printf("  s == 13 ? slider_automate(size4, e) :\n");
+    printf("  s == 14 ? slider_automate(stiff_p4, e) :\n");
+    printf("  s == 15 ? slider_automate(stiff_m4, e) :\n");
+    printf("  s == 16 ? slider_automate(size5, e) :\n");
+    printf("  s == 17 ? slider_automate(stiff_p5, e) :\n");
+    printf("  s == 18 ? slider_automate(stiff_m5, e) :\n");
+    printf("  s == 19 ? slider_automate(size6, e) :\n");
+    printf("  s == 20 ? slider_automate(stiff_p6, e) :\n");
+    printf("  s == 21 ? slider_automate(stiff_m6, e) :\n");
+    printf("  s == 22 ? slider_automate(size7, e) :\n");
+    printf("  s == 23 ? slider_automate(stiff_p7, e) :\n");
+    printf("  s == 24 ? slider_automate(stiff_m7, e) :\n");
+    printf("  s == 25 ? slider_automate(size8, e) :\n");
+    printf("  s == 26 ? slider_automate(stiff_p8, e) :\n");
+    printf("  s == 27 ? slider_automate(stiff_m8, e) :\n");
+    printf("  s == 28 ? slider_automate(impulse_db, e) :\n");
+    printf("  s == 29 ? slider_automate(strike_db, e) :\n");
+    printf("  s == 30 ? slider_automate(strike_s, e) :\n");
+  );
+?> 0;
+);
+
+// ================================================================ helpers
+
+function g_put(s, v) ( slider(s) !== v ? ( slider(s) = v; g_auto(s, 0); g_auto(s, 1); ); );
+function g_set(s, v) local(lo, hi, st) (
+  lo = GSL[s]; hi = GSH[s]; st = GST[s];
+  v = floor(v / st + 0.5) * st;
+  g_put(s, max(lo, min(hi, v)));
+);
+function g_sx(x) ( gox + x * gz; );
+function g_sy(y) ( goy + y * gz; );
+function g_in(x, y, w, h) ( gmx >= x && gmx < x + w && gmy >= y && gmy < y + h; );
+function g_dbl(id) local(t, d) (
+  t = time_precise();
+  d = id == glastid && t - glastt < 0.32;
+  glastid = id; glastt = t;
+  d;
+);
+function g_hint(s) ( ghint = s; );
+
+function g_col(c) (
+  c == 0 ? gfx_set(0.055, 0.060, 0.071, 1)
+  : c == 1 ? gfx_set(0.090, 0.097, 0.112, 1)
+  : c == 2 ? gfx_set(0.133, 0.143, 0.163, 1)
+  : c == 3 ? gfx_set(0.196, 0.208, 0.233, 1)
+  : c == 4 ? gfx_set(0.930, 0.937, 0.949, 1)
+  : c == 5 ? gfx_set(0.720, 0.740, 0.780, 1)
+  : c == 6 ? gfx_set(0.580, 0.600, 0.640, 1)
+  : c == 8 ? gfx_set(0.165, 0.176, 0.200, 1)
+  : gfx_set(1, 1, 1, 1);
+);
+function g_acol(a, al) (
+  a == 0 ? gfx_set(0.937, 0.463, 0.502, al)
+  : a == 1 ? gfx_set(0.388, 0.698, 0.965, al)
+  : a == 2 ? gfx_set(0.945, 0.733, 0.388, al)
+  : gfx_set(0.333, 0.824, 0.733, al);
+);
+function g_amix(a, t) local(cr, cg, cb) (
+  g_acol(a, 1); cr = gfx_r; cg = gfx_g; cb = gfx_b;
+  gfx_set(0.090 + (cr - 0.090) * t, 0.097 + (cg - 0.097) * t, 0.112 + (cb - 0.112) * t, 1);
+);
+function g_font(n) (
+  n == 1 ? gfx_setfont(1, "Arial", 13 * gz, 0)
+  : n == 2 ? gfx_setfont(2, "Arial", 14 * gz, 'b')
+  : n == 3 ? gfx_setfont(3, "Arial", 16 * gz, 'b')
+  : n == 4 ? gfx_setfont(4, "Arial", 22 * gz, 'b')
+  : gfx_setfont(5, "Arial", 12 * gz, 0);
+);
+function g_txt(s, x, y, align) local(tw, th) (
+  gfx_measurestr(s, tw, th);
+  gfx_x = align == 1 ? g_sx(x) - tw / 2 : align == 2 ? g_sx(x) - tw : g_sx(x);
+  gfx_y = g_sy(y) - th / 2;
+  gfx_drawstr(s);
+);
+function g_tw(s) local(tw, th) ( gfx_measurestr(s, tw, th); tw / gz; );
+function g_frect(x, y, w, h) local(x1, y1, x2, y2) (
+  x1 = floor(g_sx(x) + 0.5); y1 = floor(g_sy(y) + 0.5);
+  x2 = floor(g_sx(x + w) + 0.5); y2 = floor(g_sy(y + h) + 0.5);
+  gfx_rect(x1, y1, max(1, x2 - x1), max(1, y2 - y1), 1);
+);
+function g_disc(x, y, r) ( gfx_circle(g_sx(x), g_sy(y), r * gz, 1, 1); );
+function g_ring(x, y, r) ( gfx_circle(g_sx(x), g_sy(y), r * gz, 0, 1); );
+function g_ln(x1, y1, x2, y2) ( gfx_line(g_sx(x1), g_sy(y1), g_sx(x2), g_sy(y2), 1); );
+function g_tarc(x, y, r, a0, a1, t) local(i) (
+  i = 0; loop(ceil(t * gz / 0.6), gfx_arc(g_sx(x), g_sy(y), r * gz - i * 0.6, a0, a1, 1); i += 1;);
+);
+function g_tline(x1, y1, x2, y2, t) local(i, nx, ny, l) (
+  l = sqrt(sqr(x2 - x1) + sqr(y2 - y1)) + 0.0001;
+  nx = -(y2 - y1) / l; ny = (x2 - x1) / l;
+  i = -t / 2;
+  while (i <= t / 2) ( g_ln(x1 + nx * i, y1 + ny * i, x2 + nx * i, y2 + ny * i); i += 0.5 / gz; );
+);
+
+function g_rrect(px0, py0, px1, py1, rad) local(al, j, j1, yc, dy, cov, half, xl, xr, lc, rc, ccx, ccy, hw, hh, e, ya, yb) (
+  al = gfx_a;
+  rad = max(0, min(rad, min(px1 - px0, py1 - py0) * 0.5));
+  rad < 1 ? gfx_rect(px0, py0, px1 - px0, py1 - py0, 1) : (
+    ccx = (px0 + px1) * 0.5; ccy = (py0 + py1) * 0.5;
+    hw = (px1 - px0) * 0.5 - rad; hh = (py1 - py0) * 0.5 - rad;
+    ya = ceil(py0 + rad); yb = floor(py1 - rad);
+    yb > ya ? gfx_rect(px0, ya, px1 - px0, yb - ya, 1) : ( ya = yb = ceil(py1); );
+    j = floor(py0); j1 = ceil(py1);
+    while (j < j1) (
+      j >= ya && j < yb ? j = yb;
+      yc = j + 0.5; dy = max(0, abs(yc - ccy) - hh);
+      cov = max(0, min(1, rad - dy + 0.5));
+      cov > 0 ? (
+        e = min(rad, dy);
+        half = hw + sqrt(max(0, rad * rad - e * e));
+        xl = ccx - half; xr = ccx + half;
+        lc = ceil(xl); rc = floor(xr);
+        gfx_a = al * cov;
+        rc > lc ? gfx_rect(lc, j, rc - lc, 1, 1);
+        lc - xl > 0 ? ( gfx_a = al * cov * (lc - xl); gfx_rect(lc - 1, j, 1, 1, 1); );
+        xr - rc > 0 ? ( gfx_a = al * cov * (xr - rc); gfx_rect(rc, j, 1, 1, 1); );
+      );
+      j += 1;
+    );
+  );
+  gfx_a = al;
+);
+function g_box(x, y, w, h, r, fc, lc) local(px0, py0, px1, py1, t) (
+  px0 = floor(g_sx(x) + 0.5); py0 = floor(g_sy(y) + 0.5);
+  px1 = floor(g_sx(x + w) + 0.5); py1 = floor(g_sy(y + h) + 0.5);
+  t = max(1, floor(gz + 0.5));
+  lc >= 0 ? (
+    g_col(lc); g_rrect(px0, py0, px1, py1, r * gz);
+    g_col(fc); g_rrect(px0 + t, py0 + t, px1 - t, py1 - t, r * gz - t);
+  ) : (
+    g_col(fc); g_rrect(px0, py0, px1, py1, r * gz);
+  );
+);
+function g_card(x, y, w, h, title, a) (
+  g_box(x, y, w, h, 8, 1, 3);
+  g_acol(a, 1); g_frect(x + 18, y + 19, 3, 12);
+  g_font(3); g_col(4);
+  g_txt(title, x + 28, y + 25, 0);
+);
+
+// ================================================================ widgets
+
+function g_fmt(s, fmt) local(v, k, ms, d) (
+  v = slider(s);
+  fmt == 0 ? sprintf(#gv, "%d %%", floor(v * 100 + 0.5))
+  : fmt == 1 ? (
+    k = floor((s - 4) / 3);
+    ms = (srate * (k < 4 ? 0.03643242 : 0.05722782)) | 0;
+    d = (ms * v) | 0; d = d > ms ? ms : d < 1 ? 1 : d;
+    sprintf(#gv, "%.1f ms", d / srate * 1000);
+  )
+  : fmt == 2 ? sprintf(#gv, "%.2f", v)
+  : fmt == 3 ? sprintf(#gv, "%.1f dB", v)
+  : v < 0.00995 ? sprintf(#gv, "%.1f ms", v * 1000) : sprintf(#gv, "%d ms", floor(v * 1000 + 0.5));
+  #gv;
+);
+
+function g_knob(cx, cy, r, s, label, fmt, a, hint) local(v, lo, hi, rng, hit, hot, norm, ang, cap, t, nv, sh) (
+  lo = GSL[s]; hi = GSH[s]; rng = hi - lo;
+  v = slider(s);
+  hit = sqr(gmx - cx) + sqr(gmy - cy) <= sqr(r + 4) || g_in(cx - r - 10, cy + r, 2 * r + 20, 34);
+  sh = (mouse_cap & 8) ? 1 : 0;
+  gclick && hit ? (
+    g_dbl(s) ? g_set(s, GSD[s]) : ( gact = s; gdy = gmy; gdv = v; gdsh = sh; );
+  );
+  gact == s && gdown ? (
+    sh != gdsh ? ( gdy = gmy; gdv = v; gdsh = sh; );
+    nv = gdv + (gdy - gmy) / (sh ? 1600 : 200) * rng;
+    g_set(s, nv);
+    mouse_cap |= 65536;
+  );
+  hit && gwheel != 0 && !gdown ? g_set(s, v + (gwheel > 0 ? 1 : -1) * rng * (sh ? 0.001 : 0.01));
+  v = slider(s);
+  hot = hit || gact == s;
+  hot ? g_hint(hint);
+  norm = max(0, min(1, (v - lo) / rng));
+  ang = -2.4 + 4.8 * norm;
+  t = max(2.4, r * 0.11);
+  g_amix(a, 0.18); g_tarc(cx, cy, r, -2.4, 2.4, t);
+  g_acol(a, 1); g_tarc(cx, cy, r, -2.4, ang, t);
+  cap = r - t - 3.5;
+  hot ? g_col(8) : g_col(2);
+  g_disc(cx, cy, cap);
+  g_col(3); g_ring(cx, cy, cap);
+  g_col(4);
+  g_tline(cx + sin(ang) * cap * 0.25, cy - cos(ang) * cap * 0.25, cx + sin(ang) * (cap - 1.5), cy - cos(ang) * (cap - 1.5), max(1.5, r * 0.07));
+  g_font(2); g_col(5);
+  g_txt(label, cx, cy + r + 12, 1);
+  g_font(1); hot ? g_acol(a, 1) : g_col(6);
+  g_txt(g_fmt(s, fmt), cx, cy + r + 28, 1);
+);
+
+function g_pill(x, y, w, h, label, on, a) local(px0, py0, px1, py1, t, hot) (
+  hot = g_in(x, y, w, h);
+  hot ? g_hint("Choose the waveguide to edit, or click it on the gong");
+  px0 = floor(g_sx(x) + 0.5); py0 = floor(g_sy(y) + 0.5);
+  px1 = floor(g_sx(x + w) + 0.5); py1 = floor(g_sy(y + h) + 0.5);
+  t = max(1, floor(gz + 0.5));
+  on ? (
+    g_acol(a, 1); g_rrect(px0, py0, px1, py1, (py1 - py0) / 2);
+  ) : (
+    g_col(3); g_rrect(px0, py0, px1, py1, (py1 - py0) / 2);
+    hot ? g_col(8) : g_col(2);
+    g_rrect(px0 + t, py0 + t, px1 - t, py1 - t, (py1 - py0) / 2 - t);
+  );
+  g_font(2);
+  on ? g_col(0) : hot ? g_col(4) : g_col(5);
+  g_txt(label, x + w / 2, y + h / 2, 1);
+  hot && gclick;
+);
+
+// ================================================================ gong
+
+function g_wgname(k) (
+  k == 0 ? "Spoke N" : k == 1 ? "Spoke E" : k == 2 ? "Spoke S" : k == 3 ? "Spoke W"
+  : k == 4 ? "Rim NE" : k == 5 ? "Rim SE" : k == 6 ? "Rim SW" : "Rim NW";
+);
+function g_lerp3(t, r1, g1, b1, r2, g2, b2) (
+  t = max(0, min(1, t));
+  gfx_set(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t, 1);
+);
+
+function g_gong_cache() local(Rp, sz, c, i, n, r, t, st, ox2, oy2) (
+  Rp = floor(gR * gz + 0.5);
+  sz = 2 * Rp + floor(16 * gz) + 8;
+  gfx_setimgdim(2, 0, 0);
+  gfx_setimgdim(2, sz, sz);
+  gfx_dest = 2;
+  g_col(1); gfx_rect(0, 0, sz, sz, 1);
+  c = floor(sz / 2);
+  gfx_set(0, 0, 0, 0.07);
+  i = 0; loop(7, gfx_circle(c + 3 * gz, c + 5 * gz, Rp + 7 * gz - i * gz, 1, 1); i += 1;);
+  gfx_set(0.26, 0.16, 0.07, 1); gfx_circle(c, c, Rp, 1, 1);
+  st = max(1, Rp / 150);
+  r = Rp - 1;
+  while (r > 0.885 * Rp) (
+    t = (Rp - 1 - r) / (0.115 * Rp);
+    t < 0.45 ? g_lerp3(t / 0.45, 0.52, 0.34, 0.14, 0.86, 0.66, 0.35) : g_lerp3((t - 0.45) / 0.55, 0.86, 0.66, 0.35, 0.44, 0.28, 0.11);
+    gfx_circle(c, c, r, 1, 1);
+    r -= st;
+  );
+  gfx_set(0.36, 0.23, 0.09, 1); gfx_circle(c, c, 0.885 * Rp, 1, 1);
+  r = 0.875 * Rp;
+  while (r > 0) (
+    t = r / (0.875 * Rp);
+    g_lerp3(1 - t, 0.60, 0.41, 0.17, 0.80, 0.60, 0.30);
+    gfx_circle(c, c, r, 1, 1);
+    r -= st;
+  );
+  r = 0.26; i = 0;
+  while (r < 0.86) (
+    (i & 1) ? gfx_set(0.24, 0.13, 0.03, 0.10) : gfx_set(1, 0.92, 0.72, 0.08);
+    gfx_circle(c, c, r * Rp, 0, 1);
+    r += 0.029 + 0.011 * ((i * 7) % 3); i += 1;
+  );
+  ox2 = c - 0.30 * Rp; oy2 = c - 0.36 * Rp;
+  r = 0.40 * Rp;
+  while (r > 1) (
+    gfx_set(1, 0.95, 0.80, 0.010);
+    gfx_circle(ox2, oy2, r, 1, 1);
+    r -= st * 2;
+  );
+  gfx_set(0.30, 0.19, 0.07, 1); gfx_circle(c, c, 0.205 * Rp, 1, 1);
+  r = 0.19 * Rp;
+  while (r > 0) (
+    t = 1 - r / (0.19 * Rp);
+    g_lerp3(t, 0.62, 0.43, 0.18, 0.99, 0.88, 0.60);
+    gfx_circle(c - 0.06 * Rp * t, c - 0.07 * Rp * t, r, 1, 1);
+    r -= st;
+  );
+  gfx_dest = -1;
+  gimgsz = sz; gimgz = gz;
+);
+
+function g_jx(j) ( j == 0 ? gcx : j == 1 ? gcx : j == 2 ? gcx + grj : j == 3 ? gcx : gcx - grj; );
+function g_jy(j) ( j == 0 ? gcy : j == 1 ? gcy - grj : j == 2 ? gcy : j == 3 ? gcy + grj : gcy; );
+
+function g_wgdist(k, px, py) local(dx, dy, l, t, ex, ey, rr, ang, a0) (
+  k < 4 ? (
+    ex = g_jx(k + 1) - gcx; ey = g_jy(k + 1) - gcy;
+    l = ex * ex + ey * ey;
+    t = max(0.22, min(1, ((px - gcx) * ex + (py - gcy) * ey) / l));
+    sqrt(sqr(px - (gcx + ex * t)) + sqr(py - (gcy + ey * t)));
+  ) : (
+    dx = px - gcx; dy = py - gcy;
+    rr = sqrt(dx * dx + dy * dy);
+    ang = atan2(dx, -dy); ang < 0 ? ang += 2 * $pi;
+    a0 = (k - 4) * $pi / 2;
+    ang >= a0 && ang <= a0 + $pi / 2 ? abs(rr - grj) : 1000;
+  );
+);
+
+function g_wgdraw(k, mode) local(t, a0, ex, ey) (
+  t = mode == 2 ? 7 : 5;
+  mode == 2 ? g_acol(1, 1) : mode == 1 ? gfx_set(0.98, 0.86, 0.58, 1) : gfx_set(0.33, 0.20, 0.08, 1);
+  k < 4 ? (
+    ex = g_jx(k + 1); ey = g_jy(k + 1);
+    g_tline(gcx + (ex - gcx) * 0.26, gcy + (ey - gcy) * 0.26, ex, ey, t);
+    mode == 2 ? ( gfx_set(0.80, 0.91, 1, 1); g_tline(gcx + (ex - gcx) * 0.26, gcy + (ey - gcy) * 0.26, ex, ey, 1.5); );
+  ) : (
+    a0 = (k - 4) * $pi / 2;
+    g_tarc(gcx, gcy, grj + t / 2, a0, a0 + $pi / 2, t);
+    mode == 2 ? ( gfx_set(0.80, 0.91, 1, 1); g_tarc(gcx, gcy, grj + 0.75, a0, a0 + $pi / 2, 1.5); );
+  );
+);
+
+function g_gong() local(i, dx, dy, rr, best, bd, d, my0, age, al, lv, mx0, rad, hot, amp) (
+  g_box(12, 56, 524, 562, 8, 1, 3);
+  g_acol(2, 1); g_frect(30, 75, 3, 12);
+  g_font(3); g_col(4); g_txt("Gong", 40, 81, 0);
+  g_font(5); g_col(6); g_txt("click to strike, or play any MIDI note", 518, 81, 2);
+
+  gimgz != gz || !gimgsz ? g_gong_cache();
+  gfx_x = floor(g_sx(gcx) - gimgsz / 2 + 0.5); gfx_y = floor(g_sy(gcy) - gimgsz / 2 + 0.5);
+  gfx_blit(2, 1, 0);
+
+  dx = gmx - gcx; dy = gmy - gcy; rr = sqrt(dx * dx + dy * dy);
+  mx0 = gcx; my0 = gcy + mic_pos * grj;
+  best = -1; bd = 11;
+  rr > 0.21 * gR && rr < gR + 6 ? (
+    i = 0; loop(8, d = g_wgdist(i, gmx, gmy); d < bd ? ( bd = d; best = i; ); i += 1;);
+  );
+  hot = gact == 0 ? (sqr(gmx - mx0) + sqr(gmy - my0) <= 144 ? -2 : best >= 0 ? best : rr <= gR ? -3 : -1) : -1;
+  gact == -2 ? hot = -2;
+
+  gclick && hot == -2 ? (
+    g_dbl(3) ? g_set(3, GSD[3]) : gact = -2;
+  );
+  gact == -2 && gdown ? g_set(3, (gmy - gcy) / grj);
+  gclick && hot >= 0 ? ( gsel = hot; g_dbl(100 + hot); );
+  gclick && hot == -3 ? (
+    amp = max(0.3, min(1, 1 - 0.7 * rr / gR));
+    gs_amp = amp; gs_req += 1;
+    gact = -3;
+  );
+  hot == -2 ? g_hint("Mic position: drag along the south spoke (centre = 0 %, south point = 100 %)")
+  : hot >= 0 ? g_hint("Click to edit this waveguide")
+  : hot == -3 ? g_hint("Click to strike (nearer the boss is harder)");
+
+  i = 0; loop(8, g_wgdraw(i, i == gsel ? 2 : i == hot ? 1 : 0); i += 1;);
+  i = 1; loop(4,
+    gfx_set(0.26, 0.15, 0.06, 1); g_disc(g_jx(i), g_jy(i), 7);
+    gfx_set(0.90, 0.72, 0.42, 1); g_disc(g_jx(i), g_jy(i), 3.5);
+    i += 1;
+  );
+
+  gw_hits != glasthits ? (
+    glasthits = gw_hits;
+    GRP[gripn * 2] = gnow; GRP[gripn * 2 + 1] = max(0.25, min(1, gw_hitlvl));
+    gripn = (gripn + 1) % 6;
+  );
+  i = 0; loop(6,
+    age = gnow - GRP[i * 2]; lv = GRP[i * 2 + 1];
+    age >= 0 && age < 1.1 && lv > 0 ? (
+      age < 0.35 ? ( gfx_set(1, 0.95, 0.78, 0.55 * lv * (1 - age / 0.35)); g_disc(gcx, gcy, 0.19 * gR); );
+      rad = 0.21 * gR + (gR * 0.97 - 0.21 * gR) * sqrt(age / 1.1);
+      al = sqr(1 - age / 1.1) * 0.6 * lv;
+      gfx_set(1, 0.94, 0.76, al); g_tarc(gcx, gcy, rad, 0, 2 * $pi, 3);
+      gfx_set(1, 0.94, 0.76, al * 0.5); g_tarc(gcx, gcy, rad - 10, 0, 2 * $pi, 2);
+    );
+    i += 1;
+  );
+
+  g_col(0); g_disc(mx0, my0, 10);
+  hot == -2 || gact == -2 ? g_acol(2, 1) : g_col(4);
+  g_disc(mx0, my0, 8);
+  g_col(0); g_disc(mx0, my0, 5.5);
+  hot == -2 || gact == -2 ? g_acol(2, 1) : g_col(5);
+  g_frect(mx0 - 1.5, my0 - 3.5, 3, 5);
+  g_font(2);
+  gfx_set(0.16, 0.10, 0.04, 1); g_txt("MIC", mx0 + 16, my0, 0);
+);
+
+// ================================================================ panels
+
+function g_panel_wg() local(i, x, y, base) (
+  x = 548; y = 56;
+  sprintf(#gt, "Waveguide: %s", g_wgname(gsel));
+  g_card(x, y, 380, 238, #gt, 1);
+  g_font(2); g_col(6);
+  g_txt("Spokes", x + 18, y + 62, 0);
+  g_txt("Rim", x + 18, y + 94, 0);
+  i = 0; loop(4,
+    g_pill(x + 90 + i * 68, y + 50, 60, 24, i == 0 ? "N" : i == 1 ? "E" : i == 2 ? "S" : "W", gsel == i, 1) ? gsel = i;
+    g_pill(x + 90 + i * 68, y + 82, 60, 24, i == 0 ? "NE" : i == 1 ? "SE" : i == 2 ? "SW" : "NW", gsel == i + 4, 1) ? gsel = i + 4;
+    i += 1;
+  );
+  base = 4 + gsel * 3;
+  g_knob(x + 70, y + 158, 30, base, "Size", 1, 1, gsel < 4 ? "Size: length of this spoke, up to 36.4 ms" : "Size: length of this rim arc, up to 57.2 ms");
+  g_knob(x + 190, y + 158, 30, base + 1, "Stiffness +", 2, 1, "Stiffness +: dispersion of this waveguide (all-pass)");
+  g_knob(x + 310, y + 158, 30, base + 2, "Stiffness -", 2, 1, "Stiffness -: dispersion on large negative swings only (the nonlinear part)");
+);
+
+function g_panel_gong() local(x, y) (
+  x = 548; y = 304;
+  g_card(x, y, 380, 150, "Gong", 2);
+  g_knob(x + 70, y + 74, 30, 1, "Inner Damping", 0, 2, "Inner damping: high-frequency loss in the four spokes");
+  g_knob(x + 190, y + 74, 30, 2, "Outer Damping", 0, 2, "Outer damping: high-frequency loss in the four rim arcs");
+  g_knob(x + 310, y + 74, 30, 3, "Mic Position", 0, 2, "Mic position: from the centre (0 %) to the south point (100 %)");
+);
+
+function g_panel_beater() local(x, y) (
+  x = 548; y = 464;
+  g_card(x, y, 380, 154, "Beater", 0);
+  g_knob(x + 70, y + 76, 30, 29, "Strike Gain", 3, 0, "Strike gain: level of the beater's strike");
+  g_knob(x + 190, y + 76, 30, 30, "Strike Duration", 4, 0, "Strike duration: length of each strike; no retrigger until it ends");
+  g_knob(x + 310, y + 76, 30, 28, "Impulse Gain", 3, 0, "Impulse gain: how much of the triggering audio or MIDI impulse passes into the gong");
+);
+
+// ================================================================ frame
+
+gz = min(gfx_w / 940, gfx_h / 650);
+gz <= 0 ? gz = 1;
+gox = floor((gfx_w - 940 * gz) / 2);
+goy = 0;
+gnow = time_precise();
+gR = 238; gcx = 274; gcy = 343; grj = 0.80 * gR;
+gdown = mouse_cap & 1;
+gclick = gdown && !gpdown;
+gmx = (mouse_x - gox) / gz;
+gmy = (mouse_y - goy) / gz;
+gwheel = mouse_wheel; mouse_wheel = 0;
+!gdown ? gact = 0;
+ghint = "";
+
+g_col(0); gfx_rect(0, 0, gfx_w, gfx_h, 1);
+g_font(4); g_col(4); g_txt("Gong with the Wind", 24, 28, 0);
+g_font(1); g_col(6); g_txt("SWH gong model with beater", 916, 28, 2);
+
+g_gong();
+g_panel_wg();
+g_panel_gong();
+g_panel_beater();
+
+g_font(5); g_col(6);
+strlen(ghint) ? g_txt(ghint, 16, 634, 0) : g_txt("Hover a control for help", 16, 634, 0);
+
+gpdown = gdown;

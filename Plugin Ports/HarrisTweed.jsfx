@@ -1,0 +1,1487 @@
+desc: Harris Tweed (SWH plugins port) by chmaha
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+tags: modular rack effects routing swh
+about:
+  Harris Tweed: a modular rack for 106 of Steve Harris's SWH audio plugins. Insert up to eight modules as
+  blocks and patch them with cables between their input and output jacks, from IN (track channels 1/2, plus 3/4 as
+  sidechain) to OUT. An output can feed any number of inputs and an input sums every cable plugged into it, so serial
+  chains, parallel blends, sidechains and modulation patches are all possible. A fresh rack passes the input straight
+  through.
+  Right-click the canvas (or use ADD MODULE) to insert a module after the selected block, or before OUT when nothing is
+  selected (hold Shift to insert it unpatched). Mono modules take the left signal and feed both sides. Drag between an
+  output jack and an input jack, in either direction, to add a cable; pull a cable well away from its path and release
+  to unplug it. Right-click cables, jacks or blocks to disconnect, bypass, remove or reset. Delete removes the selected
+  block. CABLE SLACK sets how loosely the cables hang.
+  The rack processes in fixed blocks of 128 samples and reports 128 samples plus the longest module latency path to
+  REAPER for compensation. Requires REAPER 7 or later (more than 64 sliders).
+  Ported from Steve Harris's swh-plugins, https://github.com/swh/lv2 (GPL-3). Upstream bugs fixed in this version:
+  Reverse Delay always 1 sample long; out-of-table reads in the Surround Encoder and Bode Shifter CV;
+  flanger and retro flanger blow-ups; multivoice chorus overflow; Transient mangler and GVerb out-of-bounds reads at
+  high sample rates; GVerb frozen at damping 1; lookahead limiter overshoot (output clip enabled); Fast Lookahead
+  limiter block-size dependence; SE4 muting at ratio 1; Dyson NaN at release 0; Satan Maximiser NaN on silence;
+  sine oscillator frequency clamp; wave shaper negative shapes; delay line wrap glitches; VyNil stuck clicks at 70/78
+  rpm; Multiband EQ gain error and latency report; Pitch Scaler dropping half the spectrum; GSM input wrap; DJ EQ false
+  latency; plate reverb damping (cut the lows, not the highs) and size at high sample rates; gong beater strike
+  reset; uninitialised state in Chebstortion and Offset.
+  GVerb by Juhana Sadeharju (GPL-2+). GSM 06.10 codec by Jutta Degener and Carsten Bormann, Technische Universitaet
+  Berlin (see Dependencies/HarrisTweed/GSM-COPYRIGHT.txt). Impulse convolver: impulses 1-3 captured by Steve Harris;
+  impulses 4-21 (Fender, Marshall and Matchless cabinets) were collected by someone else whose name and origin are
+  unknown, as Steve notes.
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/HarrisTweed/swh_dsp.jsfx-inc
+  Dependencies/HarrisTweed/GSM-COPYRIGHT.txt
+
+<?
+  k = 1; loop(8, printf("slider%d:mod%d=0<0,106,1>-Slot %d Module\n", k, k, k); k += 1);
+  k = 1; loop(8, printf("slider%d:byp%d=0<0,1,1{Off,On}>-Slot %d Bypass\n", 8 + k, k, k); k += 1);
+  k = 1; loop(32, printf("slider%d:cab%d=%d<0,1600,1>-Cable %d\n", 16 + k, k, k == 1 ? 37 : k == 2 ? 78 : 0, k); k += 1);
+  k = 1; loop(8, printf("slider%d:bx%d=0<0,960,1>-Slot %d X\n", 48 + k, k, k); k += 1);
+  k = 1; loop(8, printf("slider%d:by%d=0<0,700,1>-Slot %d Y\n", 56 + k, k, k); k += 1);
+  k = 0; loop(128, printf("slider%d:p%d_%d=0<0,1,0.000001>-Slot %d Param %d\n", 65 + k, floor(k / 16) + 1, k % 16 + 1, floor(k / 16) + 1, k % 16 + 1); k += 1);
+?>
+slider193:slack=0.428571<0,1,0.000001>-Cable Slack
+
+import Dependencies/HarrisTweed/swh_dsp.jsfx-inc
+
+in_pin:L
+in_pin:R
+in_pin:Sidechain L
+in_pin:Sidechain R
+out_pin:L
+out_pin:R
+
+options:maxmem=20000000 no_meter
+@init
+ext_noinit = gfx_ext_retina = 1;
+
+GNT = 106;
+GM = 48000;
+GMS = 100;
+GRP = 59000;
+GRI = 59300;
+GRK = 59340;
+GLD = 59400;
+GSM = 59500;
+GJL = 59600;
+GTG = 59700;
+GCC = 59850;
+
+function g_tables() local(q) (
+  GM[1] = "Dynamics";
+  GM[2] = "Filter";
+  GM[3] = "EQ";
+  GM[4] = "Delay";
+  GM[5] = "Modulation";
+  GM[6] = "Pitch";
+  GM[7] = "Distortion";
+  GM[8] = "Reverb";
+  GM[9] = "Generator";
+  GM[10] = "Utility";
+  q = GM + 1 * GMS; q[0] = "A-Law Compressor"; q[1] = "A-Law"; q[2] = 1; q[3] = "A-law companding curve: lifts quiet detail while keeping the peaks."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1;
+  q = GM + 2 * GMS; q[0] = "Barry's Satan Maximiser"; q[1] = "Satan Maximiser"; q[2] = 1; q[3] = "Barry's Satan Maximiser: a brutal, fast-acting peak maximiser."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Decay"; q[31] = 6; q[34] = "Knee Point"; q[35] = 1;
+  q = GM + 3 * GMS; q[0] = "Dyson compressor"; q[1] = "Dyson Comp"; q[2] = 1; q[3] = "Peak limiter with fast and slow compression stages."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Peak Limit"; q[31] = 1; q[34] = "Release"; q[35] = 3; q[38] = "Fast Ratio"; q[42] = "Ratio";
+  q = GM + 4 * GMS; q[0] = "Fast Lookahead limiter"; q[1] = "Fast Limiter"; q[2] = 1; q[3] = "Stereo limiter with a 5 ms lookahead: nothing gets past the limit."; q[6] = "1"; q[7] = "2"; q[10] = "1"; q[11] = "2"; q[15] = "Atten"; q[16] = "Latency"; q[17] = 1; q[18] = 6; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Input Gain"; q[31] = 1; q[34] = "Limit"; q[35] = 1; q[38] = "Release"; q[39] = 3;
+  q = GM + 5 * GMS; q[0] = "Gate"; q[1] = "Gate"; q[2] = 1; q[3] = "Noise gate after the Drawmer DS-201, with key filters and a key listen mode."; q[6] = "In"; q[10] = "Out"; q[15] = "Key"; q[16] = "State"; q[17] = 1; q[19] = 1; q[22] = 1; q[30] = "LF Key"; q[31] = 4; q[34] = "HF Key"; q[35] = 4; q[38] = "Threshold"; q[39] = 1; q[42] = "Attack"; q[43] = 2; q[46] = "Hold"; q[47] = 2; q[50] = "Decay"; q[51] = 2; q[54] = "Range"; q[55] = 1; q[58] = "Output"; q[60] = 2; q[61] = "Key Listen|Gate|Bypass";
+  q = GM + 6 * GMS; q[0] = "Hard Limiter"; q[1] = "Hard Limiter"; q[2] = 1; q[3] = "Brick-wall hard clipper with a mix for the clipped-off residue."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Limit"; q[31] = 1; q[34] = "Wet"; q[38] = "Residue";
+  q = GM + 7 * GMS; q[0] = "Lookahead limiter"; q[1] = "Lookahead Lim"; q[2] = 1; q[3] = "Stereo lookahead limiter with variable lookahead for smooth limiting."; q[6] = "1"; q[7] = "2"; q[10] = "1"; q[11] = "2"; q[15] = "Atten"; q[16] = "Latency"; q[17] = 1; q[18] = 6; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Limit"; q[31] = 1; q[34] = "Lookahead"; q[35] = 3;
+  q = GM + 8 * GMS; q[0] = "Lookahead limiter (fixed latency)"; q[1] = "Lookahead Fixed"; q[2] = 1; q[3] = "Stereo lookahead limiter with a constant latency of about 150 ms."; q[6] = "1"; q[7] = "2"; q[10] = "1"; q[11] = "2"; q[15] = "Atten"; q[16] = "Latency"; q[17] = 1; q[18] = 6; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Limit"; q[31] = 1; q[34] = "Lookahead"; q[35] = 3;
+  q = GM + 9 * GMS; q[0] = "SC1"; q[1] = "SC1 Compressor"; q[2] = 1; q[3] = "Musical RMS compressor with a soft knee and makeup gain."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Attack"; q[31] = 2; q[34] = "Release"; q[35] = 2; q[38] = "Threshold"; q[39] = 1; q[42] = "Ratio"; q[43] = 9; q[46] = "Knee"; q[47] = 1; q[50] = "Makeup"; q[51] = 1;
+  q = GM + 10 * GMS; q[0] = "SC2"; q[1] = "SC2 Compressor"; q[2] = 1; q[3] = "The SC1 compressor keyed from an external sidechain input."; q[6] = "SC"; q[7] = "In"; q[10] = "Out"; q[19] = 1; q[20] = 1; q[22] = 1; q[30] = "Attack"; q[31] = 2; q[34] = "Release"; q[35] = 2; q[38] = "Threshold"; q[39] = 1; q[42] = "Ratio"; q[43] = 9; q[46] = "Knee"; q[47] = 1; q[50] = "Makeup"; q[51] = 1;
+  q = GM + 11 * GMS; q[0] = "SC3"; q[1] = "SC3 Stereo Comp"; q[2] = 1; q[3] = "Stereo compressor with an external sidechain and a chain balance control."; q[6] = "SC"; q[7] = "L"; q[8] = "R"; q[10] = "L"; q[11] = "R"; q[19] = 2; q[20] = 1; q[21] = 2; q[22] = 2; q[24] = 1; q[30] = "Attack"; q[31] = 2; q[34] = "Release"; q[35] = 2; q[38] = "Threshold"; q[39] = 1; q[42] = "Ratio"; q[43] = 9; q[46] = "Knee"; q[47] = 1; q[50] = "Makeup"; q[51] = 1; q[54] = "Balance";
+  q = GM + 12 * GMS; q[0] = "SC4"; q[1] = "SC4 Stereo Comp"; q[2] = 1; q[3] = "Stereo compressor with a variable RMS/peak envelope follower."; q[6] = "L"; q[7] = "R"; q[10] = "L"; q[11] = "R"; q[15] = "Level"; q[16] = "GR"; q[17] = 1; q[18] = 1; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "RMS/peak"; q[34] = "Attack"; q[35] = 2; q[38] = "Release"; q[39] = 2; q[42] = "Threshold"; q[43] = 1; q[46] = "Ratio"; q[47] = 9; q[50] = "Knee"; q[51] = 1; q[54] = "Makeup"; q[55] = 1;
+  q = GM + 13 * GMS; q[0] = "SE4"; q[1] = "SE4 Expander"; q[2] = 1; q[3] = "Stereo expander with a variable RMS/peak envelope follower."; q[6] = "L"; q[7] = "R"; q[10] = "L"; q[11] = "R"; q[15] = "Level"; q[16] = "GE"; q[17] = 1; q[18] = 1; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "RMS/peak"; q[34] = "Attack"; q[35] = 2; q[38] = "Release"; q[39] = 2; q[42] = "Threshold"; q[43] = 1; q[46] = "Ratio"; q[47] = 9; q[50] = "Knee"; q[51] = 1; q[54] = "Attenuation"; q[55] = 1;
+  q = GM + 14 * GMS; q[0] = "Transient mangler"; q[1] = "Transient"; q[2] = 1; q[3] = "Transient mangler: boosts or cuts the attacks and the sustain."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Attack"; q[34] = "Sustain";
+  q = GM + 15 * GMS; q[0] = "μ-Law Compressor"; q[1] = "μ-Law"; q[2] = 1; q[3] = "μ-law companding curve: lifts quiet detail while keeping the peaks."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1;
+  q = GM + 16 * GMS; q[0] = "4 x 4 pole allpass"; q[1] = "4x4 Pole Allpass"; q[2] = 2; q[3] = "Four 4-pole allpass filters in series, each with its own frequency and feedback."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Freq 1"; q[31] = 4; q[34] = "Feedback 1"; q[38] = "Freq 2"; q[39] = 4; q[42] = "Feedback 2"; q[46] = "Freq 3"; q[47] = 4; q[50] = "Feedback 3"; q[54] = "Freq 4"; q[55] = 4; q[58] = "Feedback 4";
+  q = GM + 17 * GMS; q[0] = "Comb Filter"; q[1] = "Comb Filter"; q[2] = 2; q[3] = "Comb filter with peaks at regular frequency intervals, with feedback."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Spacing"; q[31] = 4; q[34] = "Feedback";
+  q = GM + 18 * GMS; q[0] = "Comb Splitter"; q[1] = "Comb Splitter"; q[2] = 2; q[3] = "Splits the input into two interleaved comb-filtered halves that sum to the input."; q[6] = "In"; q[10] = "1"; q[11] = "2"; q[19] = 1; q[22] = 2; q[24] = 1; q[30] = "Spacing"; q[31] = 4;
+  q = GM + 19 * GMS; q[0] = "DC Offset Remover"; q[1] = "DC Remover"; q[2] = 2; q[3] = "Removes DC offset with a gentle high-pass filter."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1;
+  q = GM + 20 * GMS; q[0] = "Glame Bandpass Analog Filter"; q[1] = "Bandpass Analog"; q[2] = 2; q[3] = "IIR bandpass filter modelled on an analogue circuit (from GLAME)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Centre Freq"; q[31] = 4; q[34] = "Bandwidth"; q[35] = 4;
+  q = GM + 21 * GMS; q[0] = "Glame Bandpass Filter"; q[1] = "Bandpass"; q[2] = 2; q[3] = "Chebyshev IIR bandpass filter, 1 to 10 stages of 2 poles each (from GLAME)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Centre Freq"; q[31] = 4; q[34] = "Bandwidth"; q[35] = 4; q[38] = "Stages"; q[40] = 1;
+  q = GM + 22 * GMS; q[0] = "GLAME Butterworth Highpass"; q[1] = "Butterworth HP"; q[2] = 2; q[3] = "Butterworth high-pass filter with resonance (from GLAME)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Cutoff"; q[31] = 4; q[34] = "Resonance";
+  q = GM + 23 * GMS; q[0] = "GLAME Butterworth Lowpass"; q[1] = "Butterworth LP"; q[2] = 2; q[3] = "Butterworth low-pass filter with resonance (from GLAME)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Cutoff"; q[31] = 4; q[34] = "Resonance";
+  q = GM + 24 * GMS; q[0] = "Glame Butterworth X-over Filter"; q[1] = "Butterworth Xover"; q[2] = 2; q[3] = "Butterworth crossover: low-pass and high-pass outputs at one cutoff (from GLAME)."; q[6] = "In"; q[10] = "LP"; q[11] = "HP"; q[19] = 1; q[22] = 1; q[30] = "Cutoff"; q[31] = 4; q[34] = "Resonance";
+  q = GM + 25 * GMS; q[0] = "Glame Highpass Filter"; q[1] = "Highpass"; q[2] = 2; q[3] = "Chebyshev IIR high-pass filter, 1 to 10 stages of 2 poles each (from GLAME)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Cutoff"; q[31] = 4; q[34] = "Stages"; q[36] = 1;
+  q = GM + 26 * GMS; q[0] = "Glame Lowpass Filter"; q[1] = "Lowpass"; q[2] = 2; q[3] = "Chebyshev IIR low-pass filter, 1 to 10 stages of 2 poles each (from GLAME)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Cutoff"; q[31] = 4; q[34] = "Stages"; q[36] = 1;
+  q = GM + 27 * GMS; q[0] = "Karaoke"; q[1] = "Karaoke"; q[2] = 2; q[3] = "Tries to remove centre-panned vocals from a stereo signal."; q[6] = "L"; q[7] = "R"; q[10] = "L"; q[11] = "R"; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Vocals"; q[31] = 1;
+  q = GM + 28 * GMS; q[0] = "LS Filter"; q[1] = "LS Filter"; q[2] = 2; q[3] = "Resonant low, band or high-pass filter that follows the GigaSampler filter."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Type"; q[32] = 2; q[33] = "Lowpass|Bandpass|Highpass"; q[34] = "Cutoff"; q[35] = 4; q[38] = "Resonance";
+  q = GM + 29 * GMS; q[0] = "State Variable Filter"; q[1] = "State Variable"; q[2] = 2; q[3] = "State variable filter: low, high, band, notch or allpass, with resonance."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Type"; q[32] = 2; q[33] = "Off|Lowpass|Highpass|Bandpass|Notch|Allpass"; q[34] = "Frequency"; q[35] = 4; q[38] = "Q"; q[42] = "Resonance";
+  q = GM + 30 * GMS; q[0] = "DJ EQ"; q[1] = "DJ EQ"; q[2] = 3; q[3] = "Three-band DJ mixer EQ after the Allen & Heath Xone 32, with deep kills."; q[6] = "L"; q[7] = "R"; q[10] = "L"; q[11] = "R"; q[15] = "Latency"; q[17] = 6; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Lo"; q[31] = 1; q[34] = "Mid"; q[35] = 1; q[38] = "Hi"; q[39] = 1;
+  q = GM + 31 * GMS; q[0] = "DJ EQ (mono)"; q[1] = "DJ EQ Mono"; q[2] = 3; q[3] = "Mono version of the three-band DJ mixer EQ."; q[6] = "In"; q[10] = "Out"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 1; q[30] = "Lo"; q[31] = 1; q[34] = "Mid"; q[35] = 1; q[38] = "Hi"; q[39] = 1;
+  q = GM + 32 * GMS; q[0] = "Multiband EQ"; q[1] = "Multiband EQ"; q[2] = 3; q[3] = "15-band FFT graphic equaliser with little phase smear (uses more CPU)."; q[6] = "In"; q[10] = "Out"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 1; q[30] = "50 Hz"; q[31] = 1; q[34] = "100 Hz"; q[35] = 1; q[38] = "156 Hz"; q[39] = 1; q[42] = "220 Hz"; q[43] = 1; q[46] = "311 Hz"; q[47] = 1; q[50] = "440 Hz"; q[51] = 1; q[54] = "622 Hz"; q[55] = 1; q[58] = "880 Hz"; q[59] = 1; q[62] = "1250 Hz"; q[63] = 1; q[66] = "1750 Hz"; q[67] = 1; q[70] = "2500 Hz"; q[71] = 1; q[74] = "3500 Hz"; q[75] = 1; q[78] = "5000 Hz"; q[79] = 1; q[82] = "10000 Hz"; q[83] = 1; q[86] = "20000 Hz"; q[87] = 1;
+  q = GM + 33 * GMS; q[0] = "Single band parametric"; q[1] = "Parametric"; q[2] = 3; q[3] = "One band of parametric EQ."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Gain"; q[31] = 1; q[34] = "Frequency"; q[35] = 4; q[38] = "Bandwidth"; q[39] = 7;
+  q = GM + 34 * GMS; q[0] = "Triple band parametric with shelves"; q[1] = "Triple Para"; q[2] = 3; q[3] = "Three parametric bands plus low and high shelves."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Lo Shelf Gain"; q[31] = 1; q[34] = "Lo Shelf Freq"; q[35] = 4; q[38] = "Lo Shelf Slope"; q[42] = "Band 1 Gain"; q[43] = 1; q[46] = "Band 1 Freq"; q[47] = 4; q[50] = "Band 1 BW"; q[51] = 7; q[54] = "Band 2 Gain"; q[55] = 1; q[58] = "Band 2 Freq"; q[59] = 4; q[62] = "Band 2 BW"; q[63] = 7; q[66] = "Band 3 Gain"; q[67] = 1; q[70] = "Band 3 Freq"; q[71] = 4; q[74] = "Band 3 BW"; q[75] = 7; q[78] = "Hi Shelf Gain"; q[79] = 1; q[82] = "Hi Shelf Freq"; q[83] = 4; q[86] = "Hi Shelf Slope";
+  q = GM + 35 * GMS; q[0] = "Allpass delay line, cubic spline interpolation"; q[1] = "Allpass Cubic"; q[2] = 4; q[3] = "Allpass delay line with cubic interpolation (after SuperCollider)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Max Delay"; q[31] = 3; q[34] = "Delay"; q[35] = 3; q[38] = "Decay"; q[39] = 3;
+  q = GM + 36 * GMS; q[0] = "Allpass delay line, linear interpolation"; q[1] = "Allpass Linear"; q[2] = 4; q[3] = "Allpass delay line with linear interpolation (after SuperCollider)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Max Delay"; q[31] = 3; q[34] = "Delay"; q[35] = 3; q[38] = "Decay"; q[39] = 3;
+  q = GM + 37 * GMS; q[0] = "Allpass delay line, noninterpolating"; q[1] = "Allpass Delay"; q[2] = 4; q[3] = "Allpass delay line without interpolation (after SuperCollider)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Max Delay"; q[31] = 3; q[34] = "Delay"; q[35] = 3; q[38] = "Decay"; q[39] = 3;
+  q = GM + 38 * GMS; q[0] = "Comb delay line, cubic spline interpolation"; q[1] = "Comb Cubic"; q[2] = 4; q[3] = "Comb delay line with cubic interpolation (after SuperCollider)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Max Delay"; q[31] = 3; q[34] = "Delay"; q[35] = 3; q[38] = "Decay"; q[39] = 3;
+  q = GM + 39 * GMS; q[0] = "Comb delay line, linear interpolation"; q[1] = "Comb Linear"; q[2] = 4; q[3] = "Comb delay line with linear interpolation (after SuperCollider)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Max Delay"; q[31] = 3; q[34] = "Delay"; q[35] = 3; q[38] = "Decay"; q[39] = 3;
+  q = GM + 40 * GMS; q[0] = "Comb delay line, noninterpolating"; q[1] = "Comb Delay"; q[2] = 4; q[3] = "Comb delay line without interpolation (after SuperCollider)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Max Delay"; q[31] = 3; q[34] = "Delay"; q[35] = 3; q[38] = "Decay"; q[39] = 3;
+  q = GM + 41 * GMS; q[0] = "Delayorama"; q[1] = "Delayorama"; q[2] = 4; q[3] = "Multitap delay with up to 128 taps of random spacing and level."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Seed"; q[32] = 1; q[34] = "Input Gain"; q[35] = 1; q[38] = "Feedback"; q[39] = 5; q[42] = "Taps"; q[44] = 1; q[46] = "First Delay"; q[47] = 3; q[50] = "Delay Range"; q[51] = 3; q[54] = "Delay Change"; q[58] = "Delay Rand"; q[59] = 5; q[62] = "Amp Change"; q[66] = "Amp Rand"; q[67] = 5; q[70] = "Dry/Wet";
+  q = GM + 42 * GMS; q[0] = "Fractionally Addressed Delay Line"; q[1] = "FAD Delay"; q[2] = 4; q[3] = "Fractionally addressed delay: changing the time stretches what is in the buffer."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Delay"; q[31] = 3; q[34] = "Feedback"; q[35] = 1;
+  q = GM + 43 * GMS; q[0] = "L/C/R Delay"; q[1] = "L/C/R Delay"; q[2] = 4; q[3] = "Left, centre and right delays with feedback and damping, after the Korg Trinity."; q[6] = "L"; q[7] = "R"; q[10] = "L"; q[11] = "R"; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "L Delay"; q[31] = 2; q[34] = "L Level"; q[38] = "C Delay"; q[39] = 2; q[42] = "C Level"; q[46] = "R Delay"; q[47] = 2; q[50] = "R Level"; q[54] = "Feedback"; q[58] = "High Damp"; q[59] = 5; q[62] = "Low Damp"; q[63] = 5; q[66] = "Spread"; q[70] = "Dry/Wet";
+  q = GM + 44 * GMS; q[0] = "Modulatable delay"; q[1] = "Mod Delay"; q[2] = 4; q[3] = "Delay whose time in seconds comes from the Time input at audio rate."; q[6] = "Time"; q[7] = "In"; q[10] = "Out"; q[19] = 1; q[20] = 1; q[22] = 1; q[30] = "Base Delay"; q[31] = 3;
+  q = GM + 45 * GMS; q[0] = "Reverse Delay (5s max)"; q[1] = "Reverse Delay"; q[2] = 4; q[3] = "Plays the delayed signal backwards, crossfading between chunks (5 s max)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Delay"; q[31] = 3; q[34] = "Dry"; q[35] = 1; q[38] = "Wet"; q[39] = 1; q[42] = "Feedback"; q[46] = "Crossfade"; q[47] = 6; q[48] = 1;
+  q = GM + 46 * GMS; q[0] = "Signal sifter"; q[1] = "Sifter"; q[2] = 4; q[3] = "Sorts blocks of the input to give a bumpy ramp texture."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Size";
+  q = GM + 47 * GMS; q[0] = "Simple delay line, cubic spline interpolation"; q[1] = "Delay Cubic"; q[2] = 4; q[3] = "Simple delay line with cubic interpolation (after SuperCollider)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Max Delay"; q[31] = 3; q[34] = "Delay"; q[35] = 3;
+  q = GM + 48 * GMS; q[0] = "Simple delay line, linear interpolation"; q[1] = "Delay Linear"; q[2] = 4; q[3] = "Simple delay line with linear interpolation (after SuperCollider)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Max Delay"; q[31] = 3; q[34] = "Delay"; q[35] = 3;
+  q = GM + 49 * GMS; q[0] = "Simple delay line, noninterpolating"; q[1] = "Delay"; q[2] = 4; q[3] = "Simple delay line without interpolation (after SuperCollider)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Max Delay"; q[31] = 3; q[34] = "Delay"; q[35] = 3;
+  q = GM + 50 * GMS; q[0] = "Tape Delay Simulation"; q[1] = "Tape Delay"; q[2] = 4; q[3] = "Tape delay with four heads, tape speed and smear."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Tape Speed"; q[31] = 11; q[34] = "Dry"; q[35] = 1; q[38] = "Tap 1 Dist"; q[39] = 10; q[42] = "Tap 1"; q[43] = 1; q[46] = "Tap 2 Dist"; q[47] = 10; q[50] = "Tap 2"; q[51] = 1; q[54] = "Tap 3 Dist"; q[55] = 10; q[58] = "Tap 3"; q[59] = 1; q[62] = "Tap 4 Dist"; q[63] = 10; q[66] = "Tap 4"; q[67] = 1;
+  q = GM + 51 * GMS; q[0] = "Auto phaser"; q[1] = "Auto Phaser"; q[2] = 5; q[3] = "Phaser swept by the envelope of the input."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Attack"; q[31] = 3; q[34] = "Decay"; q[35] = 3; q[38] = "Depth"; q[42] = "Feedback"; q[46] = "Spread"; q[47] = 7;
+  q = GM + 52 * GMS; q[0] = "DJ flanger"; q[1] = "DJ Flanger"; q[2] = 5; q[3] = "Flanger in the style of DJ mixers, with optional LFO sync."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "LFO Sync"; q[32] = 3; q[34] = "LFO Period"; q[35] = 3; q[38] = "LFO Depth"; q[39] = 2; q[42] = "Feedback"; q[43] = 5;
+  q = GM + 53 * GMS; q[0] = "Flanger"; q[1] = "Flanger"; q[2] = 5; q[3] = "Digital flanger with a smooth, less repetitive modulation curve."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Base Delay"; q[31] = 2; q[34] = "Slowdown"; q[35] = 2; q[38] = "LFO Freq"; q[39] = 4; q[42] = "Feedback";
+  q = GM + 54 * GMS; q[0] = "Giant flange"; q[1] = "Giant Flange"; q[2] = 5; q[3] = "Flanger with very long delays, up to 10 seconds."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Double Delay"; q[32] = 3; q[34] = "LFO Freq 1"; q[35] = 4; q[38] = "Range 1"; q[39] = 3; q[42] = "LFO Freq 2"; q[43] = 4; q[46] = "Range 2"; q[47] = 3; q[50] = "Feedback"; q[54] = "Dry/Wet";
+  q = GM + 55 * GMS; q[0] = "LFO Phaser"; q[1] = "LFO Phaser"; q[2] = 5; q[3] = "Phaser swept by an LFO."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "LFO Rate"; q[31] = 4; q[34] = "LFO Depth"; q[38] = "Feedback"; q[42] = "Spread"; q[43] = 7;
+  q = GM + 56 * GMS; q[0] = "Multivoice Chorus"; q[1] = "Multivoice Chorus"; q[2] = 5; q[3] = "Chorus with up to 8 voices and smooth noise modulation."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Voices"; q[32] = 1; q[34] = "Base Delay"; q[35] = 2; q[38] = "Separation"; q[39] = 2; q[42] = "Detune"; q[43] = 5; q[46] = "LFO Freq"; q[47] = 4; q[50] = "Attenuation"; q[51] = 1;
+  q = GM + 57 * GMS; q[0] = "Retro Flanger"; q[1] = "Retro Flanger"; q[2] = 5; q[3] = "Model of someone flanging tape by hand."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Stall"; q[31] = 2; q[34] = "Frequency"; q[35] = 4;
+  q = GM + 58 * GMS; q[0] = "Ringmod with LFO"; q[1] = "Ringmod LFO"; q[2] = 5; q[3] = "Ring or amplitude modulator with a built-in oscillator mixing four waveforms."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Depth"; q[34] = "Frequency"; q[35] = 4; q[38] = "Sine"; q[42] = "Triangle"; q[46] = "Sawtooth"; q[50] = "Square";
+  q = GM + 59 * GMS; q[0] = "Ringmod with two inputs"; q[1] = "Ringmod 2 In"; q[2] = 5; q[3] = "Ring or amplitude modulates the input with the Mod input."; q[6] = "In"; q[7] = "Mod"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Depth";
+  q = GM + 60 * GMS; q[0] = "AM pitchshifter"; q[1] = "AM Pitchshift"; q[2] = 6; q[3] = "Pitch shifter with two crossfaded read pointers over a ring buffer."; q[6] = "In"; q[10] = "Out"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 1; q[30] = "Pitch"; q[34] = "Buffer"; q[36] = 1;
+  q = GM + 61 * GMS; q[0] = "Bode frequency shifter"; q[1] = "Bode Shifter"; q[2] = 6; q[3] = "Bode/Moog frequency shifter: moves every frequency up or down by a fixed amount."; q[6] = "In"; q[10] = "Down"; q[11] = "Up"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 1; q[23] = 1; q[30] = "Shift"; q[31] = 4;
+  q = GM + 62 * GMS; q[0] = "Bode frequency shifter (CV)"; q[1] = "Bode Shifter CV"; q[2] = 6; q[3] = "Bode frequency shifter whose shift is added from the CV input at audio rate."; q[6] = "In"; q[7] = "CV"; q[10] = "Down"; q[11] = "Up"; q[12] = "Mix"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 1; q[23] = 2; q[30] = "Base Shift"; q[31] = 4; q[34] = "Mix"; q[38] = "CV Amount";
+  q = GM + 63 * GMS; q[0] = "Higher Quality Pitch Scaler"; q[1] = "Pitch Scaler"; q[2] = 6; q[3] = "FFT pitch scaler after Stephan M. Bernsee's algorithm."; q[6] = "In"; q[10] = "Out"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 1; q[30] = "Pitch";
+  q = GM + 64 * GMS; q[0] = "Impulse convolver"; q[1] = "Impulse Conv"; q[2] = 6; q[3] = "Convolves the input with one of 21 built-in impulses (amp cabinets, a room, a stack)."; q[6] = "In"; q[10] = "Out"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 1; q[30] = "Impulse"; q[32] = 2; q[33] = "Unit impulse|My flat|Yamaha Marshall stack|Vibrolux 68 SM57 on|Vibrolux 68 SM57 off|Vibrolux 68 AT4050|Vibrolux 68 U87|Bassman SM57 on|Bassman SM57 off|Bassman AT4050|Bassman U87|Superchamp SM57 on|Superchamp SM57 off|Superchamp AT4050|Superchamp U87|JCM2000 SM57 on|JCM2000 SM57 off|Plexi SM57 on|Plexi SM57 off|Chieftan SM57 on|Chieftan SM57 off"; q[34] = "High Latency"; q[36] = 3; q[38] = "Gain"; q[39] = 1;
+  q = GM + 65 * GMS; q[0] = "Rate shifter"; q[1] = "Rate Shifter"; q[2] = 6; q[3] = "Stretches or squashes the input through a ring buffer; negative rates play backwards."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Rate";
+  q = GM + 66 * GMS; q[0] = "Aliasing"; q[1] = "Aliasing"; q[2] = 7; q[3] = "Simulates aliasing by modulating at the Nyquist frequency."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Aliasing";
+  q = GM + 67 * GMS; q[0] = "Chebyshev distortion"; q[1] = "Chebstortion"; q[2] = 7; q[3] = "Chebyshev distortion: more harmonics come in as the level rises."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Distortion";
+  q = GM + 68 * GMS; q[0] = "Crossover distortion"; q[1] = "Crossover Dist"; q[2] = 7; q[3] = "The distortion of class B and AB amplifiers around zero."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Amplitude"; q[34] = "Smoothing";
+  q = GM + 69 * GMS; q[0] = "Decimator"; q[1] = "Decimator"; q[2] = 7; q[3] = "Reduces sample rate and bit depth, with smooth fractional settings."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Bits"; q[34] = "Sample Rate"; q[35] = 4;
+  q = GM + 70 * GMS; q[0] = "Declipper"; q[1] = "Declipper"; q[2] = 7; q[3] = "Removes clicks from the input, not very gently."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1;
+  q = GM + 71 * GMS; q[0] = "Diode Processor"; q[1] = "Diode"; q[2] = 7; q[3] = "Mangles the signal as if it went through a diode rectifier network."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Mode";
+  q = GM + 72 * GMS; q[0] = "Fast overdrive"; q[1] = "Fast Overdrive"; q[2] = 7; q[3] = "Simple overdrive that squashes the extreme peaks."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Drive";
+  q = GM + 73 * GMS; q[0] = "Foldover distortion"; q[1] = "Foldover"; q[2] = 7; q[3] = "Valve-style foldover distortion from a sine approximation."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Drive"; q[34] = "Skew";
+  q = GM + 74 * GMS; q[0] = "GSM Simulator"; q[1] = "GSM"; q[2] = 7; q[3] = "Encodes and decodes with the GSM 06.10 codec: the sound of a mobile phone."; q[6] = "In"; q[10] = "Out"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 1; q[30] = "Dry/Wet"; q[34] = "Passes"; q[36] = 1; q[38] = "Errors";
+  q = GM + 75 * GMS; q[0] = "Pointer cast distortion"; q[1] = "Pointer Cast"; q[2] = 7; q[3] = "Reads the float bits as fixed point: very unmusical, but fun."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Cutoff"; q[31] = 4; q[34] = "Dry/Wet";
+  q = GM + 76 * GMS; q[0] = "Sinus wavewrapper"; q[1] = "Sinus Wrapper"; q[2] = 7; q[3] = "Wraps the waveform through a sine."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Wrap";
+  q = GM + 77 * GMS; q[0] = "Smooth Decimator"; q[1] = "Smooth Decimate"; q[2] = 7; q[3] = "Resamples at a lower rate with adjustable smoothing."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Rate"; q[31] = 4; q[34] = "Smoothing";
+  q = GM + 78 * GMS; q[0] = "Valve rectifier"; q[1] = "Valve Rectifier"; q[2] = 7; q[3] = "Valve rectifier with power supply sag on attacks."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Sag"; q[34] = "Distortion";
+  q = GM + 79 * GMS; q[0] = "Valve saturation"; q[1] = "Valve"; q[2] = 7; q[3] = "Valve (tube) saturation."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Distortion"; q[34] = "Character";
+  q = GM + 80 * GMS; q[0] = "VyNil (Vinyl Effect)"; q[1] = "VyNil"; q[2] = 7; q[3] = "Vinyl simulation: year, speed, surface warping, crackle and wear."; q[6] = "L"; q[7] = "R"; q[10] = "L"; q[11] = "R"; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Year"; q[34] = "RPM"; q[38] = "Warping"; q[42] = "Crackle"; q[46] = "Wear";
+  q = GM + 81 * GMS; q[0] = "Wave shaper"; q[1] = "Wave Shaper"; q[2] = 7; q[3] = "Reshapes the waveform with an exponential curve."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Waveshape";
+  q = GM + 82 * GMS; q[0] = "GVerb"; q[1] = "GVerb"; q[2] = 8; q[3] = "Mono in, stereo out room reverb by Juhana Sadeharju."; q[6] = "In"; q[10] = "L"; q[11] = "R"; q[19] = 1; q[22] = 2; q[24] = 1; q[30] = "Room Size"; q[31] = 8; q[34] = "Reverb Time"; q[35] = 3; q[38] = "Damping"; q[42] = "Bandwidth"; q[46] = "Dry"; q[47] = 1; q[50] = "Early"; q[51] = 1; q[54] = "Tail"; q[55] = 1;
+  q = GM + 83 * GMS; q[0] = "Plate reverb"; q[1] = "Plate Reverb"; q[2] = 8; q[3] = "Physical model of a steel plate reverb."; q[6] = "In"; q[10] = "L"; q[11] = "R"; q[19] = 1; q[22] = 2; q[24] = 1; q[30] = "Reverb Time"; q[34] = "Damping"; q[38] = "Dry/Wet";
+  q = GM + 84 * GMS; q[0] = "Analogue Oscillator"; q[1] = "Analogue Osc"; q[2] = 9; q[3] = "Oscillator with analogue-style warmth and instability."; q[10] = "Out"; q[22] = 1; q[30] = "Waveform"; q[32] = 2; q[33] = "Sine|Triangle|Square|Saw"; q[34] = "Frequency"; q[35] = 4; q[38] = "Warmth"; q[42] = "Instability";
+  q = GM + 85 * GMS; q[0] = "Audio Divider (Suboctave Generator)"; q[1] = "Divider"; q[2] = 9; q[3] = "Suboctave generator: divides the frequency and squares the wave."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Denominator"; q[32] = 1;
+  q = GM + 86 * GMS; q[0] = "Constant Signal Generator"; q[1] = "Constant"; q[2] = 9; q[3] = "Adds a DC offset to the input, for modular patching."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Amplitude";
+  q = GM + 87 * GMS; q[0] = "FM Oscillator"; q[1] = "FM Osc"; q[2] = 9; q[3] = "Oscillator whose frequency in Hz comes from its Hz input, for FM patches."; q[6] = "Hz"; q[10] = "Out"; q[22] = 1; q[30] = "Waveform"; q[32] = 2; q[33] = "Sine|Triangle|Square|Saw";
+  q = GM + 88 * GMS; q[0] = "Gong beater"; q[1] = "Gong Beater"; q[2] = 9; q[3] = "Turns transients in the input into gong strikes."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Impulse"; q[31] = 1; q[34] = "Strike"; q[35] = 1; q[38] = "Duration"; q[39] = 3;
+  q = GM + 89 * GMS; q[0] = "Harmonic generator"; q[1] = "Harmonic Gen"; q[2] = 9; q[3] = "Adds harmonics up to the 10th in any mix (best on sine waves)."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Fundamental"; q[34] = "2nd Harm"; q[38] = "3rd Harm"; q[42] = "4th Harm"; q[46] = "5th Harm"; q[50] = "6th Harm"; q[54] = "7th Harm"; q[58] = "8th Harm"; q[62] = "9th Harm"; q[66] = "10th Harm";
+  q = GM + 90 * GMS; q[0] = "Non-bandlimited single-sample impulses"; q[1] = "Impulses"; q[2] = 9; q[3] = "Generates single-sample impulses at a set frequency."; q[10] = "Out"; q[22] = 1; q[30] = "Frequency"; q[31] = 4;
+  q = GM + 91 * GMS; q[0] = "Sine + cosine oscillator"; q[1] = "Sine + Cosine"; q[2] = 9; q[3] = "Sine and cosine oscillators 90 degrees apart."; q[10] = "Sin"; q[11] = "Cos"; q[22] = 2; q[24] = 1; q[30] = "Frequency"; q[31] = 4; q[34] = "Pitch"; q[35] = 7;
+  q = GM + 92 * GMS; q[0] = "Wave Terrain Oscillator"; q[1] = "Wave Terrain"; q[2] = 9; q[3] = "Wave terrain oscillator: reads a 2D surface at the X/Y inputs."; q[6] = "X"; q[7] = "Y"; q[10] = "Z"; q[22] = 1;
+  q = GM + 93 * GMS; q[0] = "Crossfade"; q[1] = "Crossfade"; q[2] = 10; q[3] = "Crossfades between stereo inputs A and B."; q[6] = "A L"; q[7] = "A R"; q[8] = "B L"; q[9] = "B R"; q[10] = "L"; q[11] = "R"; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Crossfade";
+  q = GM + 94 * GMS; q[0] = "Crossfade (4 outs)"; q[1] = "Crossfade 4"; q[2] = 10; q[3] = "Crossfades stereo inputs A and B onto two stereo outputs."; q[6] = "A L"; q[7] = "A R"; q[8] = "B L"; q[9] = "B R"; q[10] = "A L"; q[11] = "A R"; q[12] = "B L"; q[13] = "B R"; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Crossfade";
+  q = GM + 95 * GMS; q[0] = "Exponential signal decay"; q[1] = "Decay"; q[2] = 10; q[3] = "Exponential decay (after SuperCollider): impulses become decaying tails."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Decay"; q[31] = 3;
+  q = GM + 96 * GMS; q[0] = "Frequency tracker"; q[1] = "Freq Tracker"; q[2] = 10; q[3] = "Outputs the frequency of the input in Hz as a signal, for CV patching."; q[6] = "In"; q[10] = "Hz"; q[19] = 1; q[30] = "Speed";
+  q = GM + 97 * GMS; q[0] = "Hilbert transformer"; q[1] = "Hilbert"; q[2] = 10; q[3] = "Hilbert transformer: the input plus a copy shifted by 90 degrees."; q[6] = "In"; q[10] = "0deg"; q[11] = "90deg"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 2; q[24] = 1;
+  q = GM + 98 * GMS; q[0] = "Inverter"; q[1] = "Inverter"; q[2] = 10; q[3] = "Inverts the polarity."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1;
+  q = GM + 99 * GMS; q[0] = "Matrix Spatialiser"; q[1] = "Spatialiser"; q[2] = 10; q[3] = "Widens or narrows the stereo image."; q[6] = "L"; q[7] = "R"; q[10] = "L"; q[11] = "R"; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Width"; q[32] = 1;
+  q = GM + 100 * GMS; q[0] = "Matrix: MS to Stereo"; q[1] = "MS to Stereo"; q[2] = 10; q[3] = "Decodes mid/side to left/right, with width."; q[6] = "M"; q[7] = "S"; q[10] = "L"; q[11] = "R"; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1; q[30] = "Width";
+  q = GM + 101 * GMS; q[0] = "Matrix: Stereo to MS"; q[1] = "Stereo to MS"; q[2] = 10; q[3] = "Encodes left/right to mid/side."; q[6] = "L"; q[7] = "R"; q[10] = "M"; q[11] = "S"; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1;
+  q = GM + 102 * GMS; q[0] = "Mono to Stereo splitter"; q[1] = "Mono Split"; q[2] = 10; q[3] = "Copies a mono signal to two outputs."; q[6] = "In"; q[10] = "1"; q[11] = "2"; q[19] = 1; q[22] = 2; q[24] = 1;
+  q = GM + 103 * GMS; q[0] = "Offset, sample-based"; q[1] = "Offset"; q[2] = 10; q[3] = "Shifts the signal earlier or later by a number of samples."; q[6] = "In"; q[10] = "Out"; q[15] = "Latency"; q[17] = 6; q[19] = 1; q[22] = 1; q[30] = "Offset"; q[31] = 6; q[34] = "Automatable"; q[36] = 3;
+  q = GM + 104 * GMS; q[0] = "Simple amplifier"; q[1] = "Amplifier"; q[2] = 10; q[3] = "Simple gain in dB."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1; q[30] = "Gain"; q[31] = 1;
+  q = GM + 105 * GMS; q[0] = "Surround matrix encoder"; q[1] = "Surround Enc"; q[2] = 10; q[3] = "Matrix-encodes L, R, C and S into an Lt/Rt stereo pair."; q[6] = "L"; q[7] = "R"; q[8] = "C"; q[9] = "S"; q[10] = "Lt"; q[11] = "Rt"; q[19] = 2; q[21] = 1; q[22] = 2; q[24] = 1;
+  q = GM + 106 * GMS; q[0] = "z-1"; q[1] = "z-1"; q[2] = 10; q[3] = "A single-sample delay."; q[6] = "In"; q[10] = "Out"; q[19] = 1; q[22] = 1;
+  strcpy(#gaddmenu, "");
+  strcat(#gaddmenu, ">Dynamics|A-Law Compressor");
+  strcat(#gaddmenu, "|Barry's Satan Maximiser");
+  strcat(#gaddmenu, "|Dyson compressor");
+  strcat(#gaddmenu, "|Fast Lookahead limiter");
+  strcat(#gaddmenu, "|Gate");
+  strcat(#gaddmenu, "|Hard Limiter");
+  strcat(#gaddmenu, "|Lookahead limiter");
+  strcat(#gaddmenu, "|Lookahead limiter (fixed latency)");
+  strcat(#gaddmenu, "|SC1");
+  strcat(#gaddmenu, "|SC2");
+  strcat(#gaddmenu, "|SC3");
+  strcat(#gaddmenu, "|SC4");
+  strcat(#gaddmenu, "|SE4");
+  strcat(#gaddmenu, "|Transient mangler");
+  strcat(#gaddmenu, "|<μ-Law Compressor");
+  strcat(#gaddmenu, "|>Filter|4 x 4 pole allpass");
+  strcat(#gaddmenu, "|Comb Filter");
+  strcat(#gaddmenu, "|Comb Splitter");
+  strcat(#gaddmenu, "|DC Offset Remover");
+  strcat(#gaddmenu, "|Glame Bandpass Analog Filter");
+  strcat(#gaddmenu, "|Glame Bandpass Filter");
+  strcat(#gaddmenu, "|GLAME Butterworth Highpass");
+  strcat(#gaddmenu, "|GLAME Butterworth Lowpass");
+  strcat(#gaddmenu, "|Glame Butterworth X-over Filter");
+  strcat(#gaddmenu, "|Glame Highpass Filter");
+  strcat(#gaddmenu, "|Glame Lowpass Filter");
+  strcat(#gaddmenu, "|Karaoke");
+  strcat(#gaddmenu, "|LS Filter");
+  strcat(#gaddmenu, "|<State Variable Filter");
+  strcat(#gaddmenu, "|>EQ|DJ EQ");
+  strcat(#gaddmenu, "|DJ EQ (mono)");
+  strcat(#gaddmenu, "|Multiband EQ");
+  strcat(#gaddmenu, "|Single band parametric");
+  strcat(#gaddmenu, "|<Triple band parametric with shelves");
+  strcat(#gaddmenu, "|>Delay|Allpass delay line, cubic spline interpolation");
+  strcat(#gaddmenu, "|Allpass delay line, linear interpolation");
+  strcat(#gaddmenu, "|Allpass delay line, noninterpolating");
+  strcat(#gaddmenu, "|Comb delay line, cubic spline interpolation");
+  strcat(#gaddmenu, "|Comb delay line, linear interpolation");
+  strcat(#gaddmenu, "|Comb delay line, noninterpolating");
+  strcat(#gaddmenu, "|Delayorama");
+  strcat(#gaddmenu, "|Fractionally Addressed Delay Line");
+  strcat(#gaddmenu, "|L/C/R Delay");
+  strcat(#gaddmenu, "|Modulatable delay");
+  strcat(#gaddmenu, "|Reverse Delay (5s max)");
+  strcat(#gaddmenu, "|Signal sifter");
+  strcat(#gaddmenu, "|Simple delay line, cubic spline interpolation");
+  strcat(#gaddmenu, "|Simple delay line, linear interpolation");
+  strcat(#gaddmenu, "|Simple delay line, noninterpolating");
+  strcat(#gaddmenu, "|<Tape Delay Simulation");
+  strcat(#gaddmenu, "|>Modulation|Auto phaser");
+  strcat(#gaddmenu, "|DJ flanger");
+  strcat(#gaddmenu, "|Flanger");
+  strcat(#gaddmenu, "|Giant flange");
+  strcat(#gaddmenu, "|LFO Phaser");
+  strcat(#gaddmenu, "|Multivoice Chorus");
+  strcat(#gaddmenu, "|Retro Flanger");
+  strcat(#gaddmenu, "|Ringmod with LFO");
+  strcat(#gaddmenu, "|<Ringmod with two inputs");
+  strcat(#gaddmenu, "|>Pitch|AM pitchshifter");
+  strcat(#gaddmenu, "|Bode frequency shifter");
+  strcat(#gaddmenu, "|Bode frequency shifter (CV)");
+  strcat(#gaddmenu, "|Higher Quality Pitch Scaler");
+  strcat(#gaddmenu, "|Impulse convolver");
+  strcat(#gaddmenu, "|<Rate shifter");
+  strcat(#gaddmenu, "|>Distortion|Aliasing");
+  strcat(#gaddmenu, "|Chebyshev distortion");
+  strcat(#gaddmenu, "|Crossover distortion");
+  strcat(#gaddmenu, "|Decimator");
+  strcat(#gaddmenu, "|Declipper");
+  strcat(#gaddmenu, "|Diode Processor");
+  strcat(#gaddmenu, "|Fast overdrive");
+  strcat(#gaddmenu, "|Foldover distortion");
+  strcat(#gaddmenu, "|GSM Simulator");
+  strcat(#gaddmenu, "|Pointer cast distortion");
+  strcat(#gaddmenu, "|Sinus wavewrapper");
+  strcat(#gaddmenu, "|Smooth Decimator");
+  strcat(#gaddmenu, "|Valve rectifier");
+  strcat(#gaddmenu, "|Valve saturation");
+  strcat(#gaddmenu, "|VyNil (Vinyl Effect)");
+  strcat(#gaddmenu, "|<Wave shaper");
+  strcat(#gaddmenu, "|>Reverb|GVerb");
+  strcat(#gaddmenu, "|<Plate reverb");
+  strcat(#gaddmenu, "|>Generator|Analogue Oscillator");
+  strcat(#gaddmenu, "|Audio Divider (Suboctave Generator)");
+  strcat(#gaddmenu, "|Constant Signal Generator");
+  strcat(#gaddmenu, "|FM Oscillator");
+  strcat(#gaddmenu, "|Gong beater");
+  strcat(#gaddmenu, "|Harmonic generator");
+  strcat(#gaddmenu, "|Non-bandlimited single-sample impulses");
+  strcat(#gaddmenu, "|Sine + cosine oscillator");
+  strcat(#gaddmenu, "|<Wave Terrain Oscillator");
+  strcat(#gaddmenu, "|>Utility|Crossfade");
+  strcat(#gaddmenu, "|Crossfade (4 outs)");
+  strcat(#gaddmenu, "|Exponential signal decay");
+  strcat(#gaddmenu, "|Frequency tracker");
+  strcat(#gaddmenu, "|Hilbert transformer");
+  strcat(#gaddmenu, "|Inverter");
+  strcat(#gaddmenu, "|Matrix Spatialiser");
+  strcat(#gaddmenu, "|Matrix: MS to Stereo");
+  strcat(#gaddmenu, "|Matrix: Stereo to MS");
+  strcat(#gaddmenu, "|Mono to Stereo splitter");
+  strcat(#gaddmenu, "|Offset, sample-based");
+  strcat(#gaddmenu, "|Simple amplifier");
+  strcat(#gaddmenu, "|Surround matrix encoder");
+  strcat(#gaddmenu, "|<z-1");
+);
+
+g_tables();
+memset(GRP, 0, 1000);
+GCC[0] = 0.58; GCC[1] = 0.60; GCC[2] = 0.64;
+GCC[3] = 0.85; GCC[4] = 0.35; GCC[5] = 0.35;
+GCC[6] = 0.28; GCC[7] = 0.55; GCC[8] = 0.88;
+GCC[9] = 0.30; GCC[10] = 0.75; GCC[11] = 0.68;
+GCC[12] = 0.88; GCC[13] = 0.66; GCC[14] = 0.25;
+GCC[15] = 0.66; GCC[16] = 0.46; GCC[17] = 0.88;
+GCC[18] = 0.88; GCC[19] = 0.45; GCC[20] = 0.70;
+GCC[21] = 0.92; GCC[22] = 0.52; GCC[23] = 0.20;
+GCC[24] = 0.45; GCC[25] = 0.72; GCC[26] = 0.92;
+GCC[27] = 0.55; GCC[28] = 0.80; GCC[29] = 0.35;
+GCC[30] = 0.62; GCC[31] = 0.64; GCC[32] = 0.68;
+
+rk_tables();
+rk_setup();
+RK_SR = srate;
+RK_PDC = 128;
+last_srate = srate;
+
+@slider
+last_srate !== srate ? (
+  last_srate = srate;
+  RK_SR = srate;
+  rk_setup();
+);
+
+@block
+rk_sync();
+pdc_delay = RK_PDC;
+pdc_bot_ch = 0;
+pdc_top_ch = 2;
+
+@sample
+rk_sample();
+
+@gfx 960 700
+
+function g_auto(s, e)
+(
+<?
+  max_sliders > 193 ? printf("slider_automate(2^(s-1), e);") : (
+    k = 1; loop(8, printf("  s == %d ? slider_automate(mod%d, e) :\n", k, k); k += 1);
+    k = 1; loop(8, printf("  s == %d ? slider_automate(byp%d, e) :\n", 8 + k, k); k += 1);
+    k = 1; loop(32, printf("  s == %d ? slider_automate(cab%d, e) :\n", 16 + k, k); k += 1);
+    k = 1; loop(8, printf("  s == %d ? slider_automate(bx%d, e) :\n", 48 + k, k); k += 1);
+    k = 1; loop(8, printf("  s == %d ? slider_automate(by%d, e) :\n", 56 + k, k); k += 1);
+    k = 0; loop(128, printf("  s == %d ? slider_automate(p%d_%d, e) :\n", 65 + k, floor(k / 16) + 1, k % 16 + 1); k += 1);
+    printf("  s == 193 ? slider_automate(slack, e) :\n");
+  );
+?> 0;
+);
+
+function g_sx(x) ( gox + x * gz; );
+function g_sy(y) ( goy + y * gz; );
+function g_hit(x, y, w, h) ( mouse_x >= g_sx(x) && mouse_x < g_sx(x + w) && mouse_y >= g_sy(y) && mouse_y < g_sy(y + h); );
+function g_hitc(x, y, r) ( sqr(mouse_x - g_sx(x)) + sqr(mouse_y - g_sy(y)) <= sqr(r * gz); );
+function g_near(x, y, r) ( sqr(gmx - x) + sqr(gmy - y) <= r * r; );
+function g_dbl(key) local(r) (
+  r = glast_i === key && gnow - glast_t < 0.3;
+  glast_i = key;
+  glast_t = gnow;
+  r;
+);
+function g_clamp01(x) ( max(0, min(1, x)); );
+function g_font(sz, fl) ( gfx_setfont(1, "Arial", sz * gz, fl); );
+function g_fit(str, sz, fl, maxw) local(tw, th) (
+  g_font(sz, fl);
+  gfx_measurestr(str, tw, th);
+  while (tw > maxw * gz && sz > 11) (
+    sz -= 1;
+    g_font(sz, fl);
+    gfx_measurestr(str, tw, th);
+  );
+);
+function g_small() ( g_font(12, 0); gfx_set(0.70, 0.72, 0.76, 1); );
+function g_text_c(str, cx, y) local(tw, th) ( gfx_measurestr(str, tw, th); gfx_x = g_sx(cx) - tw * 0.5; gfx_y = g_sy(y); gfx_drawstr(str); );
+function g_text_r(str, rx, y) local(tw, th) ( gfx_measurestr(str, tw, th); gfx_x = g_sx(rx) - tw; gfx_y = g_sy(y); gfx_drawstr(str); );
+function g_text_l(str, lx, y) ( gfx_x = g_sx(lx); gfx_y = g_sy(y); gfx_drawstr(str); );
+function g_text_cc(str, cx, cy) local(tw, th) ( gfx_measurestr(str, tw, th); gfx_x = g_sx(cx) - tw * 0.5; gfx_y = g_sy(cy) - th * 0.5; gfx_drawstr(str); );
+function g_box(x, y, w, h, fill) ( gfx_rect(g_sx(x), g_sy(y), w * gz, h * gz, fill); );
+function g_panel(x, y, w, h) (
+  gfx_set(0.12, 0.13, 0.15, 1);
+  g_box(x, y, w, h, 1);
+  gfx_set(0.30, 0.31, 0.35, 1);
+  g_box(x, y, w, h, 0);
+);
+function g_catcol(c, f) ( gfx_set(min(1, GCC[c * 3] * f), min(1, GCC[c * 3 + 1] * f), min(1, GCC[c * 3 + 2] * f), 1); );
+
+function g_put(i, v) ( slider(i) !== v ? ( slider(i) = v; g_auto(i, 0); g_auto(i, 1); ); );
+
+function g_mdp(t, k) ( RK_MD + t * RK_MDS + 15 + k * 5; );
+function g_lo(t, k) local(m) ( m = g_mdp(t, k); (m[4] & 8) ? m[1] * srate : m[1]; );
+function g_hi(t, k) local(m) ( m = g_mdp(t, k); (m[4] & 8) ? m[2] * srate : m[2]; );
+function g_map(t, k, u) local(m, lo, hi, f, v) (
+  m = g_mdp(t, k);
+  lo = m[1]; hi = m[2]; f = m[4];
+  (f & 8) ? ( lo *= srate; hi *= srate; );
+  u = max(0, min(1, u));
+  (f & 4) ? v = (u >= 0.5) :
+  (f & 1) ? v = lo * (hi / lo) ^ u :
+  v = lo + (u * (hi - lo));
+  (f & 2) ? v = floor(v + 0.5);
+  v;
+);
+function g_unmap(t, k, v) local(m, lo, hi, f) (
+  m = g_mdp(t, k);
+  lo = m[1]; hi = m[2]; f = m[4];
+  (f & 8) ? ( lo *= srate; hi *= srate; );
+  (f & 4) ? (v >= 0.5) :
+  (f & 1) ? max(0, min(1, log(v / lo) / log(hi / lo))) :
+  hi > lo ? max(0, min(1, (v - lo) / (hi - lo))) : 0;
+);
+function g_def_u(t, k) local(m, d) (
+  m = g_mdp(t, k);
+  d = m[3];
+  ((m[4] & 8) && !(m[4] & 16)) ? d *= srate;
+  g_unmap(t, k, d);
+);
+
+function g_unit(un) (
+  un === 1 ? "dB" : un === 2 ? "ms" : un === 3 ? "s" : un === 4 ? "Hz" : un === 5 ? "%" : un === 6 ? "smp" :
+  un === 7 ? "oct" : un === 8 ? "m" : un === 10 ? "in" : un === 11 ? "ips" : "";
+);
+function g_fmt(t, k, v) local(un, kind, sp, d, q) (
+  un = GM[t * GMS + 31 + k * 4];
+  kind = GM[t * GMS + 32 + k * 4];
+  sp = abs(g_hi(t, k) - g_lo(t, k));
+  kind === 1 || kind === 2 ? (
+    un === 6 ? sprintf(#gfmt, "%d smp", v) : sprintf(#gfmt, "%d", v);
+  ) : un === 4 ? (
+    v >= 10000 ? sprintf(#gfmt, "%.1f kHz", v / 1000) :
+    v >= 1000 ? sprintf(#gfmt, "%.2f kHz", v / 1000) :
+    v >= 100 ? sprintf(#gfmt, "%.0f Hz", v) :
+    v >= 10 ? sprintf(#gfmt, "%.1f Hz", v) :
+    v >= 1 ? sprintf(#gfmt, "%.2f Hz", v) : sprintf(#gfmt, "%.3f Hz", v);
+  ) : un === 3 ? (
+    abs(v) >= 1 ? sprintf(#gfmt, "%.2f s", v) :
+    abs(v) >= 0.01 ? sprintf(#gfmt, "%.0f ms", v * 1000) : sprintf(#gfmt, "%.2f ms", v * 1000);
+  ) : un === 2 ? (
+    abs(v) >= 1000 ? sprintf(#gfmt, "%.2f s", v / 1000) :
+    abs(v) >= 100 ? sprintf(#gfmt, "%.0f ms", v) :
+    abs(v) >= 10 ? sprintf(#gfmt, "%.1f ms", v) : sprintf(#gfmt, "%.2f ms", v);
+  ) : un === 9 ? (
+    sprintf(#gfmt, "1:%.1f", v);
+  ) : (
+    d = sp >= 200 ? 0 : sp >= 20 ? 1 : sp >= 0.5 ? 2 : 3;
+    q = 10 ^ d;
+    v = floor(v * q + 0.5) / q;
+    d === 0 ? sprintf(#gfmt, "%.0f", v) : d === 1 ? sprintf(#gfmt, "%.1f", v) :
+    d === 2 ? sprintf(#gfmt, "%.2f", v) : sprintf(#gfmt, "%.3f", v);
+    un > 0 ? ( strcat(#gfmt, " "); strcat(#gfmt, g_unit(un)); );
+  );
+  #gfmt;
+);
+
+function g_items(s) local(i, n) (
+  n = 1;
+  i = 0;
+  loop(strlen(s), str_getchar(s, i) == '|' ? n += 1; i += 1);
+  n;
+);
+function g_item(dst, s, idx) local(i, st, k, l, c) (
+  strcpy(dst, "");
+  l = strlen(s);
+  st = k = i = 0;
+  loop(l + 1,
+    c = i < l ? str_getchar(s, i) : '|';
+    c == '|' ? (
+      k == idx ? strcpy_substr(dst, s, st, i - st);
+      k += 1;
+      st = i + 1;
+    );
+    i += 1);
+  dst;
+);
+
+function g_type(n) ( n >= 1 && n <= 8 ? max(0, min(GNT, floor(slider(n) + 0.5))) : 0; );
+function g_live(n) ( n === 0 || n === 9 || g_type(n) > 0; );
+function g_nin(n) ( n === 0 ? 0 : n === 9 ? 2 : RK_MD[g_type(n) * RK_MDS]; );
+function g_nout(n) ( n === 0 ? 4 : n === 9 ? 0 : RK_MD[g_type(n) * RK_MDS + 1]; );
+function g_hof(t) local(r, o) (
+  r = max(1, max(RK_MD[t * RK_MDS], RK_MD[t * RK_MDS + 1]));
+  o = RK_MD[t * RK_MDS + 3];
+  32 + r * 18 + (o > 0 ? o * 14 + 4 : 0);
+);
+function g_nw(n) ( n === 0 || n === 9 ? GIOW : GBW; );
+function g_nh(n) ( n === 0 ? 104 : n === 9 ? 68 : g_hof(g_type(n)); );
+function g_nx(n) ( n === 0 ? GCX + 10 : n === 9 ? GCX + GCW - GIOW - 10 : slider(48 + n); );
+function g_ny(n) ( n === 0 || n === 9 ? GCY + floor((GCH - g_nh(n)) * 0.5) : slider(56 + n); );
+function g_jy(n, p) ( g_ny(n) + 37 + p * 18; );
+function g_jix(n) ( g_nx(n) + GJIN; );
+function g_jox(n) ( g_nx(n) + g_nw(n) - GJIN; );
+function g_nmo(n) ( n === 0 ? 2 : n === 9 ? 0 : GM[g_type(n) * GMS + 22]; );
+function g_mo(n, k) ( n === 0 ? k : GM[g_type(n) * GMS + 23 + k]; );
+function g_mo_idx(n, sp) local(k, r) (
+  r = -1;
+  k = 0;
+  loop(g_nmo(n), g_mo(n, k) === sp ? r = k; k += 1;);
+  r;
+);
+function g_plabel(n, isout, p) (
+  n === 0 ? ( p === 0 ? "L" : p === 1 ? "R" : p === 2 ? "SC L" : "SC R"; ) :
+  n === 9 ? ( p === 0 ? "L" : "R"; ) :
+  GM[g_type(n) * GMS + (isout ? 10 : 6) + p];
+);
+
+function g_cv(c) ( floor(slider(17 + c) + 0.5); );
+function g_dec(v) ( v -= 1; gq_s = floor(v / 40); gq_d = v - gq_s * 40; );
+function g_ok(c) local(v, sn, sp, dn, dp) (
+  v = g_cv(c);
+  v > 0 && v <= 1440 ? (
+    g_dec(v);
+    sn = floor(gq_s / 4); sp = gq_s - sn * 4;
+    dn = floor(gq_d / 4); dp = gq_d - dn * 4;
+    sn <= 8 && dn >= 1 && sn !== dn && g_live(sn) && g_live(dn) && sp < g_nout(sn) && dp < g_nin(dn) ? 1 : 0;
+  ) : 0;
+);
+function g_has(sc, dc) local(c, r) (
+  r = 0;
+  c = 0;
+  loop(32, g_cv(c) === 1 + sc * 40 + dc ? r = 1; c += 1;);
+  r;
+);
+function g_free_cab() local(c, r) (
+  r = -1;
+  c = 31;
+  loop(32, g_cv(c) <= 0 ? r = c; c -= 1;);
+  r;
+);
+function g_reach(a, b) local(vis, c) (
+  vis = 2 ^ a;
+  loop(9,
+    c = 0;
+    loop(32, g_ok(c) ? ( (vis & (2 ^ floor(gq_s / 4))) ? vis |= 2 ^ floor(gq_d / 4); ); c += 1;);
+  );
+  (vis & (2 ^ b)) ? 1 : 0;
+);
+function g_can(sc, dc) local(sn, dn) (
+  sn = floor(sc / 4);
+  dn = floor(dc / 4);
+  sc >= 0 && dc >= 4 && sn <= 8 && dn >= 1 && dn <= 9 && sn !== dn && g_live(sn) && g_live(dn) &&
+    sc - sn * 4 < g_nout(sn) && dc - dn * 4 < g_nin(dn) && !g_has(sc, dc) && g_free_cab() >= 0 ? (
+    (sn >= 1 && dn <= 8) ? !g_reach(dn, sn) : 1;
+  ) : 0;
+);
+function g_link(sc, dc) local(c) (
+  c = g_free_cab();
+  c >= 0 ? ( g_put(17 + c, 1 + sc * 40 + dc); GRI[c] = 0; );
+  c;
+);
+function g_unlink(c) ( g_put(17 + c, 0); );
+function g_disc(s) local(c) (
+  c = 0;
+  loop(32,
+    g_cv(c) > 0 ? (
+      g_dec(g_cv(c));
+      (floor(gq_s / 4) === s || floor(gq_d / 4) === s) ? g_unlink(c);
+    );
+    c += 1;
+  );
+);
+
+function g_setpos(n, x, y, e, h) (
+  x = floor(max(GCX + 4, min(GCX + GCW - GBW - 4, x)));
+  y = floor(max(GCY + 4, min(GCY + GCH - h - 4, y)));
+  slider(48 + n) !== x ? ( slider(48 + n) = x; g_auto(48 + n, 0); );
+  slider(56 + n) !== y ? ( slider(56 + n) = y; g_auto(56 + n, 0); );
+  e ? ( g_auto(48 + n, 1); g_auto(56 + n, 1); );
+);
+function g_spot_free(x, y, h) local(n, r) (
+  r = x >= GCX + 4 && x <= GCX + GCW - GBW - 4 && y >= GCY + 4 && y <= GCY + GCH - h - 4;
+  n = 0;
+  loop(10,
+    r && g_live(n) && x < g_nx(n) + g_nw(n) + 12 && x + GBW + 12 > g_nx(n) && y < g_ny(n) + g_nh(n) + 10 && y + h + 10 > g_ny(n) ? r = 0;
+    n += 1;
+  );
+  r;
+);
+function g_try(px, py, h) ( gx_try < 0 && g_spot_free(px, py, h) ? ( gx_try = px; gy_try = py; ); );
+function g_add_target(c, src) local(i) (
+  i = g_mo_idx(src, gq_s - src * 4);
+  i >= 0 ? ( GTG[gn_tg * 2] = c; GTG[gn_tg * 2 + 1] = i; gn_tg += 1; );
+);
+function g_add(t, x, y, route) local(s, src, c, k, p, f, nso, nmi, nmo, h, bx, by, i, b) (
+  s = 0;
+  k = 8;
+  loop(8, !g_live(k) ? s = k; k -= 1;);
+  s ? (
+    g_disc(s);
+    src = gsel >= 0 && gsel <= 8 && g_live(gsel) ? gsel : -1;
+    gn_tg = 0;
+    src >= 0 ? (
+      c = 0;
+      loop(32, g_ok(c) && floor(gq_s / 4) === src ? g_add_target(c, src); c += 1;);
+    ) : (
+      c = 0;
+      loop(32,
+        g_ok(c) && floor(gq_d / 4) === 9 ? ( f = floor(gq_s / 4); (src < 0 || g_nx(f) > g_nx(src)) ? src = f; );
+        c += 1;
+      );
+      src < 0 ? src = 0;
+      c = 0;
+      loop(32, g_ok(c) && floor(gq_d / 4) === 9 && floor(gq_s / 4) === src ? g_add_target(c, src); c += 1;);
+    );
+    h = g_hof(t);
+    x < 0 ? (
+      gx_try = -1;
+      bx = g_nx(src) + g_nw(src) + 40;
+      by = g_ny(src) + floor((g_nh(src) - h) * 0.5);
+      k = 0;
+      loop(15,
+        g_try(bx + floor(k / 5) * (GBW + 40), by + (k % 5 === 1 ? -100 : k % 5 === 2 ? 100 : k % 5 === 3 ? -200 : k % 5 === 4 ? 200 : 0), h);
+        k += 1;
+      );
+      k = 0;
+      loop(12, g_try(GCX + 110 + (k % 4) * 185, GCY + 20 + floor(k / 4) * 125, h); k += 1;);
+      gx_try < 0 ? ( x = GCX + 110; y = GCY + 20; ) : ( x = gx_try; y = gy_try; );
+    );
+    g_put(8 + s, 0);
+    k = 0;
+    loop(16, g_put(65 + (s - 1) * 16 + k, k < RK_MD[t * RK_MDS + 2] ? g_def_u(t, k) : 0); k += 1;);
+    g_setpos(s, x, y, 1, h);
+    g_put(s, t);
+    route ? (
+      b = t * GMS;
+      nso = g_nmo(src);
+      nmi = GM[b + 19];
+      nmo = GM[b + 22];
+      nso > 0 ? (
+        k = 0;
+        loop(nmi,
+          p = src * 4 + g_mo(src, min(k, nso - 1));
+          g_can(p, s * 4 + GM[b + 20 + k]) ? g_link(p, s * 4 + GM[b + 20 + k]);
+          k += 1;
+        );
+      );
+      nmo > 0 ? (
+        gn_tg > 0 ? (
+          i = 0;
+          loop(gn_tg,
+            c = GTG[i * 2];
+            g_dec(g_cv(c));
+            p = s * 4 + GM[b + 23 + min(GTG[i * 2 + 1], nmo - 1)];
+            nmi > 0 ? (
+              !g_has(p, gq_d) ? ( g_put(17 + c, 1 + p * 40 + gq_d); GRI[c] = 0; ) : g_unlink(c);
+            ) : (
+              !g_has(p, gq_d) ? g_link(p, gq_d);
+            );
+            i += 1;
+          );
+        ) : (
+          g_link(s * 4 + GM[b + 23], 36);
+          p = s * 4 + GM[b + 23 + min(1, nmo - 1)];
+          !g_has(p, 37) ? g_link(p, 37);
+        );
+      );
+    );
+    gsel = s;
+  );
+);
+function g_remove(s) local(t, c, e, k, nmi, mono, mi, dd, sc, sn) (
+  t = g_type(s);
+  nmi = GM[t * GMS + 19];
+  mono = nmi === 1 && GM[t * GMS + 22] === 1;
+  c = 0;
+  loop(32,
+    g_ok(c) && floor(gq_s / 4) === s ? (
+      dd = gq_d;
+      k = g_mo_idx(s, gq_s - s * 4);
+      g_unlink(c);
+      k >= 0 && nmi > 0 ? (
+        mi = s * 4 + GM[t * GMS + 20 + min(k, nmi - 1)];
+        e = 0;
+        loop(32,
+          g_ok(e) && gq_d === mi ? (
+            sc = gq_s;
+            sn = floor(sc / 4);
+            mono && g_nmo(sn) >= 2 && g_mo_idx(sn, sc - sn * 4) === 0 ? sc = sn * 4 + g_mo(sn, min(dd % 4, 1));
+            !g_has(sc, dd) ? g_link(sc, dd);
+          );
+          e += 1;
+        );
+      );
+    );
+    c += 1;
+  );
+  g_disc(s);
+  g_put(8 + s, 0);
+  g_put(s, 0);
+  gsel === s ? gsel = -1;
+);
+function g_reset(s) local(t, k) (
+  t = g_type(s);
+  k = 0;
+  loop(RK_MD[t * RK_MDS + 2], g_put(65 + (s - 1) * 16 + k, g_def_u(t, k)); k += 1;);
+);
+function g_nname(dst, n) local(t, m, k, tot) (
+  n === 0 ? strcpy(dst, "IN") : n === 9 ? strcpy(dst, "OUT") : (
+    t = g_type(n);
+    strcpy(dst, GM[t * GMS + 1]);
+    k = tot = 0;
+    m = 1;
+    loop(8,
+      g_type(m) === t ? (
+        tot += 1;
+        (g_nx(m) < g_nx(n) || (g_nx(m) === g_nx(n) && m < n)) ? k += 1;
+      );
+      m += 1;
+    );
+    tot > 1 ? strcat(dst, sprintf(#gnum, " %d", k + 1));
+  );
+  dst;
+);
+function g_jack_menu(code, isin) local(c, cnt, r, q) (
+  strcpy(#gjm, "");
+  cnt = 0;
+  c = 0;
+  loop(32,
+    g_ok(c) && (isin ? gq_d === code : gq_s === code) ? (
+      q = isin ? gq_s : gq_d;
+      cnt > 0 ? strcat(#gjm, "|");
+      strcat(#gjm, isin ? "Disconnect from " : "Disconnect to ");
+      strcat(#gjm, g_nname(#gnm, floor(q / 4)));
+      strcat(#gjm, " ");
+      strcat(#gjm, g_plabel(floor(q / 4), isin, q % 4));
+      GJL[cnt] = c;
+      cnt += 1;
+    );
+    c += 1;
+  );
+  cnt > 1 ? strcat(#gjm, "|Disconnect all");
+  cnt ? (
+    r = gfx_showmenu(#gjm);
+    r >= 1 && r <= cnt ? g_unlink(GJL[r - 1]) : r === cnt + 1 ? ( c = 0; loop(cnt, g_unlink(GJL[c]); c += 1;); );
+  );
+);
+function g_free_slot() local(s, r) ( r = 0; s = 8; loop(8, !g_live(s) ? r = s; s -= 1;); r; );
+function g_add_menu(x, y) local(r) (
+  gfx_x = mouse_x;
+  gfx_y = mouse_y;
+  r = gfx_showmenu(#gaddmenu);
+  r > 0 ? g_add(r, x, y, !(mouse_cap & 8));
+);
+function g_block_at() local(n, r) (
+  r = -1;
+  n = 1;
+  loop(8, g_live(n) && gmx >= g_nx(n) && gmx < g_nx(n) + GBW && gmy >= g_ny(n) && gmy < g_ny(n) + g_nh(n) ? r = n; n += 1;);
+  gsel >= 1 && g_live(gsel) && gmx >= g_nx(gsel) && gmx < g_nx(gsel) + GBW && gmy >= g_ny(gsel) && gmy < g_ny(gsel) + g_nh(gsel) ? r = gsel;
+  r < 0 && gmx >= g_nx(0) && gmx < g_nx(0) + GIOW && gmy >= g_ny(0) && gmy < g_ny(0) + g_nh(0) ? r = 0;
+  r;
+);
+function g_out_jack_at() local(n, p, r) (
+  r = -1;
+  n = 0;
+  loop(9, g_live(n) ? ( p = 0; loop(g_nout(n), g_near(g_jox(n), g_jy(n, p), GJR + 7) ? r = n * 4 + p; p += 1;); ); n += 1;);
+  r;
+);
+function g_in_jack_at() local(n, p, r) (
+  r = -1;
+  n = 1;
+  loop(9, g_live(n) ? ( p = 0; loop(g_nin(n), g_near(g_jix(n), g_jy(n, p), GJR + 7) ? r = n * 4 + p; p += 1;); ); n += 1;);
+  r;
+);
+function g_in_canvas() ( gmx >= GCX && gmx < GCX + GCW && gmy >= GCY && gmy < GCY + GCH; );
+function g_jxo(code) ( g_jox(floor(code / 4)); );
+function g_jxi(code) ( g_jix(floor(code / 4)); );
+function g_jyc(code) ( g_jy(floor(code / 4), code % 4); );
+
+function g_rope_init(r, x0, y0, x1, y1) local(p) (
+  p = GRP + r * 8;
+  memset(p, 0, 8);
+  p[4] = (x0 + x1) * 0.5;
+  p[5] = (y0 + y1) * 0.5;
+  GRI[r] = 1;
+);
+function g_rope_copy(dst, src) ( memcpy(GRP + dst * 8, GRP + src * 8, 8); GRI[dst] = 1; );
+function g_low_y(y0, yc, y3) local(i, t, u, m) (
+  m = max(y0, y3);
+  i = 1;
+  loop(15,
+    t = i / 16;
+    u = 1 - t;
+    m = max(m, u * u * u * y0 + 3 * u * t * yc + t * t * t * y3);
+    i += 1);
+  m;
+);
+function g_rope_target(r, x0, y0, x1, y1) local(p, v, goal, lo, hi, md) (
+  p = GRP + r * 8;
+  v = sin(r * 12.9898) * 43758.5453;
+  v = 0.8 + 0.4 * (v - floor(v));
+  goal = min(max(y0, y1) + (GCDROP + GCDROPK * abs(x1 - x0) + 0.05 * abs(y1 - y0)) * v * gcsl, GCY + GCH - 6);
+  goal = max(goal, max(y0, y1) + 6);
+  lo = min(y0, y1);
+  hi = lo + 2000;
+  loop(16,
+    md = (lo + hi) * 0.5;
+    g_low_y(y0, md, y1) < goal ? lo = md : hi = md);
+  p[6] = 0;
+  p[7] = lo - (y0 + y1) * 0.5;
+);
+function g_rope_lim(p, lm) local(dv) (
+  dv = sqrt(sqr(p[0] - p[6]) + sqr(p[1] - p[7]));
+  dv > lm ? (
+    p[0] = p[6] + (p[0] - p[6]) * lm / dv;
+    p[1] = p[7] + (p[1] - p[7]) * lm / dv;
+  );
+);
+function g_rope_step(r, x0, y0, x1, y1, h) local(p, mx2, my2, dv, lm) (
+  p = GRP + r * 8;
+  mx2 = (x0 + x1) * 0.5;
+  my2 = (y0 + y1) * 0.5;
+  dv = sqrt(sqr(p[0] - p[6]) + sqr(p[1] - p[7]));
+  lm = max(dv, sqrt(sqr(p[6]) + sqr(p[7])) * 0.4);
+  p[0] -= (mx2 - p[4]) * GCLAG;
+  p[1] -= (my2 - p[5]) * GCLAG;
+  g_rope_lim(p, lm);
+  p[4] = mx2;
+  p[5] = my2;
+  p[2] += (GCK * (p[6] - p[0]) - GCD * p[2]) * h;
+  p[3] += (GCK * (p[7] - p[1]) - GCD * p[3]) * h;
+  p[0] += p[2] * h;
+  p[1] += p[3] * h;
+  g_rope_lim(p, lm);
+);
+function g_cub(a, b, c, d, t) local(u) ( u = 1 - t; u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d; );
+function g_cable_geo(r, x0, y0, x1, y1) local(p, k, f) (
+  p = GRP + r * 8;
+  GQX0 = x0; GQY0 = y0; GQX3 = x1; GQY3 = y1;
+  k = max(0, GCUW - abs(x1 - x0)) * 0.5 * (x1 >= x0 ? 1 : -1);
+  f = max(0, min(1, (abs(x1 - x0) - GCUW) / 500)) / 3 * (x1 - x0);
+  GQX1 = x0 - k + f + p[0];
+  GQX2 = x1 + k - f + p[0];
+  GQY1 = GQY2 = (y0 + y1) * 0.5 + p[1];
+);
+function g_rope_smooth(r, x0, y0, x1, y1) local(i) (
+  g_cable_geo(r, x0, y0, x1, y1);
+  i = 0;
+  loop(25,
+    GSM[i * 2] = g_sx(g_cub(GQX0, GQX1, GQX2, GQX3, i / 24));
+    GSM[i * 2 + 1] = g_sy(g_cub(GQY0, GQY1, GQY2, GQY3, i / 24));
+    i += 1);
+  GSMN = 25;
+);
+function g_seg_norm(i) local(l) (
+  GSAX = GSM[i * 2]; GSAY = GSM[i * 2 + 1];
+  GSBX = GSM[i * 2 + 2]; GSBY = GSM[i * 2 + 3];
+  l = max(0.001, sqrt(sqr(GSBX - GSAX) + sqr(GSBY - GSAY)));
+  GSUX = (GSAY - GSBY) / l;
+  GSUY = (GSBX - GSAX) / l;
+  GSUY < 0 ? ( GSUX = -GSUX; GSUY = -GSUY; );
+);
+function g_rope_pass(ox2, oy2, hw) local(i, k) (
+  i = 0;
+  loop(GSMN - 1,
+    g_seg_norm(i);
+    k = -hw;
+    loop(floor(hw * 2) + 1,
+      gfx_line(GSAX + ox2 + GSUX * k, GSAY + oy2 + GSUY * k, GSBX + ox2 + GSUX * k, GSBY + oy2 + GSUY * k, 1);
+      k += 1);
+    i += 1);
+);
+function g_tube(hw) local(i, k, f, lt, sp) (
+  i = 0;
+  loop(GSMN - 1,
+    g_seg_norm(i);
+    k = -hw;
+    while (k <= hw) (
+      f = k / hw;
+      lt = 0.38 + 0.62 * sqrt(max(0, 1 - f * f));
+      sp = 0.28 * exp(-sqr((f + 0.45) / 0.22));
+      gfx_set(min(1, GCCR * lt + sp), min(1, GCCG * lt + sp), min(1, GCCB * lt + sp), 1);
+      gfx_line(GSAX + GSUX * k, GSAY + GSUY * k, GSBX + GSUX * k, GSBY + GSUY * k, 1);
+      k += 0.5;
+    );
+    i += 1);
+);
+function g_cable_rgb(code) local(n, c, gr, f) (
+  n = floor(code / 4);
+  c = n >= 1 && n <= 8 ? GM[g_type(n) * GMS + 2] * 3 : 0;
+  f = (code % 2) ? 0.8 : 1;
+  gr = (GCC[c] + GCC[c + 1] + GCC[c + 2]) / 3;
+  GCCR = (GCC[c] * 0.72 + gr * 0.16) * f;
+  GCCG = (GCC[c + 1] * 0.72 + gr * 0.16) * f;
+  GCCB = (GCC[c + 2] * 0.72 + gr * 0.16) * f;
+);
+function g_plug_cap(x, y, hot) (
+  gfx_set(0.03, 0.03, 0.035, 1);
+  gfx_circle(g_sx(x), g_sy(y), GJR * gz, 1, 1);
+  gfx_set(0.24, 0.25, 0.27, 1);
+  gfx_circle(g_sx(x), g_sy(y), GJR * gz, 0, 1);
+  gfx_set(0.11, 0.11, 0.12, 1);
+  gfx_circle(g_sx(x), g_sy(y), (GJR - 1.6) * gz, 1, 1);
+  hot ? (
+    gfx_set(0.35, 0.90, 0.55, 1);
+    gfx_circle(g_sx(x), g_sy(y), (GJR + 3.5) * gz, 0, 1);
+  );
+);
+function g_plug_free(x, y) local(yt) (
+  yt = y - GPLUGL;
+  gfx_set(0, 0, 0, 0.3);
+  g_box(x - 3, yt + 2, 8, GPLUGL, 1);
+  gfx_set(0.62, 0.64, 0.67, 1);
+  g_box(x - 1.6, yt - GPINL, 3.2, GPINL, 1);
+  gfx_set(0.86, 0.87, 0.89, 1);
+  g_box(x - 1.6, yt - GPINL, 0.8, GPINL, 1);
+  gfx_set(0.10, 0.10, 0.11, 1);
+  g_box(x - 1.6, yt - GPINL * 0.55, 3.2, 0.8, 1);
+  gfx_set(0.72, 0.73, 0.76, 1);
+  gfx_circle(g_sx(x), g_sy(yt - GPINL), 1.6 * gz, 1, 1);
+  gfx_set(0.62, 0.64, 0.67, 1);
+  g_box(x - 4.5, yt - 1.5, 9, 1.5, 1);
+  gfx_set(0.09, 0.09, 0.10, 1);
+  g_box(x - 4, yt, 8, GPLUGL - 3, 1);
+  gfx_set(0.30, 0.31, 0.34, 1);
+  g_box(x - 4, yt, 1.5, GPLUGL - 3, 1);
+  gfx_set(GCCR, GCCG, GCCB, 1);
+  g_box(x - 4, yt + GPLUGL - 7, 8, 2.5, 1);
+  gfx_set(0.07, 0.07, 0.08, 1);
+  g_box(x - 2.5, y - 3, 5, 3, 1);
+);
+function g_draw_cable(r, code, x0, y0, x1, y1, fr) (
+  g_cable_rgb(code);
+  g_rope_smooth(r, x0, y0, x1, y1);
+  fr != 1 ? g_plug_cap(x0, y0, fr == 3);
+  fr != 2 ? g_plug_cap(x1, y1, fr == 4);
+  gfx_set(0, 0, 0, 0.08);
+  g_rope_pass(2.5 * gz, 6 * gz, 3.5 * gz);
+  gfx_set(0, 0, 0, 0.16);
+  g_rope_pass(1.5 * gz, 3.5 * gz, 2.2 * gz);
+  g_tube(2 * gz);
+  gfx_set(GCCR * 0.85, GCCG * 0.85, GCCB * 0.85, 1);
+  fr != 1 ? gfx_circle(g_sx(x0), g_sy(y0), 1.8 * gz, 1, 1);
+  fr != 2 ? gfx_circle(g_sx(x1), g_sy(y1), 1.8 * gz, 1, 1);
+  fr == 1 ? g_plug_free(x0, y0);
+  fr == 2 ? g_plug_free(x1, y1);
+);
+function g_hexagon(x, y, r) local(i) (
+  i = 1;
+  loop(4,
+    gfx_triangle(g_sx(x + r), g_sy(y),
+      g_sx(x + r * cos(i * 1.0472)), g_sy(y + r * sin(i * 1.0472)),
+      g_sx(x + r * cos((i + 1) * 1.0472)), g_sy(y + r * sin((i + 1) * 1.0472)));
+    i += 1);
+);
+function g_jack(x, y, st) (
+  gfx_set(0, 0, 0, 0.4);
+  g_hexagon(x + 0.8, y + 1.2, GJR + 3.2);
+  st == 1 ? gfx_set(0.30, 0.75, 0.45, 1) : st == 2 ? gfx_set(0.75, 0.28, 0.24, 1) : gfx_set(0.40, 0.41, 0.44, 1);
+  g_hexagon(x, y, GJR + 3);
+  st == 1 ? gfx_set(0.45, 0.92, 0.60, 1) : st == 2 ? gfx_set(0.92, 0.40, 0.34, 1) : gfx_set(0.64, 0.66, 0.69, 1);
+  g_hexagon(x, y - 0.6, GJR + 2.2);
+  gfx_set(0.20, 0.21, 0.23, 1);
+  gfx_circle(g_sx(x), g_sy(y), GJR * gz, 1, 1);
+  gfx_set(0.02, 0.02, 0.03, 1);
+  gfx_circle(g_sx(x), g_sy(y), (GJR - 1.5) * gz, 1, 1);
+);
+function g_led(x, y, n) local(a) (
+  a = GLD[n];
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(g_sx(x), g_sy(y), 4.5 * gz, 1, 1);
+  gfx_set(0.15 + 0.20 * a, 0.25 + 0.70 * a, 0.15 + 0.30 * a, 1);
+  gfx_circle(g_sx(x), g_sy(y), 3 * gz, 1, 1);
+);
+function g_jack_state(code, isin) (
+  isin ? (
+    gmode == 2 && g_near(g_jxi(code), g_jyc(code), GJR + 7) ? ( g_can(gcsrc, code) ? 1 : 2; ) : 0;
+  ) : (
+    gmode == 3 && g_near(g_jxo(code), g_jyc(code), GJR + 7) ? ( g_can(code, gcdst) ? 1 : 2; ) : 0;
+  );
+);
+function g_io_block(n) local(x, y, h, k, np) (
+  x = g_nx(n);
+  y = g_ny(n);
+  h = g_nh(n);
+  gfx_set(0.17, 0.18, 0.20, 1);
+  g_box(x, y, GIOW, h, 1);
+  gfx_set(0.25, 0.26, 0.29, 1);
+  g_box(x, y + 5, GIOW, 19, 1);
+  g_catcol(0, 1);
+  g_box(x, y, GIOW, 5, 1);
+  gsel === n ? gfx_set(0.82, 0.42, 0.15, 1) : gfx_set(0.36, 0.37, 0.41, 1);
+  g_box(x, y, GIOW, h, 0);
+  gsel === n ? g_box(x + 1, y + 1, GIOW - 2, h - 2, 0);
+  g_font(12, 'b');
+  gfx_set(0.88, 0.89, 0.92, 1);
+  g_text_c(n === 0 ? "IN" : "OUT", x + GIOW * 0.5 - 6, y + 8);
+  g_led(x + GIOW - 11, y + 14, n);
+  np = n === 0 ? 4 : 2;
+  k = 0;
+  loop(np,
+    g_font(11, 0);
+    gfx_set(0.72, 0.74, 0.78, 1);
+    n === 0 ? (
+      g_text_r(g_plabel(0, 1, k), x + GIOW - 21, g_jy(n, k) - 7);
+      g_jack(g_jox(n), g_jy(n, k), g_jack_state(k, 0));
+    ) : (
+      g_text_l(g_plabel(9, 0, k), x + 21, g_jy(n, k) - 7);
+      g_jack(g_jix(n), g_jy(n, k), g_jack_state(36 + k, 1));
+    );
+    k += 1;
+  );
+);
+function g_draw_block(n) local(x, y, t, c, h, k, nin, nout, nco, ry, v, pv, b, un) (
+  x = g_nx(n);
+  y = g_ny(n);
+  t = g_type(n);
+  b = t * GMS;
+  c = GM[b + 2];
+  h = g_hof(t);
+  nin = RK_MD[t * RK_MDS];
+  nout = RK_MD[t * RK_MDS + 1];
+  nco = RK_MD[t * RK_MDS + 3];
+  gfx_set(0, 0, 0, 0.35);
+  g_box(x + 3, y + 4, GBW, h, 1);
+  gfx_set(0.20, 0.21, 0.24, 1);
+  g_box(x, y, GBW, h, 1);
+  gfx_set(0.25, 0.26, 0.29, 1);
+  g_box(x, y + 5, GBW, 19, 1);
+  g_catcol(c, 1);
+  g_box(x, y, GBW, 5, 1);
+  g_fit(GM[b + 1], 13, 'b', GBW - 36);
+  gfx_set(0.93, 0.93, 0.95, 1);
+  g_text_cc(GM[b + 1], x + GBW * 0.5 - 4, y + 14.5);
+  g_led(x + GBW - 11, y + 14, n);
+  g_font(11, 0);
+  gfx_set(0.72, 0.74, 0.78, 1);
+  k = 0;
+  loop(nin, g_text_l(GM[b + 6 + k], x + 21, g_jy(n, k) - 7); k += 1;);
+  k = 0;
+  loop(nout, g_text_r(GM[b + 10 + k], x + GBW - 21, g_jy(n, k) - 7); k += 1;);
+  nco > 0 ? (
+    ry = y + 30 + max(1, max(nin, nout)) * 18;
+    gfx_set(0.11, 0.115, 0.13, 1);
+    g_box(x + 8, ry, GBW - 16, nco * 14 + 1, 1);
+    pv = RK_PV + n * 64;
+    k = 0;
+    loop(nco,
+      v = pv[RK_MD[t * RK_MDS + 12 + k]];
+      un = GM[b + 17 + k];
+      v = floor(v * 10 + 0.5) / 10;
+      un === 1 ? sprintf(#gro, "%s %.1f dB", GM[b + 15 + k], v) :
+      un === 6 ? sprintf(#gro, "%s %d smp", GM[b + 15 + k], v) : sprintf(#gro, "%s %.2f", GM[b + 15 + k], v);
+      g_font(11, 0);
+      g_catcol(c, 1.1);
+      g_text_c(#gro, x + GBW * 0.5, ry + k * 14);
+      k += 1;
+    );
+  );
+  slider(8 + n) >= 0.5 ? (
+    gfx_set(0, 0, 0, 0.55);
+    g_box(x, y + 24, GBW, h - 24, 1);
+    g_font(12, 'b');
+    gfx_set(0.95, 0.55, 0.25, 1);
+    g_text_cc("BYPASSED", x + GBW * 0.5, y + 28 + max(1, max(nin, nout)) * 9);
+  );
+  gsel === n ? gfx_set(0.82, 0.42, 0.15, 1) : gfx_set(0.38, 0.39, 0.43, 1);
+  g_box(x, y, GBW, h, 0);
+  gsel === n ? g_box(x + 1, y + 1, GBW - 2, h - 2, 0);
+  k = 0;
+  loop(nin, g_jack(g_jix(n), g_jy(n, k), g_jack_state(n * 4 + k, 1)); k += 1;);
+  k = 0;
+  loop(nout, g_jack(g_jox(n), g_jy(n, k), g_jack_state(n * 4 + k, 0)); k += 1;);
+);
+function g_cable_at() local(c, r, i) (
+  r = -1;
+  c = 0;
+  loop(32,
+    g_ok(c) && GRI[c] ? (
+      g_cable_geo(c, g_jxo(gq_s), g_jyc(gq_s), g_jxi(gq_d), g_jyc(gq_d));
+      i = 1;
+      loop(31,
+        g_near(g_cub(GQX0, GQX1, GQX2, GQX3, i / 32), g_cub(GQY0, GQY1, GQY2, GQY3, i / 32), 8) ? r = c;
+        i += 1);
+    );
+    c += 1;
+  );
+  r;
+);
+
+function g_button(x, y, w, h, label, on, dim) local(hov, cr, cg, cb, gap) (
+  hov = g_hit(x, y, w, h);
+  on ? ( cr = 0.82; cg = 0.42; cb = 0.15; ) : ( cr = 0.22; cg = 0.22; cb = 0.25; );
+  gap = max(1, gz);
+  gfx_set(0.04, 0.04, 0.05, 1);
+  gfx_rect(g_sx(x) - gap, g_sy(y) - gap, w * gz + 2 * gap, h * gz + 2 * gap, 1);
+  gfx_set(cr * 0.6, cg * 0.6, cb * 0.6, 1);
+  g_box(x, y, w, h, 1);
+  gfx_set(cr, cg, cb, 1);
+  gfx_rect(g_sx(x) + gap, g_sy(y) + gap, w * gz - 2 * gap, h * gz * 0.5, 1);
+  gfx_set(1, 1, 1, on ? 0.22 : 0.10);
+  gfx_rect(g_sx(x) + gap, g_sy(y) + gap, w * gz - 2 * gap, h * gz * 0.32, 1);
+  gfx_set(1, 1, 1, on ? 0.4 : 0.22);
+  gfx_rect(g_sx(x), g_sy(y), w * gz, gap, 1);
+  gfx_set(0, 0, 0, 0.3);
+  gfx_rect(g_sx(x), g_sy(y) + h * gz - gap, w * gz, gap, 1);
+  hov ? ( gfx_set(1, 1, 1, 0.08); g_box(x, y, w, h, 1); );
+  gfx_set(0.03, 0.03, 0.04, 1);
+  gfx_rect(g_sx(x) - gap, g_sy(y) - gap, w * gz + 2 * gap, h * gz + 2 * gap, 0);
+  g_fit(label, 14, 0, w - 8);
+  gfx_set(1, 1, 1, dim ? 0.56 : 0.9);
+  g_text_cc(label, x + w * 0.5, y + h * 0.5);
+  hov && gclick && !dim ? ( gclick = 0; 1; ) : 0;
+);
+function g_knob_face(x, y, r, pos, c) local(a, v, k, QX, QY, QR) (
+  QX = g_sx(x); QY = g_sy(y); QR = r * gz;
+  gfx_set(0.05, 0.05, 0.06, 1);
+  gfx_circle(QX, QY, QR + 2 * gz, 1, 1);
+  g_catcol(c, 0.55);
+  gfx_circle(QX, QY, QR, 1, 1);
+  g_catcol(c, 1);
+  gfx_circle(QX, QY, QR * 0.72, 1, 1);
+  gfx_set(1, 1, 1, 0.18);
+  gfx_circle(QX - QR * 0.28, QY - QR * 0.28, QR * 0.42, 1, 1);
+  k = 0;
+  loop(9,
+    v = -2.35619 + 4.71239 * k / 8;
+    gfx_set(0.85, 0.85, 0.85, 0.7);
+    gfx_line(QX + sin(v) * QR * 0.82, QY - cos(v) * QR * 0.82, QX + sin(v) * QR * 0.98, QY - cos(v) * QR * 0.98);
+    k += 1;
+  );
+  a = -2.35619 + 4.71239 * pos;
+  gfx_set(0.05, 0.05, 0.05, 1);
+  gfx_line(QX, QY, QX + sin(a) * QR * 0.85, QY - cos(a) * QR * 0.85, 1);
+);
+function g_trunc(str, maxw) local(tw, th, n) (
+  gfx_measurestr(str, tw, th);
+  tw > maxw * gz ? (
+    n = strlen(str);
+    while (n > 1 && tw > maxw * gz) (
+      n -= 1;
+      strcpy_substr(str, str, 0, n);
+      strcat(str, "..");
+      gfx_measurestr(str, tw, th);
+      strcpy_substr(str, str, 0, n);
+    );
+    strcat(str, "..");
+  );
+  str;
+);
+function g_minmax(x, y, s0, s1) local(tw0, tw1, th) (
+  g_font(12, 0);
+  gfx_measurestr(s0, tw0, th);
+  gfx_measurestr(s1, tw1, th);
+  tw0 + tw1 > 98 * gz ? g_font(11, 0);
+  gfx_set(0.70, 0.70, 0.73, 1);
+  g_text_l(s0, x - 50, y + 20);
+  g_text_r(s1, x + 50, y + 20);
+);
+function g_cell_name(str, x, y) ( g_fit(str, 14, 0, 108); gfx_set(0.88, 0.88, 0.90, 1); g_text_c(str, x, y + 36); );
+function g_knob_drag(x, y, hr, i, defu) local(u) (
+  u = slider(i);
+  g_hitc(x, y, hr) && gclick ? (
+    g_dbl(i) ? ( g_put(i, defu); gdrag_i = 0; ) : ( gdrag_i = i; gdrag_y0 = mouse_y; gdrag_p0 = u; );
+    gclick = 0;
+  );
+  gdrag_i === i && gdown ? (
+    mouse_cap |= 65536;
+    u = g_clamp01(gdrag_p0 + (gdrag_y0 - mouse_y) / (200 * gz) * ((mouse_cap & 12) ? 0.12 : 1));
+    slider(i) !== u ? ( slider(i) = u; g_auto(i, 0); );
+  );
+  u;
+);
+function g_pknob(x, y, i, t, k, c) local(u, v, nv, kind) (
+  kind = GM[t * GMS + 32 + k * 4];
+  u = g_knob_drag(x, y, 24, i, g_def_u(t, k));
+  g_hitc(x, y, 24) && gwheel != 0 && !gdrag_i ? (
+    kind === 1 ? (
+      v = g_map(t, k, u);
+      nv = max(min(g_lo(t, k), g_hi(t, k)), min(max(g_lo(t, k), g_hi(t, k)), v + sign(gwheel)));
+      g_put(i, g_unmap(t, k, nv));
+    ) : g_put(i, g_clamp01(u + sign(gwheel) * ((mouse_cap & 4) ? 0.004 : 0.03)));
+    gwheel = 0;
+    u = slider(i);
+  );
+  g_knob_face(x, y, 18, u, c);
+  g_font(14, 0);
+  gfx_set(0.85, 0.85, 0.85, 1);
+  g_text_c(g_fmt(t, k, g_map(t, k, u)), x, y - 36);
+  strcpy(#gmin, g_fmt(t, k, g_map(t, k, 0)));
+  g_minmax(x, y, #gmin, g_fmt(t, k, g_map(t, k, 1)));
+  g_cell_name(GM[t * GMS + 30 + k * 4], x, y);
+);
+function g_penum(x, y, i, t, k, c) local(v, lo, hi, lab, hov, j, n, r) (
+  lab = GM[t * GMS + 33 + k * 4];
+  lo = g_lo(t, k);
+  hi = g_hi(t, k);
+  v = g_map(t, k, slider(i));
+  hov = g_hit(x - 52, y - 14, 104, 28);
+  hov && gclick ? (
+    gclick = 0;
+    mouse_cap & 4 ? g_put(i, g_def_u(t, k)) : (
+      n = hi - lo + 1;
+      strcpy(#gmenu, "");
+      j = 0;
+      loop(n,
+        j > 0 ? strcat(#gmenu, "|");
+        lo + j === v ? strcat(#gmenu, "!");
+        strcat(#gmenu, g_item(#gmi, lab, j));
+        j += 1);
+      gfx_x = mouse_x;
+      gfx_y = mouse_y;
+      r = gfx_showmenu(#gmenu);
+      r > 0 ? g_put(i, g_unmap(t, k, lo + r - 1));
+    );
+  );
+  hov && gwheel != 0 && !gdrag_i ? (
+    g_put(i, g_unmap(t, k, max(lo, min(hi, v - sign(gwheel)))));
+    gwheel = 0;
+  );
+  gfx_set(0.07, 0.07, 0.08, 1);
+  g_box(x - 52, y - 14, 104, 28, 1);
+  g_catcol(c, hov ? 0.9 : 0.6);
+  g_box(x - 52, y - 14, 104, 28, 0);
+  g_catcol(c, 1);
+  g_box(x - 52, y - 14, 3, 28, 1);
+  gfx_set(0.70, 0.72, 0.76, 1);
+  gfx_triangle(g_sx(x + 38), g_sy(y - 3), g_sx(x + 46), g_sy(y - 3), g_sx(x + 42), g_sy(y + 3));
+  g_item(#gmi, lab, g_map(t, k, slider(i)) - lo);
+  g_fit(#gmi, 14, 0, 80);
+  g_trunc(#gmi, 80);
+  gfx_set(0.92, 0.92, 0.94, 1);
+  g_text_cc(#gmi, x - 6, y);
+  g_cell_name(GM[t * GMS + 30 + k * 4], x, y);
+);
+function g_ptog(x, y, i, t, k) (
+  g_hit(x - 50, y - 14, 100, 28) && gwheel != 0 && !gdrag_i ? (
+    g_put(i, gwheel > 0 ? 1 : 0);
+    gwheel = 0;
+  );
+  g_button(x - 50, y - 14, 100, 28, GM[t * GMS + 30 + k * 4], slider(i) > 0.5, 0) ? g_put(i, slider(i) > 0.5 ? 0 : 1);
+);
+
+gz = max(0.4, min(gfx_w / 960, gfx_h / 700));
+gox = floor((gfx_w - 960 * gz) * 0.5);
+goy = 0;
+gnow = time_precise();
+gdown = mouse_cap & 1;
+grdown = mouse_cap & 2;
+gclick = gdown && !gprev_down;
+grclick = grdown && !gprev_rdown;
+gwheel = mouse_wheel;
+mouse_wheel = 0;
+gmx = (mouse_x - gox) / gz;
+gmy = (mouse_y - goy) / gz;
+
+GCX = 24;
+GCY = 52;
+GCW = 912;
+GCH = 392;
+GBW = 150;
+GIOW = 70;
+GJR = 4.5;
+GJIN = 11;
+GPLUGL = 12;
+GPINL = 7;
+GCK = 190;
+GCLAG = 0.2;
+GCD = 12;
+GCDROP = 50;
+GCYANK = 50;
+GCDROPK = 0.12;
+GCUW = 60;
+!ginit ? ( gsel = -1; ginit = 1; );
+
+gcsl = 0.25 + g_clamp01(slider(193)) * 1.75;
+gdt = min(max(gnow - glast_frame, 0), 0.1);
+glast_frame = gnow;
+gnsub = min(6, ceil(gdt * 120));
+
+gn = 0;
+loop(10,
+  gpk = gn === 0 ? max(RK_PK[0], RK_PK[1]) : gn === 9 ? max(RK_PK[36], RK_PK[37]) :
+    g_live(gn) ? max(max(RK_PK[gn * 4], RK_PK[gn * 4 + 1]), max(RK_PK[gn * 4 + 2], RK_PK[gn * 4 + 3])) : 0;
+  ga = gpk > 0.001 ? g_clamp01((20 * log10(gpk) + 60) / 60) : 0;
+  GLD[gn] = max(ga, GLD[gn] - gdt * 1.5);
+  gn += 1;
+);
+
+gfx_getchar() == 6579564 && gsel >= 1 && g_live(gsel) && gmode == 0 ? g_remove(gsel);
+
+g_in_canvas() && !gdrag_i && gmode == 0 ? (
+  gclick ? (
+    (gj = g_out_jack_at()) >= 0 ? (
+      gmode = 2;
+      gcsrc = gj;
+      g_rope_init(32, g_jxo(gj), g_jyc(gj), g_jxo(gj), g_jyc(gj));
+    ) : (gj = g_in_jack_at()) >= 0 ? (
+      gmode = 3;
+      gcdst = gj;
+      g_rope_init(32, g_jxi(gj), g_jyc(gj), g_jxi(gj), g_jyc(gj));
+    ) : (gj = g_cable_at()) >= 0 ? (
+      gmode = 4;
+      gpair = gj;
+      ggx0 = gmx;
+      ggy0 = gmy;
+      ggp0 = GRP[gj * 8];
+      ggp1 = GRP[gj * 8 + 1];
+    ) : (gj = g_block_at()) >= 0 ? (
+      gsel = gj;
+      gj >= 1 ? (
+        gmode = 1;
+        gdnode = gj;
+        gdoffx = gmx - g_nx(gj);
+        gdoffy = gmy - g_ny(gj);
+      );
+    ) : gsel = -1;
+    gclick = 0;
+  );
+  grclick ? (
+    gfx_x = mouse_x;
+    gfx_y = mouse_y;
+    (gj = g_in_jack_at()) >= 0 ? (
+      g_jack_menu(gj, 1);
+    ) : (gj = g_out_jack_at()) >= 0 ? (
+      g_jack_menu(gj, 0);
+    ) : (gj = g_block_at()) >= 1 ? (
+      gsel = gj;
+      gmr = gfx_showmenu(slider(8 + gj) >= 0.5 ? "!Bypass|Remove|Disconnect|Reset parameters" : "Bypass|Remove|Disconnect|Reset parameters");
+      gmr == 1 ? g_put(8 + gj, slider(8 + gj) >= 0.5 ? 0 : 1) :
+      gmr == 2 ? g_remove(gj) :
+      gmr == 3 ? g_disc(gj) :
+      gmr == 4 ? g_reset(gj);
+    ) : (gj = g_cable_at()) >= 0 ? (
+      gfx_showmenu("Disconnect cable") == 1 ? g_unlink(gj);
+    ) : g_free_slot() ? g_add_menu(gmx - GBW * 0.5, gmy - 30);
+  );
+);
+
+gmode == 1 ? (
+  g_setpos(gdnode, gmx - gdoffx, gmy - gdoffy, !gdown, g_nh(gdnode));
+  !gdown ? gmode = 0;
+);
+gmode == 2 && !gdown ? (
+  gj = g_in_jack_at();
+  gj >= 0 && g_can(gcsrc, gj) ? (
+    gc = g_link(gcsrc, gj);
+    gc >= 0 ? ( g_rope_copy(gc, 32); GRK[gc] = 1 + gcsrc * 40 + gj; );
+  );
+  GRI[32] = 0;
+  gmode = 0;
+);
+gmode == 4 && !gdown ? (
+  sqrt(sqr(gmx - ggx0) + sqr(gmy - ggy0)) > GCYANK ? g_unlink(gpair);
+  gmode = 0;
+);
+gmode == 3 && !gdown ? (
+  gj = g_out_jack_at();
+  gj >= 0 && g_can(gj, gcdst) ? (
+    gc = g_link(gj, gcdst);
+    gc >= 0 ? ( g_rope_copy(gc, 32); GRK[gc] = 1 + gj * 40 + gcdst; );
+  );
+  GRI[32] = 0;
+  gmode = 0;
+);
+
+gfx_set(0.13, 0.13, 0.15, 1);
+gfx_rect(0, 0, gfx_w, gfx_h, 1);
+
+g_font(20, 'b');
+gfx_set(0.85, 0.35, 0.35, 1);
+g_text_l("HARRIS TWEED", 24, 8);
+g_font(13, 0);
+gfx_set(0.60, 0.60, 0.63, 1);
+g_text_l("by chmaha", 26, 30);
+g_button(806, 12, 130, 28, "ADD MODULE", 0, !g_free_slot()) ? ( gfx_x = g_sx(806); gfx_y = g_sy(40); gmr = gfx_showmenu(#gaddmenu); gmr > 0 ? g_add(gmr, -1, -1, !(mouse_cap & 8)); );
+gu = g_knob_drag(738, 26, 14, 193, 0.428571);
+g_knob_face(738, 26, 10, gu, 0);
+g_font(12, 0);
+gfx_set(0.70, 0.72, 0.76, 1);
+g_text_r("CABLE SLACK", 722, 20);
+g_text_l(sprintf(#gsl, "%d%%", floor((0.25 + gu * 1.75) * 100 + 0.5)), 754, 20);
+g_text_r(sprintf(#gpd, "LATENCY %d SMP", RK_PDC), 620, 20);
+
+gfx_set(0.09, 0.095, 0.11, 1);
+g_box(GCX, GCY, GCW, GCH, 1);
+gfx_set(1, 1, 1, 0.05);
+gi = 0;
+loop(floor(GCW / 24) - 1,
+  gk = 0;
+  loop(floor(GCH / 24) - 1, g_box(GCX + 24 + gi * 24, GCY + 24 + gk * 24, 1.5, 1.5, 1); gk += 1);
+  gi += 1);
+gfx_set(0.30, 0.31, 0.35, 1);
+g_box(GCX, GCY, GCW, GCH, 0);
+
+g_io_block(0);
+g_io_block(9);
+gn = 1;
+loop(8, g_live(gn) && gn !== gsel ? g_draw_block(gn); gn += 1);
+gsel >= 1 && g_live(gsel) ? g_draw_block(gsel);
+
+gc = 0;
+loop(32,
+  g_ok(gc) ? (
+    gv = g_cv(gc);
+    GRK[gc] !== gv ? ( GRI[gc] = 0; GRK[gc] = gv; );
+    gcs = gq_s;
+    gx0 = g_jxo(gq_s); gy0 = g_jyc(gq_s); gx1 = g_jxi(gq_d); gy1 = g_jyc(gq_d);
+    !GRI[gc] ? g_rope_init(gc, gx0, gy0, gx1, gy1);
+    g_rope_target(gc, gx0, gy0, gx1, gy1);
+    loop(gnsub, g_rope_step(gc, gx0, gy0, gx1, gy1, 1 / 120));
+    gmode == 4 && gc === gpair ? (
+      GRP[gc * 8] = ggp0 + (gmx - ggx0) / 0.75;
+      GRP[gc * 8 + 1] = ggp1 + (gmy - ggy0) / 0.75;
+      GRP[gc * 8 + 2] = GRP[gc * 8 + 3] = 0;
+    );
+    g_draw_cable(gc, gcs, gx0, gy0, gx1, gy1, 0);
+  ) : GRI[gc] = 0;
+  gc += 1;
+);
+
+gmode == 4 && sqrt(sqr(gmx - ggx0) + sqr(gmy - ggy0)) > GCYANK ? (
+  g_font(12, 'b');
+  gfx_set(0.95, 0.40, 0.32, 1);
+  g_text_l("release to unplug", gmx + 14, gmy - 6);
+);
+gmode == 2 ? (
+  gj = g_in_jack_at();
+  gj >= 0 && g_can(gcsrc, gj) ? ( gex = g_jxi(gj); gey = g_jyc(gj); gfr = 4; ) : ( gex = gmx; gey = gmy + GPLUGL + GPINL; gfr = 2; );
+  g_rope_target(32, g_jxo(gcsrc), g_jyc(gcsrc), gex, gey);
+  loop(gnsub, g_rope_step(32, g_jxo(gcsrc), g_jyc(gcsrc), gex, gey, 1 / 120));
+  g_draw_cable(32, gcsrc, g_jxo(gcsrc), g_jyc(gcsrc), gex, gey, gfr);
+);
+gmode == 3 ? (
+  gj = g_out_jack_at();
+  gj >= 0 && g_can(gj, gcdst) ? ( gex = g_jxo(gj); gey = g_jyc(gj); gfr = 3; ) : ( gj = 0; gex = gmx; gey = gmy + GPLUGL + GPINL; gfr = 1; );
+  g_rope_target(32, gex, gey, g_jxi(gcdst), g_jyc(gcdst));
+  loop(gnsub, g_rope_step(32, gex, gey, g_jxi(gcdst), g_jyc(gcdst), 1 / 120));
+  g_draw_cable(32, gj, gex, gey, g_jxi(gcdst), g_jyc(gcdst), gfr);
+);
+
+g_panel(24, 452, 912, 240);
+gsel >= 1 && !g_live(gsel) ? gsel = -1;
+gsel >= 1 ? (
+  gt = g_type(gsel);
+  gc = GM[gt * GMS + 2];
+  g_catcol(gc, 1);
+  g_box(24, 452, 4, 240, 1);
+  g_font(13, 'b');
+  gfx_set(0.88, 0.89, 0.92, 1);
+  g_text_l(GM[gt * GMS], 40, 462);
+  g_small();
+  g_text_l(GM[gt * GMS + 3], 40, 480);
+  g_catcol(gc, 1.1);
+  g_text_r(GM[GM[gt * GMS + 2]], 712, 462);
+  RK_MD[gt * RK_MDS + 14] > 0 ? (
+    g_small();
+    g_text_r(sprintf(#glat, "Latency %d samples", RK_LAT[gsel]), 712, 480);
+  );
+  g_button(724, 460, 100, 26, "BYPASS", slider(8 + gsel) >= 0.5, 0) ? g_put(8 + gsel, slider(8 + gsel) >= 0.5 ? 0 : 1);
+  g_button(836, 460, 92, 26, "REMOVE", 0, 0) ? g_remove(gsel);
+  gsel >= 1 ? (
+    gnp = RK_MD[gt * RK_MDS + 2];
+    gnp === 0 ? (
+      g_small();
+      g_text_c("No parameters", 480, 584);
+    );
+    gr0 = gnp > 8 ? ceil(gnp / 2) : gnp;
+    gk = 0;
+    loop(gnp,
+      gx = 480 + (gk >= gr0 ? gk - gr0 - (gnp - gr0 - 1) * 0.5 : gk - (gr0 - 1) * 0.5) * 114;
+      gy = gnp > 8 ? (gk >= gr0 ? 636 : 546) : 591;
+      gi = 65 + (gsel - 1) * 16 + gk;
+      gkind = GM[gt * GMS + 32 + gk * 4];
+      gkind === 2 ? g_penum(gx, gy, gi, gt, gk, gc) : gkind === 3 ? g_ptog(gx, gy, gi, gt, gk) : g_pknob(gx, gy, gi, gt, gk, gc);
+      gk += 1;
+    );
+  );
+) : (
+  g_font(15, 'b');
+  gfx_set(0.88, 0.89, 0.92, 1);
+  g_text_c("GETTING STARTED", 480, 482);
+  g_font(14, 0);
+  gfx_set(0.72, 0.74, 0.78, 1);
+  g_text_c("Right-click the canvas or use ADD MODULE: inserts after the selected block (or IN), else before OUT. Shift: unpatched.", 480, 512);
+  g_text_c("Drag between an output jack (right side) and an input jack (left side), in either direction, to add a cable.", 480, 536);
+  g_text_c("Pull a cable well away and release to unplug it. An output can feed many inputs; an input sums all its cables.", 480, 560);
+  g_text_c("Right-click cables, jacks or blocks to disconnect, bypass, remove or reset. Delete removes the selected block.", 480, 584);
+  g_text_c("Mono modules take the left signal and feed both sides. IN SC L/R are track channels 3/4, for sidechain inputs.", 480, 608);
+  g_text_c("Drag blocks to arrange them and click one to edit it. Up to 8 modules and 32 cables.", 480, 632);
+);
+
+!gdown && gdrag_i ? (
+  g_auto(gdrag_i, 1);
+  gdrag_i = 0;
+);
+gprev_down = gdown;
+gprev_rdown = grdown;
