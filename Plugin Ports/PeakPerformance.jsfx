@@ -1,0 +1,1363 @@
+Version: 1.0
+desc: Peak Performance Clipper (PeakEater port) by chmaha
+tags: processing clipper waveshaper saturation limiter peak oversampling
+author: chmaha
+changelog:
+  Initial release.
+about:
+  A wave-shaping peak clipper. The input is boosted by the ceiling amount, shaped by one of eight curves (Hard,
+  Quintic, Cubic, Tangent, Algebraic, Arctangent, Sine, or Custom with an adjustable knee) and brought back down,
+  optionally at up to 32x oversampling with linear-phase half-band filters. A scrolling peak analyser shows what
+  goes in and what is eaten. Beyond the original: a ceiling guard that stops oversampling overshoot, a delta
+  switch to hear only what is removed, emphasis/de-emphasis tilt around a pivot frequency, a ceiling/output link,
+  a display range above 0 dB and a time zoom, and fixes for the start-up fade-in, the high-frequency phase shift
+  of the oversampler, the dry/wet alignment, the oversampling switch click, the sine curve and the Eaten reading.
+  Ported from PeakEater by Vladyslav Voinov
+  https://github.com/vvvar/PeakEater (GPL-3.0)
+  JSFX version released under GPL-3.0 license
+  Claude generated some of this code
+
+slider1:in_db=0<-36,36,0.1>-Input (dB)
+slider2:out_db=0<-36,36,0.1>-Output (dB)
+slider3:ceil_db=0<-36,0,0.1>-Ceiling (dB)
+slider4:link=0<0,2,1{Off,Input / Output,Ceiling / Output}>-Link
+slider5:bypass=0<0,1,1{Off,On}>-Bypass
+slider6:algo=0<0,7,1{Hard,Quintic,Cubic,Tangent,Algebraic,Arctangent,Sine,Custom}>-Type
+slider7:osr=0<0,5,1{Off,x2,x4,x8,x16,x32}>-Oversample
+slider8:mix=100<0,100,0.1>-Dry/Wet (%)
+slider9:soft=50<0,100,0.1>-Softness (%)
+slider10:guard=1<0,1,1{Off,On}>-Ceiling Guard
+slider11:delta=0<0,1,1{Off,On}>-Delta
+slider12:emph=0<-12,12,0.1>-Emphasis (dB)
+slider13:pivot=1000<100,5000,1:log>-Emphasis Pivot (Hz)
+slider14:disp=0<0,2,1{0 dB,+3 dB,+6 dB}>-Display Top
+slider15:zoom=0<0,3,1{1x,2x,4x,8x}>-Display Zoom
+slider16:theme=0<0,4,1{Classic,Neon,Ember,Aurora,Mono}>-Theme
+
+in_pin:left input
+in_pin:right input
+out_pin:left output
+out_pin:right output
+options:no_meter
+
+@init
+
+ext_noinit = gfx_ext_retina = 1;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+alloc.mp = 0;
+
+function sv_set(v, steps) instance(cur, tgt, cnt, stp) (
+  v !== tgt ? (
+    steps <= 0 ? ( cur = tgt = v; cnt = 0; ) : ( tgt = v; cnt = steps; stp = (tgt - cur) / cnt; );
+  );
+);
+function sv_snap(v) instance(cur, tgt, cnt) ( cur = tgt = v; cnt = 0; );
+function sv_next() instance(cur, tgt, cnt, stp) (
+  cnt > 0 ? ( cnt -= 1; cnt > 0 ? cur += stp : cur = tgt; );
+  cur;
+);
+
+BL0 = alloc(2); BR0 = alloc(2);
+MU0 = 38; MD0 = 26; QN0 = 13;
+UL0 = alloc(2 * MU0); UR0 = alloc(2 * MU0); DL0 = alloc(2 * MD0); DR0 = alloc(2 * MD0); QL0 = alloc(QN0); QR0 = alloc(QN0);
+BL1 = alloc(2); BR1 = alloc(2);
+MU1 = 18; MD1 = 12; QN1 = 6;
+UL1 = alloc(2 * MU1); UR1 = alloc(2 * MU1); DL1 = alloc(2 * MD1); DR1 = alloc(2 * MD1); QL1 = alloc(QN1); QR1 = alloc(QN1);
+BL2 = alloc(4); BR2 = alloc(4);
+MU2 = 16; MD2 = 10; QN2 = 5;
+UL2 = alloc(2 * MU2); UR2 = alloc(2 * MU2); DL2 = alloc(2 * MD2); DR2 = alloc(2 * MD2); QL2 = alloc(QN2); QR2 = alloc(QN2);
+BL3 = alloc(8); BR3 = alloc(8);
+MU3 = 12; MD3 = 8; QN3 = 4;
+UL3 = alloc(2 * MU3); UR3 = alloc(2 * MU3); DL3 = alloc(2 * MD3); DR3 = alloc(2 * MD3); QL3 = alloc(QN3); QR3 = alloc(QN3);
+BL4 = alloc(16); BR4 = alloc(16);
+MU4 = 10; MD4 = 6; QN4 = 3;
+UL4 = alloc(2 * MU4); UR4 = alloc(2 * MU4); DL4 = alloc(2 * MD4); DR4 = alloc(2 * MD4); QL4 = alloc(QN4); QR4 = alloc(QN4);
+BL5 = alloc(32); BR5 = alloc(32);
+TDL = alloc(64); TDR = alloc(64);
+RN = 64;
+RDL = alloc(RN); RDR = alloc(RN); RGL = alloc(RN); RGR = alloc(RN);
+HN = 4096;
+H_IN = alloc(HN); H_CL = alloc(HN); H_OUT = alloc(HN); H_EAT = alloc(HN);
+LATS = alloc(6); mem_set_values(LATS, 0, 31, 38, 41, 43, 43);
+TDS = alloc(6); mem_set_values(TDS, 0, 0, 0, 0, 14, 14);
+STATE0 = UL0; STATE1 = TDR + 64;
+
+function up0() local(i, r, s) (
+  i = 0;
+  loop(1,
+    PU0 = PU0 ? PU0 - 1 : MU0 - 1;
+    r = UL0 + PU0; r[0] = r[MU0] = 2 * BL0[i];
+    BL1[2 * i] = (r[37] + r[0]) * 0.000148267136 +
+      (r[36] + r[1]) * -0.000257750682 +
+      (r[35] + r[2]) * 0.000471760432 +
+      (r[34] + r[3]) * -0.000791730825 +
+      (r[33] + r[4]) * 0.00124974956 +
+      (r[32] + r[5]) * -0.00188346545 +
+      (r[31] + r[6]) * 0.00273701432 +
+      (r[30] + r[7]) * -0.00386271859 +
+      (r[29] + r[8]) * 0.00532422308 +
+      (r[28] + r[9]) * -0.00720224436 +
+      (r[27] + r[10]) * 0.00960517302 +
+      (r[26] + r[11]) * -0.0126890847 +
+      (r[25] + r[12]) * 0.0166972186 +
+      (r[24] + r[13]) * -0.022043528 +
+      (r[23] + r[14]) * 0.0295085087 +
+      (r[22] + r[15]) * -0.0407712944 +
+      (r[21] + r[16]) * 0.0602187291 +
+      (r[20] + r[17]) * -0.103989013 +
+      (r[19] + r[18]) * 0.317530185;
+    BL1[2 * i + 1] = r[18] * 0.5;
+    r = UR0 + PU0; r[0] = r[MU0] = 2 * BR0[i];
+    BR1[2 * i] = (r[37] + r[0]) * 0.000148267136 +
+      (r[36] + r[1]) * -0.000257750682 +
+      (r[35] + r[2]) * 0.000471760432 +
+      (r[34] + r[3]) * -0.000791730825 +
+      (r[33] + r[4]) * 0.00124974956 +
+      (r[32] + r[5]) * -0.00188346545 +
+      (r[31] + r[6]) * 0.00273701432 +
+      (r[30] + r[7]) * -0.00386271859 +
+      (r[29] + r[8]) * 0.00532422308 +
+      (r[28] + r[9]) * -0.00720224436 +
+      (r[27] + r[10]) * 0.00960517302 +
+      (r[26] + r[11]) * -0.0126890847 +
+      (r[25] + r[12]) * 0.0166972186 +
+      (r[24] + r[13]) * -0.022043528 +
+      (r[23] + r[14]) * 0.0295085087 +
+      (r[22] + r[15]) * -0.0407712944 +
+      (r[21] + r[16]) * 0.0602187291 +
+      (r[20] + r[17]) * -0.103989013 +
+      (r[19] + r[18]) * 0.317530185;
+    BR1[2 * i + 1] = r[18] * 0.5;
+    i += 1;
+  );
+);
+
+function dn0() local(i, r, s, q) (
+  i = 0;
+  loop(1,
+    DP0 = DP0 ? DP0 - 1 : MD0 - 1;
+    r = DL0 + DP0; r[0] = r[MD0] = BL1[2 * i];
+    s = (r[25] + r[0]) * 0.000480012153 +
+      (r[24] + r[1]) * -0.000944637519 +
+      (r[23] + r[2]) * 0.00182010082 +
+      (r[22] + r[3]) * -0.00317017781 +
+      (r[21] + r[4]) * 0.00515419524 +
+      (r[20] + r[5]) * -0.00797691289 +
+      (r[19] + r[6]) * 0.0119226854 +
+      (r[18] + r[7]) * -0.0174340028 +
+      (r[17] + r[8]) * 0.0253032353 +
+      (r[16] + r[9]) * -0.0372020155 +
+      (r[15] + r[10]) * 0.0574888997 +
+      (r[14] + r[11]) * -0.102250405 +
+      (r[13] + r[12]) * 0.316809028;
+    q = QL0 + QP0; s += q[0] * 0.5; q[0] = BL1[2 * i + 1];
+    BL0[i] = s;
+    r = DR0 + DP0; r[0] = r[MD0] = BR1[2 * i];
+    s = (r[25] + r[0]) * 0.000480012153 +
+      (r[24] + r[1]) * -0.000944637519 +
+      (r[23] + r[2]) * 0.00182010082 +
+      (r[22] + r[3]) * -0.00317017781 +
+      (r[21] + r[4]) * 0.00515419524 +
+      (r[20] + r[5]) * -0.00797691289 +
+      (r[19] + r[6]) * 0.0119226854 +
+      (r[18] + r[7]) * -0.0174340028 +
+      (r[17] + r[8]) * 0.0253032353 +
+      (r[16] + r[9]) * -0.0372020155 +
+      (r[15] + r[10]) * 0.0574888997 +
+      (r[14] + r[11]) * -0.102250405 +
+      (r[13] + r[12]) * 0.316809028;
+    q = QR0 + QP0; s += q[0] * 0.5; q[0] = BR1[2 * i + 1];
+    BR0[i] = s;
+    QP0 = QP0 ? QP0 - 1 : QN0 - 1;
+    i += 1;
+  );
+);
+
+function up1() local(i, r, s) (
+  i = 0;
+  loop(2,
+    PU1 = PU1 ? PU1 - 1 : MU1 - 1;
+    r = UL1 + PU1; r[0] = r[MU1] = 2 * BL1[i];
+    BL2[2 * i] = (r[17] + r[0]) * 0.000421459379 +
+      (r[16] + r[1]) * -0.00144656817 +
+      (r[15] + r[2]) * 0.00369779812 +
+      (r[14] + r[3]) * -0.0079422025 +
+      (r[13] + r[4]) * 0.0153112393 +
+      (r[12] + r[5]) * -0.0277348291 +
+      (r[11] + r[6]) * 0.0496726185 +
+      (r[10] + r[7]) * -0.0971128643 +
+      (r[9] + r[8]) * 0.315133333;
+    BL2[2 * i + 1] = r[8] * 0.5;
+    r = UR1 + PU1; r[0] = r[MU1] = 2 * BR1[i];
+    BR2[2 * i] = (r[17] + r[0]) * 0.000421459379 +
+      (r[16] + r[1]) * -0.00144656817 +
+      (r[15] + r[2]) * 0.00369779812 +
+      (r[14] + r[3]) * -0.0079422025 +
+      (r[13] + r[4]) * 0.0153112393 +
+      (r[12] + r[5]) * -0.0277348291 +
+      (r[11] + r[6]) * 0.0496726185 +
+      (r[10] + r[7]) * -0.0971128643 +
+      (r[9] + r[8]) * 0.315133333;
+    BR2[2 * i + 1] = r[8] * 0.5;
+    i += 1;
+  );
+);
+
+function dn1() local(i, r, s, q) (
+  i = 0;
+  loop(2,
+    DP1 = DP1 ? DP1 - 1 : MD1 - 1;
+    r = DL1 + DP1; r[0] = r[MD1] = BL2[2 * i];
+    s = (r[11] + r[0]) * -0.00156657689 +
+      (r[10] + r[1]) * 0.00612639217 +
+      (r[9] + r[2]) * -0.0168394446 +
+      (r[8] + r[3]) * 0.0391280055 +
+      (r[7] + r[4]) * -0.0893872008 +
+      (r[6] + r[5]) * 0.312167883;
+    q = QL1 + QP1; s += q[0] * 0.5; q[0] = BL2[2 * i + 1];
+    BL1[i] = s;
+    r = DR1 + DP1; r[0] = r[MD1] = BR2[2 * i];
+    s = (r[11] + r[0]) * -0.00156657689 +
+      (r[10] + r[1]) * 0.00612639217 +
+      (r[9] + r[2]) * -0.0168394446 +
+      (r[8] + r[3]) * 0.0391280055 +
+      (r[7] + r[4]) * -0.0893872008 +
+      (r[6] + r[5]) * 0.312167883;
+    q = QR1 + QP1; s += q[0] * 0.5; q[0] = BR2[2 * i + 1];
+    BR1[i] = s;
+    QP1 = QP1 ? QP1 - 1 : QN1 - 1;
+    i += 1;
+  );
+);
+
+function up2() local(i, r, s) (
+  i = 0;
+  loop(4,
+    PU2 = PU2 ? PU2 - 1 : MU2 - 1;
+    r = UL2 + PU2; r[0] = r[MU2] = 2 * BL2[i];
+    BL3[2 * i] = (r[15] + r[0]) * -0.000839786488 +
+      (r[14] + r[1]) * 0.00267567555 +
+      (r[13] + r[2]) * -0.00654713903 +
+      (r[12] + r[3]) * 0.0136547554 +
+      (r[11] + r[4]) * -0.0260215178 +
+      (r[10] + r[5]) * 0.0481620096 +
+      (r[9] + r[6]) * -0.0960552096 +
+      (r[8] + r[7]) * 0.314658731;
+    BL3[2 * i + 1] = r[7] * 0.5;
+    r = UR2 + PU2; r[0] = r[MU2] = 2 * BR2[i];
+    BR3[2 * i] = (r[15] + r[0]) * -0.000839786488 +
+      (r[14] + r[1]) * 0.00267567555 +
+      (r[13] + r[2]) * -0.00654713903 +
+      (r[12] + r[3]) * 0.0136547554 +
+      (r[11] + r[4]) * -0.0260215178 +
+      (r[10] + r[5]) * 0.0481620096 +
+      (r[9] + r[6]) * -0.0960552096 +
+      (r[8] + r[7]) * 0.314658731;
+    BR3[2 * i + 1] = r[7] * 0.5;
+    i += 1;
+  );
+);
+
+function dn2() local(i, r, s, q) (
+  i = 0;
+  loop(4,
+    DP2 = DP2 ? DP2 - 1 : MD2 - 1;
+    r = DL2 + DP2; r[0] = r[MD2] = BL3[2 * i];
+    s = (r[9] + r[0]) * 0.00368727394 +
+      (r[8] + r[1]) * -0.0132013354 +
+      (r[7] + r[2]) * 0.035151843 +
+      (r[6] + r[3]) * -0.0861975625 +
+      (r[5] + r[4]) * 0.310559779;
+    q = QL2 + QP2; s += q[0] * 0.5; q[0] = BL3[2 * i + 1];
+    BL2[i] = s;
+    r = DR2 + DP2; r[0] = r[MD2] = BR3[2 * i];
+    s = (r[9] + r[0]) * 0.00368727394 +
+      (r[8] + r[1]) * -0.0132013354 +
+      (r[7] + r[2]) * 0.035151843 +
+      (r[6] + r[3]) * -0.0861975625 +
+      (r[5] + r[4]) * 0.310559779;
+    q = QR2 + QP2; s += q[0] * 0.5; q[0] = BR3[2 * i + 1];
+    BR2[i] = s;
+    QP2 = QP2 ? QP2 - 1 : QN2 - 1;
+    i += 1;
+  );
+);
+
+function up3() local(i, r, s) (
+  i = 0;
+  loop(8,
+    PU3 = PU3 ? PU3 - 1 : MU3 - 1;
+    r = UL3 + PU3; r[0] = r[MU3] = 2 * BL3[i];
+    BL4[2 * i] = (r[11] + r[0]) * -0.0034198002 +
+      (r[10] + r[1]) * 0.00933692791 +
+      (r[9] + r[2]) * -0.0212829951 +
+      (r[8] + r[3]) * 0.0437877774 +
+      (r[7] + r[4]) * -0.0928217918 +
+      (r[6] + r[5]) * 0.312748462;
+    BL4[2 * i + 1] = r[5] * 0.5;
+    r = UR3 + PU3; r[0] = r[MU3] = 2 * BR3[i];
+    BR4[2 * i] = (r[11] + r[0]) * -0.0034198002 +
+      (r[10] + r[1]) * 0.00933692791 +
+      (r[9] + r[2]) * -0.0212829951 +
+      (r[8] + r[3]) * 0.0437877774 +
+      (r[7] + r[4]) * -0.0928217918 +
+      (r[6] + r[5]) * 0.312748462;
+    BR4[2 * i + 1] = r[5] * 0.5;
+    i += 1;
+  );
+);
+
+function dn3() local(i, r, s, q) (
+  i = 0;
+  loop(8,
+    DP3 = DP3 ? DP3 - 1 : MD3 - 1;
+    r = DL3 + DP3; r[0] = r[MD3] = BL4[2 * i];
+    s = (r[7] + r[0]) * -0.00884800032 +
+      (r[6] + r[1]) * 0.0294764042 +
+      (r[5] + r[2]) * -0.0813042298 +
+      (r[4] + r[3]) * 0.30757618;
+    q = QL3 + QP3; s += q[0] * 0.5; q[0] = BL4[2 * i + 1];
+    BL3[i] = s;
+    r = DR3 + DP3; r[0] = r[MD3] = BR4[2 * i];
+    s = (r[7] + r[0]) * -0.00884800032 +
+      (r[6] + r[1]) * 0.0294764042 +
+      (r[5] + r[2]) * -0.0813042298 +
+      (r[4] + r[3]) * 0.30757618;
+    q = QR3 + QP3; s += q[0] * 0.5; q[0] = BR4[2 * i + 1];
+    BR3[i] = s;
+    QP3 = QP3 ? QP3 - 1 : QN3 - 1;
+    i += 1;
+  );
+);
+
+function up4() local(i, r, s) (
+  i = 0;
+  loop(16,
+    PU4 = PU4 ? PU4 - 1 : MU4 - 1;
+    r = UL4 + PU4; r[0] = r[MU4] = 2 * BL4[i];
+    BL5[2 * i] = (r[9] + r[0]) * 0.00702335034 +
+      (r[8] + r[1]) * -0.0178439394 +
+      (r[7] + r[2]) * 0.0404010527 +
+      (r[6] + r[3]) * -0.0901066214 +
+      (r[5] + r[4]) * 0.310526162;
+    BL5[2 * i + 1] = r[4] * 0.5;
+    r = UR4 + PU4; r[0] = r[MU4] = 2 * BR4[i];
+    BR5[2 * i] = (r[9] + r[0]) * 0.00702335034 +
+      (r[8] + r[1]) * -0.0178439394 +
+      (r[7] + r[2]) * 0.0404010527 +
+      (r[6] + r[3]) * -0.0901066214 +
+      (r[5] + r[4]) * 0.310526162;
+    BR5[2 * i + 1] = r[4] * 0.5;
+    i += 1;
+  );
+);
+
+function dn4() local(i, r, s, q) (
+  i = 0;
+  loop(16,
+    DP4 = DP4 ? DP4 - 1 : MD4 - 1;
+    r = DL4 + DP4; r[0] = r[MD4] = BL5[2 * i];
+    s = (r[5] + r[0]) * 0.0217098072 +
+      (r[4] + r[1]) * -0.0725109354 +
+      (r[3] + r[2]) * 0.300801128;
+    q = QL4 + QP4; s += q[0] * 0.5; q[0] = BL5[2 * i + 1];
+    BL4[i] = s;
+    r = DR4 + DP4; r[0] = r[MD4] = BR5[2 * i];
+    s = (r[5] + r[0]) * 0.0217098072 +
+      (r[4] + r[1]) * -0.0725109354 +
+      (r[3] + r[2]) * 0.300801128;
+    q = QR4 + QP4; s += q[0] * 0.5; q[0] = BR5[2 * i + 1];
+    BR4[i] = s;
+    QP4 = QP4 ? QP4 - 1 : QN4 - 1;
+    i += 1;
+  );
+);
+
+
+function shape(a, b, n) local(i, x, ax, gp, gq) (
+  i = 0;
+  algo_i === 0 ? (
+    (GPRE.cnt > 0 || GPOST.cnt > 0) ? (
+      loop(n,
+        gp = GPRE.sv_next(); gq = GPOST.sv_next();
+        x = a[i] * gp; a[i] = (x > 1 ? 1 : x < -1 ? -1 : x) * gq;
+        x = b[i] * gp; b[i] = (x > 1 ? 1 : x < -1 ? -1 : x) * gq;
+        i += 1;
+      );
+    ) : (
+      gp = GPRE.cur; gq = GPOST.cur;
+      loop(n,
+        x = a[i] * gp; a[i] = (x > 1 ? 1 : x < -1 ? -1 : x) * gq;
+        x = b[i] * gp; b[i] = (x > 1 ? 1 : x < -1 ? -1 : x) * gq;
+        i += 1;
+      );
+    );
+  ) :
+  algo_i === 1 ? (
+    (GPRE.cnt > 0 || GPOST.cnt > 0) ? (
+      loop(n,
+        gp = GPRE.sv_next(); gq = GPOST.sv_next();
+        x = a[i] * gp; a[i] = (abs(x) < 1.25 ? x - 0.08192 * x * x * x * x * x : sign(x)) * gq;
+        x = b[i] * gp; b[i] = (abs(x) < 1.25 ? x - 0.08192 * x * x * x * x * x : sign(x)) * gq;
+        i += 1;
+      );
+    ) : (
+      gp = GPRE.cur; gq = GPOST.cur;
+      loop(n,
+        x = a[i] * gp; a[i] = (abs(x) < 1.25 ? x - 0.08192 * x * x * x * x * x : sign(x)) * gq;
+        x = b[i] * gp; b[i] = (abs(x) < 1.25 ? x - 0.08192 * x * x * x * x * x : sign(x)) * gq;
+        i += 1;
+      );
+    );
+  ) :
+  algo_i === 2 ? (
+    (GPRE.cnt > 0 || GPOST.cnt > 0) ? (
+      loop(n,
+        gp = GPRE.sv_next(); gq = GPOST.sv_next();
+        x = a[i] * gp; a[i] = (abs(x) < 1.5 ? x - (4 / 27) * x * x * x : sign(x)) * gq;
+        x = b[i] * gp; b[i] = (abs(x) < 1.5 ? x - (4 / 27) * x * x * x : sign(x)) * gq;
+        i += 1;
+      );
+    ) : (
+      gp = GPRE.cur; gq = GPOST.cur;
+      loop(n,
+        x = a[i] * gp; a[i] = (abs(x) < 1.5 ? x - (4 / 27) * x * x * x : sign(x)) * gq;
+        x = b[i] * gp; b[i] = (abs(x) < 1.5 ? x - (4 / 27) * x * x * x : sign(x)) * gq;
+        i += 1;
+      );
+    );
+  ) :
+  algo_i === 3 ? (
+    (GPRE.cnt > 0 || GPOST.cnt > 0) ? (
+      loop(n,
+        gp = GPRE.sv_next(); gq = GPOST.sv_next();
+        x = a[i] * gp; a[i] = (1 - 2 / (exp(2 * x) + 1)) * gq;
+        x = b[i] * gp; b[i] = (1 - 2 / (exp(2 * x) + 1)) * gq;
+        i += 1;
+      );
+    ) : (
+      gp = GPRE.cur; gq = GPOST.cur;
+      loop(n,
+        x = a[i] * gp; a[i] = (1 - 2 / (exp(2 * x) + 1)) * gq;
+        x = b[i] * gp; b[i] = (1 - 2 / (exp(2 * x) + 1)) * gq;
+        i += 1;
+      );
+    );
+  ) :
+  algo_i === 4 ? (
+    (GPRE.cnt > 0 || GPOST.cnt > 0) ? (
+      loop(n,
+        gp = GPRE.sv_next(); gq = GPOST.sv_next();
+        x = a[i] * gp; a[i] = (x / sqrt(1 + x * x)) * gq;
+        x = b[i] * gp; b[i] = (x / sqrt(1 + x * x)) * gq;
+        i += 1;
+      );
+    ) : (
+      gp = GPRE.cur; gq = GPOST.cur;
+      loop(n,
+        x = a[i] * gp; a[i] = (x / sqrt(1 + x * x)) * gq;
+        x = b[i] * gp; b[i] = (x / sqrt(1 + x * x)) * gq;
+        i += 1;
+      );
+    );
+  ) :
+  algo_i === 5 ? (
+    (GPRE.cnt > 0 || GPOST.cnt > 0) ? (
+      loop(n,
+        gp = GPRE.sv_next(); gq = GPOST.sv_next();
+        x = a[i] * gp; a[i] = ((2 / $pi) * atan(1.6 * x)) * gq;
+        x = b[i] * gp; b[i] = ((2 / $pi) * atan(1.6 * x)) * gq;
+        i += 1;
+      );
+    ) : (
+      gp = GPRE.cur; gq = GPOST.cur;
+      loop(n,
+        x = a[i] * gp; a[i] = ((2 / $pi) * atan(1.6 * x)) * gq;
+        x = b[i] * gp; b[i] = ((2 / $pi) * atan(1.6 * x)) * gq;
+        i += 1;
+      );
+    );
+  ) :
+  algo_i === 6 ? (
+    (GPRE.cnt > 0 || GPOST.cnt > 0) ? (
+      loop(n,
+        gp = GPRE.sv_next(); gq = GPOST.sv_next();
+        x = a[i] * gp; a[i] = (abs(x) < 0.5 * $pi ? sin(x) : sign(x)) * gq;
+        x = b[i] * gp; b[i] = (abs(x) < 0.5 * $pi ? sin(x) : sign(x)) * gq;
+        i += 1;
+      );
+    ) : (
+      gp = GPRE.cur; gq = GPOST.cur;
+      loop(n,
+        x = a[i] * gp; a[i] = (abs(x) < 0.5 * $pi ? sin(x) : sign(x)) * gq;
+        x = b[i] * gp; b[i] = (abs(x) < 0.5 * $pi ? sin(x) : sign(x)) * gq;
+        i += 1;
+      );
+    );
+  ) :
+  algo_i === 7 ? (
+    (GPRE.cnt > 0 || GPOST.cnt > 0) ? (
+      loop(n,
+        gp = GPRE.sv_next(); gq = GPOST.sv_next();
+        x = a[i] * gp; a[i] = ((ax = abs(x)) <= sk0 ? x : ax < sk1 ? sign(x) * (ax - (ax - sk0) * (ax - sk0) * sk4) : sign(x)) * gq;
+        x = b[i] * gp; b[i] = ((ax = abs(x)) <= sk0 ? x : ax < sk1 ? sign(x) * (ax - (ax - sk0) * (ax - sk0) * sk4) : sign(x)) * gq;
+        i += 1;
+      );
+    ) : (
+      gp = GPRE.cur; gq = GPOST.cur;
+      loop(n,
+        x = a[i] * gp; a[i] = ((ax = abs(x)) <= sk0 ? x : ax < sk1 ? sign(x) * (ax - (ax - sk0) * (ax - sk0) * sk4) : sign(x)) * gq;
+        x = b[i] * gp; b[i] = ((ax = abs(x)) <= sk0 ? x : ax < sk1 ? sign(x) * (ax - (ax - sk0) * (ax - sk0) * sk4) : sign(x)) * gq;
+        i += 1;
+      );
+    );
+  );
+);
+
+function top_delay(a, b, n) local(i, v) (
+  i = 0;
+  loop(n,
+    v = a[i]; a[i] = TDL[tdp]; TDL[tdp] = v;
+    v = b[i]; b[i] = TDR[tdp]; TDR[tdp] = v;
+    tdp += 1; tdp >= td_n ? tdp = 0;
+    i += 1;
+  );
+);
+
+function tilt(f, g) local(tk, bk, wp, b0, b1, a0, a1) (
+  tk = 10 ^ (g / 40);
+  bk = 2 * srate;
+  wp = 2 * srate * tan($pi * min(f, 0.45 * srate) / srate);
+  b0 = tk * bk + wp; b1 = wp - tk * bk;
+  a0 = bk + tk * wp; a1 = tk * wp - bk;
+  ep_b0 = b0 / a0; ep_b1 = b1 / a0; ep_a1 = a1 / a0;
+  ed_b0 = a0 / b0; ed_b1 = a1 / b0; ed_a1 = b1 / b0;
+);
+
+function os_apply(s) (
+  os_n = s;
+  memset(STATE0, 0, STATE1 - STATE0);
+  PU0 = PU1 = PU2 = PU3 = PU4 = 0; DP0 = DP1 = DP2 = DP3 = DP4 = 0; QP0 = QP1 = QP2 = QP3 = QP4 = 0; tdp = 0;
+  os_cnt = 2 ^ os_n;
+  TOPL = os_n === 0 ? BL0 : os_n === 1 ? BL1 : os_n === 2 ? BL2 : os_n === 3 ? BL3 : os_n === 4 ? BL4 : BL5;
+  TOPR = os_n === 0 ? BR0 : os_n === 1 ? BR1 : os_n === 2 ? BR2 : os_n === 3 ? BR3 : os_n === 4 ? BR4 : BR5;
+  lat = LATS[os_n]; td_n = TDS[os_n];
+  pdc_delay = lat; pdc_bot_ch = 0; pdc_top_ch = 2;
+  g_steps = floor(0.1 * srate * os_cnt);
+  GPRE.cnt = 0; GPRE.cur = GPRE.tgt; GPOST.cnt = 0; GPOST.cur = GPOST.tgt;
+  epl1 = epr1 = edl1 = edr1 = 0;
+);
+
+function params() local(t, d) (
+  link === 1 ? (
+    in_db !== lk_in ? ( out_db = -in_db; sliderchange(out_db); ) :
+    out_db !== lk_out ? ( in_db = max(-36, min(36, -out_db)); sliderchange(in_db); ) :
+    out_db !== -in_db ? ( out_db = -in_db; sliderchange(out_db); );
+  ) : link === 2 ? (
+    ceil_db !== lk_ceil ? ( out_db = -ceil_db; sliderchange(out_db); ) :
+    out_db !== lk_out ? ( ceil_db = max(-36, min(0, -out_db)); out_db = -ceil_db; sliderchange(ceil_db); sliderchange(out_db); ) :
+    out_db !== -ceil_db ? ( out_db = -ceil_db; sliderchange(out_db); );
+  );
+  lk_in = in_db; lk_out = out_db; lk_ceil = ceil_db;
+  GIN.sv_set(10 ^ (in_db / 20), io_steps);
+  GOUT.sv_set(10 ^ (out_db / 20), io_steps);
+  GPRE.sv_set(10 ^ (-ceil_db / 20), g_steps);
+  GPOST.sv_set(10 ^ (ceil_db / 20), g_steps);
+  t = bypass >= 0.5 ? 0 : max(0, min(1, mix / 100));
+  WET.sv_set(t, mx_steps);
+  DRY.sv_set(1 - t, mx_steps);
+  algo_i = max(0, min(7, floor(algo + 0.5)));
+  t = max(0, min(1, soft / 100));
+  sk0 = 1 - t; sk1 = 1 + t; sk4 = t > 0 ? 1 / (4 * t) : 0;
+  guard_on = guard >= 0.5;
+  delta_on = delta >= 0.5;
+  (emph !== em_g || pivot !== em_f || srate !== em_sr) ? (
+    em_g = emph; em_f = pivot; em_sr = srate;
+    em_on = abs(emph) >= 0.05;
+    em_on ? tilt(pivot, emph) : (epl1 = epr1 = edl1 = edr1 = 0;);
+  );
+  d = max(0, min(5, floor(osr + 0.5)));
+  d !== os_want ? (
+    os_want = d;
+    fd_state === 0 && os_init ? ( fd_state = 1; fd_n = fd_len; );
+  );
+  !os_init ? ( os_init = 1; os_apply(os_want); );
+  first ? (
+    first = 0;
+    GIN.sv_snap(GIN.tgt); GOUT.sv_snap(GOUT.tgt); GPRE.sv_snap(GPRE.tgt); GPOST.sv_snap(GPOST.tgt);
+    WET.sv_snap(WET.tgt); DRY.sv_snap(DRY.tgt);
+  );
+);
+
+function gauto(s, e) (
+<?
+max_sliders > 16 ? printf("slider_automate(2^(s-1), e);") : (
+  printf("s == 1 ? slider_automate(in_db, e) : s == 2 ? slider_automate(out_db, e) : s == 3 ? slider_automate(ceil_db, e) :\n");
+  printf("s == 4 ? slider_automate(link, e) : s == 5 ? slider_automate(bypass, e) : s == 6 ? slider_automate(algo, e) :\n");
+  printf("s == 7 ? slider_automate(osr, e) : s == 8 ? slider_automate(mix, e) : s == 9 ? slider_automate(soft, e) :\n");
+  printf("s == 10 ? slider_automate(guard, e) : s == 11 ? slider_automate(delta, e) : s == 12 ? slider_automate(emph, e) :\n");
+  printf("s == 13 ? slider_automate(pivot, e) : s == 14 ? slider_automate(disp, e) : s == 15 ? slider_automate(zoom, e) : s == 16 ? slider_automate(theme, e) : 0;");
+);
+?>
+);
+
+function gsx(x) ( G_OX + x * G_SC; );
+function gsy(y) ( y * G_SC; );
+function gclamp(x, a, b) ( min(b, max(a, x)); );
+
+function grspan(qx0, qy0, qx1, qy1, qrad, yc) local(dy, ins) (
+  dy = yc < qy0 + qrad ? qy0 + qrad - yc : yc > qy1 - qrad ? yc - (qy1 - qrad) : 0;
+  G_RC = max(0, min(1, qrad - dy + 0.5));
+  dy = min(qrad, dy);
+  ins = qrad - sqrt(max(0, qrad * qrad - dy * dy));
+  G_RL = qx0 + ins; G_RR = qx1 - ins;
+);
+
+function gspan(lx, rx, j, a) local(lc, rc) (
+  lc = ceil(lx); rc = floor(rx);
+  rc >= lc ? (
+    gfx_a = a; rc > lc ? gfx_rect(lc, j, rc - lc, 1);
+    lc - lx > 0 ? ( gfx_a = a * (lc - lx); gfx_rect(lc - 1, j, 1, 1); );
+    rx - rc > 0 ? ( gfx_a = a * (rx - rc); gfx_rect(rc, j, 1, 1); );
+  ) : rx > lx ? ( gfx_a = a * (rx - lx); gfx_rect(floor(lx), j, 1, 1); );
+);
+
+function gfrr(qx0, qy0, qx1, qy1, qrad, cr, cg, cb, a0) local(j) (
+  qx0 = floor(qx0 + 0.5); qy0 = floor(qy0 + 0.5); qx1 = floor(qx1 + 0.5); qy1 = floor(qy1 + 0.5);
+  qrad = max(0, min(qrad, min(qy1 - qy0, qx1 - qx0) * 0.5));
+  gfx_set(cr, cg, cb, a0);
+  j = qy0;
+  loop(qy1 - qy0,
+    grspan(qx0, qy0, qx1, qy1, qrad, j + 0.5);
+    G_RC > 0 ? gspan(G_RL, G_RR, j, a0 * G_RC);
+    j += 1;
+  );
+  gfx_a = 1;
+);
+
+function gbord(qx0, qy0, qx1, qy1, qrad, t, cr, cg, cb, a0) local(j, ol, orr, oc, il, ir, ic) (
+  qx0 = floor(qx0 + 0.5); qy0 = floor(qy0 + 0.5); qx1 = floor(qx1 + 0.5); qy1 = floor(qy1 + 0.5);
+  qrad = max(0, min(qrad, min(qy1 - qy0, qx1 - qx0) * 0.5));
+  gfx_set(cr, cg, cb, a0);
+  j = qy0;
+  loop(qy1 - qy0,
+    grspan(qx0, qy0, qx1, qy1, qrad, j + 0.5); ol = G_RL; orr = G_RR; oc = G_RC;
+    (j + 0.5 > qy0 + t && j + 0.5 < qy1 - t) ? (
+      grspan(qx0 + t, qy0 + t, qx1 - t, qy1 - t, max(0, qrad - t), j + 0.5); il = G_RL; ir = G_RR; ic = G_RC;
+    ) : ( ic = 0; );
+    oc > 0 ? (
+      ic <= 0 ? gspan(ol, orr, j, a0 * oc) : (
+        gspan(ol, il, j, a0 * oc);
+        gspan(ir, orr, j, a0 * oc);
+        oc - ic > 0.004 ? gspan(il, ir, j, a0 * (oc - ic));
+      );
+    );
+    j += 1;
+  );
+  gfx_a = 1;
+);
+
+function gcard(x, y, w, h, r, a0, ba) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = max(2, floor(r * G_SC));
+  gfrr(xx, yy, xx + ww, yy + hh, rr, 0.165, 0.17, 0.18, a0);
+  gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), 0.62, 0.66, 0.70, ba);
+);
+
+function gtext(x, y, s, fnt, r, g, b, a, ctr) local(tw, th) (
+  gfx_setfont(fnt);
+  gfx_set(r, g, b, a);
+  gfx_measurestr(s, tw, th);
+  gfx_x = ctr === 1 ? gsx(x) - tw * 0.5 : ctr === 2 ? gsx(x) - tw : gsx(x);
+  gfx_y = gsy(y) - th * 0.5;
+  gfx_drawstr(s);
+);
+
+function gann(cx, cy, ri, ro, aa, ab, cr, cg, cb, al) local(py, px, dy, dx, hwo, hwi, d, cv, th, ca, x0, x1, x2, x3) (
+  py = floor(cy - ro - 1);
+  loop(ceil(2 * ro + 3),
+    dy = py + 0.5 - cy;
+    hwo = sqrt(max(0, (ro + 0.5) * (ro + 0.5) - dy * dy));
+    hwo > 0 ? (
+      hwi = ri > 0.5 ? sqrt(max(0, (ri - 0.5) * (ri - 0.5) - dy * dy)) : 0;
+      x0 = floor(cx - hwo); x1 = ceil(cx - hwi); x2 = floor(cx + hwi); x3 = ceil(cx + hwo);
+      hwi <= 0 ? x1 = x3 + 1;
+      px = x0;
+      while (px <= x3) (
+        dx = px + 0.5 - cx;
+        d = sqrt(dx * dx + dy * dy);
+        cv = min(1, min(ro - d + 0.5, d - ri + 0.5));
+        cv > 0 ? (
+          th = atan2(dx, -dy);
+          ca = min(1, min((th - aa) * d + 0.5, (ab - th) * d + 0.5));
+          ca > 0 ? (
+            gfx_set(cr, cg, cb, al * cv * ca);
+            gfx_rect(px, py, 1, 1);
+          );
+        );
+        px += 1;
+        (px > x1 && px < x2) ? px = x2;
+      );
+    );
+    py += 1;
+  );
+  gfx_a = 1;
+);
+
+function gbar(x0, y0, x1, y1, w) local(dx, dy, ll, hw, bx0, by0, bx1, by1, px, py, qx, qy, t, ex, ey, d, cv, cr, cg, cb, ca) (
+  cr = gfx_r; cg = gfx_g; cb = gfx_b; ca = gfx_a;
+  dx = x1 - x0; dy = y1 - y0; ll = max(0.000001, dx * dx + dy * dy);
+  hw = w * 0.5;
+  bx0 = floor(min(x0, x1) - hw - 1); bx1 = ceil(max(x0, x1) + hw + 1);
+  by0 = floor(min(y0, y1) - hw - 1); by1 = ceil(max(y0, y1) + hw + 1);
+  py = by0;
+  while (py <= by1) (
+    px = bx0;
+    while (px <= bx1) (
+      qx = px + 0.5; qy = py + 0.5;
+      t = max(0, min(1, ((qx - x0) * dx + (qy - y0) * dy) / ll));
+      ex = qx - (x0 + t * dx); ey = qy - (y0 + t * dy);
+      d = sqrt(ex * ex + ey * ey);
+      cv = min(1, hw - d + 0.5);
+      cv > 0 ? ( gfx_set(cr, cg, cb, ca * cv); gfx_rect(px, py, 1, 1); );
+      px += 1;
+    );
+    py += 1;
+  );
+  gfx_set(cr, cg, cb, ca);
+);
+
+function gknob(kx, ky, kr, v, ctr, hov, nm, vs, dim) local(cx, cy, r, a0, a1, sa, ca, px0, py0, al) (
+  cx = gsx(kx); cy = gsy(ky); r = kr * G_SC;
+  al = dim ? 0.66 : 1;
+  a0 = -$pi * 0.75; a1 = $pi * 0.75;
+  gfx_set(0.02, 0.02, 0.03, 0.5 * al);
+  gfx_circle(cx, cy, r + 3 * G_SC, 1, 1);
+  gfx_set(0.11, 0.12, 0.13, 1);
+  gfx_circle(cx, cy, r - 5 * G_SC, 1, 1);
+  gfx_set(0.20, 0.21, 0.23, 1);
+  gfx_circle(cx, cy, r - 7 * G_SC, 1, 1);
+  gfx_set(0.13, 0.14, 0.15, 1);
+  gfx_circle(cx, cy + 1.2 * G_SC, r - 9 * G_SC, 1, 1);
+  gann(cx, cy, r - 1.2 * G_SC, r + 1.2 * G_SC, a0, a1, 0.62, 0.66, 0.70, 0.35 * al);
+  sa = a0 + (a1 - a0) * v;
+  ca = a0 + (a1 - a0) * ctr;
+  abs(sa - ca) > 0.001 ? (
+    gann(cx, cy, r - 3.5 * G_SC, r + 3.5 * G_SC, min(ca, sa), max(ca, sa), G_ACR, G_ACG, G_ACB, 0.18 * al);
+    gann(cx, cy, r - 1.5 * G_SC, r + 1.5 * G_SC, min(ca, sa), max(ca, sa), G_ACR, G_ACG, G_ACB, al);
+  );
+  px0 = cx + sin(sa) * (r - 8 * G_SC);
+  py0 = cy - cos(sa) * (r - 8 * G_SC);
+  gfx_set(0.95, 0.97, 0.98, (hov ? 1 : 0.86) * al);
+  gbar(cx + sin(sa) * (r * 0.22), cy - cos(sa) * (r * 0.22), px0, py0, max(1.5, 2.4 * G_SC));
+  gtext(kx, ky - kr - 13, nm, 1, 0.93, 0.95, 0.96, 0.95 * al, 1);
+  gtext(kx, ky + kr + 13, vs, 2, 0.80, 0.84, 0.88, 0.95 * al, 1);
+);
+
+function gbtn(x, y, w, h, lb, on, hov) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = floor(h * 0.5 * G_SC);
+  on ? (
+    gfrr(xx, yy, xx + ww, yy + hh, rr, G_ACR, G_ACG, G_ACB, hov ? 1 : 0.9);
+    gtext(x + w * 0.5, y + h * 0.5, lb, 3, 0.06, 0.12, 0.10, 1, 1);
+  ) : (
+    gfrr(xx, yy, xx + ww, yy + hh, rr, 0.10, 0.11, 0.12, hov ? 0.95 : 0.8);
+    gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), 0.62, 0.66, 0.70, hov ? 0.7 : 0.4);
+    gtext(x + w * 0.5, y + h * 0.5, lb, 3, 0.85, 0.88, 0.90, hov ? 1 : 0.8, 1);
+  );
+);
+
+function gseg(x, y, w, h, n, sel, hov) local(sw, i, xx, yy, ww, hh, lb) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC);
+  gfrr(xx, yy, xx + ww, yy + hh, floor(h * 0.5 * G_SC), 0.10, 0.11, 0.12, 0.85);
+  gbord(xx, yy, xx + ww, yy + hh, floor(h * 0.5 * G_SC), max(1, floor(G_SC + 0.5)), 0.62, 0.66, 0.70, 0.4);
+  sw = w / n;
+  i = 0;
+  loop(n,
+    lb = i === 0 ? "OFF" : i === 1 ? "IN / OUT" : "CEIL / OUT";
+    i === sel ? (
+      xx = floor(gsx(x + i * sw + 3)); yy = floor(gsy(y + 3)); ww = ceil((sw - 6) * G_SC); hh = ceil((h - 6) * G_SC);
+      gfrr(xx, yy, xx + ww, yy + hh, floor((h - 6) * 0.5 * G_SC), G_ACR, G_ACG, G_ACB, hov === i ? 1 : 0.9);
+      gtext(x + i * sw + sw * 0.5, y + h * 0.5, lb, 3, 0.06, 0.12, 0.10, 1, 1);
+    ) : (
+      gtext(x + i * sw + sw * 0.5, y + h * 0.5, lb, 3, 0.85, 0.88, 0.90, hov === i ? 1 : 0.75, 1);
+    );
+    i += 1;
+  );
+);
+
+function gbypass(x, y, r, on, hov) local(cx, cy, rr, u, ox, oy, w, cr, cg, cb, al) (
+  cx = gsx(x); cy = gsy(y); rr = r * G_SC;
+  cr = on ? G_ACR : 0.70; cg = on ? G_ACG : 0.70; cb = on ? G_ACB : 0.70;
+  al = hov ? 1 : 0.8;
+  gfx_set(G_BGR * 0.7, G_BGG * 0.7, G_BGB * 0.7, 1);
+  gfx_circle(cx, cy, rr, 1, 1);
+  gfx_set(cr, cg, cb, al * 0.4);
+  gfx_circle(cx, cy, rr, 1, 1);
+  gann(cx, cy, rr - max(1, G_SC), rr, -$pi, $pi, cr, cg, cb, al);
+  u = 2 * rr / 200; ox = cx - rr; oy = cy - rr; w = max(1.5, 11 * u);
+  gann(ox + 100 * u, oy + 103 * u, 55 * u - w * 0.5, 55 * u + w * 0.5, -$pi * 0.5, $pi * 0.5, cr, cg, cb, al);
+  gann(ox + 100 * u, oy + 108 * u, 27 * u - w * 0.5, 27 * u + w * 0.5, -$pi, $pi, cr, cg, cb, al);
+  gfx_set(cr, cg, cb, al);
+  gbar(ox + 18 * u, oy + 103 * u, ox + 46 * u, oy + 103 * u, w);
+  gbar(ox + 154 * u, oy + 103 * u, ox + 180 * u, oy + 103 * u, w);
+  gbar(ox + 182 * u, oy + 103 * u, ox + 166 * u, oy + 87 * u, w);
+  gbar(ox + 182 * u, oy + 103 * u, ox + 166 * u, oy + 119 * u, w);
+);
+
+G_PT = alloc(256 * 8);
+
+function gtip_text(id) (
+  id === 1 ? strcpy(#g_tip, "Input gain into the clipper") :
+  id === 2 ? strcpy(#g_tip, "Clipping curve") :
+  id === 3 ? strcpy(#g_tip, "Ceiling: the level where clipping starts") :
+  id === 4 ? strcpy(#g_tip, "Oversampling (higher = less aliasing, more latency and CPU)") :
+  id === 5 ? strcpy(#g_tip, "Output gain after the clipper") :
+  id === 6 ? strcpy(#g_tip, "Mix of the clipped and the original signal") :
+  id === 7 ? strcpy(#g_tip, "Knee of the Custom curve (0% is a hard clip)") :
+  id === 8 ? strcpy(#g_tip, "Tilt into the clipper and back out (+ spares the bass; peaks can pass the ceiling)") :
+  id === 9 ? strcpy(#g_tip, "Centre frequency of the emphasis tilt") :
+  id === 10 ? strcpy(#g_tip, bypass >= 0.5 ? "Turn Off Bypass" : "Turn On Bypass") :
+  id === 11 ? strcpy(#g_tip, "Ceiling guard: no oversampling peaks get past the ceiling") :
+  id === 12 ? strcpy(#g_tip, "Delta: listen to only what is being clipped off") :
+  id === 13 ? strcpy(#g_tip, "No linking") :
+  id === 14 ? strcpy(#g_tip, "Link: Output mirrors Input") :
+  id === 15 ? strcpy(#g_tip, "Link: Output mirrors Ceiling") :
+  id === 16 ? strcpy(#g_tip, "Time zoom") :
+  id === 17 ? strcpy(#g_tip, "Scaling") :
+  id === 18 ? strcpy(#g_tip, "Colour scheme") :
+  id === 19 ? strcpy(#g_tip, "Peaks over the last 3 seconds (click to reset)") :
+  id === 20 ? strcpy(#g_tip, "Input peak level") :
+  id === 21 ? strcpy(#g_tip, "Output peak level") : strcpy(#g_tip, "");
+  #g_tip;
+);
+
+function gshape(x, a, sk) local(ax) (
+  a === 0 ? ( x > 1 ? 1 : x < -1 ? -1 : x ) :
+  a === 1 ? ( abs(x) < 1.25 ? x - 0.08192 * x * x * x * x * x : sign(x) ) :
+  a === 2 ? ( abs(x) < 1.5 ? x - (4 / 27) * x * x * x : sign(x) ) :
+  a === 3 ? ( 1 - 2 / (exp(2 * x) + 1) ) :
+  a === 4 ? ( x / sqrt(1 + x * x) ) :
+  a === 5 ? ( (2 / $pi) * atan(1.6 * x) ) :
+  a === 6 ? ( abs(x) < 0.5 * $pi ? sin(x) : sign(x) ) :
+  ( ax = abs(x); ax <= 1 - sk ? x : ax < 1 + sk ? sign(x) * (ax - (ax - 1 + sk) * (ax - 1 + sk) / (4 * sk)) : sign(x) );
+);
+
+function gtheme(t) (
+  t === 1 ? ( G_BGR = 0.05; G_BGG = 0.04; G_BGB = 0.09; G_ER = 1; G_EG = 0.16; G_EB = 0.62; G_UR = 0.10; G_UG = 0.82; G_UB = 1; G_ACR = 0.72; G_ACG = 0.45; G_ACB = 1; ) :
+  t === 2 ? ( G_BGR = 0.09; G_BGG = 0.06; G_BGB = 0.05; G_ER = 0.92; G_EG = 0.20; G_EB = 0.12; G_UR = 1; G_UG = 0.64; G_UB = 0.22; G_ACR = 1; G_ACG = 0.66; G_ACB = 0.32; ) :
+  t === 3 ? ( G_BGR = 0.035; G_BGG = 0.075; G_BGB = 0.09; G_ER = 0.62; G_EG = 0.34; G_EB = 0.98; G_UR = 0.20; G_UG = 0.94; G_UB = 0.62; G_ACR = 0.32; G_ACG = 0.95; G_ACB = 0.78; ) :
+  t === 4 ? ( G_BGR = 0.10; G_BGG = 0.10; G_BGB = 0.105; G_ER = 0.50; G_EG = 0.50; G_EB = 0.53; G_UR = 0.86; G_UG = 0.87; G_UB = 0.89; G_ACR = 0.93; G_ACG = 0.93; G_ACB = 0.95; ) :
+  ( G_BGR = 0.115; G_BGG = 0.12; G_BGB = 0.125; G_ER = 0.80; G_EG = 0.20; G_EB = 0.33; G_UR = 0.30; G_UG = 0.55; G_UB = 0.75; G_ACR = 0.36; G_ACG = 0.90; G_ACB = 0.76; );
+);
+
+function gdb_y(d) ( G_AT + (G_TOP - d) / (G_TOP + 36) * (G_AB - G_AT); );
+
+function gkval(s) local(v) (
+  v = slider(s);
+  s === 1 || s === 2 || s === 3 ? sprintf(#g_vs, "%.1f dB", v) :
+  s === 6 ? strcpy(#g_vs, v < 0.5 ? "HARD" : v < 1.5 ? "QUINTIC" : v < 2.5 ? "CUBIC" : v < 3.5 ? "TANGENT" : v < 4.5 ? "ALGEBRAIC" : v < 5.5 ? "ARCTANGENT" : v < 6.5 ? "SINE" : "CUSTOM") :
+  s === 7 ? strcpy(#g_vs, v < 0.5 ? "OFF" : v < 1.5 ? "x2" : v < 2.5 ? "x4" : v < 3.5 ? "x8" : v < 4.5 ? "x16" : "x32") :
+  s === 8 || s === 9 ? sprintf(#g_vs, "%d%%", floor(v + 0.5)) :
+  s === 12 ? sprintf(#g_vs, "%+.1f dB", v) :
+  s === 13 ? (v >= 1000 ? sprintf(#g_vs, "%.2f kHz", v / 1000) : sprintf(#g_vs, "%d Hz", floor(v + 0.5))) : 0;
+  #g_vs;
+);
+
+function gnorm(s) local(v) (
+  v = slider(s);
+  s === 1 || s === 2 ? (v + 36) / 72 : s === 3 ? (v + 36) / 36 : s === 6 ? v / 7 : s === 7 ? v / 5 :
+  s === 8 || s === 9 ? v / 100 : s === 12 ? (v + 12) / 24 : s === 13 ? log(v / 100) / log(50) : 0;
+);
+
+function gset_norm(s, u) local(v) (
+  u = gclamp(u, 0, 1);
+  v = s === 1 || s === 2 ? floor((u * 72 - 36) * 10 + 0.5) / 10 : s === 3 ? floor((u * 36 - 36) * 10 + 0.5) / 10 :
+      s === 6 ? floor(u * 7 + 0.5) : s === 7 ? floor(u * 5 + 0.5) : s === 8 || s === 9 ? floor(u * 1000 + 0.5) / 10 :
+      s === 12 ? floor((u * 24 - 12) * 10 + 0.5) / 10 : s === 13 ? floor(100 * exp(u * log(50)) + 0.5) : 0;
+  v !== slider(s) ? ( slider(s) = v; gauto(s, 0); );
+);
+
+function gdef(s) ( s === 8 ? 100 : s === 9 ? 50 : s === 13 ? 1000 : 0; );
+
+
+first = 1;
+last_srate = 0;
+
+@slider
+
+last_srate != srate ? (
+  last_srate = srate;
+  io_steps = floor(0.05 * srate);
+  mx_steps = floor(0.05 * srate);
+  fd_len = max(16, floor(0.005 * srate));
+  hop = max(1, floor(srate / 60));
+  os_init ? os_apply(os_n);
+);
+params();
+
+@block
+
+params();
+
+@sample
+
+fd_g = 1;
+fd_state === 1 ? (
+  fd_n -= 1; fd_g = fd_n / fd_len;
+  fd_n <= 0 ? ( os_apply(os_want); fd_state = 2; fd_n = lat + 64; fd_g = 0; );
+) : fd_state === 2 ? (
+  fd_n -= 1; fd_g = 0;
+  fd_n <= 0 ? ( fd_state = 3; fd_n = fd_len; );
+) : fd_state === 3 ? (
+  fd_n -= 1; fd_g = 1 - fd_n / fd_len;
+  fd_n <= 0 ? fd_state = 0;
+);
+
+pl = spl0; pr = spl1;
+gi = GIN.sv_next();
+xl = pl * gi; xr = pr * gi;
+rw = rp; rd = rp - lat; rd < 0 ? rd += RN;
+RDL[rw] = pl; RDR[rw] = pr; RGL[rw] = xl; RGR[rw] = xr;
+dl = RDL[rd]; dr = RDR[rd]; gl = RGL[rd]; gr = RGR[rd];
+rp += 1; rp >= RN ? rp = 0;
+
+em_on ? (
+  t = ep_b0 * xl + epl1; epl1 = ep_b1 * xl - ep_a1 * t; xl = t;
+  t = ep_b0 * xr + epr1; epr1 = ep_b1 * xr - ep_a1 * t; xr = t;
+);
+BL0[0] = xl; BR0[0] = xr;
+os_n >= 1 ? ( up0(); os_n >= 2 ? ( up1(); os_n >= 3 ? ( up2(); os_n >= 4 ? ( up3(); os_n >= 5 ? up4(); ); ); ); );
+shape(TOPL, TOPR, os_cnt);
+td_n ? top_delay(TOPL, TOPR, os_cnt);
+os_n >= 1 ? ( os_n >= 2 ? ( os_n >= 3 ? ( os_n >= 4 ? ( os_n >= 5 ? dn4(); dn3(); ); dn2(); ); dn1(); ); dn0(); );
+yl = BL0[0]; yr = BR0[0];
+guard_on ? (
+  c = GPOST.cur;
+  yl > c ? yl = c : yl < -c ? yl = -c;
+  yr > c ? yr = c : yr < -c ? yr = -c;
+);
+em_on ? (
+  t = ed_b0 * yl + edl1; edl1 = ed_b1 * yl - ed_a1 * t; yl = t;
+  t = ed_b0 * yr + edr1; edr1 = ed_b1 * yr - ed_a1 * t; yr = t;
+);
+
+m_ind = max(m_ind, max(abs(gl), abs(gr)));
+m_cl = max(m_cl, max(abs(yl), abs(yr)));
+
+delta_on ? ( yl = gl - yl; yr = gr - yr; );
+go = GOUT.sv_next();
+wv = WET.sv_next(); dv = DRY.sv_next();
+ol = (yl * go * wv + dl * dv) * fd_g;
+orr = (yr * go * wv + dr * dv) * fd_g;
+m_out = max(m_out, max(abs(ol), abs(orr)));
+spl0 = ol; spl1 = orr;
+
+hc += 1;
+hc >= hop ? (
+  hc = 0;
+  hw = h_cnt & (HN - 1);
+  H_IN[hw] = m_ind > 0.0000158 ? 20 * log10(m_ind) : -96;
+  H_CL[hw] = m_cl > 0.0000158 ? 20 * log10(m_cl) : -96;
+  H_OUT[hw] = m_out > 0.0000158 ? 20 * log10(m_out) : -96;
+  H_EAT[hw] = (m_ind > 0.0000158 && m_cl > 0.0000158) ? max(0, 20 * log10(m_ind / m_cl)) : 0;
+  h_cnt += 1;
+  m_ind = m_cl = m_out = 0;
+);
+
+@gfx 1000 640
+G_NOW = time_precise();
+G_WHEEL = mouse_wheel; mouse_wheel = 0;
+G_SC = max(0.45, min(gfx_w / 1000, gfx_h / 640));
+G_OX = floor((gfx_w - 1000 * G_SC) * 0.5);
+G_SC !== G_FSC ? (
+  G_FSC = G_SC;
+  gfx_setfont(1, "Arial", 14 * G_SC, 'b');
+  gfx_setfont(2, "Arial", 13 * G_SC);
+  gfx_setfont(3, "Arial", 12 * G_SC, 'b');
+  gfx_setfont(4, "Arial", 12 * G_SC);
+  gfx_setfont(5, "Arial", 16 * G_SC, 'b');
+  gfx_setfont(6, "Arial", 22 * G_SC, 'b');
+);
+
+gtheme(floor(theme + 0.5));
+G_TOP = disp < 0.5 ? 0 : disp < 1.5 ? 3 : 6;
+G_AT = 14; G_AB = 626; G_AL = 64; G_AR = 936;
+G_GH = max(1, gfx_h);
+G_DST = gfx_dest;
+(gfx_w !== G_CW0 || gfx_h !== G_CH0 || theme !== G_CT0 || G_SC !== G_CS0) ? (
+  G_CW0 = gfx_w; G_CH0 = gfx_h; G_CT0 = theme; G_CS0 = G_SC;
+  gfx_setimgdim(22, gfx_w, gfx_h);
+  gfx_dest = 22;
+  gfx_gradrect(0, 0, gfx_w, gfx_h, G_BGR * 1.35, G_BGG * 1.35, G_BGB * 1.35, 1, 0, 0, 0, 0, -G_BGR * 0.6 / G_GH, -G_BGG * 0.6 / G_GH, -G_BGB * 0.6 / G_GH, 0);
+  G_MW = ceil(G_AL * G_SC) + 1; G_MT = floor(gsy(G_AT)); G_MH = max(1, floor(gsy(G_AB)) - G_MT);
+  gfx_setimgdim(23, G_MW, G_MH);
+  gfx_dest = 23;
+  gfx_gradrect(0, 0, G_MW, G_MH, G_ER, G_EG, G_EB, 1, 0, 0, 0, 0, (G_UR - G_ER) / G_MH, (G_UG - G_EG) / G_MH, (G_UB - G_EB) / G_MH, 0);
+  G_OW = max(1, floor(gsx(G_AR)) - floor(gsx(G_AL))); G_OH = max(1, floor(gsy(G_AB)) - floor(gsy(G_AT)));
+  gfx_setimgdim(24, G_OW, G_OH);
+  gfx_dest = 24;
+  gfx_set(0, 0, 0, 0); gfx_mode = 2; gfx_rect(0, 0, G_OW, G_OH); gfx_mode = 0;
+  gfx_gradrect(0, 0, G_OW, G_OH, G_BGR * 0.4, G_BGG * 0.4, G_BGB * 0.4, 0, 0, 0, 0, 0, 0, 0, 0, 0.75 / G_OH);
+  gfx_dest = G_DST;
+);
+gfx_x = 0; gfx_y = 0; gfx_a = 1; gfx_mode = 0;
+gfx_blit(22, 1, 0);
+
+G_ZM = zoom < 0.5 ? 1 : zoom < 1.5 ? 2 : zoom < 2.5 ? 4 : 8;
+
+G_HC = h_cnt;
+G_DT = G_LAST > 0 ? gclamp(G_NOW - G_LAST, 0, 0.1) : 0.033;
+G_LAST = G_NOW;
+G_ACT = G_HC + gclamp(hc / max(1, hop), 0, 0.999);
+G_RATE = srate / max(1, hop);
+G_ACT !== G_LACT ? G_TACT = G_NOW;
+G_LACT = G_ACT;
+(!G_PINIT2 || abs(G_ACT - G_POS) > 20) ? ( G_PINIT2 = 1; G_POS = G_ACT; ) : (
+  G_NOW - G_TACT < 0.25 ? (
+    G_POS += G_DT * G_RATE;
+    G_POS += (G_ACT - G_POS) * min(1, G_DT * 2);
+    G_POS = min(G_POS, G_ACT + 3);
+  ) : (
+    G_POS += (G_ACT - G_POS) * min(1, G_DT * 6);
+  );
+);
+G_PXW = G_ZM;
+G_GL = floor(gsx(G_AL)); G_GR = floor(gsx(G_AR)); G_GT = floor(gsy(G_AT)); G_YBOT = floor(gsy(G_AB));
+G_XR = G_ER + (1 - G_ER) * 0.85; G_XG = G_EG + (0.78 - G_EG) * 0.85; G_XB = G_EB + (0.30 - G_EB) * 0.85;
+theme >= 3.5 ? ( G_XR = G_XG = G_XB = 1; );
+
+G_E = G_HC - 1 - ((G_HC - 1) % 60);
+while (G_E >= 0 && (G_POS - G_E) * G_PXW < G_AR - G_AL) (
+  G_X = floor(gsx(G_AR - (G_POS - G_E) * G_PXW));
+  gfx_set(G_UR, G_UG, G_UB, 0.08);
+  gfx_rect(G_X, G_GT, 1, G_YBOT - G_GT);
+  G_E -= 60;
+);
+
+G_E = G_HC - 1;
+G_PYO = -1;
+G_OR = min(1, G_UR * 0.35 + 0.65); G_OG = min(1, G_UG * 0.35 + 0.65); G_OB = min(1, G_UB * 0.35 + 0.65);
+G_LW = max(1, floor(1.2 * G_SC));
+while (G_E >= 0 && G_E > G_HC - HN && (G_POS - G_E - 1) * G_PXW < G_AR - G_AL) (
+  G_W0 = G_E & (HN - 1);
+  G_X0 = floor(gsx(G_AR - (G_POS - G_E) * G_PXW));
+  G_X1 = floor(gsx(G_AR - (G_POS - G_E - 1) * G_PXW));
+  G_X0 < G_GL ? G_X0 = G_GL;
+  G_X1 > G_GR ? G_X1 = G_GR;
+  G_QW = G_X1 - G_X0;
+  G_QW > 0 ? (
+    G_VA = gclamp(H_IN[G_W0], -36, G_TOP); G_VB = gclamp(H_CL[G_W0], -36, G_TOP);
+    G_HT2 = 0.7 * gclamp(H_EAT[G_W0] / 24, 0, 1);
+    G_VA > -36 ? (
+      G_YY = floor(gsy(gdb_y(G_VA)));
+      gfx_set(G_ER + (G_XR - G_ER) * G_HT2, G_EG + (G_XG - G_EG) * G_HT2, G_EB + (G_XB - G_EB) * G_HT2, 0.92);
+      gfx_rect(G_X0, G_YY, G_QW, G_YBOT - G_YY);
+    );
+    G_VB > -36 ? (
+      G_YY = floor(gsy(gdb_y(G_VB)));
+      gfx_set(min(1, G_UR * 1.15), min(1, G_UG * 1.15), min(1, G_UB * 1.15), 0.95);
+      gfx_rect(G_X0, G_YY, G_QW, G_YBOT - G_YY);
+      gfx_set(G_OR, G_OG, G_OB, 0.5);
+      G_PYO >= 0 ? gfx_rect(G_X1 - 1, min(G_PYO, G_YY), 1, abs(G_PYO - G_YY) + 1);
+      gfx_set(G_OR, G_OG, G_OB, 0.95);
+      gfx_rect(G_X0, G_YY, G_QW, G_LW);
+      G_PYO = G_YY;
+    ) : ( G_PYO = -1; );
+  );
+  G_E -= 1;
+);
+gfx_a = 0.78; gfx_mode = 0;
+gfx_blit(24, 1, 0, 0, 0, G_GR - G_GL, G_YBOT - G_GT, G_GL, G_GT, G_GR - G_GL, G_YBOT - G_GT);
+gfx_a = 1;
+
+G_VW = floor(48 * G_SC);
+gfx_gradrect(G_GL, G_GT, G_VW, G_YBOT - G_GT, G_BGR * 0.5, G_BGG * 0.5, G_BGB * 0.5, 0.7, 0, 0, 0, -0.7 / G_VW, 0, 0, 0, 0);
+gfx_gradrect(G_GR - G_VW, G_GT, G_VW, G_YBOT - G_GT, G_BGR * 0.5, G_BGG * 0.5, G_BGB * 0.5, 0, 0, 0, 0, 0.7 / G_VW, 0, 0, 0, 0);
+
+G_EN = G_HC > 0 ? H_EAT[(G_HC - 1) & (HN - 1)] : 0;
+G_CGL = max(gclamp(G_EN / 12, 0, 1), G_CGL - G_DT * 1.6);
+G_CPU = G_CGL * (0.75 + 0.25 * sin(G_NOW * 7));
+
+G_BW = ceil(gfx_w / 4); G_BH = ceil(gfx_h / 4);
+G_BBOT = min(G_YBOT, gsy(gdb_y(ceil_db)) + 40 * G_SC);
+(G_BW !== G_LBW || G_BH !== G_LBH) ? ( G_LBW = G_BW; G_LBH = G_BH; gfx_setimgdim(21, G_BW, G_BH); );
+gfx_dest = 21;
+gfx_set(0, 0, 0, 1); gfx_rect(0, 0, G_BW, G_BH);
+G_Y = gsy(gdb_y(ceil_db)) / 4;
+gfx_set(G_ACR, G_ACG, G_ACB, 0.35 + 0.65 * G_CPU);
+gfx_rect(G_GL / 4, floor(G_Y) - 1, (G_GR - G_GL) / 4, 2 + floor(G_CPU * 2));
+
+!G_PINIT ? ( G_PINIT = 1; G_LHC = G_HC; memset(G_PT, 0, 256 * 8); );
+G_HC - G_LHC > 20 ? G_LHC = G_HC - 20;
+G_LHC > G_HC ? G_LHC = G_HC;
+G_CY = gsy(gdb_y(ceil_db));
+while (G_LHC < G_HC) (
+  G_EV = H_EAT[G_LHC & (HN - 1)];
+  G_EV > 0.8 ? (
+    G_PN = min(7, 1 + floor(G_EV / 3 + rand(1.5)));
+    G_PS = 0;
+    while (G_PN > 0 && G_PS < 256) (
+      G_PP = G_PT + G_PS * 8;
+      G_PP[4] >= G_PP[5] ? (
+        G_PMAX = max(G_PMAX, G_PS + 1);
+        G_PP[0] = gsx(G_AR - (G_POS - G_LHC - 0.5) * G_PXW) + (rand(2) - 1) * 2 * G_SC;
+        G_PP[1] = G_CY;
+        G_PP[2] = (-60 * G_PXW + (rand(2) - 1) * 45) * G_SC;
+        G_PP[3] = -(35 + rand(150)) * G_SC;
+        G_PP[4] = 0; G_PP[5] = 0.45 + rand(0.75);
+        G_PP[6] = (0.9 + rand(1.6)) * G_SC;
+        G_PP[7] = gclamp(G_EV / 18 + rand(0.3), 0, 1);
+        G_PN -= 1;
+      );
+      G_PS += 1;
+    );
+  );
+  G_LHC += 1;
+);
+G_PS = 0; G_PACT = 0;
+loop(G_PMAX,
+  G_PP = G_PT + G_PS * 8;
+  G_PP[4] < G_PP[5] ? (
+    G_PACT = G_PS + 1;
+    G_PP[3] += 260 * G_SC * G_DT;
+    G_PP[0] += G_PP[2] * G_DT; G_PP[1] += G_PP[3] * G_DT;
+    G_PP[4] += G_DT;
+    (G_PP[0] < G_GL || G_PP[0] > G_GR || G_PP[1] < G_GT || G_PP[1] > G_BBOT - 10 * G_SC) ? G_PP[4] = G_PP[5];
+    G_PP[4] < G_PP[5] ? (
+      G_PA2 = (1 - G_PP[4] / G_PP[5]);
+      gfx_set(G_ER + (G_XR - G_ER) * G_PP[7], G_EG + (G_XG - G_EG) * G_PP[7], G_EB + (G_XB - G_EB) * G_PP[7], G_PA2);
+      gfx_circle(G_PP[0] / 4, G_PP[1] / 4, max(0.6, G_PP[6] / 3), 1, 1);
+    );
+  );
+  G_PS += 1;
+);
+
+gfx_x = 0; gfx_y = 0; gfx_blurto(G_BW, G_BH);
+gfx_x = 0; gfx_y = 0; gfx_blurto(G_BW, G_BH);
+gfx_x = 0; gfx_y = 0; gfx_blurto(G_BW, G_BH);
+gfx_x = 0; gfx_y = 0; gfx_blurto(G_BW, G_BH);
+gfx_dest = G_DST;
+gfx_mode = 1; gfx_a = 1;
+G_B0 = floor(G_GT / 4); G_B1 = ceil(G_BBOT / 4);
+gfx_blit(21, 1, 0, 0, G_B0, G_BW, G_B1 - G_B0, 0, G_B0 * 4, G_BW * 4, (G_B1 - G_B0) * 4);
+gfx_mode = 0; gfx_a = 1;
+
+G_Y = gdb_y(ceil_db);
+G_K = 6;
+loop(6,
+  gfx_set(G_ACR, G_ACG, G_ACB, 0.025 + 0.07 * G_CPU);
+  gfx_rect(G_GL, floor(gsy(G_Y) - G_K * G_SC), G_GR - G_GL, ceil(2 * G_K * G_SC) + 1);
+  G_K -= 1;
+);
+gfx_set(0.97, 0.98, 0.99, 0.95);
+gfx_rect(G_GL, floor(gsy(G_Y)), G_GR - G_GL, max(1, floor(1.6 * G_SC)));
+
+G_PMAX = G_PACT;
+G_PS = 0;
+loop(G_PMAX,
+  G_PP = G_PT + G_PS * 8;
+  G_PP[4] < G_PP[5] ? (
+    G_PA2 = (1 - G_PP[4] / G_PP[5]);
+    gfx_set(min(1, G_XR + 0.15), min(1, G_XG + 0.15), min(1, G_XB + 0.15), G_PA2 * G_PA2);
+    gfx_circle(G_PP[0], G_PP[1], G_PP[6], 1, 1);
+  );
+  G_PS += 1;
+);
+
+G_SH = floor(150 * G_SC);
+gfx_gradrect(G_GL, G_GT, G_GR - G_GL, G_SH, 1, 1, 1, 0.055, 0, 0, 0, 0, 0, 0, 0, -0.055 / G_SH);
+gfx_set(1, 1, 1, 0.07); gfx_rect(G_GL, G_GT, G_GR - G_GL, 1);
+
+G_D = G_TOP;
+G_HW2 = floor((G_GR - G_GL) * 0.5);
+while (G_D > -36) (
+  G_Y = gdb_y(G_D);
+  G_LA = G_D === 0 ? 0.42 : 0.2;
+  gfx_gradrect(G_GL, floor(gsy(G_Y)), G_HW2, 1, 0.62, 0.66, 0.70, G_LA * 0.25, 0, 0, 0, G_LA * 0.75 / G_HW2, 0, 0, 0, 0);
+  gfx_gradrect(G_GL + G_HW2, floor(gsy(G_Y)), G_GR - G_GL - G_HW2, 1, 0.62, 0.66, 0.70, G_LA, 0, 0, 0, -G_LA * 0.75 / G_HW2, 0, 0, 0, 0);
+  sprintf(#g_tx, G_D > 0 ? "+%ddB" : "%ddB", G_D);
+  gfx_setfont(4); gfx_measurestr(#g_tx, G_TW, G_TH);
+  gfx_set(G_BGR * 0.5, G_BGG * 0.5, G_BGB * 0.5, 0.6);
+  gfx_rect(floor(gsx(G_AL + 3)), floor(gsy(G_Y + 9) - G_TH * 0.5), G_TW + floor(6 * G_SC), G_TH);
+  G_RT = G_Y < 396 || G_Y > 540;
+  G_RT ? gfx_rect(floor(gsx(G_AR - 3)) - G_TW - floor(6 * G_SC), floor(gsy(G_Y + 9) - G_TH * 0.5), G_TW + floor(6 * G_SC), G_TH);
+  gtext(G_AL + 6, G_Y + 9, #g_tx, 4, 0.80, 0.83, 0.86, 0.95, 0);
+  G_RT ? gtext(G_AR - 6, G_Y + 9, #g_tx, 4, 0.80, 0.83, 0.86, 0.95, 2);
+  G_D -= 4;
+);
+G_Y = gdb_y(ceil_db);
+sprintf(#g_tx, "CEILING %.1f dB", ceil_db);
+gtext(400, G_Y - 10, #g_tx, 3, 0.97, 0.98, 0.99, 0.85, 0);
+
+G_MI = -96; G_MC = -96; G_MO = -96; G_ME = 0;
+G_I = G_HC - 1;
+G_N = min(180, G_HC - max(G_RST, G_HC - HN));
+loop(max(0, G_N),
+  G_HW = G_I & (HN - 1);
+  G_MI = max(G_MI, H_IN[G_HW]); G_MC = max(G_MC, H_CL[G_HW]); G_MO = max(G_MO, H_OUT[G_HW]); G_ME = max(G_ME, H_EAT[G_HW]);
+  G_I -= 1;
+);
+G_LI = G_HC > 0 ? H_IN[(G_HC - 1) & (HN - 1)] : -96;
+G_LO = G_HC > 0 ? H_OUT[(G_HC - 1) & (HN - 1)] : -96;
+!G_MINIT ? ( G_MINIT = 1; G_PI = G_PO = -96; );
+G_PI = max(G_LI, G_PI - 0.6); G_PO = max(G_LO, G_PO - 0.6);
+G_MI = abs(G_MI) < 0.05 ? 0 : G_MI; G_MO = abs(G_MO) < 0.05 ? 0 : G_MO;
+
+G_K = 0;
+loop(2,
+  G_X = G_K ? G_AR : 0; G_W = G_AL;
+  G_V = gclamp(G_K ? G_PO : G_PI, -36, G_TOP);
+  G_Y = gdb_y(G_V);
+  gfx_set(G_BGR * 0.6, G_BGG * 0.6, G_BGB * 0.6, 1);
+  gfx_rect(floor(gsx(G_X)), 0, ceil(G_W * G_SC) + 1, gfx_h);
+  G_V > -36 ? (
+    G_YY = floor(gsy(G_Y)); G_HH = G_MT + G_MH - G_YY;
+    G_HH > 0 ? ( gfx_a = 0.9; gfx_blit(23, 1, 0, 0, G_YY - G_MT, G_MW, G_HH, floor(gsx(G_X)), G_YY, G_MW, G_HH); gfx_a = 1; );
+  );
+  G_V = floor(gclamp(G_K ? G_PO : G_PI, -96, 99) + 0.5);
+  sprintf(#g_tx, G_V > 0 ? "+%ddB" : "%ddB", G_V);
+  gtext(G_X + G_W * 0.5, 24, (G_K ? G_PO : G_PI) <= -95 ? "-inf" : #g_tx, 4, 0.80, 0.84, 0.88, 0.95, 1);
+  gtext(G_X + G_W * 0.5, 610, G_K ? "OUT" : "IN", 3, 0.75, 0.80, 0.85, 0.95, 1);
+  G_K += 1;
+);
+
+gcard(84, 26, 300, 96, 10, 0.92, 0.45);
+gfrr(floor(gsx(94)), floor(gsy(36)), floor(gsx(170)), floor(gsy(112)), floor(8 * G_SC), 0.09, 0.095, 0.10, 1);
+G_SK = gclamp(soft / 100, 0, 1);
+G_A = floor(algo + 0.5);
+gfx_set(G_ACR, G_ACG, G_ACB, 1);
+G_J = 0; G_PX = 0; G_PY = 0;
+loop(61,
+  G_XV = -2.5 + 5 * G_J / 60;
+  G_YV = G_A === 7 && G_SK <= 0 ? gclamp(G_XV, -1, 1) : gshape(G_XV, G_A, max(0.0001, G_SK));
+  G_QX = gsx(98 + 68 * G_J / 60); G_QY = gsy(74 - G_YV * 30);
+  G_J ? gbar(G_PX, G_PY, G_QX, G_QY, max(1.4, 2 * G_SC));
+  G_PX = G_QX; G_PY = G_QY;
+  G_J += 1;
+);
+sprintf(#g_tx, "Input: %.1f dB", G_MI); gtext(184, 50, G_MI <= -95 ? "Input: -inf" : #g_tx, 5, 0.93, 0.95, 0.96, 1, 0);
+sprintf(#g_tx, "Output: %.1f dB", G_MO); gtext(184, 74, G_MO <= -95 ? "Output: -inf" : #g_tx, 5, 0.93, 0.95, 0.96, 1, 0);
+sprintf(#g_tx, "Eaten: %.1f dB", G_ME);
+gtext(184, 98, #g_tx, 5, G_ME >= 20 ? 0.62 : G_ME >= 10 ? 1 : 0.93, G_ME >= 20 ? 0.66 : G_ME >= 10 ? 0.82 : 0.95, G_ME >= 20 ? 0.70 : G_ME >= 10 ? 0.30 : 0.96, 1, 0);
+
+G_MD = mouse_cap & 1;
+G_PRESS = G_MD && !G_LMD;
+G_REL = !G_MD && G_LMD;
+G_MX = (mouse_x - G_OX) / G_SC; G_MY = mouse_y / G_SC;
+
+G_BYH = (G_MX - 852) * (G_MX - 852) + (G_MY - 60) * (G_MY - 60) <= 24 * 24;
+G_BY = bypass >= 0.5;
+gbypass(852, 60, 22, G_BY, G_BYH);
+
+gcard(140, 376, 720, 244, 14, 0.88, 0.5);
+
+G_HK = -1;
+G_I = 0;
+loop(9,
+  G_S = G_I === 0 ? 1 : G_I === 1 ? 6 : G_I === 2 ? 3 : G_I === 3 ? 7 : G_I === 4 ? 2 : G_I === 5 ? 8 : G_I === 6 ? 9 : G_I === 7 ? 12 : 13;
+  G_KX = G_I < 6 ? 200 + G_I * 120 : 200 + (G_I - 6) * 120;
+  G_KY = G_I < 6 ? 446 : 560;
+  G_KR = G_I < 6 ? 28 : 22;
+  (G_MX - G_KX) * (G_MX - G_KX) + (G_MY - G_KY) * (G_MY - G_KY) <= (G_KR + 8) * (G_KR + 8) ? G_HK = G_I;
+  G_I += 1;
+);
+G_DRAG > 0 ? G_HK = G_DRAG - 1;
+G_HG = G_MX >= 548 && G_MX <= 628 && G_MY >= 524 && G_MY <= 552;
+G_HD = G_MX >= 640 && G_MX <= 720 && G_MY >= 524 && G_MY <= 552;
+G_HL = (G_MY >= 562 && G_MY <= 590 && G_MX >= 588 && G_MX <= 838) ? floor((G_MX - 588) / (250 / 3)) : -1;
+G_HZ = G_MX >= 866 && G_MX <= 932 && G_MY >= 420 && G_MY <= 450;
+G_HT = G_MX >= 866 && G_MX <= 932 && G_MY >= 458 && G_MY <= 488;
+G_HR = G_MX >= 84 && G_MX <= 384 && G_MY >= 26 && G_MY <= 122;
+
+G_I = 0;
+loop(9,
+  G_S = G_I === 0 ? 1 : G_I === 1 ? 6 : G_I === 2 ? 3 : G_I === 3 ? 7 : G_I === 4 ? 2 : G_I === 5 ? 8 : G_I === 6 ? 9 : G_I === 7 ? 12 : 13;
+  G_KX = G_I < 6 ? 200 + G_I * 120 : 200 + (G_I - 6) * 120;
+  G_KY = G_I < 6 ? 446 : 560;
+  G_KR = G_I < 6 ? 28 : 22;
+  G_C = G_S === 1 || G_S === 2 || G_S === 12 ? 0.5 : G_S === 3 ? 1 : 0;
+  gknob(G_KX, G_KY, G_KR, gnorm(G_S), G_C, G_HK === G_I,
+        G_S === 1 ? "INPUT" : G_S === 6 ? "TYPE" : G_S === 3 ? "CEILING" : G_S === 7 ? "OVERSAMPLE" : G_S === 2 ? "OUTPUT" : G_S === 8 ? "DRY/WET" : G_S === 9 ? "SOFTNESS" : G_S === 12 ? "EMPHASIS" : "PIVOT",
+        gkval(G_S), (G_S === 9 && algo < 6.5) || (G_S === 13 && abs(emph) < 0.05));
+  G_I += 1;
+);
+gbtn(548, 524, 80, 28, "GUARD", guard >= 0.5, G_HG);
+gbtn(640, 524, 80, 28, "DELTA", delta >= 0.5, G_HD);
+gtext(588 - 40, 512, "CEILING", 4, 0.75, 0.80, 0.85, 0.9, 0);
+gtext(640, 512, "LISTEN", 4, 0.75, 0.80, 0.85, 0.9, 0);
+gtext(548, 575, "LINK", 4, 0.75, 0.80, 0.85, 0.9, 0);
+gseg(588, 562, 250, 28, 3, floor(link + 0.5), G_HL);
+sprintf(#g_tx, "%dx", G_ZM); gbtn(866, 420, 66, 30, #g_tx, 0, G_HZ);
+sprintf(#g_tx, G_TOP > 0 ? "+%d dB" : "%d dB", G_TOP); gbtn(866, 458, 66, 30, #g_tx, 0, G_HT);
+gtext(899, 408, "VIEW", 4, 0.75, 0.80, 0.85, 0.9, 1);
+G_HTH = G_MX >= 866 && G_MX <= 932 && G_MY >= 496 && G_MY <= 526;
+gbtn(866, 496, 66, 30, theme < 0.5 ? "CLASSIC" : theme < 1.5 ? "NEON" : theme < 2.5 ? "EMBER" : theme < 3.5 ? "AURORA" : "MONO", 0, G_HTH);
+sprintf(#g_tx, "Latency %d samples", pdc_delay);
+gtext(713, 605, #g_tx, 4, 0.62, 0.66, 0.70, 0.95, 1);
+
+G_PRESS ? (
+  G_HK >= 0 ? (
+    G_S = G_HK === 0 ? 1 : G_HK === 1 ? 6 : G_HK === 2 ? 3 : G_HK === 3 ? 7 : G_HK === 4 ? 2 : G_HK === 5 ? 8 : G_HK === 6 ? 9 : G_HK === 7 ? 12 : 13;
+    ((G_NOW - G_LCLK < 0.3 && G_LCLKI === G_HK)) ? (
+      slider(G_S) = gdef(G_S); gauto(G_S, 1); G_DRAG = 0;
+    ) : (
+      G_DRAG = G_HK + 1; G_DS = G_S; G_DY = mouse_y; G_DV = gnorm(G_S); G_MOVED = 0; G_CTRL = mouse_cap & 4;
+    );
+    G_LCLK = G_NOW; G_LCLKI = G_HK;
+  );
+  G_HG ? ( guard = guard >= 0.5 ? 0 : 1; gauto(10, 1); );
+  G_HD ? ( delta = delta >= 0.5 ? 0 : 1; gauto(11, 1); );
+  G_HL >= 0 && G_HL <= 2 ? ( link = G_HL; gauto(4, 1); );
+  G_BYH ? ( bypass = G_BY ? 0 : 1; gauto(5, 1); );
+  G_HZ ? ( zoom = zoom >= 2.5 ? 0 : floor(zoom + 0.5) + 1; gauto(15, 1); );
+  G_HT ? ( disp = disp >= 1.5 ? 0 : floor(disp + 0.5) + 1; gauto(14, 1); );
+  G_HTH ? ( theme = theme >= 3.5 ? 0 : floor(theme + 0.5) + 1; gauto(16, 1); );
+  G_HR ? ( G_RST = G_HC; );
+);
+G_DRAG > 0 && G_MD ? (
+  abs(mouse_y - G_DY) > 2 ? G_MOVED = 1;
+  G_MOVED ? (
+    gset_norm(G_DS, G_DV + (G_DY - mouse_y) * ((mouse_cap & 4) ? 0.0006 : (G_DS === 6 || G_DS === 7) ? 0.008 : 0.004) / G_SC);
+    mouse_cap |= 65536;
+  );
+);
+(G_REL && G_DRAG > 0) ? (
+  (!G_MOVED && G_CTRL) ? slider(G_DS) = gdef(G_DS);
+  gauto(G_DS, 1);
+  G_DRAG = 0;
+);
+(G_WHEEL !== 0 && G_HK >= 0 && G_DRAG === 0) ? (
+  G_S = G_HK === 0 ? 1 : G_HK === 1 ? 6 : G_HK === 2 ? 3 : G_HK === 3 ? 7 : G_HK === 4 ? 2 : G_HK === 5 ? 8 : G_HK === 6 ? 9 : G_HK === 7 ? 12 : 13;
+  gset_norm(G_S, gnorm(G_S) + (G_WHEEL > 0 ? 1 : -1) * ((G_S === 6) ? 1 / 7 : (G_S === 7) ? 0.2 : (mouse_cap & 4) ? 0.002 : 0.01));
+  gauto(G_S, 1);
+);
+G_TID = 0;
+G_HK >= 0 ? G_TID = G_HK + 1 :
+G_BYH ? G_TID = 10 :
+G_HG ? G_TID = 11 :
+G_HD ? G_TID = 12 :
+(G_HL >= 0 && G_HL <= 2) ? G_TID = 13 + G_HL :
+G_HZ ? G_TID = 16 :
+G_HT ? G_TID = 17 :
+G_HTH ? G_TID = 18 :
+G_HR ? G_TID = 19 :
+(G_MX >= 0 && G_MX < G_AL && G_MY >= 0 && G_MY <= 640) ? G_TID = 20 :
+(G_MX > G_AR && G_MX <= 1000 && G_MY >= 0 && G_MY <= 640) ? G_TID = 21;
+(G_TID !== G_TLAST || G_MD || G_DRAG > 0 || G_WHEEL !== 0) ? ( G_TLAST = G_TID; G_TT0 = G_NOW; );
+(G_TID > 0 && !G_MD && G_DRAG === 0 && G_NOW - G_TT0 >= 0.5) ? (
+  gtip_text(G_TID);
+  gfx_setfont(4);
+  gfx_measurestr(#g_tip, G_TW, G_TH);
+  G_TPW = G_TW + floor(16 * G_SC); G_TPH = G_TH + floor(10 * G_SC);
+  G_TPX = mouse_x + floor(14 * G_SC); G_TPY = mouse_y + floor(20 * G_SC);
+  G_TPX + G_TPW > gfx_w - 2 ? G_TPX = max(2, gfx_w - 2 - G_TPW);
+  G_TPY + G_TPH > gfx_h - 2 ? G_TPY = max(2, mouse_y - floor(8 * G_SC) - G_TPH);
+  gfrr(G_TPX + 2, G_TPY + 3, G_TPX + G_TPW + 2, G_TPY + G_TPH + 3, floor(5 * G_SC), 0, 0, 0, 0.35);
+  gfrr(G_TPX, G_TPY, G_TPX + G_TPW, G_TPY + G_TPH, floor(5 * G_SC), G_BGR * 0.55, G_BGG * 0.55, G_BGB * 0.55, 0.97);
+  gbord(G_TPX, G_TPY, G_TPX + G_TPW, G_TPY + G_TPH, floor(5 * G_SC), max(1, floor(G_SC + 0.5)), G_ACR, G_ACG, G_ACB, 0.55);
+  gfx_set(0.93, 0.95, 0.96, 1);
+  gfx_x = G_TPX + floor(8 * G_SC); gfx_y = G_TPY + floor(5 * G_SC);
+  gfx_drawstr(#g_tip);
+);
+G_LMD = G_MD;
+
