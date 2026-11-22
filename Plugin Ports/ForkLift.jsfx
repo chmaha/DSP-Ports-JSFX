@@ -1,9 +1,10 @@
-Version: 1.0
+Version: 1.1
 desc: Fork Lift Electric Piano (Frodhes port) by chmaha
 tags: instrument electric-piano tine physical-modeling
 author: chmaha
 changelog:
-  Initial release.
+  Striking a key that is still ringing now uses the current Type, Tone, Bark, Bell, Decay, Release, Spread and Tune settings.
+  Decay and Release now glide on notes that are already sounding.
 about:
   A physically modelled tine electric piano in the style of a 1970s 73-key stage piano. Each key is a
   tine and tone bar ringing as resonant modes, struck by a hammer whose force pulse comes from a contact
@@ -245,23 +246,6 @@ function coef(kf, m, dsel, t, kk) local(sh, ch, th, d, cr, dpi, dl, dl2, cdl, sd
   );
 );
 
-// ---------------------------------------------------------------------- voicing
-
-function set_voicing() local(v) (
-  v = p_tone | 0; v = max(0, min(127, v));
-  rh_tone_off = v <= 64 ? (v - 64) * 262144 : (v - 64) * TONE_UP;
-  v = max(0, min(127, p_bark | 0)); rh_bark_s = T_P64[v]; rh_bark_g = T_P64I[v];
-  rh_bell = T_P32[max(0, min(127, p_bell | 0))];
-  rh_ham = T_HAM[max(0, min(127, p_ham | 0))];
-  rh_k_decay = T_DECK[max(0, min(127, p_decay | 0))] / 65536;
-  rh_k_rel = T_DECK[max(0, min(127, p_rel | 0))] / 65536;
-  v = max(0, min(127, p_noise | 0));
-  rh_thump = T_THUMP[v]; rh_felt = T_FELT[v]; rh_knock = T_KNOCK[v]; rh_pnz = T_PEDN[v];
-  rh_spread = max(0, min(127, p_spread | 0));
-  rh_tune = T_TUNE[max(0, min(100, (p_tune | 0) + 50))] / TWO30;
-  rh_type = max(0, min(3, p_type | 0));
-);
-
 // ---------------------------------------------------------------------- voices
 
 function hc_setup() local(f, i, q, d, p0, m0, p1, m1) (
@@ -343,29 +327,28 @@ function tone_gain(gain, o64, o, vel, fam) local(w, s, h, a64, a, g) (
   floor((gain * g) / 16384);
 );
 
-function v_init(v, note, vel) local(key, kf, kr, m, s, b, t, sh, mx, o64, g, ig, p, o, om, u, i, k, sa, sb, c) (
-  key = max(0, min(NKEY - 1, note - KEY_LO));
+function settle(note) local(d) (
+  note < 48 ? (d = floor((50 - note) / 4); 7 + min(3, d)) : note < 72 ? 7 : note < 84 ? 6 : 5;
+);
+
+function v_voice(v, note, vel) local(key, kf, kr, m, s, b, t, sh, mx, o64, g, ig, p, o, om, u, i, k, sa, sb, c) (
+  key = v[26];
   kf = KEYF + key * 40; kr = T_KEYS + key * 40;
-  v[26] = key;
   t = rh_tune;
+  v[35] = t;
   v[24] = rh_k_decay; v[25] = rh_k_rel;
   m = 0;
   loop(5,
     s = v + MODE0 + m * MS;
-    s[0] = s[1] = 0; s[11] = 0;
-    s[13] = mode_runs(key, m);
-    s[13] ? (
+    mode_runs(key, m) ? (
       coef(kf, m, 0, t, rh_k_decay); s[4] = c_e; s[5] = c_eps;
       coef(kf, m, 1, t, rh_k_rel); s[6] = c_e; s[7] = c_eps;
-      s[2] = s[8] = s[4]; s[3] = s[9] = s[5];
       b = floor((floor((kr[m * 7 + 6] * rh_bark_s) / 65536) * T_TYPE[rh_type * 6 + 1]) / 65536);
       (m === 2 || m === 3) ? b = floor((floor((b * T_TYPE[rh_type * 6 + 3]) / 65536) * rh_bell) / 65536);
       s[10] = b / TWO30;
-    ) : (s[2] = s[3] = 0;);
-    s[12] = 0;
+    );
     m += 1;
   );
-  v[1] = note; v[2] = vel; v[22] = v[23] = 0;
   p = rh_spread ? itrunc(((2 * note - 129) * rh_spread * 256) / (87 * 127)) : 0;
   v[21] = max(-256, min(256, p));
   sh = kr[39] === 0 ? 1 : 0;
@@ -390,11 +373,7 @@ function v_init(v, note, vel) local(key, kf, kr, m, s, b, t, sh, mx, o64, g, ig,
   sb = (hermite(v[27], sqr(om + 0.001)) - hermite(v[27], sqr(om - 0.001)));
   c = abs(sb) > 0.000001 ? max(0.25, min(2.5, sa / sb)) : 1;
   v[28] = k; v[31] = om / k; v[32] = v[13] * c / k;
-  v[11] = hermite(v[27], om * om);
-  v[0] = 1; v[3] = 1; v[4] = 0; v[7] = 0;
-  v[8] = 32768; v[18] = 0; v[19] = 0;
-  rh_ages += 1; v[9] = rh_ages;
-  v[10] = kr[38] * 8;
+  vv_om = om;
   key + KEY_LO < 48 ? (
     g = floor((rh_bark_s * T_TYPE[rh_type * 6 + 1]) / 65536);
     g < 4096 ? g = 4096;
@@ -402,11 +381,92 @@ function v_init(v, note, vel) local(key, kf, kr, m, s, b, t, sh, mx, o64, g, ig,
     s = v + MODE0;
     s[12] = floor((T_KAP[key] * ig * ig) / TWO30) * (sh ? 4 : 1) / 65536;
   );
+  v[33] = rh_gen; v[34] = vel;
+);
+
+function v_glide(v, len) local(m, s) (
+  m = 0; loop(5, s = v + MODE0 + m * MS; s[8] = s[2]; s[9] = s[3]; m += 1;);
+  v[4] = len; v[5] = len;
+);
+
+function v_restrike(v) local(m, s, x, off, xk, g) (
+  x = 0;
+  m = 0; loop(5, s = v + MODE0 + m * MS; s[13] ? x += s[0]; m += 1;);
+  off = v[31]; xk = v[28]; g = v[32];
+  v_voice(v, v[1], v[34]);
+  (v[31] !== off || v[28] !== xk) ? v[11] = hermite(v[27], sqr(x + v[31]) * sqr(v[28]));
+  v[32] !== g ? (v[37] = v[32]; v[32] = g; v[36] = 8;);
+  v_glide(v, settle(v[1]));
+);
+
+function live_decay() local(i, v, kf, m, s) (
+  i = 0;
+  loop(NV,
+    v = VREC + i * VS;
+    v[0] ? (
+      kf = KEYF + v[26] * 40;
+      v[24] = rh_k_decay; v[25] = rh_k_rel;
+      m = 0;
+      loop(5,
+        s = v + MODE0 + m * MS;
+        mode_runs(v[26], m) ? (
+          coef(kf, m, 0, v[35], rh_k_decay); s[4] = c_e; s[5] = c_eps;
+          coef(kf, m, 1, v[35], rh_k_rel); s[6] = c_e; s[7] = c_eps;
+        );
+        m += 1;
+      );
+      v_glide(v, 16);
+    );
+    i += 1;
+  );
+);
+
+function v_init(v, note, vel) local(key, m, s) (
+  key = max(0, min(NKEY - 1, note - KEY_LO));
+  v[26] = key;
+  m = 0;
+  loop(5,
+    s = v + MODE0 + m * MS;
+    s[0] = s[1] = 0; s[11] = 0; s[12] = 0;
+    s[13] = mode_runs(key, m);
+    m += 1;
+  );
+  v[1] = note; v[2] = vel; v[22] = v[23] = 0;
+  v_voice(v, note, vel);
+  m = 0;
+  loop(5,
+    s = v + MODE0 + m * MS;
+    s[13] ? (s[2] = s[8] = s[4]; s[3] = s[9] = s[5];) : (s[2] = s[3] = 0;);
+    m += 1;
+  );
+  v[11] = hermite(v[27], vv_om * vv_om);
+  v[0] = 1; v[3] = 1; v[4] = 0; v[7] = 0;
+  v[8] = 32768; v[18] = 0; v[19] = 0; v[36] = 0;
+  rh_ages += 1; v[9] = rh_ages;
+  v[10] = T_KEYS[key * 40 + 38] * 8;
   load_pulse(v, vel);
 );
 
-function settle(note) local(d) (
-  note < 48 ? (d = floor((50 - note) / 4); 7 + min(3, d)) : note < 72 ? 7 : note < 84 ? 6 : 5;
+function set_voicing() local(v) (
+  v = p_tone | 0; v = max(0, min(127, v));
+  rh_tone_off = v <= 64 ? (v - 64) * 262144 : (v - 64) * TONE_UP;
+  v = max(0, min(127, p_bark | 0)); rh_bark_s = T_P64[v]; rh_bark_g = T_P64I[v];
+  rh_bell = T_P32[max(0, min(127, p_bell | 0))];
+  rh_ham = T_HAM[max(0, min(127, p_ham | 0))];
+  rh_k_decay = T_DECK[max(0, min(127, p_decay | 0))] / 65536;
+  rh_k_rel = T_DECK[max(0, min(127, p_rel | 0))] / 65536;
+  v = max(0, min(127, p_noise | 0));
+  rh_thump = T_THUMP[v]; rh_felt = T_FELT[v]; rh_knock = T_KNOCK[v]; rh_pnz = T_PEDN[v];
+  rh_spread = max(0, min(127, p_spread | 0));
+  rh_tune = T_TUNE[max(0, min(100, (p_tune | 0) + 50))] / TWO30;
+  rh_type = max(0, min(3, p_type | 0));
+  (rh_tone_off !== pv_tone || rh_bark_s !== pv_bark || rh_bell !== pv_bell || rh_k_decay !== pv_dk ||
+   rh_k_rel !== pv_rl || rh_spread !== pv_spr || rh_tune !== pv_tun || rh_type !== pv_typ) ? (
+    rh_gen += 1;
+    (rh_k_decay !== pv_dk || rh_k_rel !== pv_rl) ? live_decay();
+    pv_tone = rh_tone_off; pv_bark = rh_bark_s; pv_bell = rh_bell; pv_dk = rh_k_decay;
+    pv_rl = rh_k_rel; pv_spr = rh_spread; pv_tun = rh_tune; pv_typ = rh_type;
+  );
 );
 
 function set_damper_n(v, w, len) local(m, s) (
@@ -458,6 +518,7 @@ function strike(note, vel) local(i, v, m, s, done) (
   while (!done && i < NV) (
     v = VREC + i * VS;
     (v[0] && v[1] === note && v[8] === 32768) ? (
+      v[33] !== rh_gen ? v_restrike(v);
       m = 0; loop(5, s = v + MODE0 + m * MS; mode_runs(v[26], m) ? s[13] = 1; m += 1;);
       v[2] = vel; v[3] = 1; rh_ages += 1; v[9] = rh_ages; v[10] = T_KEYS[v[26] * 40 + 38] * 8; v[23] = v[22];
       set_damper_n(v, 0, settle(v[1]));
@@ -530,7 +591,7 @@ function all_off() local(i, v) (
 
 // ---------------------------------------------------------------------- voice sub-block
 
-function voice_sub(v) local(xk, xk2, xs, hb, q, t, fsc, n, m, s, j, f, et, pt, sum, pk, x, y, e, eps, b, fam, off, hp, h, o, gain, pan, fade, ppos, prate, pamp, pt0, i, a, bb, first, lfsr, lp, fl, nz, nf, a2, kf, kill) (
+function voice_sub(v) local(dg, xk, xk2, xs, hb, q, t, fsc, n, m, s, j, f, et, pt, sum, pk, x, y, e, eps, b, fam, off, hp, h, o, gain, pan, fade, ppos, prate, pamp, pt0, i, a, bb, first, lfsr, lp, fl, nz, nf, a2, kf, kill) (
   n = SUBN;
   v[4] ? (
     v[4] -= 1;
@@ -603,7 +664,19 @@ function voice_sub(v) local(xk, xk2, xs, hb, q, t, fsc, n, m, s, j, f, et, pt, s
   fade = v[8];
   hb = HC + fam * 8192;
   j = 0;
-  fade === 32768 ? (
+  v[36] && fade === 32768 ? (
+    dg = (v[37] - gain) / (v[36] * n);
+    loop(n,
+      x = RHX[j] + off; x *= x * xs;
+      x >= 2048 ? (i = 2047; t = HC_T;) : (i = x | 0; t = x - i;);
+      q = hb + i * 4;
+      h = q[0] + t * (q[1] + t * (q[2] + t * q[3]));
+      gain += dg;
+      o = (h - hp) * gain; hp = h; MIXB[j] += o; SIDEB[j] += o * pan; j += 1;
+    );
+    v[36] -= 1;
+    v[32] = v[36] ? gain : v[37];
+  ) : fade === 32768 ? (
     pan ? (
       loop(n,
         x = RHX[j] + off; x *= x * xs;
@@ -622,6 +695,7 @@ function voice_sub(v) local(xk, xk2, xs, hb, q, t, fsc, n, m, s, j, f, et, pt, s
       );
     );
   ) : (
+    v[36] ? (v[36] = 0; v[32] = gain = v[37];);
     loop(n,
       x = RHX[j] + off; h = hermite(fam, x * x * xk2); o = (h - hp) * gain; hp = h;
       fade !== 32768 ? (o *= fade / 32768; fade = max(0, fade - fade_step););
