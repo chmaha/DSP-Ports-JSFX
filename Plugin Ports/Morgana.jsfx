@@ -1,0 +1,1301 @@
+desc: Morgana (Valley Amalgam port) by chmaha
+tags: ring modulator signal combiner bitcrusher distortion sidechain
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  Stereo signal combiner: 17 ways to smash two stereo signals together, from ring modulators, a diode ring modulator,
+  min/max, sign switches, a crossfader, a random flip-flop and pulse modulation to integer and float32 bit-logic glitches.
+  X is the track audio (pins 1/2), Y is the sidechain (pins 3/4), or the track itself or a mono sidechain from the Y Input menu.
+  Ported from Valley Amalgam by Dale Johnson (ValleyRackFree, https://github.com/ValleyAudio/ValleyRackFree, GPLv3+).
+  Title lettering: Zarathustra by Lorene Ceccon (SIL Open Font License 1.1), rendered into the panel image.
+  Sidebar image: Alphonse Mucha, "Clair de lune" from "La Lune et les étoiles" (1902), public domain;
+  scan by the Bibliothèque nationale de France (Gallica btv1b90077190) via Wikimedia Commons.
+  The picture is gently animated while the transport plays; click it to switch the animation off or on.
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/Morgana/MorganaPanel.png
+  Dependencies/Morgana/MorganaPanel2x.png
+  Dependencies/Morgana/MorganaImage.png
+  Dependencies/Morgana/MorganaImage2x.png
+  Dependencies/Morgana/MorganaImage-LICENSE.txt
+  Dependencies/Morgana/MorganaTitle.png
+  Dependencies/Morgana/MorganaTitle2x.png
+  Dependencies/Morgana/MorganaFx.png
+  Dependencies/Morgana/MorganaFx2x.png
+  Dependencies/Morgana/MorganaHead.png
+  Dependencies/Morgana/MorganaHead2x.png
+  Dependencies/Morgana/MorganaSil.png
+  Dependencies/Morgana/MorganaSmoke.png
+  Dependencies/Morgana/MorganaSmoke2x.png
+
+slider1:hc_mode=0<0,16,1{Ring Mod 1,Ring Mod 2,Ring Mod 3,Diode Ring Mod,Min/Max,Sign Switch 1,Sign Switch 2,X-Fade,Flip-Flop,Alpha PWM,Bit AND,Bit XOR,Bit Interleave,Bit Glitch,Float32 AND,Float32 Interleave,Float32 Glitch}>-Type
+slider2:hc_xg=1<0,4,0.001>-X Gain
+slider3:hc_yg=1<0,4,0.001>-Y Gain
+slider4:hc_a=0<0,1,0.001>-Param A
+slider5:hc_b=0<0,1,0.001>-Param B
+slider6:hc_dc=0<0,1,1{Off,On}>-DC Couple
+slider7:hc_ysrc=0<0,2,1{Sidechain 3/4,Sidechain 3 (mono),Track (X)}>-Y Input
+slider8:hc_mix=100<0,100,0.1>-Mix (%)
+slider9:hc_out=0<-24,12,0.1>-Output (dB)
+slider10:hc_anim=1<0,1,1{Off,On}>-Animation
+
+in_pin:X Left
+in_pin:X Right
+in_pin:Y Left (sidechain)
+in_pin:Y Right (sidechain)
+out_pin:Left
+out_pin:Right
+
+options:no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+ext_nodenorm = 1;
+
+ZV = 0;
+function k32(x) local(t)
+(
+  t = x * 536870913;
+  t = t - (t - x);
+  abs(t) < 0.000000000000000000000000000000000000011754943508222875 ? ((x < 0 || (x === 0 && 1 / x < 0)) ? -ZV : ZV) : t;
+);
+function zq(v) ( k32(v); );
+
+function trunc(x) ( x < 0 ? ceil(x) : floor(x); );
+function cvtt(x) local(t) ( t = trunc(x); (t >= 2147483648 || t < -2147483648 || x !== x) ? -2147483648 : t; );
+function daz(x) ( abs(x) < 0.000000000000000000000000000000000000011754943508222875 ? (x < 0 || (x === 0 && 1 / x < 0) ? -ZV : ZV) : x; );
+function sgn0(v, s) ( v === 0 && (s < 0 || (s === 0 && 1 / s < 0)) ? -ZV : v; );
+
+
+ET = 0;
+mem_set_values(ET, 1.0, 1.0218971486541166, 1.0442737824274138, 1.0671404006768237, 1.0905077326652577, 1.1143867425958924, 1.1387886347566916, 1.1637248587775775, 1.189207115002721, 1.215247359980469, 1.241857812073484, 1.2690509571917332, 1.2968395546510096, 1.3252366431597413, 1.3542555469368927, 1.383909881963832, 1.4142135623730951, 1.4451808069770467, 1.4768261459394993, 1.5091644275934228, 1.5422108254079407, 1.5759808451078865, 1.6104903319492543, 1.645755478153965, 1.681792830507429, 1.718619298122478, 1.7562521603732995, 1.7947090750031072, 1.8340080864093424, 1.8741676341103, 1.9152065613971474, 1.9571441241754002);
+OUTSC = 0.1;
+EINV = 46.16624130844683;
+ESH = 6755399441055744;
+EC0 = 0.0000016938359250920212;
+EC1 = 0.00023459809789509004;
+EC2 = 0.021660849396613134;
+function fma(a, b, c) local(p, e, t, ah, al, bh, bl, s, bb, w)
+(
+  p = a * b;
+  t = 134217729 * a; ah = t - (t - a); al = a - ah;
+  t = 134217729 * b; bh = t - (t - b); bl = b - bh;
+  e = (((ah * bh - p) + ah * bl) + al * bh) + al * bl;
+  s = p + c; bb = s - p; w = (p - (s - bb)) + (c - bb);
+  s + (w + e);
+);
+function exp_core(z) local(kd, r, ki, i, k, s, zz, r2, y)
+(
+  kd = (z + ESH) - ESH;
+  r = z - kd;
+  ki = kd;
+  i = ki - floor(ki / 32) * 32;
+  k = (ki - i) / 32;
+  s = ET[i] * (2 ^ k);
+  zz = fma(EC0, r, EC1);
+  r2 = r * r;
+  y = fma(EC2, r, 1);
+  y = fma(zz, r2, y);
+  (y * s);
+);
+function expf_emu(x) ( exp_core(EINV * x); );
+function p2f(y) ( exp_core(32 * y); );
+
+K015 = 0.15000000596046448; K133 = 1.3333330154418945; K066 = 0.6600000262260437; K1066 = 1.065999984741211;
+K1EM5 = 0.000009999999747378752; K08 = 0.800000011920929; K1EM4 = 0.00009999999747378752; K1EM3 = 0.0010000000474974513;
+K001 = 0.009999999776482582; K01 = 0.10000000149011612; XMAXK = 0.9999989867210388; XMINK = 0.9999979734420776;
+P149 = 2 ^ 149; PM149 = 2 ^ -149; U32 = 4294967296; UFF = 4294967295; I31 = 2147483648; M55 = 1431655765; MAA = 2863311530;
+
+DMG = 64;
+memset(DMG, 0, 262144);
+
+// ---- Float32 bit patterns
+function fbits(v) local(a, e, b, p)
+(
+  a = abs(v);
+  a === 0 ? b = 0 : a < 0.000000000000000000000000000000000000011754943508222875 ? b = a * P149 : (
+    e = floor(log(a) * 1.4426950408889634);
+    p = 2 ^ e;
+    p > a ? ( e -= 1; p *= 0.5; ) : (p * 2 <= a) ? ( e += 1; p *= 2; );
+    b = (e + 127) * 8388608 + (a / p - 1) * 8388608;
+  );
+  (v < 0 || (v === 0 && 1 / v < 0)) ? b + 2147483648 : b;
+);
+function bfloat(b) local(s, e, m, v)
+(
+  s = b >= 2147483648;
+  s ? b -= 2147483648;
+  e = floor(b / 8388608); m = b - e * 8388608;
+  v = e == 0 ? m * PM149 : (8388608 + m) * (2 ^ (e - 150));
+  s ? -v : v;
+);
+function to_u32(n) ( n < 0 ? n + U32 : n; );
+function to_s32(n) ( n >= I31 ? n - U32 : n; );
+
+// ---- Diode ring modulator makeup gain (VecDiode table, computed on demand)
+function dgain_lut(i, j) local(k, vb, vl, lo, num, c, hb, pr, dir, x, dn)
+(
+  k = i * 512 + j;
+  DMG[k] != 0 ? DMG[k] : (
+    vb = ((i / 511) * 0.75);
+    vl = (vb + ((j / 511) * (1 - vb)));
+    lo = (vb + K1EM4);
+    vl = vl > 1 ? 1 : vl; vl = vl < lo ? lo : vl;
+    num = (vl - vb); num = (num * num);
+    c = ((1 - vl) + (num / (2 * (vl - vb))));
+    hb = 4; pr = K001; dir = -1; dn = 0;
+    while (!dn) (
+      x = (hb * c);
+      (x >= XMINK && x <= XMAXK) ? dn = 1 : (
+        hb = (hb + (dir * pr));
+        (x < XMINK && dir == -1) ? ( dir = 1; pr = (pr * K01); ) :
+        (x > XMAXK && dir == 1) ? ( dir = -1; pr = (pr * K01); );
+      );
+    );
+    DMG[k] = hb;
+    hb;
+  );
+);
+function lint(a, b, f) ( (a + (f * (b - a))); );
+
+function diode_setup() local(vl, lo, vbf, vlf, i1, j1, i2, j2, d, q1, q2, q3, q4)
+(
+  d_vb = (0.75 * pa);
+  vl = pb < 0 ? 0 : pb > 1 ? 1 : pb;
+  d_vl = (d_vb + (vl * (1 - d_vb)));
+  lo = (d_vb + K1EM3);
+  d_vl = d_vl > 1 ? 1 : d_vl; d_vl = d_vl < lo ? lo : d_vl;
+  d_den = (1 / (2 * (d_vl - d_vb)));
+  vbf = (((d_vb - K1EM3) / (0.75 - K1EM3)) * 511);
+  vlf = (((d_vl - d_vb) / (1 - d_vb)) * 511);
+  i1 = trunc(vbf); i1 = i1 < 0 ? 0 : i1 > 511 ? 511 : i1;
+  j1 = trunc(vlf); j1 = j1 < 0 ? 0 : j1 > 511 ? 511 : j1;
+  i2 = i1 + 1 > 511 ? 511 : i1 + 1;
+  j2 = j1 + 1 > 511 ? 511 : j1 + 1;
+  vbf = (vbf - i1); vlf = (vlf - j1);
+  q1 = dgain_lut(i1, j1); q2 = dgain_lut(i1, j2); q3 = dgain_lut(i2, j1); q4 = dgain_lut(i2, j2);
+  q1 = lint(q1, q2, vbf); q3 = lint(q3, q4, vbf);
+  d_hb = lint(q1, q3, vlf);
+  d = (d_vl - d_vb);
+  d_cl = ((d * d) * d_den);
+);
+function diode(x) local(o, t)
+(
+  x > d_vl ? o = ((x - d_vl) + d_cl) : x > d_vb ? ( t = (x - d_vb); o = ((t * t) * d_den); ) : o = 0;
+  (o * d_hb);
+);
+
+// ---- Shared helpers (Valley SIMDUtilities)
+function mirror(a, f) local(k, x, y, z)
+(
+  k = ((abs(f) * 9) + 1);
+  x = (((a * 2) - 1) * k);
+  y = abs(((x + 1) * 0.5));
+  x = (y * 0.5);
+  x = (x - floor(x));
+  z = (y - floor(y));
+  x >= 0.5 ? (1 - z) : z;
+);
+function varstep(a, f) local(af, ff, ai, f2)
+(
+  af = abs(f);
+  ff = (64 - (af * 64));
+  ai = ((cvtt((a * ff))) / ff);
+  f2 = (af * 100); f2 = f2 < 0 ? 0 : f2 > 1 ? 1 : f2;
+  (a + (f2 * (ai - a)));
+);
+function drive(x, g) local(xd)
+(
+  xd = (x * g);
+  xd > 1.25 ? 1 : xd > 0.75 ? ((xd * (2.5 - xd)) - 0.5625) :
+  xd < -1.25 ? -1 : xd < -0.75 ? ((1 - ((xd * (-2.5 - xd)) - 0.5625)) - 1) : xd;
+);
+function tanhd(x)
+(
+  x = (x * K066);
+  x < -1.25 ? -1 : x < -0.75 ? ((1 - ((x * (-2.5 - x)) - 0.5625)) - 1) :
+  x > 1.25 ? 1 : x > 0.75 ? ((x * (2.5 - x)) - 0.5625) : x;
+);
+
+// ---- One lane of VecAmalgam
+function lane_init(sz, sw) instance(rz, rw, zm, c32, xds, yds, zds, ff, xp, yp, dcz)
+(
+  rz = sz; rw = sw; zm = 0; c32 = 0; xds = yds = zds = 0; ff = 0; xp = yp = 0; dcz = 0;
+);
+function rnd() instance(rz, rw) local(t)
+(
+  rw = 36969 * (rw & 65535) + floor(rw / 65536);
+  rz = 18000 * (rz & 65535) + floor(rz / 65536);
+  t = (rw & 65535) * 65536 + rz;
+  t >= U32 ? t - U32 : t;
+);
+function proc(x, y) instance(zm, c32, xds, yds, zds, ff, xp, yp, rz, rw) local(z, a, b, t, k, r, xa, ya, mx, mn, d)
+(
+  md == 0 ? (
+    zm = (y > rm1 || y < -rm1) ? y : 0;
+    (((x * rm1a) + rm1b) * zm);
+  ) : md == 1 ? (
+    a = mirror(((x * 0.5) + 0.5), mfa);
+    b = mirror(((y * 0.5) + 0.5), mfb);
+    (((a - 0.5) * 2) * ((b - 0.5) * 2));
+  ) : md == 2 ? (
+    a = ((mirror(((x * 0.5) + 0.5), mfa) - 0.5) * 2);
+    b = ((mirror(((y * 0.5) + 0.5), mfa) - 0.5) * -2);
+    zm = ((a > 0) != (b > 0)) ? -1 : 1;
+    t = (a * b);
+    (t + (pb * (zm - t)));
+  ) : md == 3 ? (
+    b = (x * 0.5);
+    a = (y + b);
+    b = (y - b);
+    ((diode(a) + diode(-a)) - (diode(b) + diode(-b)));
+  ) : md == 4 ? (
+    x > y ? ( mx = x; mn = y; ) : ( mx = y; mn = x; );
+    d = (mx - mn);
+    zm = (mn + (pa * d));
+    (zm + (pb * ((zm * d) - zm)));
+  ) : md == 5 ? (
+    ((x >= ssh ? x : 0) + (y < ssl ? y : 0));
+  ) : md == 6 ? (
+    zm = x > ssh ? x : 0;
+    y < ssl ? y : zm;
+  ) : md == 7 ? (
+    t = (((x * 0.5) + 0.5) * pb);
+    t = (pa + t); t = t < 0 ? 0 : t > 1 ? 1 : t;
+    (x + (t * (y - x)));
+  ) : md == 8 ? (
+    xa = ((this.rnd()) / U32) > pa;
+    ya = ((this.rnd()) / U32) > ffy;
+    (x > pb && xp <= pb && xa) ? ff = 0;
+    (y > pb && yp <= pb && ya) ? ff = 1;
+    xp = x; yp = y;
+    ff ? y : x;
+  ) : md == 9 ? (
+    zm = ((abs(x) * 0.5) * apk);
+    zm = (zm - floor(zm));
+    ((zm > apb ? 0 : x) * y);
+  ) : md <= 12 ? (
+    smp ? ( xds = varstep(x, vsf); yds = varstep(y, vsf); );
+    a = to_u32(cvtt((xds * I31)));
+    b = to_u32(cvtt((yds * I31)));
+    c32 = md == 10 ? a & b : md == 11 ? a ~ b : (a & M55) | (b & MAA);
+    ((to_s32(c32)) / I31);
+  ) : md == 13 ? (
+    r = this.rnd();
+    k = ((to_s32(r)) / U32) > hthr ? r : UFF;
+    smp ? ( xds = x; yds = y; );
+    a = to_u32(cvtt((xds * I31)));
+    b = to_u32(cvtt((yds * I31)));
+    c32 = (c32 | (a & b)) & k;
+    c32 = c32 & ((((a ~ UFF) & (b ~ UFF)) & k) ~ UFF);
+    zm = ((to_s32(c32)) / I31);
+    smp ? zds = zm;
+    zds;
+  ) : md == 14 ? (
+    r = this.rnd();
+    k = ((r) / U32) > hthr ? r : UFF;
+    smp ? ( xds = x; yds = y; );
+    zm = bfloat(fbits(k32(xds)) & fbits(k32(yds)) & k);
+    smp ? zds = zm;
+    zds;
+  ) : md == 15 ? (
+    smp ? ( xds = varstep(x, vsf); yds = varstep(y, vsf); );
+    bfloat((fbits(k32(xds)) & M55) | (fbits(k32(yds)) & MAA));
+  ) : (
+    r = this.rnd();
+    k = ((r) / U32) > hthr ? r : UFF;
+    smp ? ( xds = x; yds = y; );
+    a = fbits(k32(xds)); b = fbits(k32(yds));
+    t = (fbits(zq(zm)) | (a & b)) & k;
+    t = ((((a ~ UFF) & (b ~ UFF)) & k) ~ UFF) & t;
+    zm = bfloat(t);
+    smp ? zds = zm;
+    zds;
+  );
+);
+function dcout(z) instance(dcz) local(zi)
+(
+  zi = daz(z);
+  dcz = ((dca * zi) + (dcz * dcb));
+  abs(dcz) < 0.000000000000000000000000000001 ? dcz = 0;
+  (tanhd(dcc ? z : (zi - dcz)) * 5.5) * OUTSC;
+);
+
+function sr_setup()
+(
+  srf = (srate);
+  qny = (srf / 32);
+  dcb = expf_emu(((-2 * $pi) * 1 * (1 / srf)));
+  dca = (1 - dcb);
+  last_sr = srate;
+  last_b = -1;
+);
+
+function params() local(t)
+(
+  md = floor(hc_mode + 0.5); md = md < 0 ? 0 : md > 16 ? 16 : md;
+  xg = (hc_xg); xg = xg < 0 ? 0 : xg > 4 ? 4 : xg;
+  yg = (hc_yg); yg = yg < 0 ? 0 : yg > 4 ? 4 : yg;
+  pa = (hc_a); pa = pa < 0 ? 0 : pa > 1 ? 1 : pa;
+  pb = (hc_b); pb = pb < 0 ? 0 : pb > 1 ? 1 : pb;
+  dcc = hc_dc > 0.5;
+  (pb != last_b) ? (
+    stp = k32(k32(k32(qny) * k32(p2f(k32(k32(1 - pb) * 5)))) / k32(srf));
+    last_b = pb;
+  );
+  rm1 = (pb * K1066);
+  rm1a = (1 - (0.5 * pa)); rm1b = (pa * 0.5);
+  mfa = (pa + K1EM5); mfb = (pb + K1EM5);
+  t = ((pa * 2) - 1);
+  ssh = (t + pb); ssl = (t - pb);
+  ffy = (1 - pa);
+  apk = ((pa * 16) + 1); apb = (1 - pb);
+  t = (1 - (pa * K08)); t = (t * t); vsf = (1 - t);
+  hthr = (0.5 - ((pa * pa) * 0.5));
+  (md == 3 && (pa != last_da || pb != last_db)) ? ( diode_setup(); last_da = pa; last_db = pb; );
+  ysrc = floor(hc_ysrc + 0.5);
+  wet = hc_mix * 0.01;
+  og = 10 ^ (hc_out / 20);
+  ogs < 0 ? ( ogs = og; wts = wet; );
+);
+
+last_da = last_db = -1;
+ogs = -1;
+stp_acc = 1;
+L.lane_init(1206434461, 2463534242);
+R.lane_init(521288629, 362436069);
+last_sr = 0;
+lsig_xl = lsig_xr = lsig_yl = lsig_yr = 0;
+
+@slider
+srate != last_sr ? sr_setup();
+params();
+
+@block
+srate != last_sr ? sr_setup();
+params();
+g_xl = pk_xl; g_xr = pk_xr; g_yl = pk_yl * 0.1; g_yr = pk_yr * 0.1;
+pk_xl = pk_xr = pk_yl = pk_yr = 0;
+
+@sample
+xl = (spl0 * 10); xr = (spl1 * 10);
+ysrc == 0 ? ( yl = (spl2 * 10); yr = (spl3 * 10); ) : ysrc == 1 ? ( yl = yr = (spl2 * 10); ) : ( yl = xl; yr = xr; );
+stp_acc = k32(stp_acc + stp);
+smp = stp_acc >= 1;
+smp ? stp_acc = k32(stp_acc - 1);
+ys0 = ysrc == 2 ? spl0 : spl2; ys1 = ysrc == 2 ? spl1 : ysrc == 1 ? spl2 : spl3;
+zol = L.dcout(L.proc(sgn0((drive((xl * K015), xg) * K133), spl0), sgn0((drive((yl * K015), yg) * K133), ys0)));
+zor = R.dcout(R.proc(sgn0((drive((xr * K015), xg) * K133), spl1), sgn0((drive((yr * K015), yg) * K133), ys1)));
+(abs(spl0) > pk_xl) ? pk_xl = abs(spl0);
+(abs(spl1) > pk_xr) ? pk_xr = abs(spl1);
+(abs(yl) > pk_yl) ? pk_yl = abs(yl);
+(abs(yr) > pk_yr) ? pk_yr = abs(yr);
+ogs += (og - ogs) * 0.002;
+wts += (wet - wts) * 0.002;
+spl0 = (spl0 * (1 - wts) + zol * wts) * ogs;
+spl1 = (spl1 * (1 - wts) + zor * wts) * ogs;
+
+@gfx 481 724
+
+UK = 1.85; SBU = 110; UDW = (150 + SBU) * UK; UDH = 391 * UK;
+uscale = max(0.5, min(gfx_w / UDW, gfx_h / UDH));
+sbx = floor(SBU * UK * uscale + 0.5);
+uox = floor(sbx + (gfx_w - sbx - 150 * UK * uscale) * 0.5 + 0.5);
+uoy = 0;
+UQ = UK * uscale;
+!g_pnl_try ? (
+  g_pnl_try = 1;
+  g_pnl = gfx_loadimg(20, "Morgana/MorganaPanel.png") >= 0 || gfx_loadimg(20, "Dependencies/Morgana/MorganaPanel.png") >= 0;
+  g_pnl2 = gfx_loadimg(21, "Morgana/MorganaPanel2x.png") >= 0 || gfx_loadimg(21, "Dependencies/Morgana/MorganaPanel2x.png") >= 0;
+  g_mk = gfx_loadimg(22, "Morgana/MorganaImage.png") >= 0 || gfx_loadimg(22, "Dependencies/Morgana/MorganaImage.png") >= 0;
+  g_mk2 = gfx_loadimg(23, "Morgana/MorganaImage2x.png") >= 0 || gfx_loadimg(23, "Dependencies/Morgana/MorganaImage2x.png") >= 0;
+  g_tt = gfx_loadimg(24, "Morgana/MorganaTitle.png") >= 0 || gfx_loadimg(24, "Dependencies/Morgana/MorganaTitle.png") >= 0;
+  g_tt2 = gfx_loadimg(25, "Morgana/MorganaTitle2x.png") >= 0 || gfx_loadimg(25, "Dependencies/Morgana/MorganaTitle2x.png") >= 0;
+  g_fx = gfx_loadimg(26, "Morgana/MorganaFx.png") >= 0 || gfx_loadimg(26, "Dependencies/Morgana/MorganaFx.png") >= 0;
+  g_fx2 = gfx_loadimg(27, "Morgana/MorganaFx2x.png") >= 0 || gfx_loadimg(27, "Dependencies/Morgana/MorganaFx2x.png") >= 0;
+  g_hd = gfx_loadimg(28, "Morgana/MorganaHead.png") >= 0 || gfx_loadimg(28, "Dependencies/Morgana/MorganaHead.png") >= 0;
+  g_hd2 = gfx_loadimg(29, "Morgana/MorganaHead2x.png") >= 0 || gfx_loadimg(29, "Dependencies/Morgana/MorganaHead2x.png") >= 0;
+  g_hf = gfx_loadimg(34, "Morgana/MorganaSil.png") >= 0 || gfx_loadimg(34, "Dependencies/Morgana/MorganaSil.png") >= 0;
+  g_sm = gfx_loadimg(36, "Morgana/MorganaSmoke.png") >= 0 || gfx_loadimg(36, "Dependencies/Morgana/MorganaSmoke.png") >= 0;
+  g_sm2 = gfx_loadimg(37, "Morgana/MorganaSmoke2x.png") >= 0 || gfx_loadimg(37, "Dependencies/Morgana/MorganaSmoke2x.png") >= 0;
+  g_v2 = g_hf && g_sm && g_hd;
+  g_v22 = g_sm2 && g_hd2;
+);
+
+function automate(s, e)
+(
+<?
+  max_sliders > 9 ? printf("slider_automate(2^(s-1), e);") : (
+    printf("s == 1 ? slider_automate(hc_mode, e) : s == 2 ? slider_automate(hc_xg, e) : s == 3 ? slider_automate(hc_yg, e) :\n");
+    printf("s == 4 ? slider_automate(hc_a, e) : s == 5 ? slider_automate(hc_b, e) : s == 6 ? slider_automate(hc_dc, e) :\n");
+    printf("s == 7 ? slider_automate(hc_ysrc, e) : s == 8 ? slider_automate(hc_mix, e) : s == 9 ? slider_automate(hc_out, e) :\n");
+    printf("s == 10 ? slider_automate(hc_anim, e) : 0;");
+  );
+?>
+  0;
+);
+
+UMIN = 1000000; UMAX = 1000020; UDEF = 1000040; USTP = 1000060;
+
+function ui_inittables()
+(
+  mem_set_values(UMIN + 1, 0, 0, 0, 0, 0, 0, 0, 0, -24, 0);
+  mem_set_values(UMAX + 1, 16, 4, 4, 1, 1, 1, 2, 100, 12, 1);
+  mem_set_values(UDEF + 1, 0, 1, 1, 0, 0, 0, 0, 100, 0, 1);
+  mem_set_values(USTP + 1, 1, 0.001, 0.001, 0.001, 0.001, 1, 1, 0.1, 0.1, 1);
+  strcpy(100, "RINGMOD1"); strcpy(101, "RINGMOD2"); strcpy(102, "RINGMOD3"); strcpy(103, "DIODE-RM"); strcpy(104, "MINIMAXI");
+  strcpy(105, "SIGN-1"); strcpy(106, "SIGN-2"); strcpy(107, "X-FADE"); strcpy(108, "FLIPFLOP"); strcpy(109, "ALPHAPWM");
+  strcpy(110, "BITAND"); strcpy(111, "BITXOR"); strcpy(112, "BITINTLV"); strcpy(113, "BITGLTCH"); strcpy(114, "FL32-AND");
+  strcpy(115, "FL32INTV"); strcpy(116, "FL32HACK");
+  strcpy(120, "QUADRANT"); strcpy(121, "FOLD-X"); strcpy(122, "FOLDXY"); strcpy(123, "OFFVLT"); strcpy(124, "MIN<>MAX");
+  strcpy(125, "MIDPOINT"); strcpy(126, "MIDPOINT"); strcpy(127, "BIAS"); strcpy(128, "FAVOUR"); strcpy(129, "PULSES");
+  strcpy(130, "BITDEPTH"); strcpy(131, "BITDEPTH"); strcpy(132, "BITDEPTH"); strcpy(133, "JITTER"); strcpy(134, "JITTER");
+  strcpy(135, "BITDEPTH"); strcpy(136, "JITTER");
+  strcpy(140, "XPWM"); strcpy(141, "FOLD-Y"); strcpy(142, "XORBLEND"); strcpy(143, "ON-VLT"); strcpy(144, "DIFF*Z");
+  strcpy(145, "THRESH"); strcpy(146, "THRESH"); strcpy(147, "XMOD"); strcpy(148, "THRESH"); strcpy(149, "PWIDTH");
+  strcpy(150, "BITCRUSH"); strcpy(151, "BITCRUSH"); strcpy(152, "BITCRUSH"); strcpy(153, "BITCRUSH"); strcpy(154, "BITCRUSH");
+  strcpy(155, "BITCRUSH"); strcpy(156, "BITCRUSH");
+  strcpy(160, "Y = sidechain 3/4"); strcpy(161, "Y = sidechain 3 (mono)"); strcpy(162, "Y = track (X)");
+  strcpy(170, "Ring Mod 1"); strcpy(171, "Ring Mod 2"); strcpy(172, "Ring Mod 3"); strcpy(173, "Diode Ring Mod"); strcpy(174, "Min/Max");
+  strcpy(175, "Sign Switch 1"); strcpy(176, "Sign Switch 2"); strcpy(177, "X-Fade"); strcpy(178, "Flip-Flop"); strcpy(179, "Alpha PWM");
+  strcpy(180, "Bit AND"); strcpy(181, "Bit XOR"); strcpy(182, "Bit Interleave"); strcpy(183, "Bit Glitch"); strcpy(184, "Float32 AND");
+  strcpy(185, "Float32 Interleave"); strcpy(186, "Float32 Glitch");
+  strcpy(190, "Type"); strcpy(191, "X Gain"); strcpy(192, "Y Gain"); strcpy(193, "Param A"); strcpy(194, "Param B");
+  strcpy(195, "DC Couple"); strcpy(196, "Y Input"); strcpy(197, "Mix"); strcpy(198, "Output");
+);
+
+function ui_min(s) ( UMIN[s]; );
+function ui_max(s) ( UMAX[s]; );
+function ui_def(s) ( UDEF[s]; );
+function ui_stp(s) ( USTP[s]; );
+function ui_norm(s) ( (slider(s) - ui_min(s)) / (ui_max(s) - ui_min(s)); );
+function ui_set(s, xv) local(lo, hi, st, nv, old)
+(
+  lo = ui_min(s); hi = ui_max(s); st = ui_stp(s);
+  nv = max(lo, min(hi, xv));
+  nv = lo + floor((nv - lo) / st + 0.5) * st;
+  nv = max(lo, min(hi, nv));
+  old = slider(s);
+  slider(s) = nv;
+  nv !== old ? automate(s, 0);
+);
+function ui_setn(s, nn) ( ui_set(s, ui_min(s) + max(0, min(1, nn)) * (ui_max(s) - ui_min(s))); );
+function ui_put(s, xv) ( ui_set(s, xv); automate(s, 1); );
+function ui_ival(s) ( floor(slider(s) + 0.5); );
+
+function ui_px(u) ( uox + u * UQ; );
+function ui_py(v) ( uoy + v * UQ; );
+function ui_hit(px, py, pw, ph) ( mouse_x >= px && mouse_x < px + pw && mouse_y >= py && mouse_y < py + ph; );
+function ui_hitc(cx, cy, rr) ( sqr(mouse_x - cx) + sqr(mouse_y - cy) <= sqr(rr); );
+
+function ui_font(fs, b) ( gfx_setfont(1, "Arial", max(11, floor(fs + 0.5)), b ? 'b' : 0); );
+function ui_ctext(str, cx, cy, fs, b) local(tw, th)
+(
+  ui_font(fs, b);
+  gfx_measurestr(str, tw, th);
+  gfx_x = floor(cx - tw * 0.5 + 0.5); gfx_y = floor(cy - th * 0.5 + 0.5);
+  gfx_drawstr(str);
+);
+function ui_rtext(str, rx, cy, fs, b) local(tw, th)
+(
+  ui_font(fs, b);
+  gfx_measurestr(str, tw, th);
+  gfx_x = floor(rx - tw + 0.5); gfx_y = floor(cy - th * 0.5 + 0.5);
+  gfx_drawstr(str);
+);
+function plabel(str, cu, cv, fs) ( gfx_set(1, 1, 1, 1); ui_ctext(str, ui_px(cu), ui_py(cv), min(fs, 12) * UQ * 0.95, 0); );
+
+function ui_bezel(cx, cy, rr) local(yy, xx, dx, dy, d, cv, th, f, q, rc, ac, c, band)
+(
+  yy = floor(cy - rr - 1);
+  loop(ceil(2 * rr + 3),
+    dy = yy + 0.5 - cy;
+    xx = floor(cx - rr - 1);
+    loop(ceil(2 * rr + 3),
+      dx = xx + 0.5 - cx; d = sqrt(dx * dx + dy * dy);
+      cv = min(1, rr - d + 0.5);
+      cv > 0 ? (
+        c = 0.2;
+        th = atan2(dx, -dy) * 180 / $pi;
+        f = d / rr;
+        band = 0;
+        (f > 0.84 && f < 0.97) ? ( band = 1; q = th + 360; q = q - 90 * floor(q / 90); );
+        (f > 0.66 && f < 0.80) ? ( band = 2; q = th + 405; q = q - 90 * floor(q / 90); );
+        band ? (
+          rc = band == 1 ? min(1, min((f - 0.84) * rr + 0.5, (0.97 - f) * rr + 0.5)) : min(1, min((f - 0.66) * rr + 0.5, (0.80 - f) * rr + 0.5));
+          ac = min(1, min((q - 12) * $pi / 180 * d + 0.5, (78 - q) * $pi / 180 * d + 0.5));
+          rc > 0 && ac > 0 ? c = 0.2 + 0.059 * rc * ac;
+        );
+        f > 0.97 ? c = 0.2 - 0.05 * min(1, (f - 0.97) * rr);
+        gfx_set(c, c, c, cv);
+        gfx_rect(xx, yy, 1, 1);
+      );
+      xx += 1;
+    );
+    yy += 1;
+  );
+  gfx_a = 1;
+);
+function ui_bz(u, v, rr) ( ui_bezel(ui_px(u), ui_py(v), rr * UQ); );
+
+function ui_jack(u, v) local(cx, cy, rr)
+(
+  cx = ui_px(u); cy = ui_py(v); rr = 7.2 * UQ;
+  gfx_set(0.08, 0.08, 0.08, 1); gfx_circle(cx, cy, rr, 1, 1);
+  gfx_set(0.26, 0.26, 0.26, 1); gfx_circle(cx, cy, rr - max(1, 0.9 * UQ), 1, 1);
+  gfx_set(0.11, 0.11, 0.11, 1); gfx_circle(cx, cy, rr * 0.62, 1, 1);
+);
+
+function ui_panelimg() local(src, base)
+(
+  src = (g_pnl2 && UQ > UK * 1.25) ? 21 : 20;
+  base = src == 21 ? UK * 2 : UK;
+  gfx_set(1, 1, 1, 1);
+  gfx_x = ui_px(0); gfx_y = ui_py(0);
+  gfx_blit(src, UQ / base, 0);
+);
+
+function ui_static()
+(
+  gfx_dest = 10; gfx_setimgdim(10, gfx_w, gfx_h);
+  gfx_set(0.157, 0.157, 0.157, 1); gfx_rect(0, 0, gfx_w, gfx_h);
+  g_pnl ? ui_panelimg() : (
+    gfx_set(1, 1, 1, 1);
+    gfx_rect(floor(ui_px(0)), floor(ui_py(24)), ceil(150 * UQ), max(1, floor(UQ + 0.5)));
+    plabel("Gain", 74.30, 81.68, 12);
+    plabel("Type", 74.74, 166.86, 12);
+    plabel("Param A", 75.38, 235.75, 12);
+    plabel("Param B", 75.25, 307.81, 12);
+    plabel("DC", 82.92, 38.48, 12);
+    plabel("L   X   R", 28.50, 56.00, 11);
+    plabel("L   Y   R", 121.50, 56.00, 11);
+    gfx_set(0.067, 0.067, 0.067, 1);
+    gfx_rect(floor(ui_px(30)), floor(ui_py(91.5)), floor(90 * UQ), floor(20 * UQ));
+    gfx_rect(floor(ui_px(33)), floor(ui_py(174)), floor(84 * UQ), floor(18.5 * UQ));
+    gfx_rect(floor(ui_px(33)), floor(ui_py(245.5)), floor(84 * UQ), floor(18.5 * UQ));
+  );
+  g_mk ? (
+    gfx_set(1, 1, 1, 1);
+    gfx_x = 0; gfx_y = floor(ui_py(25));
+    (g_mk2 && uscale > 1.25) ? gfx_blit(23, uscale / 2, 0) : gfx_blit(22, uscale, 0);
+  ) : (
+    gfx_set(0.80, 0.80, 0.80, 1);
+    ui_ctext("Clair de lune", floor(sbx - UQ) * 0.5, ui_py(180), 12 * uscale, 0);
+  );
+  gfx_set(1, 1, 1, 1);
+  g_tt ? (
+    gfx_x = floor((gfx_w - (150 + SBU) * UQ) * 0.5); gfx_y = 0;
+    (g_tt2 && uscale > 1.25) ? gfx_blit(25, UQ / (2 * UK), 0) : gfx_blit(24, UQ / UK, 0);
+  ) : ui_ctext("Morgana", gfx_w * 0.5, ui_py(12.3), 18 * UQ, 0);
+  gfx_rect(0, floor(ui_py(356.2)), gfx_w, max(1, floor(UQ + 0.5)));
+  gfx_rect(0, floor(ui_py(24)), gfx_w, max(1, floor(UQ + 0.5)));
+  gfx_rect(floor(sbx - UQ), floor(ui_py(24)), max(1, floor(UQ + 0.5)), ceil(332.2 * UQ));
+  plabel("Mix", 25, 311.5, 11);
+  plabel("Output", 125, 311.5, 11);
+  ui_bz(60.0, 62.98, 9.9); ui_bz(90.06, 62.98, 9.9);
+  ui_bz(74.99, 144.02, 15.87); ui_bz(74.99, 212.95, 15.87); ui_bz(74.99, 285.02, 15.87);
+  ui_bz(25, 296, 9.9); ui_bz(125, 296, 9.9);
+  ui_jack(14.65, 38.37); ui_jack(41.65, 38.37); ui_jack(107.65, 38.37); ui_jack(134.65, 38.37);
+  gfx_set(0.80, 0.80, 0.80, 1);
+  ui_rtext("by chmaha", max(ui_px(147), gfx_w - 3 * UQ), ui_py(7.6), 11 * uscale, 0);
+  ui_rtext("based on Valley Amalgam", max(ui_px(147), gfx_w - 3 * UQ), ui_py(16.6), 11 * uscale, 0);
+  gfx_dest = -1;
+);
+
+function ui_click_at(s)
+(
+  (u_ctarget == s && time_precise() - u_ctime < 0.3) ? (
+    ui_put(s, ui_def(s));
+    u_drag = 0;
+  ) : (
+    u_drag = s; u_dy0 = mouse_y; u_dv0 = ui_norm(s); u_dfine = mouse_cap & 4;
+  );
+  u_ctarget = s; u_ctime = time_precise();
+  u_click = 0;
+);
+
+function ui_bar(cx, cy, ca, sa, r0, r1, hw) local(x0, y0, x1, y1, xx, yy, dx, dy, ss, tt, cv)
+(
+  x0 = floor(min(cx + sa * r0, cx + sa * r1) - hw - 2); x1 = ceil(max(cx + sa * r0, cx + sa * r1) + hw + 2);
+  y0 = floor(min(cy - ca * r0, cy - ca * r1) - hw - 2); y1 = ceil(max(cy - ca * r0, cy - ca * r1) + hw + 2);
+  yy = y0;
+  loop(y1 - y0 + 1,
+    xx = x0;
+    loop(x1 - x0 + 1,
+      dx = xx + 0.5 - cx; dy = yy + 0.5 - cy;
+      ss = dx * sa - dy * ca; tt = dx * ca + dy * sa;
+      cv = max(0, min(1, min(ss - r0, r1 - ss) + 0.5)) * max(0, min(1, hw - abs(tt) + 0.5));
+      cv > 0 ? ( gfx_a = cv; gfx_rect(xx, yy, 1, 1); );
+      xx += 1;
+    );
+    yy += 1;
+  );
+  gfx_a = 1;
+);
+
+function ui_wheel(s)
+(
+  ui_stp(s) >= 1 ? ui_put(s, slider(s) + (u_wheel > 0 ? 1 : -1) * ui_stp(s))
+                 : ( ui_setn(s, ui_norm(s) + (u_wheel / 120) * ((mouse_cap & 4) ? 0.002 : 0.02)); automate(s, 1); );
+  u_wheel = 0;
+);
+
+function ui_knob(s, u, v, rd, col) local(cx, cy, rr, hov, nn, a, ca, sa, cr, cg, cb, hr, hg, hb, rc)
+(
+  cx = ui_px(u); cy = ui_py(v); rr = rd * UQ;
+  hov = ui_hitc(cx, cy, rr + 2);
+  hov ? u_hov = s;
+  (u_click && hov) ? ui_click_at(s);
+  (hov && u_wheel != 0 && u_drag == 0) ? ui_wheel(s);
+  col == 0 ? ( cr = 0.220; cg = 0.455; cb = 0.812; hr = 0.345; hg = 0.533; hb = 0.820; ) :
+  col == 3 ? ( cr = 0.031; cg = 0.616; cb = 0.706; hr = 0.302; hg = 0.722; hb = 0.788; ) :
+             ( cr = 0.890; cg = 0.890; cb = 0.890; hr = 1; hg = 1; hb = 1; );
+  nn = max(0, min(1, ui_norm(s)));
+  a = (-0.75 + 1.5 * nn) * $pi;
+  ca = cos(a); sa = sin(a);
+  gfx_set(0, 0, 0, 1); gfx_circle(cx, cy, rr, 1, 1);
+  gfx_set(0.22, 0.22, 0.22, 1); gfx_circle(cx, cy, rr * 0.80, 0, 1);
+  (hov || u_drag == s) ? gfx_set(hr, hg, hb, 1) : gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, rr * 0.62, 1, 1);
+  ui_bar(cx, cy, ca, sa, rr * 0.45, rr * 0.97, max(1, rr * 0.055));
+);
+
+function ui_lamp(cx, cy, rr, lr, lg, lb, on)
+(
+  on > 0.01 ? (
+    gfx_set(lr, lg, lb, 0.25 * on); gfx_circle(cx, cy, rr * 1.6, 1, 1);
+    gfx_set(0.235 + (lr - 0.235) * on, 0.235 + (lg - 0.235) * on, 0.235 + (lb - 0.235) * on, 1);
+    gfx_circle(cx, cy, rr, 1, 1);
+    gfx_set(1, 1, 1, 0.35 * on); gfx_circle(cx - rr * 0.3, cy - rr * 0.3, rr * 0.35, 1, 1);
+  ) : (
+    gfx_set(0.16, 0.16, 0.16, 1); gfx_circle(cx, cy, rr, 1, 1);
+  );
+);
+
+function ui_led(s, u, v) local(cx, cy, hov)
+(
+  cx = ui_px(u); cy = ui_py(v);
+  hov = ui_hitc(cx, cy, 8 * UQ);
+  hov ? u_hov = s;
+  gfx_set(0, 0, 0, 1); gfx_circle(cx, cy, 7.13 * UQ, 1, 1);
+  gfx_set(0.235, 0.235, 0.235, 1); gfx_circle(cx, cy, 7.13 * UQ - max(1, 0.6 * UQ), 1, 1);
+  ui_lamp(cx, cy, 4.2 * UQ, 0.929, 0.173, 0.141, slider(s) > 0.5);
+  hov ? ( gfx_set(1, 1, 1, 0.5); gfx_circle(cx, cy, 7.13 * UQ, 0, 1); );
+  (u_click && hov) ? ( u_click = 0; ui_put(s, slider(s) > 0.5 ? 0 : 1); );
+);
+
+function ui_menu(base, n, cur) local(i, r)
+(
+  strcpy(#u_menu, "");
+  i = 0;
+  loop(n,
+    i == cur ? strcat(#u_menu, "!");
+    strcat(#u_menu, base + i);
+    i < n - 1 ? strcat(#u_menu, "|");
+    i += 1;
+  );
+  gfx_x = mouse_x; gfx_y = mouse_y;
+  r = gfx_showmenu(#u_menu);
+  r - 1;
+);
+
+function ui_display(s, str, u, v, w, h, menu, mbase) local(px, py, pw, ph, hov, r)
+(
+  px = floor(ui_px(u)); py = floor(ui_py(v)); pw = floor(w * UQ); ph = floor(h * UQ);
+  hov = menu ? ui_hit(px, py, pw, ph) : 0;
+  hov ? u_hov = s;
+  gfx_set(1, 0.18, 0.18, 0.35); ui_ctext(str, px + pw * 0.5 + 0.6, py + ph * 0.5 + 0.6, 11.5 * UQ, 1);
+  gfx_set(1, hov ? 0.45 : 0.24, hov ? 0.45 : 0.24, 1); ui_ctext(str, px + pw * 0.5, py + ph * 0.5, 11.5 * UQ, 1);
+  (u_click && hov) ? (
+    u_click = 0;
+    r = ui_menu(mbase, ui_max(s) - ui_min(s) + 1, ui_ival(s) - ui_min(s));
+    r >= 0 ? ui_put(s, ui_min(s) + r);
+  );
+  (hov && u_wheel != 0 && u_drag == 0) ? ( ui_put(s, slider(s) + (u_wheel > 0 ? -1 : 1)); u_wheel = 0; );
+);
+
+function ui_choice(s, u, v, w, h) local(px, py, pw, ph, hov, r)
+(
+  px = floor(ui_px(u)); py = floor(ui_py(v)); pw = floor(w * UQ); ph = floor(h * UQ);
+  hov = ui_hit(px, py, pw, ph);
+  hov ? u_hov = s;
+  gfx_set(0.255, 0.251, 0.259, 1); gfx_rect(px, py, pw, ph);
+  gfx_set(hov ? 0.12 : 0.067, hov ? 0.12 : 0.067, hov ? 0.125 : 0.067, 1); gfx_rect(px + 1, py + 1, pw - 2, ph - 2);
+  gfx_set(1, 1, 1, 1);
+  ui_ctext(160 + ui_ival(s), px + pw * 0.5, py + ph * 0.5, 10 * UQ * 0.8, 0);
+  (u_click && hov) ? (
+    u_click = 0;
+    r = ui_menu(160, 3, ui_ival(s));
+    r >= 0 ? ui_put(s, r);
+  );
+  (hov && u_wheel != 0 && u_drag == 0) ? ( ui_put(s, slider(s) + (u_wheel > 0 ? -1 : 1)); u_wheel = 0; );
+);
+
+function ha_h(n) ( n = sin(n * 12.9898 + 78.233) * 43758.5453; n - floor(n); );
+function ha_n(x, sd) local(i, f, va, vb)
+(
+  i = floor(x); f = x - i;
+  va = ha_h(i + sd * 101); vb = ha_h(i + 1 + sd * 101);
+  f = f * f * (3 - 2 * f);
+  va + (vb - va) * f;
+);
+
+function ha_init()
+(
+  AFF = 2000000; AFF_N = 4;
+  mem_set_values(AFF + 0, 616, 2, 58, 58, 314, 452, 2, 2, 70, 70, 308, 447, 1.0, 112, 74, 34, 54, 370, 486, 142, 2, 46, 66, 364, 480, 1.0, 300, 74, 46, 46, 312, 542, 676, 2, 58, 58, 306, 537, 0.0, 148, 74, 40, 54, 0, 1096, 190, 2, 52);
+  mem_set_values(AFF + 48, 66, -6, 1090, 1.0);
+  AST = 2000068; AST_N = 518;
+  mem_set_values(AST + 0, 642, 74, 18, 18, 168, 322, 625.0955, 6.5375, 662, 74, 18, 18, 164, 324, 775.6857, 3.5134, 682, 74, 18, 18, 266, 326, 300.1663, 6.431, 702, 74, 18, 18, 68, 336, 5.2653, 6.1955, 722, 74, 18, 18, 102, 332, 797.0694, 4.6057, 742, 74, 18, 18, 124, 334, 303.0324, 3.7529);
+  mem_set_values(AST + 48, 762, 74, 18, 18, 60, 338, 254.8696, 4.5028, 782, 74, 18, 18, 114, 344, 504.5483, 4.9907, 802, 74, 18, 18, 52, 344, 995.5003, 6.067, 822, 74, 18, 18, 80, 344, 622.1792, 6.9503, 842, 74, 18, 18, 184, 346, 215.3087, 3.221, 862, 74, 18, 18, 208, 344, 612.5396, 2.6977);
+  mem_set_values(AST + 96, 882, 74, 18, 18, 72, 350, 35.6803, 4.817, 902, 74, 18, 18, 200, 352, 466.206, 6.6273, 922, 74, 18, 18, 62, 352, 629.2263, 4.8135, 942, 74, 18, 18, 108, 352, 496.8734, 3.6138, 962, 74, 18, 18, 170, 352, 11.794, 3.3658, 982, 74, 18, 18, 52, 356, 692.0321, 3.4027);
+  mem_set_values(AST + 144, 1002, 74, 18, 18, 170, 360, 369.5363, 2.5168, 2, 132, 18, 18, 84, 360, 830.0477, 3.1951, 22, 132, 18, 18, 146, 362, 267.5993, 6.4615, 42, 132, 18, 18, 184, 360, 509.7908, 6.3122, 62, 132, 18, 18, 42, 364, 639.7172, 5.838, 82, 132, 18, 18, 78, 362, 91.4956, 4.9351);
+  mem_set_values(AST + 192, 102, 132, 18, 18, 174, 364, 507.7722, 6.421, 122, 132, 18, 18, 212, 364, 361.2641, 5.1918, 142, 132, 18, 18, 72, 364, 59.2516, 4.2443, 162, 132, 18, 18, 214, 370, 323.0363, 3.1759, 182, 132, 18, 18, 236, 374, 816.3381, 4.2075, 202, 132, 18, 18, 52, 376, 978.7479, 5.155);
+  mem_set_values(AST + 240, 222, 132, 18, 18, 72, 376, 605.0563, 5.371, 242, 132, 18, 18, 244, 374, 676.4502, 3.1785, 262, 132, 18, 18, 86, 376, 440.3135, 3.578, 282, 132, 18, 18, 82, 380, 402.4983, 2.9352, 302, 132, 18, 18, 190, 382, 967.8281, 3.4675, 322, 132, 18, 18, 168, 384, 671.7652, 3.8519);
+  mem_set_values(AST + 288, 342, 132, 18, 18, 242, 386, 874.077, 5.48, 362, 132, 18, 18, 54, 386, 131.6158, 6.3028, 382, 132, 18, 18, 246, 392, 944.9482, 6.5676, 402, 132, 18, 18, 204, 392, 569.7191, 3.1546, 422, 132, 18, 18, 208, 390, 192.4635, 6.6756, 442, 132, 18, 18, 152, 396, 552.3265, 3.3125);
+  mem_set_values(AST + 336, 462, 132, 18, 18, 66, 398, 884.0569, 5.3871, 482, 132, 18, 18, 104, 398, 569.6943, 4.1933, 502, 132, 18, 18, 78, 402, 410.9553, 3.5777, 522, 132, 18, 18, 130, 402, 38.0573, 6.443, 542, 132, 18, 18, 222, 404, 467.7302, 4.9644, 562, 132, 18, 18, 56, 404, 322.1633, 5.881);
+  mem_set_values(AST + 384, 582, 132, 18, 18, 92, 404, 25.1969, 4.1748, 602, 132, 18, 18, 290, 412, 30.3503, 3.053, 622, 132, 18, 18, 48, 422, 967.1482, 5.4599, 642, 132, 18, 18, 226, 424, 428.2202, 4.8568, 662, 132, 18, 18, 18, 424, 872.8092, 4.0489, 682, 132, 18, 18, 98, 426, 590.291, 5.5766);
+  mem_set_values(AST + 432, 702, 132, 18, 18, 106, 428, 355.4138, 4.8359, 722, 132, 18, 18, 144, 430, 765.2474, 6.5913, 742, 132, 18, 18, 300, 428, 151.0623, 6.7004, 762, 132, 18, 18, 18, 432, 5.1789, 5.8884, 782, 132, 18, 18, 64, 432, 810.5268, 3.1154, 802, 132, 18, 18, 274, 432, 418.9037, 6.1687);
+  mem_set_values(AST + 480, 822, 132, 18, 18, 286, 434, 14.2712, 5.3281, 842, 132, 18, 18, 34, 432, 793.0237, 4.8085, 862, 132, 18, 18, 260, 438, 725.8494, 3.5189, 882, 132, 18, 18, 92, 436, 198.5211, 4.1341, 902, 132, 18, 18, 100, 438, 179.406, 4.0573, 922, 132, 18, 18, 118, 440, 948.1241, 5.08);
+  mem_set_values(AST + 528, 942, 132, 18, 18, 300, 438, 340.0681, 3.7219, 962, 132, 18, 18, 12, 440, 952.0395, 4.5002, 982, 132, 18, 18, 222, 442, 980.3948, 4.8199, 1002, 132, 18, 18, 296, 442, 521.1661, 6.5344, 2, 152, 18, 18, 46, 442, 742.7674, 5.1129, 22, 152, 18, 18, 70, 450, 426.6495, 6.4518);
+  mem_set_values(AST + 576, 42, 152, 18, 18, 132, 446, 411.6461, 6.6524, 62, 152, 18, 18, 56, 454, 68.7154, 4.435, 82, 152, 18, 18, 132, 456, 519.5148, 6.7792, 102, 152, 18, 18, 156, 458, 250.9992, 6.1272, 122, 152, 18, 18, 216, 456, 676.4712, 5.7269, 142, 152, 18, 18, 36, 456, 629.6222, 6.872);
+  mem_set_values(AST + 624, 162, 152, 18, 18, 242, 464, 332.6815, 4.2922, 182, 152, 18, 18, 170, 466, 202.9118, 2.7282, 202, 152, 18, 18, 204, 466, 212.9082, 6.6196, 222, 152, 18, 18, 300, 464, 840.1688, 3.0058, 242, 152, 18, 18, 4, 470, 603.779, 4.6564, 262, 152, 18, 18, 186, 468, 594.6849, 5.4667);
+  mem_set_values(AST + 672, 282, 152, 18, 18, 52, 474, 306.6595, 6.8261, 302, 152, 14, 18, 0, 478, 465.84, 5.3265, 318, 152, 18, 18, 238, 482, 635.2262, 3.3275, 338, 152, 18, 18, 158, 482, 61.8654, 4.3518, 358, 152, 18, 18, 302, 482, 764.0301, 6.1685, 378, 152, 18, 18, 112, 482, 729.9892, 3.0094);
+  mem_set_values(AST + 720, 398, 152, 18, 18, 104, 488, 913.3549, 6.1092, 418, 152, 18, 18, 96, 486, 877.6914, 4.8549, 438, 152, 18, 18, 112, 486, 915.6354, 2.7099, 458, 152, 18, 18, 36, 492, 30.2888, 2.591, 478, 152, 18, 18, 238, 498, 252.7687, 3.6186, 498, 152, 18, 18, 178, 498, 187.5033, 5.0518);
+  mem_set_values(AST + 768, 518, 152, 18, 18, 194, 500, 38.9858, 5.1567, 538, 152, 18, 18, 36, 502, 166.0112, 5.5504, 558, 152, 18, 18, 96, 500, 21.0754, 3.8976, 578, 152, 14, 18, 0, 502, 938.3413, 4.9228, 594, 152, 18, 18, 44, 502, 811.5874, 5.4611, 614, 152, 18, 18, 24, 506, 610.7508, 3.3606);
+  mem_set_values(AST + 816, 634, 152, 18, 18, 62, 504, 574.3947, 2.6786, 654, 152, 18, 18, 48, 506, 801.6644, 6.8203, 674, 152, 18, 18, 92, 508, 854.0091, 2.7282, 694, 152, 18, 18, 244, 512, 338.6601, 3.931, 714, 152, 18, 18, 66, 510, 112.717, 5.3198, 734, 152, 18, 18, 50, 514, 797.4582, 3.9117);
+  mem_set_values(AST + 864, 754, 152, 18, 18, 68, 516, 862.8092, 6.0871, 774, 152, 18, 18, 108, 518, 129.1379, 5.9509, 794, 152, 18, 18, 122, 516, 882.6207, 3.3878, 814, 152, 18, 18, 198, 518, 573.6412, 5.3744, 834, 152, 18, 18, 80, 518, 609.3343, 2.9331, 854, 152, 18, 18, 134, 520, 661.1915, 5.3438);
+  mem_set_values(AST + 912, 874, 152, 18, 18, 18, 520, 823.8855, 6.1158, 894, 152, 18, 18, 54, 520, 327.1682, 5.7492, 914, 152, 18, 18, 254, 526, 867.2734, 6.5183, 934, 152, 18, 18, 40, 526, 161.5123, 2.6202, 954, 152, 18, 18, 80, 526, 650.8074, 3.466, 974, 152, 18, 18, 98, 524, 563.7097, 6.7516);
+  mem_set_values(AST + 960, 994, 152, 18, 18, 146, 526, 379.3196, 3.6375, 2, 172, 18, 18, 54, 526, 456.51, 5.4576, 22, 172, 18, 18, 10, 530, 101.099, 4.2126, 42, 172, 18, 18, 48, 528, 133.7212, 5.481, 62, 172, 18, 18, 88, 530, 830.5525, 4.1958, 82, 172, 18, 18, 18, 532, 371.724, 4.9278);
+  mem_set_values(AST + 1008, 102, 172, 18, 18, 70, 534, 215.0578, 3.6133, 122, 172, 18, 18, 24, 532, 329.8523, 4.5584, 142, 172, 18, 18, 54, 534, 81.5315, 5.8873, 162, 172, 18, 18, 306, 534, 579.0546, 3.8486, 182, 172, 18, 18, 90, 538, 77.5466, 5.9343, 202, 172, 18, 18, 156, 536, 131.079, 3.0994);
+  mem_set_values(AST + 1056, 222, 172, 18, 18, 194, 538, 130.6842, 2.8657, 242, 172, 18, 18, 294, 542, 906.3924, 3.7116, 262, 172, 18, 18, 282, 542, 306.4106, 6.2476, 282, 172, 18, 18, 68, 544, 619.9235, 3.3421, 302, 172, 18, 18, 72, 544, 434.8134, 6.4777, 322, 172, 18, 18, 246, 546, 375.374, 5.699);
+  mem_set_values(AST + 1104, 342, 172, 18, 18, 162, 550, 96.8077, 5.773, 362, 172, 18, 18, 106, 550, 776.4735, 6.216, 382, 172, 18, 18, 238, 552, 674.201, 4.1683, 402, 172, 18, 18, 218, 554, 64.212, 4.8345, 422, 172, 18, 18, 110, 552, 757.4599, 3.3588, 442, 172, 18, 18, 116, 556, 266.2372, 4.9125);
+  mem_set_values(AST + 1152, 462, 172, 18, 18, 56, 556, 748.3316, 6.5346, 482, 172, 18, 18, 96, 558, 125.7415, 3.3292, 502, 172, 18, 18, 56, 562, 799.537, 5.4003, 522, 172, 18, 18, 164, 564, 720.9728, 6.9855, 542, 172, 18, 18, 254, 562, 939.18, 6.2936, 562, 172, 18, 18, 200, 564, 777.1158, 4.2776);
+  mem_set_values(AST + 1200, 582, 172, 18, 18, 122, 566, 641.2291, 3.33, 602, 172, 18, 18, 124, 576, 759.4945, 5.9096, 622, 172, 18, 18, 312, 576, 721.2952, 4.5016, 642, 172, 18, 18, 164, 578, 378.1803, 4.389, 662, 172, 18, 18, 58, 580, 33.3392, 6.2994, 682, 172, 18, 18, 194, 582, 542.3699, 4.2438);
+  mem_set_values(AST + 1248, 702, 172, 18, 18, 100, 586, 548.0288, 5.7474, 722, 172, 18, 18, 302, 588, 381.4609, 6.2379, 742, 172, 18, 18, 46, 590, 919.4633, 4.2434, 762, 172, 18, 18, 270, 590, 137.8162, 5.9217, 782, 172, 18, 18, 316, 590, 992.9489, 3.1659, 802, 172, 18, 18, 52, 590, 712.6757, 6.214);
+  mem_set_values(AST + 1296, 822, 172, 18, 18, 110, 598, 920.5719, 3.0552, 842, 172, 18, 18, 314, 596, 91.8099, 6.9454, 862, 172, 18, 18, 46, 600, 116.7565, 3.2956, 882, 172, 18, 18, 188, 600, 574.9529, 4.5082, 902, 172, 18, 18, 296, 600, 750.3922, 3.3575, 922, 172, 18, 18, 66, 600, 914.4278, 3.4774);
+  mem_set_values(AST + 1344, 942, 172, 18, 18, 154, 604, 769.111, 2.8042, 962, 172, 18, 18, 270, 604, 473.4026, 2.6465, 982, 172, 18, 18, 30, 608, 313.8107, 3.905, 1002, 172, 18, 18, 40, 606, 719.7484, 4.5476, 2, 192, 18, 18, 26, 610, 56.7744, 6.9791, 22, 192, 18, 18, 48, 608, 888.6993, 6.6235);
+  mem_set_values(AST + 1392, 42, 192, 18, 18, 270, 610, 246.5755, 4.2735, 62, 192, 18, 18, 90, 612, 227.1795, 3.0621, 82, 192, 18, 18, 146, 614, 33.0239, 4.765, 102, 192, 18, 18, 120, 618, 123.1337, 3.2934, 122, 192, 18, 18, 290, 616, 860.4757, 4.6791, 142, 192, 18, 18, 106, 616, 183.7035, 5.5144);
+  mem_set_values(AST + 1440, 162, 192, 18, 18, 26, 620, 265.8649, 4.8712, 182, 192, 18, 18, 266, 624, 282.9529, 4.8227, 202, 192, 18, 18, 50, 626, 628.5336, 4.9129, 222, 192, 18, 18, 188, 622, 395.6041, 6.0587, 242, 192, 18, 18, 62, 626, 873.4374, 3.3072, 262, 192, 18, 18, 110, 626, 136.3087, 3.0094);
+  mem_set_values(AST + 1488, 282, 192, 18, 18, 92, 626, 979.5967, 6.7372, 302, 192, 18, 18, 146, 626, 230.6672, 6.8646, 322, 192, 18, 18, 22, 630, 207.8177, 4.7791, 342, 192, 18, 18, 290, 630, 497.385, 6.6173, 362, 192, 18, 18, 70, 632, 40.5289, 3.9191, 382, 192, 18, 18, 146, 634, 599.9747, 2.7988);
+  mem_set_values(AST + 1536, 402, 192, 18, 18, 34, 638, 236.5506, 4.5928, 422, 192, 18, 18, 260, 636, 880.857, 5.9243, 442, 192, 18, 18, 114, 640, 828.9805, 5.9248, 462, 192, 18, 18, 150, 642, 707.7208, 6.3236, 482, 192, 18, 18, 200, 640, 681.4767, 5.8106, 502, 192, 18, 18, 258, 640, 301.6445, 3.2544);
+  mem_set_values(AST + 1584, 522, 192, 18, 18, 108, 644, 756.525, 3.2463, 542, 192, 14, 18, 0, 646, 919.4559, 5.1849, 558, 192, 18, 18, 6, 646, 329.4341, 6.7149, 578, 192, 18, 18, 158, 648, 155.1303, 4.8151, 598, 192, 18, 18, 24, 650, 91.5541, 6.8444, 618, 192, 18, 18, 98, 652, 575.3761, 6.1165);
+  mem_set_values(AST + 1632, 638, 192, 18, 18, 126, 652, 281.9224, 6.1081, 658, 192, 18, 18, 238, 652, 702.842, 5.3966, 678, 192, 18, 18, 248, 650, 950.5628, 4.4507, 698, 192, 18, 18, 4, 652, 415.0884, 5.6145, 718, 192, 18, 18, 302, 654, 835.0553, 4.0078, 738, 192, 18, 18, 156, 660, 669.6571, 3.4407);
+  mem_set_values(AST + 1680, 758, 192, 18, 18, 8, 660, 551.7, 5.9613, 778, 192, 18, 18, 128, 664, 65.315, 5.7753, 798, 192, 18, 18, 142, 664, 15.4325, 6.8126, 818, 192, 18, 18, 22, 664, 468.6698, 4.3408, 838, 192, 18, 18, 10, 666, 720.4447, 4.8548, 858, 192, 18, 18, 78, 664, 730.8489, 2.8814);
+  mem_set_values(AST + 1728, 878, 192, 18, 18, 166, 668, 562.7919, 5.0115, 898, 192, 18, 18, 4, 668, 932.1139, 2.6782, 918, 192, 18, 18, 130, 672, 452.8196, 5.3398, 938, 192, 18, 18, 10, 674, 550.747, 2.8337, 958, 192, 18, 18, 136, 676, 593.2284, 3.4999, 978, 192, 18, 18, 30, 676, 195.5492, 6.4541);
+  mem_set_values(AST + 1776, 998, 192, 18, 18, 166, 674, 197.8421, 4.5443, 2, 212, 18, 18, 188, 676, 750.2869, 5.6829, 22, 212, 18, 18, 270, 678, 553.459, 6.1317, 42, 212, 18, 18, 6, 680, 465.8162, 5.2917, 62, 212, 18, 18, 20, 680, 818.9166, 5.5514, 82, 212, 18, 18, 106, 682, 641.8284, 4.3276);
+  mem_set_values(AST + 1824, 102, 212, 18, 18, 122, 682, 558.3235, 4.2824, 122, 212, 18, 18, 134, 684, 744.2923, 4.2119, 142, 212, 18, 18, 286, 682, 466.6212, 5.8996, 162, 212, 18, 18, 222, 686, 503.6558, 4.0211, 182, 212, 18, 18, 6, 686, 826.8189, 4.2143, 202, 212, 18, 18, 36, 688, 844.7291, 6.0336);
+  mem_set_values(AST + 1872, 222, 212, 16, 18, 0, 690, 447.2888, 5.708, 240, 212, 18, 18, 48, 692, 34.3897, 4.2541, 260, 212, 18, 18, 174, 690, 860.3337, 5.1079, 280, 212, 18, 18, 184, 690, 557.8258, 5.4913, 300, 212, 18, 18, 268, 694, 677.6716, 5.1262, 320, 212, 18, 18, 294, 694, 420.6293, 3.3257);
+  mem_set_values(AST + 1920, 340, 212, 12, 18, 0, 694, 292.642, 3.8181, 354, 212, 18, 18, 212, 696, 430.7449, 6.9958, 374, 212, 18, 18, 70, 696, 352.5519, 4.5132, 394, 212, 18, 18, 158, 700, 371.6276, 5.1164, 414, 212, 12, 18, 0, 702, 947.8986, 6.5008, 428, 212, 18, 18, 48, 704, 377.1387, 3.7011);
+  mem_set_values(AST + 1968, 448, 212, 18, 18, 170, 700, 884.3986, 4.7223, 468, 212, 18, 18, 182, 704, 685.5411, 2.8298, 488, 212, 18, 18, 274, 706, 866.5577, 3.9083, 508, 212, 18, 18, 296, 708, 494.527, 3.3911, 528, 212, 18, 18, 146, 706, 420.2426, 6.2262, 548, 212, 18, 18, 206, 710, 827.5792, 4.6315);
+  mem_set_values(AST + 2016, 568, 212, 18, 18, 144, 714, 767.9107, 4.5613, 588, 212, 18, 18, 190, 714, 373.3563, 4.9565, 608, 212, 18, 18, 6, 718, 201.3408, 3.9245, 628, 212, 18, 18, 138, 718, 706.5288, 5.9673, 648, 212, 18, 18, 276, 720, 56.7081, 5.7977, 668, 212, 18, 18, 294, 720, 817.4299, 4.5034);
+  mem_set_values(AST + 2064, 688, 212, 18, 18, 22, 726, 62.4539, 5.5731, 708, 212, 18, 18, 208, 726, 246.1637, 5.3951, 728, 212, 18, 18, 140, 728, 376.6225, 5.3672, 748, 212, 18, 18, 80, 728, 258.1349, 4.6444, 768, 212, 18, 18, 194, 728, 524.6747, 5.3396, 788, 212, 18, 18, 134, 728, 203.1678, 6.8292);
+  mem_set_values(AST + 2112, 808, 212, 18, 18, 88, 732, 289.1381, 3.8771, 828, 212, 18, 18, 274, 732, 256.3124, 2.8036, 848, 212, 18, 18, 122, 734, 422.9229, 5.9733, 868, 212, 18, 18, 102, 734, 709.5669, 3.3801, 888, 212, 18, 18, 136, 736, 136.9319, 3.9464, 908, 212, 18, 18, 182, 736, 768.2552, 4.6964);
+  mem_set_values(AST + 2160, 928, 212, 18, 18, 198, 736, 923.1842, 5.4537, 948, 212, 18, 18, 200, 738, 620.9068, 5.9546, 968, 212, 18, 18, 214, 738, 750.2582, 4.0473, 988, 212, 18, 18, 132, 738, 257.0084, 4.4693, 2, 232, 18, 18, 266, 744, 489.2472, 3.1378, 22, 232, 18, 18, 20, 744, 441.3322, 5.3792);
+  mem_set_values(AST + 2208, 42, 232, 18, 18, 224, 746, 135.7145, 3.1212, 62, 232, 18, 18, 142, 748, 173.7214, 3.775, 82, 232, 18, 18, 202, 746, 961.7093, 2.6161, 102, 232, 18, 18, 22, 748, 183.7391, 3.2427, 122, 232, 18, 18, 238, 752, 474.348, 2.5678, 142, 232, 18, 18, 252, 750, 458.1732, 3.2332);
+  mem_set_values(AST + 2256, 162, 232, 18, 18, 152, 752, 269.6402, 6.066, 182, 232, 18, 18, 44, 752, 184.0672, 5.2771, 202, 232, 18, 18, 166, 754, 406.3123, 4.3792, 222, 232, 18, 18, 156, 770, 816.8454, 3.2241, 242, 232, 18, 18, 170, 770, 923.8102, 6.5207, 262, 232, 18, 18, 198, 772, 668.322, 2.7225);
+  mem_set_values(AST + 2304, 282, 232, 18, 18, 230, 774, 663.3085, 5.2016, 302, 232, 18, 18, 28, 776, 772.2059, 3.4622, 322, 232, 18, 18, 266, 780, 953.356, 6.4879, 342, 232, 18, 18, 20, 786, 114.3571, 3.9184, 362, 232, 18, 18, 30, 788, 32.4442, 6.2393, 382, 232, 18, 18, 222, 786, 915.0947, 6.9541);
+  mem_set_values(AST + 2352, 402, 232, 18, 18, 102, 788, 611.925, 5.4969, 422, 232, 18, 18, 12, 792, 678.4055, 5.0657, 442, 232, 18, 18, 0, 796, 952.4229, 5.2354, 462, 232, 18, 18, 228, 802, 335.726, 4.8079, 482, 232, 18, 18, 316, 802, 18.6629, 5.7586, 502, 232, 18, 18, 176, 804, 693.9211, 4.3947);
+  mem_set_values(AST + 2400, 522, 232, 18, 18, 260, 806, 851.4811, 5.8999, 542, 232, 18, 18, 60, 808, 336.6846, 2.8487, 562, 232, 18, 18, 72, 808, 132.223, 3.3292, 582, 232, 18, 18, 224, 810, 303.918, 4.5138, 602, 232, 18, 18, 100, 810, 927.9966, 3.7529, 622, 232, 18, 18, 228, 812, 898.5857, 5.5621);
+  mem_set_values(AST + 2448, 642, 232, 18, 18, 238, 814, 853.4929, 4.3146, 662, 232, 18, 18, 266, 816, 3.2767, 6.0414, 682, 232, 18, 18, 12, 816, 245.4759, 3.1412, 702, 232, 18, 18, 28, 814, 799.4916, 5.5885, 722, 232, 18, 18, 68, 816, 212.4152, 3.7041, 742, 232, 18, 18, 246, 814, 939.2198, 3.7084);
+  mem_set_values(AST + 2496, 762, 232, 18, 18, 186, 818, 702.4059, 3.083, 782, 232, 18, 18, 322, 820, 815.0359, 3.0292, 802, 232, 18, 18, 106, 820, 516.0411, 2.6585, 822, 232, 18, 18, 250, 826, 550.0785, 6.3098, 842, 232, 18, 18, 0, 824, 84.3985, 3.7342, 862, 232, 18, 18, 204, 828, 764.6931, 5.2364);
+  mem_set_values(AST + 2544, 882, 232, 18, 18, 18, 828, 312.7969, 5.3301, 902, 232, 18, 18, 216, 834, 454.7103, 6.3806, 922, 232, 18, 18, 262, 834, 292.9399, 5.9098, 942, 232, 18, 18, 322, 836, 635.6742, 5.8319, 962, 232, 18, 18, 212, 838, 378.2616, 5.7621, 982, 232, 18, 18, 264, 840, 698.4261, 4.2437);
+  mem_set_values(AST + 2592, 1002, 232, 18, 18, 244, 850, 26.4522, 6.8331, 2, 252, 18, 18, 320, 852, 713.6004, 3.4213, 22, 252, 18, 18, 20, 852, 730.8072, 3.7541, 42, 252, 18, 18, 14, 854, 469.2854, 6.3695, 62, 252, 18, 18, 120, 854, 448.0721, 3.796, 82, 252, 18, 18, 246, 856, 305.4911, 2.8466);
+  mem_set_values(AST + 2640, 102, 252, 18, 18, 292, 858, 219.5056, 3.72, 122, 252, 18, 18, 140, 858, 172.9691, 2.7838, 142, 252, 18, 18, 146, 856, 465.7892, 3.4648, 162, 252, 18, 18, 108, 858, 738.7705, 6.6514, 182, 252, 18, 18, 250, 862, 272.9847, 5.0751, 202, 252, 18, 18, 282, 864, 506.7257, 2.838);
+  mem_set_values(AST + 2688, 222, 252, 18, 18, 316, 864, 124.8744, 6.4815, 242, 252, 18, 18, 342, 864, 474.152, 6.1207, 262, 252, 18, 18, 10, 866, 66.5807, 5.1767, 282, 252, 18, 18, 278, 866, 865.312, 6.4018, 302, 252, 14, 18, 0, 866, 5.7224, 4.8477, 318, 252, 18, 18, 4, 868, 369.0047, 5.9202);
+  mem_set_values(AST + 2736, 338, 252, 18, 18, 6, 866, 73.219, 3.6922, 358, 252, 18, 18, 266, 866, 812.6428, 4.613, 378, 252, 18, 18, 290, 868, 453.1503, 6.8585, 398, 252, 18, 18, 174, 868, 319.8907, 2.6877, 418, 252, 18, 18, 350, 870, 392.2008, 3.1902, 438, 252, 18, 18, 282, 872, 81.8919, 5.0554);
+  mem_set_values(AST + 2784, 458, 252, 18, 18, 306, 872, 953.5756, 5.1073, 478, 252, 18, 18, 2, 872, 647.1145, 3.9563, 498, 252, 18, 18, 266, 874, 571.1229, 5.8851, 518, 252, 18, 18, 80, 874, 589.2849, 6.1125, 538, 252, 18, 18, 52, 878, 550.4707, 3.3916, 558, 252, 18, 18, 294, 878, 582.7263, 4.7092);
+  mem_set_values(AST + 2832, 578, 252, 18, 18, 270, 880, 165.9355, 5.2862, 598, 252, 18, 18, 342, 880, 816.9605, 3.1079, 618, 252, 18, 18, 32, 880, 544.9459, 5.8016, 638, 252, 18, 18, 276, 882, 403.0176, 3.7152, 658, 252, 18, 18, 180, 884, 372.2804, 4.9376, 678, 252, 18, 18, 354, 882, 686.6604, 5.0163);
+  mem_set_values(AST + 2880, 698, 252, 18, 18, 32, 884, 107.025, 6.1805, 718, 252, 18, 18, 90, 886, 923.8597, 2.9558, 738, 252, 18, 18, 276, 888, 249.5195, 3.2816, 758, 252, 18, 18, 74, 890, 849.1552, 6.5963, 778, 252, 18, 18, 284, 888, 44.2738, 3.9959, 798, 252, 18, 18, 344, 892, 192.4946, 4.6129);
+  mem_set_values(AST + 2928, 818, 252, 18, 18, 86, 898, 921.5904, 2.8158, 838, 252, 18, 18, 174, 898, 171.2791, 4.6916, 858, 252, 18, 18, 26, 900, 524.0347, 5.8548, 878, 252, 18, 18, 176, 904, 437.686, 3.1351, 898, 252, 18, 18, 284, 906, 353.6119, 6.9194, 918, 252, 18, 18, 312, 906, 750.7221, 3.0235);
+  mem_set_values(AST + 2976, 938, 252, 18, 18, 354, 908, 808.2092, 3.8992, 958, 252, 18, 18, 298, 910, 781.3965, 2.5572, 978, 252, 18, 18, 2, 912, 871.2702, 3.2304, 998, 252, 18, 18, 324, 910, 455.7506, 5.4779, 2, 272, 18, 18, 288, 914, 507.8696, 3.2443, 22, 272, 18, 18, 328, 914, 139.1185, 3.7804);
+  mem_set_values(AST + 3024, 42, 272, 18, 18, 278, 916, 52.3918, 3.4745, 62, 272, 18, 18, 332, 920, 130.105, 4.5916, 82, 272, 18, 18, 334, 928, 356.5099, 5.1407, 102, 272, 18, 18, 94, 932, 280.8789, 2.6526, 122, 272, 18, 18, 336, 934, 331.1102, 5.8983, 142, 272, 18, 18, 90, 938, 255.8382, 4.3205);
+  mem_set_values(AST + 3072, 162, 272, 18, 18, 16, 942, 754.9744, 4.3301, 182, 272, 18, 18, 290, 942, 887.1241, 6.6313, 202, 272, 18, 18, 306, 940, 310.5296, 5.8118, 222, 272, 18, 18, 90, 946, 253.117, 3.1279, 242, 272, 18, 18, 318, 946, 437.881, 5.2111, 262, 272, 18, 18, 352, 946, 935.5909, 3.1566);
+  mem_set_values(AST + 3120, 282, 272, 18, 18, 60, 948, 712.3627, 4.6396, 302, 272, 18, 18, 276, 948, 131.7093, 6.877, 322, 272, 18, 18, 342, 948, 695.7689, 3.0799, 342, 272, 18, 18, 74, 952, 905.7554, 2.9639, 362, 272, 18, 18, 8, 954, 92.6592, 3.992, 382, 272, 18, 18, 106, 956, 937.9592, 2.6486);
+  mem_set_values(AST + 3168, 402, 272, 18, 18, 328, 956, 918.2072, 5.2523, 422, 272, 18, 18, 352, 958, 67.0516, 5.0587, 442, 272, 18, 18, 50, 958, 458.7907, 5.0379, 462, 272, 18, 18, 92, 958, 737.2035, 5.5538, 482, 272, 18, 18, 110, 960, 997.2275, 3.205, 502, 272, 18, 18, 102, 960, 812.8554, 4.3499);
+  mem_set_values(AST + 3216, 522, 272, 18, 18, 268, 962, 783.3075, 6.513, 542, 272, 18, 18, 84, 964, 991.9982, 3.6972, 562, 272, 18, 18, 106, 966, 452.9383, 6.7425, 582, 272, 18, 18, 338, 966, 945.7384, 4.1779, 602, 272, 18, 18, 6, 970, 940.2095, 4.3265, 622, 272, 18, 18, 330, 968, 374.7661, 5.9048);
+  mem_set_values(AST + 3264, 642, 272, 18, 18, 260, 972, 471.2118, 4.5169, 662, 272, 18, 18, 114, 974, 386.119, 4.4476, 682, 272, 18, 18, 334, 974, 139.8176, 2.7747, 702, 272, 18, 18, 266, 976, 753.9931, 5.0402, 722, 272, 18, 18, 88, 978, 671.8906, 6.1105, 742, 272, 18, 18, 330, 980, 230.1062, 3.552);
+  mem_set_values(AST + 3312, 762, 272, 18, 18, 12, 984, 277.9086, 3.8677, 782, 272, 18, 18, 328, 986, 760.6909, 4.1838, 802, 272, 18, 18, 268, 990, 323.1889, 5.3634, 822, 272, 18, 18, 24, 994, 186.5705, 2.9789, 842, 272, 18, 18, 84, 992, 697.1332, 5.904, 862, 272, 18, 18, 324, 992, 296.3646, 5.3622);
+  mem_set_values(AST + 3360, 882, 272, 18, 18, 46, 996, 34.0766, 4.3194, 902, 272, 18, 18, 276, 1000, 577.9584, 3.6404, 922, 272, 18, 18, 314, 1000, 348.2149, 5.243, 942, 272, 18, 18, 54, 1006, 589.8978, 3.1939, 962, 272, 18, 18, 290, 1004, 706.5819, 2.8601, 982, 272, 18, 18, 302, 1004, 969.7247, 3.4106);
+  mem_set_values(AST + 3408, 1002, 272, 18, 18, 74, 1008, 253.5481, 3.4014, 2, 292, 18, 18, 260, 1006, 991.499, 3.7897, 22, 292, 18, 18, 104, 1012, 605.2923, 6.9579, 42, 292, 18, 18, 118, 1012, 950.0679, 2.6906, 62, 292, 18, 18, 26, 1018, 521.1841, 5.2059, 82, 292, 18, 18, 108, 1018, 702.3951, 4.0116);
+  mem_set_values(AST + 3456, 102, 292, 18, 18, 122, 1022, 327.9086, 2.5193, 122, 292, 18, 18, 42, 1022, 35.2367, 4.9753, 142, 292, 18, 18, 10, 1022, 75.8871, 3.4112, 162, 292, 18, 18, 298, 1028, 333.2719, 2.8171, 182, 292, 18, 18, 308, 1026, 30.8598, 6.6711, 202, 292, 18, 18, 104, 1032, 435.2086, 3.422);
+  mem_set_values(AST + 3504, 222, 292, 18, 18, 286, 1034, 708.4518, 2.5425, 242, 292, 18, 18, 90, 1046, 245.0172, 6.8234, 262, 292, 18, 18, 278, 1046, 897.6902, 5.3617, 282, 292, 10, 18, 0, 1050, 93.2028, 3.9312, 294, 292, 18, 18, 52, 1048, 27.9326, 3.4864, 314, 292, 18, 18, 104, 1048, 25.4341, 3.0677);
+  mem_set_values(AST + 3552, 334, 292, 18, 18, 68, 1052, 633.2145, 2.952, 354, 292, 18, 18, 104, 1058, 155.7631, 6.5626, 374, 292, 18, 18, 128, 1056, 335.4524, 3.9985, 394, 292, 18, 18, 112, 1060, 86.5395, 6.0817, 414, 292, 18, 18, 276, 1058, 676.3772, 4.9621, 434, 292, 18, 18, 104, 1062, 617.9128, 2.9517);
+  mem_set_values(AST + 3600, 454, 292, 18, 18, 130, 1062, 260.3061, 5.1264, 474, 292, 18, 18, 124, 1064, 952.2319, 6.1771, 494, 292, 18, 18, 104, 1070, 640.7264, 4.8347, 514, 292, 18, 18, 280, 1070, 15.1322, 6.5082, 534, 292, 18, 18, 102, 1082, 66.8541, 3.0809, 554, 292, 18, 18, 74, 1088, 693.0717, 6.1546);
+  mem_set_values(AST + 3648, 574, 292, 18, 18, 196, 1098, 786.5507, 4.5358, 594, 292, 18, 18, 70, 1102, 177.0558, 2.6589, 614, 292, 18, 18, 104, 1104, 851.3796, 6.8996, 634, 292, 18, 18, 114, 1104, 244.1355, 6.3973, 654, 292, 18, 18, 104, 1110, 402.5309, 3.901, 674, 292, 18, 18, 130, 1112, 505.1543, 2.5368);
+  mem_set_values(AST + 3696, 694, 292, 18, 18, 104, 1116, 442.7145, 3.398, 714, 292, 18, 18, 104, 1122, 712.4572, 4.7616, 734, 292, 18, 18, 106, 1128, 868.8526, 6.5349, 754, 292, 18, 18, 138, 1134, 316.7589, 3.7617, 774, 292, 18, 18, 292, 1136, 939.1304, 4.768, 794, 292, 18, 18, 90, 1140, 96.5155, 2.7065);
+  mem_set_values(AST + 3744, 814, 292, 18, 18, 142, 1140, 990.4255, 5.1062, 834, 292, 18, 18, 74, 1144, 54.493, 4.8006, 854, 292, 18, 18, 140, 1142, 504.1045, 4.4592, 874, 292, 18, 18, 154, 1148, 951.2804, 6.7695, 894, 292, 18, 18, 138, 1148, 124.9677, 3.1827, 914, 292, 18, 18, 138, 1156, 407.4886, 6.2531);
+  mem_set_values(AST + 3792, 934, 292, 18, 18, 146, 1160, 623.7526, 5.7842, 954, 292, 18, 18, 216, 1158, 576.0584, 3.4453, 974, 292, 18, 18, 226, 1162, 817.7654, 2.5631, 994, 292, 18, 18, 192, 1164, 698.4843, 3.3745, 2, 312, 18, 18, 104, 1168, 471.0915, 6.8881, 22, 312, 18, 18, 124, 1168, 539.0359, 2.7563);
+  mem_set_values(AST + 3840, 42, 312, 18, 18, 144, 1166, 428.7798, 5.4712, 62, 312, 18, 18, 170, 1174, 56.7067, 3.6369, 82, 312, 18, 18, 142, 1170, 18.3361, 4.9303, 102, 312, 18, 18, 178, 1172, 381.4776, 4.7666, 122, 312, 18, 18, 230, 1172, 295.8368, 5.4556, 142, 312, 18, 18, 222, 1174, 173.0862, 6.5799);
+  mem_set_values(AST + 3888, 162, 312, 18, 18, 132, 1180, 960.0815, 4.7185, 182, 312, 18, 18, 208, 1176, 465.3901, 6.3683, 202, 312, 18, 18, 104, 1182, 289.8378, 6.114, 222, 312, 18, 18, 168, 1182, 287.3076, 5.7398, 242, 312, 18, 18, 174, 1182, 334.0113, 5.2117, 262, 312, 18, 18, 252, 1182, 925.8682, 2.7445);
+  mem_set_values(AST + 3936, 282, 312, 18, 18, 126, 1186, 807.2546, 4.9383, 302, 312, 18, 18, 168, 1188, 379.0676, 4.0762, 322, 312, 18, 18, 106, 1188, 69.412, 3.6627, 342, 312, 18, 18, 164, 1188, 623.137, 2.9392, 362, 312, 18, 18, 180, 1190, 669.4073, 6.8301, 382, 312, 18, 18, 220, 1192, 980.7761, 6.5016);
+  mem_set_values(AST + 3984, 402, 312, 18, 18, 216, 1194, 806.6109, 3.3008, 422, 312, 18, 18, 106, 1194, 970.156, 3.4123, 442, 312, 18, 18, 134, 1200, 869.0498, 6.4504, 462, 312, 18, 18, 142, 1198, 621.9083, 4.8459, 482, 312, 18, 18, 184, 1200, 200.4252, 4.8376, 502, 312, 18, 18, 208, 1198, 290.6199, 3.0665);
+  mem_set_values(AST + 4032, 522, 312, 18, 18, 228, 1200, 128.1912, 6.1053, 542, 312, 18, 18, 108, 1202, 922.4034, 3.1384, 562, 312, 18, 18, 148, 1202, 13.261, 3.6863, 582, 312, 18, 18, 158, 1202, 134.439, 3.3488, 602, 312, 18, 18, 198, 1202, 583.3269, 4.4003, 622, 312, 18, 18, 224, 1206, 429.2291, 3.4253);
+  mem_set_values(AST + 4080, 702, 312, 18, 16, 108, 1210, 664.5888, 3.8028, 642, 312, 18, 18, 124, 1206, 399.1469, 4.5854, 662, 312, 18, 18, 190, 1208, 904.4245, 3.6086, 722, 312, 18, 16, 152, 1210, 718.666, 3.8922, 742, 312, 18, 16, 210, 1210, 894.4263, 4.2734, 682, 312, 18, 18, 252, 1208, 505.1617, 6.4475);
+  mem_set_values(AST + 4128, 784, 312, 18, 12, 120, 1214, 672.7609, 2.9246, 804, 312, 18, 12, 184, 1214, 136.8359, 6.9583);
+  AGL = 2004228; AGL_N = 22;
+  mem_set_values(AGL + 0, 562, 74, 32, 32, 300, 10, -0.471239, 190, 74, 42, 52, 300, 16, -0.293671, 2, 74, 44, 56, 304, 38, -0.116102, 736, 2, 42, 58, 306, 64, 0.061466, 780, 2, 48, 58, 298, 90, 0.239034, 500, 2, 56, 60, 284, 114, 0.416603, 310, 2, 60, 62, 270, 136);
+  mem_set_values(AGL + 48, 0.594171, 48, 74, 62, 56, 254, 154, 0.771739, 504, 74, 56, 36, 242, 174, 0.949307, 762, 312, 20, 16, 242, 188, 1.126876, 824, 312, 12, 8, 148, 198, 1.65958, 596, 74, 44, 26, 114, 194, 1.837149, 234, 74, 64, 48, 80, 186, 2.014717, 372, 2, 64, 62, 58);
+  mem_set_values(AGL + 96, 172, 2.192285, 74, 2, 66, 68, 38, 154, 2.369854, 244, 2, 64, 64, 22, 136, 2.547422, 438, 2, 60, 62, 12, 114, 2.72499, 558, 2, 56, 60, 6, 90, 2.902558, 830, 2, 52, 58, 4, 64, 3.080127, 884, 2, 50, 58, 6, 36, 3.257695, 936, 2, 50, 58);
+  mem_set_values(AGL + 144, 10, 10, 3.435263, 348, 74, 52, 44, 18, 0, 3.612832);
+  ABL = 2004398; ABL_N = 1;
+  mem_set_values(ABL + 0, 402, 74, 100, 40, 162, 114);
+  AHX = 60; AHY = -6; AHW = 292; AHH = 172;
+  ACX = 177.37924155581058; ACY = 82.27016908115176; ACR = 148.53894118545216;
+  AFP = 24; AFW = 452; ASH = 1250;
+  ABN = 2101700; ABN_N = 31; ABN_Y0 = 120; ABN_H = 16;
+  ASM_T = 192; ASM_G = 8; ASM_N = 4; AFD_C = 32; AFD_W = 13; AFD_H = 39;
+  AFD = 2100000; ABR = 2101000; ABR_N = 613; KWT = 2102000; KWX = 2108000; KWY = 2109200;
+  kw_nx = 21; kw_ny = 47; kw_y0 = 150; kw_y1 = 613; kw_c = 10; kw_w = 202;
+  mem_set_values(ABN + 0, 53, 145, 50, 146, 51, 142, 46, 141, 32, 141, 25, 141, 10, 141, 10, 142, 10, 144, 10, 149, 10, 150, 10, 150, 10, 153, 10, 158, 10, 158, 10, 158, 10, 159, 10, 160, 10, 160, 10, 161, 10, 166, 10, 167, 10, 166, 10, 156, 10, 154, 10, 150, 10, 148, 29, 148, 39, 148, 43, 149, 43, 157);
+  mem_set_values(ABR + 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 122, 124, 125, 126, 127, 128, 129, 144, 145, 146, 147, 148, 149, 150, 151, 152, 152, 153, 153, 154, 154, 154, 155, 155, 155, 156, 156, 156, 156, 156, 156, 156, 156, 156, 156, 156, 156, 155, 155, 155, 155, 155, 155, 156, 156, 156, 154, 153, 153, 153, 153, 154, 157, 157);
+  mem_set_values(ABR + 64, 156, 156, 155, 155, 155, 155, 154, 154, 153, 152, 152, 151, 151, 150, 149, 149, 148, 148, 148, 148, 148, 149, 151, 150, 149, 149, 148, 147, 146, 146, 145, 144, 143, 143, 143, 143, 143, 143, 143, 143, 143, 143, 144, 144, 144, 145, 146, 148, 150, 152, 154, 155, 156, 156, 157, 157, 157, 157, 157, 157, 157, 157, 157, 158);
+  mem_set_values(ABR + 128, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 158, 157, 157, 157, 156, 156, 156, 156, 156, 155, 155, 155, 155, 154, 154, 154, 154, 154, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153);
+  mem_set_values(ABR + 192, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 153, 154, 154, 154, 154, 154, 154, 154, 153, 153, 153, 153, 153, 153, 154, 154, 154, 154, 154, 154, 154, 154, 154, 154, 154, 154, 154, 154, 155, 155, 155, 155, 156, 156, 156, 156, 156, 157, 157, 157, 157, 158, 158, 158);
+  mem_set_values(ABR + 256, 158, 159, 159, 159, 159, 160, 160, 160, 161, 161, 161, 161, 161, 161, 161, 162, 162, 163, 163, 163, 163, 163, 163, 163, 163, 163, 163, 163, 163, 163, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 162, 163, 163, 164, 164, 164, 164, 164, 164, 165, 165, 165, 165, 165, 165, 165, 166, 167, 167, 168, 169, 169);
+  mem_set_values(ABR + 320, 169, 169, 169, 169, 169, 169, 169, 169, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 170, 171, 171, 171, 171, 172, 172, 172, 172);
+  mem_set_values(ABR + 384, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 172, 173, 173, 173, 173, 173, 174, 174, 175, 175, 175, 175, 175, 176, 176, 176, 177, 177, 177, 178, 178, 178, 178, 178, 179, 179, 179, 179);
+  mem_set_values(ABR + 448, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 179, 178, 178, 178, 178, 178, 178, 178, 178, 178, 178, 178, 176, 175, 174, 174, 173, 173, 172, 172, 171, 171, 170, 170, 169, 169, 168, 168, 168, 167, 167, 166, 166, 166, 166, 166);
+  mem_set_values(ABR + 512, 166, 166, 166, 166, 166, 166, 166, 166, 166, 166, 166, 166, 165, 164, 163, 163, 163, 163, 162, 162, 162, 162, 162, 162, 162, 161, 161, 161, 161, 161, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160, 160);
+  mem_set_values(ABR + 576, 160, 160, 160, 160, 161, 161, 161, 161, 161, 161, 161, 161, 161, 162, 162, 162, 162, 163, 164, 165, 166, 166, 167, 168, 169, 170, 171, 172, 172, 173, 174, 175, 176, 177, 178, 179, 179);
+  mem_set_values(KWT + 0, 0.0000, 0.0000, 0.0000, 0.0000, 0.1995, 0.0000, 0.0000, 0.0181, 0.0099, 0.1541, 0.0000, 0.0000, 1.0000, 0.5500, 0.1086, 0.0000, 0.0000, 0.9770, 0.5615, 0.0632, 0.0000, 0.0000, 0.9514, 0.5743, 0.0182, 0.0000, 0.0000, 0.9346, 0.5827, 0.0000, 0.0000, 0.0000, 0.9160, 0.5920, 0.0000, 0.0000, 0.0000, 0.9020, 0.5990, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000);
+  mem_set_values(KWT + 60, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0409, 0.0000, 0.0000, 0.9000, 0.6000, 0.0864, 0.0000, 0.0000, 0.9000, 0.6000, 0.1318, 0.0000, 0.0000, 0.0000, 0.0000, 0.1841, 0.0000, 0.0000, 0.0361, 0.0199, 0.2045, 0.0000, 0.0000, 1.0000, 0.5500, 0.1591, 0.0000, 0.0000, 1.0000, 0.5500, 0.1136);
+  mem_set_values(KWT + 120, 0.0001, 0.0001, 0.9945, 0.5528, 0.0681, 0.0014, 0.0014, 0.9715, 0.5642, 0.0227, 0.0000, 0.0000, 0.9459, 0.5770, 0.0000, 0.0000, 0.0000, 0.9216, 0.5892, 0.0000, 0.0054, 0.0054, 0.9030, 0.5985, 0.0123, 0.0000, 0.0000, 0.9001, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0041, 0.0041, 0.9000, 0.6000, 0.0114, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000);
+  mem_set_values(KWT + 180, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0409, 0.0000, 0.0000, 0.9000, 0.6000, 0.0864, 0.0000, 0.0000, 0.9000, 0.6000, 0.1318, 0.0000, 0.0000, 0.0000, 0.0000, 0.1841, 0.0000, 0.0000, 1.0000, 0.5500, 0.2135, 0.0000, 0.0000, 1.0000, 0.5500, 0.1680, 0.0003, 0.0003, 1.0000, 0.5500, 0.1226, 0.0116, 0.0116, 0.9990, 0.5505, 0.0817, 0.0452, 0.0452, 0.9878, 0.5561, 0.0499, 0.0712, 0.0712, 0.9597, 0.5702, 0.0455);
+  mem_set_values(KWT + 240, 0.0993, 0.0993, 0.9304, 0.5848, 0.0455, 0.0470, 0.0470, 0.9058, 0.5971, 0.0186, 0.0000, 0.0000, 0.9002, 0.5999, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0272, 0.0272, 0.9000, 0.6000, 0.0114, 0.0099, 0.0099, 0.9000, 0.6000, 0.0045, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0409);
+  mem_set_values(KWT + 300, 0.0000, 0.0000, 0.9000, 0.6000, 0.0864, 0.0000, 0.0000, 0.9000, 0.6000, 0.1318, 0.0000, 0.0000, 0.0000, 0.0000, 0.1841, 0.0000, 0.0000, 1.0000, 0.5500, 0.2224, 0.0000, 0.0000, 1.0000, 0.5500, 0.1816, 0.0138, 0.0138, 1.0000, 0.5500, 0.1454, 0.1277, 0.1277, 0.9998, 0.5501, 0.1136, 0.2076, 0.2076, 0.9953, 0.5524, 0.0954, 0.2278, 0.2278, 0.9712, 0.5644, 0.0909, 0.1799, 0.1799, 0.9413, 0.5794, 0.0722, 0.1058, 0.1058, 0.9129, 0.5935, 0.0318, 0.0750, 0.0750, 0.9009, 0.5995, 0.0227);
+  mem_set_values(KWT + 360, 0.0746, 0.0746, 0.9000, 0.6000, 0.0227, 0.0747, 0.0747, 0.9000, 0.6000, 0.0227, 0.0861, 0.0861, 0.9000, 0.6000, 0.0250, 0.0409, 0.0409, 0.9000, 0.6000, 0.0132, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0432, 0.0000, 0.0000, 0.9000, 0.6000, 0.0886, 0.0000, 0.0000, 0.9000, 0.6000, 0.1341, 0.0000, 0.0000, 0.0000, 0.0000, 0.1864);
+  mem_set_values(KWT + 420, 0.0000, 0.0000, 1.0000, 0.5500, 0.2452, 0.0008, 0.0008, 1.0000, 0.5500, 0.2090, 0.0845, 0.0845, 1.0000, 0.5500, 0.1772, 0.3086, 0.3086, 1.0000, 0.5500, 0.1498, 0.3712, 0.3712, 0.9978, 0.5511, 0.1408, 0.3553, 0.3553, 0.9785, 0.5608, 0.1317, 0.2193, 0.2193, 0.9504, 0.5748, 0.0955, 0.2157, 0.2157, 0.9243, 0.5878, 0.0727, 0.2075, 0.2075, 0.9036, 0.5982, 0.0682, 0.2075, 0.2075, 0.9001, 0.6000, 0.0682, 0.2074, 0.2074, 0.9000, 0.6000, 0.0682, 0.2046, 0.2046, 0.9000, 0.6000, 0.0672);
+  mem_set_values(KWT + 480, 0.0743, 0.0743, 0.9000, 0.6000, 0.0218, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0455, 0.0000, 0.0000, 0.9000, 0.6000, 0.0909, 0.0000, 0.0000, 0.9000, 0.6000, 0.1364, 0.0000, 0.0000, 0.0000, 0.0000, 0.1886, 0.0025, 0.0025, 1.0000, 0.5500, 0.2727, 0.0334, 0.0334, 1.0000, 0.5500, 0.2408, 0.2680, 0.2680, 1.0000, 0.5500, 0.2134);
+  mem_set_values(KWT + 540, 0.4577, 0.4577, 1.0000, 0.5500, 0.1952, 0.4872, 0.4872, 0.9989, 0.5506, 0.1863, 0.4323, 0.4323, 0.9839, 0.5580, 0.1591, 0.3387, 0.3387, 0.9567, 0.5716, 0.1317, 0.3262, 0.3262, 0.9356, 0.5822, 0.1181, 0.3241, 0.3241, 0.9099, 0.5951, 0.1136, 0.3241, 0.3241, 0.9005, 0.5997, 0.1136, 0.3239, 0.3239, 0.9000, 0.6000, 0.1136, 0.2385, 0.2385, 0.9000, 0.6000, 0.0794, 0.1316, 0.1316, 0.9000, 0.6000, 0.0395, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000);
+  mem_set_values(KWT + 600, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0007, 0.0007, 0.9000, 0.6000, 0.0023, 0.0000, 0.0000, 0.9000, 0.6000, 0.0477, 0.0000, 0.0000, 0.9000, 0.6000, 0.0932, 0.0000, 0.0000, 0.9000, 0.6000, 0.1386, 0.0000, 0.0000, 0.0000, 0.0000, 0.1909, 0.0695, 0.0695, 1.0000, 0.5500, 0.3045, 0.2060, 0.2060, 1.0000, 0.5500, 0.2771, 0.4304, 0.4304, 1.0000, 0.5500, 0.2496, 0.5024, 0.5024, 1.0000, 0.5500, 0.2407, 0.5046, 0.5046, 0.9995, 0.5503, 0.2227, 0.4981, 0.4981, 0.9886, 0.5557, 0.1953);
+  mem_set_values(KWT + 660, 0.4595, 0.4595, 0.9616, 0.5692, 0.1725, 0.4299, 0.4299, 0.9425, 0.5787, 0.1636, 0.4398, 0.4398, 0.9165, 0.5917, 0.1591, 0.4401, 0.4401, 0.9012, 0.5994, 0.1591, 0.3914, 0.3914, 0.9000, 0.6000, 0.1394, 0.2912, 0.2912, 0.9000, 0.6000, 0.0994, 0.1859, 0.1859, 0.9000, 0.6000, 0.0595, 0.0639, 0.0639, 0.9000, 0.6000, 0.0195, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0000, 0.0000, 0.9000, 0.6000, 0.0000, 0.0016, 0.0016, 0.9000, 0.6000, 0.0045, 0.0000, 0.0000, 0.9000, 0.6000, 0.0500);
+  mem_set_values(KWT + 720, 0.0000, 0.0000, 0.9000, 0.6000, 0.0955, 0.0000, 0.0000, 0.9000, 0.6000, 0.1409, 0.0000, 0.0000, 0.0000, 0.0000, 0.1932, 0.2501, 0.2501, 1.0000, 0.5500, 0.3407, 0.3833, 0.3833, 1.0000, 0.5500, 0.3133, 0.5081, 0.5081, 1.0000, 0.5500, 0.2951, 0.5264, 0.5264, 1.0000, 0.5500, 0.2862, 0.5208, 0.5208, 0.9997, 0.5501, 0.2590, 0.5142, 0.5142, 0.9925, 0.5538, 0.2315, 0.5014, 0.5014, 0.9661, 0.5670, 0.2180, 0.4689, 0.4689, 0.9446, 0.5777, 0.2090, 0.5066, 0.5066, 0.9180, 0.5910, 0.2045);
+  mem_set_values(KWT + 780, 0.5063, 0.5063, 0.9014, 0.5993, 0.1993, 0.4458, 0.4458, 0.9000, 0.6000, 0.1593, 0.3435, 0.3435, 0.9000, 0.6000, 0.1194, 0.2403, 0.2403, 0.9000, 0.6000, 0.0813, 0.1459, 0.1459, 0.9000, 0.6000, 0.0490, 0.0576, 0.0576, 0.9000, 0.6000, 0.0213, 0.0124, 0.0124, 0.9000, 0.6000, 0.0064, 0.0104, 0.0104, 0.9000, 0.6000, 0.0368, 0.0001, 0.0001, 0.9000, 0.6000, 0.0673, 0.0000, 0.0000, 0.9000, 0.6000, 0.1044, 0.0000, 0.0000, 0.9000, 0.6000, 0.1499, 0.0000, 0.0000, 0.0000, 0.0000, 0.2021);
+  mem_set_values(KWT + 840, 0.4674, 0.4674, 1.0000, 0.5500, 0.3769, 0.5119, 0.5119, 1.0000, 0.5500, 0.3495, 0.5447, 0.5447, 1.0000, 0.5500, 0.3406, 0.5436, 0.5436, 1.0000, 0.5500, 0.3226, 0.5371, 0.5371, 0.9999, 0.5501, 0.2952, 0.5315, 0.5315, 0.9953, 0.5523, 0.2724, 0.5178, 0.5178, 0.9709, 0.5645, 0.2634, 0.4617, 0.4617, 0.9452, 0.5774, 0.2545, 0.5234, 0.5234, 0.9168, 0.5916, 0.2500, 0.5183, 0.5183, 0.9012, 0.5994, 0.2192, 0.5057, 0.5057, 0.9000, 0.6000, 0.1812, 0.4098, 0.4098, 0.9000, 0.6000, 0.1449);
+  mem_set_values(KWT + 900, 0.3155, 0.3155, 0.9000, 0.6000, 0.1127, 0.2219, 0.2219, 0.9000, 0.6000, 0.0850, 0.1259, 0.1259, 0.9000, 0.6000, 0.0577, 0.0624, 0.0624, 0.9000, 0.6000, 0.0472, 0.0090, 0.0090, 0.9000, 0.6000, 0.0700, 0.0000, 0.0000, 0.9000, 0.6000, 0.1004, 0.0000, 0.0000, 0.9000, 0.6000, 0.1309, 0.0000, 0.0000, 0.9000, 0.6000, 0.1671, 0.0000, 0.0000, 0.0000, 0.0000, 0.2111, 0.5656, 0.5656, 1.0000, 0.5500, 0.4131, 0.5660, 0.5660, 1.0000, 0.5500, 0.3950, 0.5667, 0.5667, 1.0000, 0.5500, 0.3860);
+  mem_set_values(KWT + 960, 0.5603, 0.5603, 1.0000, 0.5500, 0.3588, 0.5536, 0.5536, 1.0000, 0.5500, 0.3314, 0.5501, 0.5501, 0.9973, 0.5513, 0.3178, 0.5336, 0.5336, 0.9762, 0.5619, 0.3089, 0.4445, 0.4445, 0.9460, 0.5770, 0.2999, 0.5354, 0.5354, 0.9154, 0.5923, 0.2810, 0.5319, 0.5319, 0.9009, 0.5995, 0.2448, 0.5208, 0.5208, 0.9000, 0.6000, 0.2086, 0.4921, 0.4921, 0.9000, 0.6000, 0.1763, 0.4019, 0.4019, 0.9000, 0.6000, 0.1486, 0.2944, 0.2944, 0.9000, 0.6000, 0.1212, 0.1821, 0.1821, 0.9000, 0.6000, 0.0981);
+  mem_set_values(KWT + 1020, 0.0893, 0.0893, 0.9000, 0.6000, 0.0927, 0.0076, 0.0076, 0.9000, 0.6000, 0.1053, 0.0000, 0.0000, 0.9000, 0.6000, 0.1336, 0.0000, 0.0000, 0.9000, 0.6000, 0.1640, 0.0000, 0.0000, 0.9000, 0.6000, 0.1945, 0.0000, 0.0000, 0.0000, 0.0000, 0.2362, 0.5905, 0.5905, 1.0000, 0.5500, 0.4494, 0.5883, 0.5883, 1.0000, 0.5500, 0.4404, 0.5839, 0.5839, 1.0000, 0.5500, 0.4224, 0.5772, 0.5772, 1.0000, 0.5500, 0.3950, 0.5716, 0.5716, 1.0000, 0.5500, 0.3722, 0.5691, 0.5691, 0.9985, 0.5507, 0.3633);
+  mem_set_values(KWT + 1080, 0.5492, 0.5492, 0.9815, 0.5593, 0.3543, 0.4161, 0.4161, 0.9475, 0.5763, 0.3447, 0.5442, 0.5442, 0.9140, 0.5930, 0.3084, 0.5461, 0.5461, 0.9008, 0.5996, 0.2722, 0.5360, 0.5360, 0.9000, 0.6000, 0.2400, 0.5203, 0.5203, 0.9000, 0.6000, 0.2123, 0.4869, 0.4869, 0.9000, 0.6000, 0.1848, 0.3728, 0.3728, 0.9000, 0.6000, 0.1575, 0.2531, 0.2531, 0.9000, 0.6000, 0.1435, 0.1337, 0.1337, 0.9000, 0.6000, 0.1382, 0.0219, 0.0219, 0.9000, 0.6000, 0.1471, 0.0001, 0.0001, 0.9000, 0.6000, 0.1690);
+  mem_set_values(KWT + 1140, 0.0000, 0.0000, 0.9000, 0.6000, 0.1972, 0.0000, 0.0000, 0.9000, 0.6000, 0.2277, 0.0000, 0.0000, 0.0000, 0.0000, 0.2636, 0.6102, 0.6102, 1.0000, 0.5500, 0.4948, 0.6080, 0.6080, 1.0000, 0.5500, 0.4859, 0.6012, 0.6012, 1.0000, 0.5500, 0.4587, 0.5943, 0.5943, 1.0000, 0.5500, 0.4313, 0.5909, 0.5909, 1.0000, 0.5500, 0.4177, 0.5883, 0.5883, 0.9993, 0.5504, 0.4087, 0.5643, 0.5643, 0.9864, 0.5568, 0.3998, 0.3741, 0.3741, 0.9497, 0.5752, 0.3721, 0.5489, 0.5489, 0.9128, 0.5936, 0.3359);
+  mem_set_values(KWT + 1200, 0.5615, 0.5615, 0.9006, 0.5997, 0.3036, 0.5529, 0.5529, 0.9000, 0.6000, 0.2759, 0.5376, 0.5376, 0.9000, 0.6000, 0.2485, 0.5043, 0.5043, 0.9000, 0.6000, 0.2211, 0.4348, 0.4348, 0.9000, 0.6000, 0.1979, 0.3208, 0.3208, 0.9000, 0.6000, 0.1890, 0.1875, 0.1875, 0.9000, 0.6000, 0.1836, 0.0570, 0.0570, 0.9000, 0.6000, 0.1926, 0.0013, 0.0013, 0.9000, 0.6000, 0.2052, 0.0000, 0.0000, 0.9000, 0.6000, 0.2326, 0.0000, 0.0000, 0.9000, 0.6000, 0.2609, 0.0000, 0.0000, 0.0000, 0.0000, 0.2954);
+  mem_set_values(KWT + 1260, 0.6302, 0.6302, 1.0000, 0.5500, 0.5403, 0.6256, 0.6256, 1.0000, 0.5500, 0.5223, 0.6187, 0.6187, 1.0000, 0.5500, 0.4949, 0.6129, 0.6129, 1.0000, 0.5500, 0.4721, 0.6106, 0.6106, 1.0000, 0.5500, 0.4631, 0.6078, 0.6078, 0.9997, 0.5502, 0.4542, 0.5767, 0.5767, 0.9907, 0.5547, 0.4357, 0.3608, 0.3608, 0.9527, 0.5737, 0.3995, 0.5484, 0.5484, 0.9117, 0.5941, 0.3672, 0.5779, 0.5779, 0.9005, 0.5998, 0.3395, 0.5701, 0.5701, 0.9000, 0.6000, 0.3121, 0.5554, 0.5554, 0.9000, 0.6000, 0.2847);
+  mem_set_values(KWT + 1320, 0.5220, 0.5220, 0.9000, 0.6000, 0.2574, 0.4509, 0.4509, 0.9000, 0.6000, 0.2434, 0.3257, 0.3257, 0.9000, 0.6000, 0.2344, 0.1769, 0.1769, 0.9000, 0.6000, 0.2291, 0.0573, 0.0573, 0.9000, 0.6000, 0.2380, 0.0028, 0.0028, 0.9000, 0.6000, 0.2470, 0.0000, 0.0000, 0.9000, 0.6000, 0.2688, 0.0000, 0.0000, 0.9000, 0.6000, 0.2963, 0.0000, 0.0000, 0.0022, 0.0015, 0.3286, 0.6505, 0.6505, 1.0000, 0.5500, 0.5857, 0.6435, 0.6435, 1.0000, 0.5500, 0.5585, 0.6364, 0.6364, 1.0000, 0.5500, 0.5311);
+  mem_set_values(KWT + 1380, 0.6329, 0.6329, 1.0000, 0.5500, 0.5175, 0.6306, 0.6306, 1.0000, 0.5500, 0.5086, 0.6275, 0.6275, 0.9998, 0.5501, 0.4993, 0.5863, 0.5863, 0.9940, 0.5530, 0.4631, 0.3518, 0.3518, 0.9566, 0.5717, 0.4309, 0.5406, 0.5406, 0.9108, 0.5946, 0.4032, 0.5939, 0.5939, 0.9004, 0.5998, 0.3757, 0.5876, 0.5876, 0.9000, 0.6000, 0.3483, 0.5735, 0.5735, 0.9000, 0.6000, 0.3209, 0.5419, 0.5419, 0.9000, 0.6000, 0.2978, 0.4702, 0.4702, 0.9000, 0.6000, 0.2888, 0.3344, 0.3344, 0.9000, 0.6000, 0.2799);
+  mem_set_values(KWT + 1440, 0.1607, 0.1607, 0.9000, 0.6000, 0.2745, 0.0264, 0.0264, 0.9000, 0.6000, 0.2835, 0.0007, 0.0007, 0.9000, 0.6000, 0.2924, 0.0000, 0.0000, 0.9000, 0.6000, 0.3051, 0.0000, 0.0000, 0.9000, 0.6000, 0.3325, 0.0000, 0.0000, 0.2548, 0.1699, 0.3640, 0.6687, 0.6687, 1.0000, 0.5500, 0.6222, 0.6616, 0.6616, 1.0000, 0.5500, 0.5947, 0.6556, 0.6556, 1.0000, 0.5500, 0.5720, 0.6533, 0.6533, 1.0000, 0.5500, 0.5630, 0.6510, 0.6510, 1.0000, 0.5500, 0.5541, 0.6429, 0.6429, 0.9999, 0.5500, 0.5268);
+  mem_set_values(KWT + 1500, 0.5954, 0.5954, 0.9963, 0.5518, 0.4945, 0.3405, 0.3405, 0.9610, 0.5695, 0.4668, 0.5250, 0.5250, 0.9100, 0.5950, 0.4394, 0.6091, 0.6091, 0.9003, 0.5998, 0.4120, 0.6054, 0.6054, 0.9000, 0.6000, 0.3846, 0.5925, 0.5925, 0.9000, 0.6000, 0.3572, 0.5669, 0.5669, 0.9000, 0.6000, 0.3432, 0.5034, 0.5034, 0.9000, 0.6000, 0.3343, 0.3782, 0.3782, 0.9000, 0.6000, 0.3253, 0.2086, 0.2086, 0.9000, 0.6000, 0.3200, 0.0589, 0.0589, 0.9000, 0.6000, 0.3289, 0.0036, 0.0036, 0.9000, 0.6000, 0.3379);
+  mem_set_values(KWT + 1560, 0.0000, 0.0000, 0.9000, 0.6000, 0.3468, 0.0000, 0.0000, 0.9000, 0.6000, 0.3687, 0.0000, 0.0000, 0.9000, 0.6000, 0.4002, 0.6871, 0.6871, 1.0000, 0.5500, 0.6584, 0.6799, 0.6799, 1.0000, 0.5500, 0.6310, 0.6763, 0.6763, 1.0000, 0.5500, 0.6174, 0.6740, 0.6740, 1.0000, 0.5500, 0.6085, 0.6692, 0.6692, 1.0000, 0.5500, 0.5904, 0.6588, 0.6588, 1.0000, 0.5500, 0.5581, 0.5967, 0.5967, 0.9970, 0.5515, 0.5304, 0.3109, 0.3109, 0.9609, 0.5696, 0.5030, 0.5244, 0.5244, 0.9081, 0.5960, 0.4756);
+  mem_set_values(KWT + 1620, 0.6254, 0.6254, 0.9002, 0.5999, 0.4482, 0.6235, 0.6235, 0.9000, 0.6000, 0.4208, 0.6135, 0.6135, 0.9000, 0.6000, 0.3976, 0.5959, 0.5959, 0.9000, 0.6000, 0.3887, 0.5505, 0.5505, 0.9000, 0.6000, 0.3797, 0.4599, 0.4599, 0.9000, 0.6000, 0.3708, 0.3339, 0.3339, 0.9000, 0.6000, 0.3654, 0.1983, 0.1983, 0.9000, 0.6000, 0.3744, 0.0250, 0.0250, 0.9000, 0.6000, 0.3833, 0.0001, 0.0001, 0.9000, 0.6000, 0.3923, 0.0000, 0.0000, 0.9000, 0.6000, 0.4049, 0.0000, 0.0000, 0.9000, 0.6000, 0.4364);
+  mem_set_values(KWT + 1680, 0.7058, 0.7058, 1.0000, 0.5500, 0.6946, 0.6997, 0.6997, 1.0000, 0.5500, 0.6718, 0.6973, 0.6973, 1.0000, 0.5500, 0.6629, 0.6949, 0.6949, 1.0000, 0.5500, 0.6539, 0.6863, 0.6863, 1.0000, 0.5500, 0.6218, 0.6741, 0.6741, 0.9999, 0.5501, 0.5941, 0.5749, 0.5749, 0.9949, 0.5526, 0.5667, 0.2559, 0.2559, 0.9491, 0.5754, 0.5392, 0.5682, 0.5682, 0.9047, 0.5976, 0.5118, 0.6455, 0.6455, 0.9001, 0.6000, 0.4844, 0.6418, 0.6418, 0.9000, 0.6000, 0.4571, 0.6360, 0.6360, 0.9000, 0.6000, 0.4431);
+  mem_set_values(KWT + 1740, 0.6254, 0.6254, 0.9000, 0.6000, 0.4342, 0.5996, 0.5996, 0.9000, 0.6000, 0.4252, 0.5488, 0.5488, 0.9000, 0.6000, 0.4163, 0.4783, 0.4783, 0.9000, 0.6000, 0.4109, 0.3923, 0.3923, 0.9000, 0.6000, 0.4198, 0.0926, 0.0926, 0.9000, 0.6000, 0.4288, 0.0005, 0.0005, 0.9000, 0.6000, 0.4377, 0.0000, 0.0000, 0.9000, 0.6000, 0.4467, 0.0000, 0.0000, 0.9000, 0.6000, 0.4727, 0.7248, 0.7248, 1.0000, 0.5500, 0.7308, 0.7211, 0.7211, 1.0000, 0.5500, 0.7173, 0.7187, 0.7187, 1.0000, 0.5500, 0.7083);
+  mem_set_values(KWT + 1800, 0.7125, 0.7125, 1.0000, 0.5500, 0.6854, 0.7048, 0.7048, 1.0000, 0.5500, 0.6577, 0.6852, 0.6852, 0.9997, 0.5502, 0.6303, 0.5272, 0.5272, 0.9895, 0.5553, 0.6029, 0.3532, 0.3532, 0.9328, 0.5836, 0.5755, 0.6237, 0.6237, 0.9021, 0.5989, 0.5481, 0.6662, 0.6662, 0.9000, 0.6000, 0.5206, 0.6614, 0.6614, 0.9000, 0.6000, 0.4975, 0.6581, 0.6581, 0.9000, 0.6000, 0.4886, 0.6522, 0.6522, 0.9000, 0.6000, 0.4796, 0.6401, 0.6401, 0.9000, 0.6000, 0.4707, 0.6175, 0.6175, 0.9000, 0.6000, 0.4617);
+  mem_set_values(KWT + 1860, 0.5872, 0.5872, 0.9000, 0.6000, 0.4563, 0.5484, 0.5484, 0.9000, 0.6000, 0.4653, 0.2330, 0.2330, 0.9000, 0.6000, 0.4742, 0.0034, 0.0034, 0.9000, 0.6000, 0.4832, 0.0000, 0.0000, 0.9000, 0.6000, 0.4921, 0.0000, 0.0000, 0.9000, 0.6000, 0.5089, 0.7452, 0.7452, 1.0000, 0.5500, 0.7717, 0.7428, 0.7428, 1.0000, 0.5500, 0.7627, 0.7390, 0.7390, 1.0000, 0.5500, 0.7490, 0.7314, 0.7314, 1.0000, 0.5500, 0.7213, 0.7233, 0.7233, 1.0000, 0.5500, 0.6939, 0.6882, 0.6882, 0.9991, 0.5504, 0.6665);
+  mem_set_values(KWT + 1920, 0.4574, 0.4574, 0.9802, 0.5599, 0.6391, 0.4570, 0.4570, 0.9193, 0.5904, 0.6117, 0.6675, 0.6675, 0.9008, 0.5996, 0.5843, 0.6858, 0.6858, 0.9000, 0.6000, 0.5570, 0.6824, 0.6824, 0.9000, 0.6000, 0.5430, 0.6797, 0.6797, 0.9000, 0.6000, 0.5340, 0.6762, 0.6762, 0.9000, 0.6000, 0.5251, 0.6706, 0.6706, 0.9000, 0.6000, 0.5161, 0.6618, 0.6618, 0.9000, 0.6000, 0.5072, 0.6511, 0.6511, 0.9000, 0.6000, 0.5018, 0.6340, 0.6340, 0.9000, 0.6000, 0.5107, 0.3323, 0.3323, 0.9000, 0.6000, 0.5197);
+  mem_set_values(KWT + 1980, 0.0067, 0.0067, 0.9000, 0.6000, 0.5286, 0.0000, 0.0000, 0.9000, 0.6000, 0.5376, 0.0000, 0.0000, 0.9000, 0.6000, 0.5479, 0.7672, 0.7672, 1.0000, 0.5500, 0.8171, 0.7648, 0.7648, 1.0000, 0.5500, 0.8082, 0.7583, 0.7583, 1.0000, 0.5500, 0.7850, 0.7507, 0.7507, 1.0000, 0.5500, 0.7576, 0.7412, 0.7412, 1.0000, 0.5500, 0.7301, 0.6774, 0.6774, 0.9978, 0.5511, 0.7027, 0.3715, 0.3715, 0.9664, 0.5668, 0.6753, 0.5540, 0.5540, 0.9101, 0.5949, 0.6479, 0.7006, 0.7006, 0.9003, 0.5998, 0.6205);
+  mem_set_values(KWT + 2040, 0.7060, 0.7060, 0.9000, 0.6000, 0.5974, 0.7037, 0.7037, 0.9000, 0.6000, 0.5884, 0.7011, 0.7011, 0.9000, 0.6000, 0.5795, 0.6984, 0.6984, 0.9000, 0.6000, 0.5705, 0.6952, 0.6952, 0.9000, 0.6000, 0.5616, 0.6911, 0.6911, 0.9000, 0.6000, 0.5526, 0.6874, 0.6874, 0.9000, 0.6000, 0.5472, 0.6776, 0.6776, 0.9000, 0.6000, 0.5562, 0.3730, 0.3730, 0.9000, 0.6000, 0.5651, 0.0084, 0.0084, 0.9000, 0.6000, 0.5741, 0.0000, 0.0000, 0.9000, 0.6000, 0.5830, 0.0000, 0.0000, 0.9000, 0.6000, 0.5933);
+  mem_set_values(KWT + 2100, 0.7896, 0.7896, 1.0000, 0.5500, 0.8626, 0.7856, 0.7856, 1.0000, 0.5500, 0.8486, 0.7779, 0.7779, 1.0000, 0.5500, 0.8212, 0.7702, 0.7702, 1.0000, 0.5500, 0.7938, 0.7571, 0.7571, 0.9999, 0.5501, 0.7664, 0.6466, 0.6466, 0.9949, 0.5525, 0.7390, 0.2845, 0.2845, 0.9496, 0.5752, 0.7115, 0.6363, 0.6363, 0.9049, 0.5976, 0.6841, 0.7268, 0.7268, 0.9001, 0.6000, 0.6568, 0.7277, 0.7277, 0.9000, 0.6000, 0.6428, 0.7252, 0.7252, 0.9000, 0.6000, 0.6339, 0.7227, 0.7227, 0.9000, 0.6000, 0.6249);
+  mem_set_values(KWT + 2160, 0.7201, 0.7201, 0.9000, 0.6000, 0.6160, 0.7175, 0.7175, 0.9000, 0.6000, 0.6070, 0.7147, 0.7147, 0.9000, 0.6000, 0.5981, 0.7127, 0.7127, 0.9000, 0.6000, 0.5927, 0.7059, 0.7059, 0.9000, 0.6000, 0.6016, 0.4065, 0.4065, 0.9000, 0.6000, 0.6106, 0.0104, 0.0104, 0.9000, 0.6000, 0.6195, 0.0000, 0.0000, 0.9000, 0.6000, 0.6285, 0.0000, 0.0000, 0.9000, 0.6000, 0.6388, 0.8122, 0.8122, 1.0000, 0.5500, 0.9080, 0.8056, 0.8056, 1.0000, 0.5500, 0.8848, 0.7978, 0.7978, 1.0000, 0.5500, 0.8574);
+  mem_set_values(KWT + 2220, 0.7898, 0.7898, 1.0000, 0.5500, 0.8300, 0.7684, 0.7684, 0.9997, 0.5502, 0.8026, 0.5916, 0.5916, 0.9895, 0.5553, 0.7752, 0.3965, 0.3965, 0.9328, 0.5836, 0.7478, 0.7008, 0.7008, 0.9021, 0.5989, 0.7204, 0.7504, 0.7504, 0.9000, 0.6000, 0.6972, 0.7496, 0.7496, 0.9000, 0.6000, 0.6883, 0.7471, 0.7471, 0.9000, 0.6000, 0.6793, 0.7445, 0.7445, 0.9000, 0.6000, 0.6704, 0.7420, 0.7420, 0.9000, 0.6000, 0.6614, 0.7394, 0.7394, 0.9000, 0.6000, 0.6525, 0.7368, 0.7368, 0.9000, 0.6000, 0.6435);
+  mem_set_values(KWT + 2280, 0.7352, 0.7352, 0.9000, 0.6000, 0.6382, 0.7301, 0.7301, 0.9000, 0.6000, 0.6471, 0.4425, 0.4425, 0.9000, 0.6000, 0.6561, 0.0131, 0.0131, 0.9000, 0.6000, 0.6650, 0.0000, 0.0000, 0.9000, 0.6000, 0.6740, 0.0000, 0.0000, 0.9000, 0.6000, 0.6842, 0.8337, 0.8337, 1.0000, 0.5500, 0.9485, 0.8258, 0.8258, 1.0000, 0.5500, 0.9211, 0.8179, 0.8179, 1.0000, 0.5500, 0.8936, 0.8094, 0.8094, 1.0000, 0.5500, 0.8662, 0.7706, 0.7706, 0.9991, 0.5504, 0.8388, 0.5125, 0.5125, 0.9802, 0.5599, 0.8114);
+  mem_set_values(KWT + 2340, 0.5124, 0.5124, 0.9193, 0.5904, 0.7840, 0.7490, 0.7490, 0.9008, 0.5996, 0.7567, 0.7738, 0.7738, 0.9000, 0.6000, 0.7427, 0.7718, 0.7718, 0.9000, 0.6000, 0.7337, 0.7693, 0.7693, 0.9000, 0.6000, 0.7248, 0.7667, 0.7667, 0.9000, 0.6000, 0.7158, 0.7641, 0.7641, 0.9000, 0.6000, 0.7069, 0.7615, 0.7615, 0.9000, 0.6000, 0.6979, 0.7589, 0.7589, 0.9000, 0.6000, 0.6890, 0.7574, 0.7574, 0.9000, 0.6000, 0.6836, 0.7533, 0.7533, 0.9000, 0.6000, 0.6926, 0.4698, 0.4698, 0.9000, 0.6000, 0.7015);
+  mem_set_values(KWT + 2400, 0.0152, 0.0152, 0.9000, 0.6000, 0.7105, 0.0000, 0.0000, 0.9000, 0.6000, 0.7194, 0.0000, 0.0000, 0.9000, 0.6000, 0.7297, 0.8543, 0.8543, 1.0000, 0.5500, 0.9847, 0.8463, 0.8463, 1.0000, 0.5500, 0.9573, 0.8383, 0.8383, 1.0000, 0.5500, 0.9299, 0.8282, 0.8282, 1.0000, 0.5500, 0.9025, 0.7574, 0.7574, 0.9978, 0.5511, 0.8750, 0.4156, 0.4156, 0.9664, 0.5668, 0.8476, 0.6203, 0.6203, 0.9101, 0.5949, 0.8202, 0.7861, 0.7861, 0.9003, 0.5998, 0.7971, 0.7968, 0.7968, 0.9000, 0.6000, 0.7881);
+  mem_set_values(KWT + 2460, 0.7944, 0.7944, 0.9000, 0.6000, 0.7792, 0.7918, 0.7918, 0.9000, 0.6000, 0.7702, 0.7891, 0.7891, 0.9000, 0.6000, 0.7613, 0.7865, 0.7865, 0.9000, 0.6000, 0.7523, 0.7839, 0.7839, 0.9000, 0.6000, 0.7434, 0.7813, 0.7813, 0.9000, 0.6000, 0.7344, 0.7797, 0.7797, 0.9000, 0.6000, 0.7291, 0.7771, 0.7771, 0.9000, 0.6000, 0.7380, 0.5316, 0.5316, 0.9000, 0.6000, 0.7470, 0.0241, 0.0241, 0.9000, 0.6000, 0.7559, 0.0000, 0.0000, 0.9000, 0.6000, 0.7649, 0.0000, 0.0000, 0.9000, 0.6000, 0.7752);
+  mem_set_values(KWT + 2520, 0.8751, 0.8751, 1.0000, 0.5500, 1.0209, 0.8670, 0.8670, 1.0000, 0.5500, 0.9935, 0.8589, 0.8589, 1.0000, 0.5500, 0.9661, 0.8448, 0.8448, 0.9999, 0.5501, 0.9387, 0.7220, 0.7220, 0.9950, 0.5525, 0.9113, 0.3175, 0.3175, 0.9496, 0.5752, 0.8839, 0.7112, 0.7112, 0.9049, 0.5976, 0.8565, 0.8169, 0.8169, 0.9001, 0.6000, 0.8425, 0.8198, 0.8198, 0.9000, 0.6000, 0.8336, 0.8172, 0.8172, 0.9000, 0.6000, 0.8246, 0.8146, 0.8146, 0.9000, 0.6000, 0.8157, 0.8119, 0.8119, 0.9000, 0.6000, 0.8067);
+  mem_set_values(KWT + 2580, 0.8093, 0.8093, 0.9000, 0.6000, 0.7978, 0.8066, 0.8066, 0.9000, 0.6000, 0.7888, 0.8040, 0.8040, 0.9000, 0.6000, 0.7799, 0.8024, 0.8024, 0.9000, 0.6000, 0.7745, 0.8010, 0.8010, 0.9000, 0.6000, 0.7835, 0.5927, 0.5927, 0.9000, 0.6000, 0.7924, 0.0356, 0.0356, 0.9000, 0.6000, 0.8014, 0.0000, 0.0000, 0.9000, 0.6000, 0.8103, 0.0000, 0.0000, 0.9000, 0.6000, 0.8206, 0.8962, 0.8962, 1.0000, 0.5500, 1.0571, 0.8880, 0.8880, 1.0000, 0.5500, 1.0297, 0.8796, 0.8796, 1.0000, 0.5500, 1.0023);
+  mem_set_values(KWT + 2640, 0.8563, 0.8563, 0.9997, 0.5502, 0.9749, 0.6596, 0.6596, 0.9897, 0.5552, 0.9475, 0.4393, 0.4393, 0.9329, 0.5835, 0.9201, 0.7827, 0.7827, 0.9021, 0.5989, 0.8969, 0.8436, 0.8436, 0.9000, 0.6000, 0.8880, 0.8430, 0.8430, 0.9000, 0.6000, 0.8790, 0.8403, 0.8403, 0.9000, 0.6000, 0.8701, 0.8377, 0.8377, 0.9000, 0.6000, 0.8611, 0.8350, 0.8350, 0.9000, 0.6000, 0.8522, 0.8323, 0.8323, 0.9000, 0.6000, 0.8432, 0.8297, 0.8297, 0.9000, 0.6000, 0.8343, 0.8270, 0.8270, 0.9000, 0.6000, 0.8253);
+  mem_set_values(KWT + 2700, 0.8254, 0.8254, 0.9000, 0.6000, 0.8200, 0.8247, 0.8247, 0.9000, 0.6000, 0.8289, 0.6303, 0.6303, 0.9000, 0.6000, 0.8379, 0.0430, 0.0430, 0.9000, 0.6000, 0.8468, 0.0000, 0.0000, 0.9000, 0.6000, 0.8558, 0.0000, 0.0000, 0.9000, 0.6000, 0.8661, 0.9175, 0.9175, 1.0000, 0.5500, 1.0934, 0.9092, 0.9092, 1.0000, 0.5500, 1.0659, 0.9002, 0.9002, 1.0000, 0.5500, 1.0385, 0.8576, 0.8576, 0.9992, 0.5504, 1.0111, 0.5706, 0.5706, 0.9808, 0.5596, 0.9837, 0.5639, 0.5639, 0.9194, 0.5903, 0.9564);
+  mem_set_values(KWT + 2760, 0.8375, 0.8375, 0.9008, 0.5996, 0.9424, 0.8685, 0.8685, 0.9000, 0.6000, 0.9334, 0.8665, 0.8665, 0.9000, 0.6000, 0.9245, 0.8638, 0.8638, 0.9000, 0.6000, 0.9155, 0.8611, 0.8611, 0.9000, 0.6000, 0.9066, 0.8584, 0.8584, 0.9000, 0.6000, 0.8976, 0.8557, 0.8557, 0.9000, 0.6000, 0.8887, 0.8530, 0.8530, 0.9000, 0.6000, 0.8797, 0.8503, 0.8503, 0.9000, 0.6000, 0.8708, 0.8487, 0.8487, 0.9000, 0.6000, 0.8654, 0.8485, 0.8485, 0.9000, 0.5999, 0.8744, 0.6580, 0.6580, 0.8999, 0.5999, 0.8833);
+  mem_set_values(KWT + 2820, 0.0475, 0.0475, 0.8999, 0.5998, 0.8923, 0.0000, 0.0000, 0.8999, 0.5997, 0.9012, 0.0000, 0.0000, 0.8998, 0.5996, 0.9115, 0.9391, 0.9391, 1.0000, 0.5500, 1.1296, 0.9307, 0.9307, 1.0000, 0.5500, 1.1022, 0.9200, 0.9200, 1.0000, 0.5500, 1.0748, 0.8418, 0.8418, 0.9980, 0.5510, 1.0473, 0.4622, 0.4622, 0.9675, 0.5662, 1.0199, 0.6815, 0.6815, 0.9103, 0.5948, 0.9968, 0.8794, 0.8794, 0.9003, 0.5998, 0.9879, 0.8928, 0.8928, 0.9000, 0.5999, 0.9789, 0.8903, 0.8903, 0.8999, 0.5999, 0.9700);
+  mem_set_values(KWT + 2880, 0.8876, 0.8876, 0.8999, 0.5998, 0.9610, 0.8848, 0.8848, 0.8998, 0.5997, 0.9521, 0.8821, 0.8821, 0.8997, 0.5995, 0.9431, 0.8794, 0.8794, 0.8996, 0.5992, 0.9342, 0.8766, 0.8766, 0.8993, 0.5987, 0.9252, 0.8739, 0.8739, 0.8990, 0.5980, 0.9163, 0.8723, 0.8723, 0.8986, 0.5971, 0.9109, 0.8727, 0.8727, 0.8979, 0.5959, 0.9198, 0.7020, 0.7020, 0.8972, 0.5944, 0.9288, 0.0624, 0.0624, 0.8966, 0.5931, 0.9377, 0.0000, 0.0001, 0.8960, 0.5921, 0.9467, 0.0000, 0.0000, 0.8955, 0.5909, 0.9570);
+  mem_set_values(KWT + 2940, 0.9609, 0.9609, 0.9999, 0.5500, 1.1658, 0.9524, 0.9524, 0.9998, 0.5499, 1.1384, 0.9373, 0.9373, 0.9993, 0.5498, 1.1110, 0.8014, 0.8014, 0.9944, 0.5519, 1.0836, 0.3470, 0.3470, 0.9494, 0.5735, 1.0563, 0.7840, 0.7840, 0.9039, 0.5958, 1.0423, 0.9129, 0.9129, 0.8989, 0.5975, 1.0333, 0.9171, 0.9171, 0.8983, 0.5965, 1.0244, 0.9144, 0.9144, 0.8976, 0.5951, 1.0154, 0.9117, 0.9117, 0.8967, 0.5934, 1.0065, 0.9089, 0.9089, 0.8956, 0.5912, 0.9975, 0.9061, 0.9061, 0.8943, 0.5886, 0.9886);
+  mem_set_values(KWT + 3000, 0.9034, 0.9034, 0.8928, 0.5857, 0.9796, 0.9006, 0.9006, 0.8913, 0.5825, 0.9707, 0.8978, 0.8978, 0.8896, 0.5791, 0.9617, 0.8962, 0.8962, 0.8879, 0.5757, 0.9563, 0.8972, 0.8972, 0.8862, 0.5723, 0.9653, 0.7898, 0.7898, 0.8847, 0.5694, 0.9742, 0.1318, 0.1318, 0.8838, 0.5676, 0.9832, 0.0002, 0.0003, 0.8834, 0.5668, 0.9921, 0.0000, 0.0000, 0.8833, 0.5666, 1.0024, 0.9830, 0.9830, 0.9979, 0.5493, 1.2020, 0.9742, 0.9742, 0.9929, 0.5476, 1.1746, 0.9488, 0.9488, 0.9852, 0.5452, 1.1472);
+  mem_set_values(KWT + 3060, 0.7313, 0.7313, 0.9698, 0.5466, 1.1198, 0.4671, 0.4671, 0.9169, 0.5662, 1.0967, 0.8662, 0.8662, 0.8916, 0.5789, 1.0877, 0.9417, 0.9417, 0.8887, 0.5774, 1.0788, 0.9416, 0.9416, 0.8870, 0.5740, 1.0698, 0.9389, 0.9389, 0.8853, 0.5707, 1.0609, 0.9361, 0.9361, 0.8838, 0.5675, 1.0519, 0.9333, 0.9333, 0.8823, 0.5646, 1.0430, 0.9305, 0.9305, 0.8810, 0.5620, 1.0340, 0.9277, 0.9277, 0.8799, 0.5597, 1.0251, 0.9249, 0.9249, 0.8789, 0.5577, 1.0161, 0.9221, 0.9221, 0.8780, 0.5560, 1.0072);
+  mem_set_values(KWT + 3120, 0.9204, 0.9204, 0.8773, 0.5546, 1.0018, 0.9218, 0.9218, 0.8768, 0.5535, 1.0107, 0.8556, 0.8556, 0.8765, 0.5529, 1.0197, 0.2492, 0.2492, 0.8767, 0.5535, 1.0286, 0.0008, 0.0015, 0.8776, 0.5552, 1.0376, 0.0000, 0.0000, 0.8789, 0.5578, 1.0479, 1.0053, 1.0053, 0.9888, 0.5463, 1.2383, 0.9958, 0.9958, 0.9676, 0.5392, 1.2108, 0.9491, 0.9491, 0.9457, 0.5323, 1.1834, 0.6319, 0.6319, 0.9227, 0.5324, 1.1561, 0.6864, 0.6864, 0.8867, 0.5473, 1.1421, 0.9289, 0.9289, 0.8784, 0.5557, 1.1332);
+  mem_set_values(KWT + 3180, 0.9683, 0.9683, 0.8776, 0.5553, 1.1242, 0.9664, 0.9664, 0.8770, 0.5540, 1.1153, 0.9636, 0.9636, 0.8765, 0.5530, 1.1063, 0.9608, 0.9608, 0.8761, 0.5522, 1.0974, 0.9580, 0.9580, 0.8758, 0.5516, 1.0884, 0.9551, 0.9551, 0.8756, 0.5511, 1.0795, 0.9523, 0.9523, 0.8754, 0.5508, 1.0705, 0.9495, 0.9495, 0.8753, 0.5505, 1.0616, 0.9466, 0.9466, 0.8752, 0.5503, 1.0526, 0.9449, 0.9449, 0.8751, 0.5502, 1.0472, 0.9465, 0.9465, 0.8751, 0.5502, 1.0562, 0.8907, 0.8907, 0.8752, 0.5504, 1.0651);
+  mem_set_values(KWT + 3240, 0.3281, 0.3281, 0.8760, 0.5520, 1.0741, 0.0017, 0.0030, 0.8774, 0.5548, 1.0830, 0.0000, 0.0000, 0.8794, 0.5589, 1.0933, 1.0278, 1.0278, 0.9829, 0.5443, 1.2745, 1.0165, 1.0165, 0.9534, 0.5345, 1.2471, 0.9306, 0.9306, 0.9270, 0.5264, 1.2197, 0.9636, 0.9636, 0.9018, 0.5285, 1.1965, 0.9748, 0.9748, 0.8778, 0.5435, 1.1876, 0.9804, 0.9804, 0.8751, 0.5499, 1.1786, 0.9941, 0.9941, 0.8751, 0.5503, 1.1697, 0.9915, 0.9915, 0.8751, 0.5502, 1.1607, 0.9887, 0.9887, 0.8751, 0.5501, 1.1518);
+  mem_set_values(KWT + 3300, 0.9858, 0.9858, 0.8750, 0.5501, 1.1428, 0.9829, 0.9829, 0.8750, 0.5500, 1.1339, 0.9801, 0.9801, 0.8750, 0.5500, 1.1249, 0.9772, 0.9772, 0.8750, 0.5500, 1.1160, 0.9744, 0.9744, 0.8750, 0.5500, 1.1070, 0.9715, 0.9715, 0.8750, 0.5500, 1.0981, 0.9698, 0.9698, 0.8750, 0.5500, 1.0927, 0.9712, 0.9712, 0.8750, 0.5500, 1.1016, 0.9092, 0.9092, 0.8751, 0.5502, 1.1106, 0.3239, 0.3239, 0.8756, 0.5512, 1.1195, 0.0015, 0.0028, 0.8765, 0.5530, 1.1285, 0.0000, 0.0000, 0.8778, 0.5557, 1.1388);
+  mem_set_values(KWT + 3360, 1.0505, 1.0505, 0.9843, 0.5448, 1.3107, 1.0344, 1.0344, 0.9536, 0.5346, 1.2833, 0.9294, 0.9294, 0.9227, 0.5259, 1.2560, 1.0244, 1.0244, 0.8928, 0.5309, 1.2420, 1.0252, 1.0252, 0.8757, 0.5457, 1.2330, 1.0225, 1.0225, 0.8750, 0.5498, 1.2241, 1.0198, 1.0198, 0.8750, 0.5500, 1.2151, 1.0169, 1.0169, 0.8750, 0.5500, 1.2062, 1.0140, 1.0140, 0.8750, 0.5500, 1.1972, 1.0112, 1.0112, 0.8750, 0.5500, 1.1883, 1.0083, 1.0083, 0.8750, 0.5500, 1.1793, 1.0054, 1.0054, 0.8750, 0.5500, 1.1704);
+  mem_set_values(KWT + 3420, 1.0025, 1.0025, 0.8750, 0.5500, 1.1614, 0.9996, 0.9996, 0.8750, 0.5500, 1.1525, 0.9967, 0.9967, 0.8750, 0.5500, 1.1435, 0.9950, 0.9950, 0.8750, 0.5500, 1.1382, 0.9961, 0.9961, 0.8750, 0.5500, 1.1471, 0.9257, 0.9257, 0.8750, 0.5499, 1.1561, 0.3098, 0.3098, 0.8748, 0.5496, 1.1650, 0.0013, 0.0023, 0.8745, 0.5491, 1.1740, 0.0000, 0.0000, 0.8742, 0.5484, 1.1842, 1.0727, 1.0727, 0.9866, 0.5455, 1.3469, 1.0454, 1.0454, 0.9557, 0.5354, 1.3195, 0.9348, 0.9348, 0.9187, 0.5264, 1.2964);
+  mem_set_values(KWT + 3480, 1.0494, 1.0494, 0.8857, 0.5347, 1.2874, 1.0512, 1.0512, 0.8751, 0.5475, 1.2785, 1.0484, 1.0484, 0.8750, 0.5499, 1.2695, 1.0455, 1.0455, 0.8750, 0.5500, 1.2606, 1.0426, 1.0426, 0.8750, 0.5500, 1.2516, 1.0397, 1.0397, 0.8750, 0.5500, 1.2427, 1.0368, 1.0368, 0.8750, 0.5500, 1.2337, 1.0339, 1.0339, 0.8750, 0.5500, 1.2248, 1.0310, 1.0310, 0.8750, 0.5500, 1.2158, 1.0281, 1.0281, 0.8750, 0.5500, 1.2069, 1.0251, 1.0251, 0.8750, 0.5500, 1.1979, 1.0222, 1.0222, 0.8750, 0.5500, 1.1890);
+  mem_set_values(KWT + 3540, 1.0205, 1.0205, 0.8750, 0.5500, 1.1836, 1.0217, 1.0217, 0.8750, 0.5500, 1.1926, 0.9512, 0.9512, 0.8747, 0.5495, 1.2015, 0.3024, 0.3024, 0.8737, 0.5474, 1.2105, 0.0011, 0.0021, 0.8719, 0.5439, 1.2194, 0.0000, 0.0000, 0.8695, 0.5390, 1.2297, 1.0917, 1.0917, 0.9886, 0.5462, 1.3831, 1.0406, 1.0406, 0.9574, 0.5362, 1.3558, 0.9366, 0.9366, 0.9128, 0.5275, 1.3418, 1.0726, 1.0726, 0.8804, 0.5388, 1.3329, 1.0765, 1.0765, 0.8749, 0.5487, 1.3239, 1.0742, 1.0742, 0.8750, 0.5500, 1.3150);
+  mem_set_values(KWT + 3600, 1.0715, 1.0715, 0.8750, 0.5500, 1.3060, 1.0686, 1.0686, 0.8750, 0.5500, 1.2971, 1.0657, 1.0657, 0.8750, 0.5500, 1.2881, 1.0628, 1.0628, 0.8750, 0.5500, 1.2792, 1.0598, 1.0598, 0.8750, 0.5500, 1.2702, 1.0569, 1.0569, 0.8750, 0.5500, 1.2613, 1.0539, 1.0539, 0.8750, 0.5500, 1.2523, 1.0510, 1.0510, 0.8750, 0.5500, 1.2434, 1.0480, 1.0480, 0.8750, 0.5500, 1.2344, 1.0463, 1.0463, 0.8750, 0.5500, 1.2291, 1.0474, 1.0474, 0.8750, 0.5500, 1.2380, 0.9115, 0.9115, 0.8745, 0.5491, 1.2470);
+  mem_set_values(KWT + 3660, 0.1779, 0.1779, 0.8727, 0.5455, 1.2559, 0.0005, 0.0008, 0.8698, 0.5396, 1.2649, 0.0000, 0.0000, 0.8659, 0.5318, 1.2752, 1.0955, 1.0955, 0.9904, 0.5468, 1.4194, 0.9912, 0.9912, 0.9580, 0.5369, 1.3962, 0.9286, 0.9286, 0.9040, 0.5294, 1.3873, 1.0904, 1.0904, 0.8769, 0.5425, 1.3783, 1.0994, 1.0994, 0.8749, 0.5494, 1.3694, 1.0991, 1.0991, 0.8750, 0.5500, 1.3604, 1.0974, 1.0974, 0.8750, 0.5500, 1.3515, 1.0949, 1.0949, 0.8750, 0.5500, 1.3425, 1.0920, 1.0920, 0.8750, 0.5500, 1.3336);
+  mem_set_values(KWT + 3720, 1.0891, 1.0891, 0.8750, 0.5500, 1.3246, 1.0861, 1.0861, 0.8750, 0.5500, 1.3157, 1.0831, 1.0831, 0.8750, 0.5500, 1.3067, 1.0801, 1.0801, 0.8750, 0.5500, 1.2978, 1.0771, 1.0771, 0.8750, 0.5500, 1.2888, 1.0742, 1.0742, 0.8750, 0.5500, 1.2799, 1.0724, 1.0724, 0.8750, 0.5500, 1.2745, 1.0679, 1.0679, 0.8750, 0.5499, 1.2835, 0.6695, 0.6695, 0.8744, 0.5487, 1.2924, 0.0356, 0.0356, 0.8719, 0.5438, 1.3014, 0.0000, 0.0000, 0.8680, 0.5361, 1.3103, 0.0000, 0.0000, 0.8631, 0.5262, 1.3206);
+  mem_set_values(KWT + 3780, 1.0449, 1.0449, 0.9918, 0.5473, 1.4557, 0.8374, 0.8374, 0.9553, 0.5375, 1.4417, 0.8979, 0.8979, 0.8914, 0.5324, 1.4327, 1.0920, 1.0920, 0.8748, 0.5454, 1.4238, 1.1141, 1.1141, 0.8749, 0.5497, 1.4148, 1.1208, 1.1208, 0.8750, 0.5500, 1.4059, 1.1224, 1.1224, 0.8750, 0.5500, 1.3969, 1.1211, 1.1211, 0.8750, 0.5500, 1.3880, 1.1186, 1.1186, 0.8750, 0.5500, 1.3790, 1.1157, 1.1157, 0.8750, 0.5500, 1.3701, 1.1127, 1.1127, 0.8750, 0.5500, 1.3611, 1.1096, 1.1096, 0.8750, 0.5500, 1.3522);
+  mem_set_values(KWT + 3840, 1.1066, 1.1066, 0.8750, 0.5500, 1.3432, 1.1036, 1.1036, 0.8750, 0.5500, 1.3343, 1.1006, 1.1006, 0.8750, 0.5500, 1.3253, 1.0988, 1.0988, 0.8750, 0.5500, 1.3200, 1.0766, 1.0766, 0.8750, 0.5499, 1.3289, 0.4313, 0.4313, 0.8742, 0.5483, 1.3379, 0.0065, 0.0065, 0.8710, 0.5421, 1.3468, 0.0000, 0.0000, 0.8663, 0.5326, 1.3558, 0.0000, 0.0000, 0.8606, 0.5211, 1.3661, 0.8656, 0.8656, 0.9923, 0.5477, 1.4961, 0.5655, 0.5655, 0.9471, 0.5375, 1.4871, 0.8203, 0.8203, 0.8801, 0.5363, 1.4782);
+  mem_set_values(KWT + 3900, 1.0563, 1.0563, 0.8742, 0.5474, 1.4692, 1.1095, 1.1095, 0.8750, 0.5499, 1.4603, 1.1347, 1.1347, 0.8750, 0.5500, 1.4513, 1.1450, 1.1450, 0.8750, 0.5500, 1.4424, 1.1469, 1.1469, 0.8750, 0.5500, 1.4334, 1.1453, 1.1453, 0.8750, 0.5500, 1.4245, 1.1425, 1.1425, 0.8750, 0.5500, 1.4155, 1.1395, 1.1395, 0.8750, 0.5500, 1.4066, 1.1365, 1.1365, 0.8750, 0.5500, 1.3976, 1.1335, 1.1335, 0.8750, 0.5500, 1.3887, 1.1304, 1.1304, 0.8750, 0.5500, 1.3797, 1.1274, 1.1274, 0.8750, 0.5500, 1.3708);
+  mem_set_values(KWT + 3960, 1.1255, 1.1255, 0.8750, 0.5500, 1.3654, 1.0808, 1.0808, 0.8749, 0.5499, 1.3744, 0.3467, 0.3467, 0.8739, 0.5479, 1.3833, 0.0035, 0.0035, 0.8701, 0.5403, 1.3923, 0.0000, 0.0000, 0.8646, 0.5292, 1.4012, 0.0000, 0.0000, 0.8583, 0.5166, 1.4115, 0.5166, 0.5166, 0.9914, 0.5475, 1.5416, 0.2639, 0.2639, 0.9315, 0.5355, 1.5326, 0.6718, 0.6718, 0.8731, 0.5378, 1.5237, 0.9605, 0.9605, 0.8741, 0.5480, 1.5147, 1.0734, 1.0734, 0.8750, 0.5499, 1.5058, 1.1356, 1.1356, 0.8750, 0.5500, 1.4968);
+  mem_set_values(KWT + 4020, 1.1636, 1.1636, 0.8750, 0.5500, 1.4879, 1.1719, 1.1719, 0.8750, 0.5500, 1.4789, 1.1720, 1.1720, 0.8750, 0.5500, 1.4700, 1.1697, 1.1697, 0.8750, 0.5500, 1.4610, 1.1667, 1.1667, 0.8750, 0.5500, 1.4521, 1.1637, 1.1637, 0.8750, 0.5500, 1.4431, 1.1606, 1.1606, 0.8750, 0.5500, 1.4342, 1.1575, 1.1575, 0.8750, 0.5500, 1.4252, 1.1544, 1.1544, 0.8750, 0.5500, 1.4163, 1.1522, 1.1522, 0.8750, 0.5500, 1.4109, 1.0004, 1.0004, 0.8749, 0.5499, 1.4198, 0.1671, 0.1671, 0.8737, 0.5473, 1.4288);
+  mem_set_values(KWT + 4080, 0.0008, 0.0008, 0.8692, 0.5384, 1.4377, 0.0000, 0.0000, 0.8629, 0.5259, 1.4467, 0.0000, 0.0000, 0.8564, 0.5128, 1.4570, 0.1520, 0.1520, 0.9859, 0.5459, 1.5870, 0.1107, 0.1107, 0.9036, 0.5285, 1.5781, 0.4626, 0.4626, 0.8690, 0.5359, 1.5691, 0.8069, 0.8069, 0.8737, 0.5475, 1.5602, 1.0066, 1.0066, 0.8749, 0.5499, 1.5512, 1.1239, 1.1239, 0.8750, 0.5500, 1.5423, 1.1782, 1.1782, 0.8750, 0.5500, 1.5333, 1.1960, 1.1960, 0.8750, 0.5500, 1.5244, 1.1989, 1.1989, 0.8750, 0.5500, 1.5154);
+  mem_set_values(KWT + 4140, 1.1971, 1.1971, 0.8750, 0.5500, 1.5065, 1.1942, 1.1942, 0.8750, 0.5500, 1.4975, 1.1911, 1.1911, 0.8750, 0.5500, 1.4886, 1.1880, 1.1880, 0.8750, 0.5500, 1.4796, 1.1849, 1.1849, 0.8750, 0.5500, 1.4707, 1.1818, 1.1818, 0.8750, 0.5500, 1.4617, 1.1785, 1.1785, 0.8750, 0.5500, 1.4563, 0.9073, 0.9073, 0.8749, 0.5498, 1.4653, 0.0841, 0.0841, 0.8734, 0.5468, 1.4742, 0.0001, 0.0001, 0.8682, 0.5364, 1.4832, 0.0000, 0.0000, 0.8614, 0.5227, 1.4921, 0.0000, 0.0000, 0.8548, 0.5096, 1.5024);
+  mem_set_values(KWT + 4200, 0.0112, 0.0112, 0.9537, 0.5359, 1.6325, 0.0347, 0.0347, 0.8693, 0.5183, 1.6235, 0.2597, 0.2597, 0.8667, 0.5331, 1.6146, 0.6468, 0.6468, 0.8733, 0.5466, 1.6056, 0.9360, 0.9360, 0.8749, 0.5498, 1.5967, 1.1115, 1.1115, 0.8750, 0.5500, 1.5877, 1.1927, 1.1927, 0.8750, 0.5500, 1.5788, 1.2204, 1.2204, 0.8750, 0.5500, 1.5698, 1.2260, 1.2260, 0.8750, 0.5500, 1.5609, 1.2248, 1.2248, 0.8750, 0.5500, 1.5519, 1.2220, 1.2220, 0.8750, 0.5500, 1.5430, 1.2189, 1.2189, 0.8750, 0.5500, 1.5340);
+  mem_set_values(KWT + 4260, 1.2158, 1.2158, 0.8750, 0.5500, 1.5251, 1.2127, 1.2127, 0.8750, 0.5500, 1.5161, 1.2095, 1.2095, 0.8750, 0.5500, 1.5072, 1.2053, 1.2053, 0.8750, 0.5500, 1.5018, 0.8707, 0.8707, 0.8749, 0.5498, 1.5107, 0.0632, 0.0632, 0.8731, 0.5462, 1.5197, 0.0001, 0.0001, 0.8672, 0.5344, 1.5286, 0.0000, 0.0000, 0.8599, 0.5198, 1.5376, 0.0000, 0.0000, 0.8535, 0.5070, 1.5479, 0.0009, 0.0009, 0.8683, 0.5088, 1.6779, 0.0029, 0.0029, 0.8569, 0.5128, 1.6690, 0.1579, 0.1579, 0.8651, 0.5301, 1.6600);
+  mem_set_values(KWT + 4320, 0.5670, 0.5670, 0.8728, 0.5455, 1.6511, 0.9007, 0.9007, 0.8749, 0.5497, 1.6421, 1.1049, 1.1049, 0.8750, 0.5500, 1.6332, 1.2024, 1.2024, 0.8750, 0.5500, 1.6242, 1.2382, 1.2382, 0.8750, 0.5500, 1.6153, 1.2484, 1.2484, 0.8750, 0.5500, 1.6063, 1.2507, 1.2507, 0.8750, 0.5500, 1.5974, 1.2502, 1.2502, 0.8750, 0.5500, 1.5884, 1.2471, 1.2471, 0.8750, 0.5500, 1.5795, 1.2439, 1.2439, 0.8750, 0.5500, 1.5705, 1.2407, 1.2407, 0.8750, 0.5500, 1.5616, 1.2376, 1.2376, 0.8750, 0.5500, 1.5526);
+  mem_set_values(KWT + 4380, 1.2326, 1.2326, 0.8750, 0.5500, 1.5472, 0.8584, 0.8584, 0.8748, 0.5497, 1.5562, 0.0560, 0.0560, 0.8727, 0.5455, 1.5651, 0.0001, 0.0001, 0.8661, 0.5322, 1.5741, 0.0000, 0.0000, 0.8584, 0.5168, 1.5830, 0.0000, 0.0000, 0.8523, 0.5047, 1.5933, 0.0003, 0.0003, 0.8513, 0.5024, 1.7234, 0.0033, 0.0033, 0.8550, 0.5100, 1.7144, 0.1424, 0.1424, 0.8635, 0.5270, 1.7055, 0.6190, 0.6190, 0.8721, 0.5442, 1.6965, 0.9399, 0.9399, 0.8748, 0.5496, 1.6876, 1.1285, 1.1285, 0.8750, 0.5500, 1.6786);
+  mem_set_values(KWT + 4440, 1.2184, 1.2184, 0.8750, 0.5500, 1.6697, 1.2514, 1.2514, 0.8750, 0.5500, 1.6607, 1.2608, 1.2608, 0.8750, 0.5500, 1.6518, 1.2629, 1.2629, 0.8750, 0.5500, 1.6428, 1.2633, 1.2633, 0.8750, 0.5500, 1.6339, 1.2633, 1.2633, 0.8750, 0.5500, 1.6249, 1.2633, 1.2633, 0.8750, 0.5500, 1.6160, 1.2633, 1.2633, 0.8750, 0.5500, 1.6070, 1.2633, 1.2633, 0.8750, 0.5500, 1.5981, 1.2599, 1.2599, 0.8750, 0.5500, 1.5927, 0.8634, 0.8634, 0.8748, 0.5496, 1.6016, 0.0541, 0.0541, 0.8723, 0.5446, 1.6106);
+  mem_set_values(KWT + 4500, 0.0001, 0.0001, 0.8648, 0.5296, 1.6195, 0.0000, 0.0000, 0.8568, 0.5136, 1.6285, 0.0000, 0.0000, 0.8514, 0.5028, 1.6388, 0.0000, 0.0000, 0.8507, 0.5014, 1.7688, 0.0003, 0.0003, 0.8539, 0.5078, 1.7599, 0.0749, 0.0749, 0.8619, 0.5238, 1.7509, 0.6715, 0.6715, 0.8713, 0.5426, 1.7420, 1.0366, 1.0366, 0.8747, 0.5494, 1.7330, 1.1764, 1.1764, 0.8750, 0.5500, 1.7241, 1.2426, 1.2426, 0.8750, 0.5500, 1.7151, 1.2668, 1.2668, 0.8750, 0.5500, 1.7062, 1.2737, 1.2737, 0.8750, 0.5500, 1.6972);
+  mem_set_values(KWT + 4560, 1.2752, 1.2752, 0.8750, 0.5500, 1.6883, 1.2755, 1.2755, 0.8750, 0.5500, 1.6793, 1.2756, 1.2756, 0.8750, 0.5500, 1.6704, 1.2756, 1.2756, 0.8750, 0.5500, 1.6614, 1.2756, 1.2756, 0.8750, 0.5500, 1.6525, 1.2756, 1.2756, 0.8750, 0.5500, 1.6435, 1.2733, 1.2733, 0.8750, 0.5500, 1.6382, 0.9348, 0.9348, 0.8748, 0.5495, 1.6471, 0.0748, 0.0748, 0.8719, 0.5438, 1.6561, 0.0001, 0.0001, 0.8637, 0.5273, 1.6650, 0.0000, 0.0000, 0.8556, 0.5112, 1.6740, 0.0000, 0.0000, 0.8508, 0.5016, 1.6842);
+  mem_set_values(KWT + 4620, 0.0000, 0.0000, 0.8503, 0.5007, 1.8143, 0.0000, 0.0000, 0.8530, 0.5059, 1.8053, 0.0183, 0.0183, 0.8603, 0.5206, 1.7964, 0.5829, 0.5829, 0.8704, 0.5408, 1.7874, 1.1397, 1.1397, 0.8746, 0.5492, 1.7785, 1.2297, 1.2297, 0.8750, 0.5500, 1.7695, 1.2684, 1.2684, 0.8750, 0.5500, 1.7606, 1.2826, 1.2826, 0.8750, 0.5500, 1.7516, 1.2867, 1.2867, 0.8750, 0.5500, 1.7427, 1.2876, 1.2876, 0.8750, 0.5500, 1.7337, 1.2878, 1.2878, 0.8750, 0.5500, 1.7248, 1.2878, 1.2878, 0.8750, 0.5500, 1.7158);
+  mem_set_values(KWT + 4680, 1.2878, 1.2878, 0.8750, 0.5500, 1.7069, 1.2878, 1.2878, 0.8750, 0.5500, 1.6979, 1.2878, 1.2878, 0.8750, 0.5500, 1.6890, 1.2871, 1.2871, 0.8750, 0.5500, 1.6836, 1.0876, 1.0876, 0.8747, 0.5494, 1.6926, 0.1871, 0.1871, 0.8715, 0.5430, 1.7015, 0.0021, 0.0021, 0.8627, 0.5253, 1.7105, 0.0000, 0.0000, 0.8547, 0.5094, 1.7194, 0.0000, 0.0000, 0.8504, 0.5008, 1.7297, 0.0000, 0.0000, 0.8501, 0.5002, 1.8597, 0.0000, 0.0000, 0.8522, 0.5044, 1.8508, 0.0066, 0.0066, 0.8588, 0.5176, 1.8418);
+  mem_set_values(KWT + 4740, 0.4688, 0.4688, 0.8694, 0.5387, 1.8329, 1.2086, 1.2086, 0.8744, 0.5488, 1.8239, 1.2729, 1.2729, 0.8750, 0.5500, 1.8150, 1.2910, 1.2910, 0.8750, 0.5500, 1.8060, 1.2976, 1.2976, 0.8750, 0.5500, 1.7971, 1.2995, 1.2995, 0.8750, 0.5500, 1.7881, 1.2999, 1.2999, 0.8750, 0.5500, 1.7792, 1.3000, 1.3000, 0.8750, 0.5500, 1.7702, 1.3000, 1.3000, 0.8750, 0.5500, 1.7613, 1.3000, 1.3000, 0.8750, 0.5500, 1.7523, 1.3000, 1.3000, 0.8750, 0.5500, 1.7434, 1.3000, 1.3000, 0.8750, 0.5500, 1.7344);
+  mem_set_values(KWT + 4800, 1.3000, 1.3000, 0.8750, 0.5500, 1.7291, 1.2704, 1.2704, 0.8747, 0.5493, 1.7380, 0.7260, 0.7260, 0.8710, 0.5421, 1.7470, 0.0567, 0.0567, 0.8617, 0.5233, 1.7559, 0.0001, 0.0001, 0.8539, 0.5078, 1.7649, 0.0000, 0.0000, 0.8501, 0.5002, 1.7752, 0.0000, 0.0000, 0.8500, 0.5000, 1.9052, 0.0000, 0.0000, 0.8518, 0.5035, 1.8962, 0.0049, 0.0049, 0.8577, 0.5155, 1.8873, 0.4472, 0.4472, 0.8686, 0.5371, 1.8783, 1.2419, 1.2419, 0.8742, 0.5485, 1.8694, 1.2900, 1.2900, 0.8750, 0.5500, 1.8604);
+  mem_set_values(KWT + 4860, 1.2967, 1.2967, 0.8750, 0.5500, 1.8515, 1.2991, 1.2991, 0.8750, 0.5500, 1.8425, 1.2998, 1.2998, 0.8750, 0.5500, 1.8336, 1.3000, 1.3000, 0.8750, 0.5500, 1.8246, 1.3000, 1.3000, 0.8750, 0.5500, 1.8157, 1.3000, 1.3000, 0.8750, 0.5500, 1.8067, 1.3000, 1.3000, 0.8750, 0.5500, 1.7978, 1.3000, 1.3000, 0.8750, 0.5500, 1.7888, 1.3000, 1.3000, 0.8750, 0.5500, 1.7799, 1.3000, 1.3000, 0.8750, 0.5500, 1.7745, 1.2982, 1.2982, 0.8746, 0.5492, 1.7835, 1.1644, 1.1644, 0.8707, 0.5414, 1.7924);
+  mem_set_values(KWT + 4920, 0.2745, 0.2745, 0.8610, 0.5219, 1.8014, 0.0008, 0.0015, 0.8534, 0.5068, 1.8103, 0.0000, 0.0000, 0.8500, 0.5000, 1.8206, 0.0000, 0.0000, 0.8500, 0.5000, 1.9166, 0.0000, 0.0000, 0.8517, 0.5035, 1.9076, 0.0050, 0.0050, 0.8577, 0.5154, 1.8987, 0.4503, 0.4503, 0.8685, 0.5370, 1.8897, 1.2476, 1.2476, 0.8742, 0.5485, 1.8808, 1.2925, 1.2925, 0.8750, 0.5500, 1.8718, 1.2975, 1.2975, 0.8750, 0.5500, 1.8629, 1.2993, 1.2993, 0.8750, 0.5500, 1.8539, 1.2999, 1.2999, 0.8750, 0.5500, 1.8450);
+  mem_set_values(KWT + 4980, 1.3000, 1.3000, 0.8750, 0.5500, 1.8360, 1.3000, 1.3000, 0.8750, 0.5500, 1.8271, 1.3000, 1.3000, 0.8750, 0.5500, 1.8181, 1.3000, 1.3000, 0.8750, 0.5500, 1.8092, 1.3000, 1.3000, 0.8750, 0.5500, 1.8002, 1.3000, 1.3000, 0.8750, 0.5500, 1.7913, 1.3000, 1.3000, 0.8750, 0.5500, 1.7859, 1.2983, 1.2983, 0.8746, 0.5492, 1.7948, 1.1809, 1.1809, 0.8707, 0.5413, 1.8038, 0.2940, 0.2940, 0.8609, 0.5218, 1.8127, 0.0009, 0.0017, 0.8534, 0.5068, 1.8217, 0.0000, 0.0000, 0.8500, 0.5000, 1.8320);
+  mem_set_values(AFD + 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 8, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 32, 40, 31, 22, 0, 0, 0, 0, 0, 0, 0, 0, 24, 55, 72, 53, 22, 0, 0, 0, 0, 0, 0, 0, 0, 19, 51, 72, 44, 12, 0, 0, 0);
+  mem_set_values(AFD + 64, 0, 0, 0, 0, 0, 18, 45, 66, 34, 2, 0, 0, 0, 0, 0, 0, 0, 0, 10, 42, 66, 34, 2, 0, 0, 0, 0, 0, 0, 0, 0, 11, 43, 68, 36, 7, 0, 0, 0, 0, 0, 0, 0, 14, 37, 56, 77, 51, 30, 0, 0, 0, 0, 0, 0, 0, 15, 47, 79, 89, 57, 25, 0, 0);
+  mem_set_values(AFD + 128, 0, 0, 0, 0, 0, 15, 47, 79, 85, 53, 21, 0, 0, 0, 0, 0, 0, 8, 25, 51, 83, 85, 53, 21, 0, 0, 0, 0, 0, 0, 22, 53, 70, 94, 85, 53, 21, 0, 0, 0, 0, 3, 14, 35, 61, 92, 115, 85, 53, 21, 0, 0, 0, 0, 35, 40, 58, 80, 105, 117, 85, 53, 21, 0);
+  mem_set_values(AFD + 192, 0, 0, 0, 67, 71, 83, 103, 125, 120, 88, 56, 24, 0, 0, 0, 0, 99, 103, 110, 128, 148, 126, 94, 62, 30, 0, 0, 0, 0, 131, 135, 142, 154, 164, 132, 101, 70, 38, 6, 0, 0, 0, 163, 167, 174, 180, 167, 135, 103, 71, 39, 7, 0, 0, 0, 195, 199, 206, 201, 169, 137, 105, 73, 41);
+  mem_set_values(AFD + 256, 11, 0, 0, 0, 227, 231, 238, 207, 175, 143, 111, 80, 48, 18, 0, 0, 0, 259, 263, 246, 214, 182, 150, 118, 87, 55, 23, 0, 0, 0, 291, 279, 247, 215, 183, 151, 119, 87, 55, 23, 0, 0, 0, 312, 280, 248, 216, 184, 152, 120, 88, 56, 24, 0, 0, 0, 314, 282, 250, 218, 186, 154, 122, 90);
+  mem_set_values(AFD + 320, 58, 26, 0, 0, 0, 289, 283, 251, 219, 187, 155, 123, 91, 59, 27, 0, 0, 0, 257, 262, 251, 219, 187, 155, 123, 91, 59, 27, 0, 0, 0, 225, 230, 236, 224, 192, 160, 128, 96, 64, 32, 2, 0, 0, 193, 198, 204, 211, 193, 163, 134, 102, 72, 41, 9, 0, 0, 161, 166, 172, 181, 186, 154, 122);
+  mem_set_values(AFD + 384, 93, 65, 37, 7, 0, 0, 129, 134, 140, 150, 167, 148, 116, 84, 52, 23, 0, 0, 0, 97, 102, 111, 122, 141, 142, 110, 79, 48, 16, 0, 0, 0, 65, 70, 80, 96, 119, 136, 104, 72, 40, 8, 0, 0, 0, 33, 41, 52, 74, 100, 128, 100, 68, 36, 4, 0, 0, 0, 1, 9, 30, 58, 83, 112);
+  mem_set_values(AFD + 448, 99, 67, 35, 3, 0, 0, 0, 0, 0, 13, 42, 72, 103, 99, 67, 35, 3, 0, 0, 0, 0, 0, 4, 33, 65, 97, 99, 67, 35, 3, 0, 0, 0, 0, 0, 0, 31, 63, 95, 103, 71, 39, 7, 0, 0, 0, 0, 0, 0, 31, 63, 95, 109, 77, 50, 25, 1, 0, 0);
+);
+
+function ha_blit(img, k, tx, ty, tw, th, qx, qy) local(s2, ps, fx, fy, x0, y0, x1, y1)
+(
+  s2 = uscale * 0.5; ps = uscale / k;
+  fx = HOX + qx * s2; fy = HOY + qy * s2;
+  x0 = ceil(max(fx, CLX0)); y0 = ceil(max(fy, CLY0));
+  x1 = floor(min(fx + tw * s2, CLX1)); y1 = floor(min(fy + th * s2, CLY1));
+  (x1 > x0 && y1 > y0) ? gfx_blit(img, 1, 0, tx * k * 0.5 + (x0 - fx) / ps, ty * k * 0.5 + (y0 - fy) / ps, (x1 - x0) / ps, (y1 - y0) / ps, x0, y0, x1 - x0, y1 - y0);
+);
+
+function ha_ramp(y) ( max(0, min(1, (165 - y) / 145)) ^ 1.2; );
+
+function ha_cr(x, sd) local(i, f, a, b, c, d)
+(
+  i = floor(x); f = x - i;
+  a = ha_h(i - 1 + sd * 101); b = ha_h(i + sd * 101); c = ha_h(i + 1 + sd * 101); d = ha_h(i + 2 + sd * 101);
+  b + 0.5 * f * (c - a + f * (2 * a - 5 * b + 4 * c - d + f * (3 * (b - c) + d - a)));
+);
+
+function ha_hrows(img, k) local(s2, ps, j, j0, j1, y2, rp, sy, fx, x0, x1)
+(
+  s2 = uscale * 0.5; ps = uscale / k;
+  gfx_set(1, 1, 1, 1, 0);
+  j0 = max(CLY0, ceil(HOY + AHY * s2)); j1 = min(CLY1, floor(HOY + (AHY + AHH) * s2));
+  j = j0;
+  while (j < j1) (
+    y2 = (j + 0.5 - HOY) / s2;
+    rp = ha_ramp(y2);
+    sy = (y2 - rp * ha_nd - AHY) * k * 0.5 - 0.5 / ps;
+    sy = max(0, min(AHH * k * 0.5 - 1 / ps, sy));
+    fx = HOX + (AHX + rp * ha_ln) * s2;
+    x0 = ceil(max(fx, CLX0)); x1 = floor(min(fx + AHW * s2, CLX1));
+    x1 > x0 ? gfx_blit(img, 1, 0, (x0 - fx) / ps, sy, (x1 - x0) / ps, 1 / ps, x0, j, x1 - x0, 1);
+    j += 1;
+  );
+);
+
+function hw_gust(ge) ( ge < 0 ? 0 : ge < 0.9 ? sin(0.5 * $pi * ge / 0.9) : exp(-(ge - 0.9) / 1.8) - 0.22 * exp(-(ge - 0.9) / 3.5) * min(1, (ge - 0.9) / 1.5); );
+
+function hw_W(tt) local(g)
+(
+  g = tt >= hw_gs ? hw_gust(tt - hw_gs) : hw_gust(tt - hw_gp);
+  0.45 + 0.32 * ha_cr(tt * 0.33, 61) + 0.18 * ha_cr(tt * 0.9, 62) + 0.8 * hw_gk * g;
+);
+
+function hw_field(t) local(n, j, i, p, xn, yn, w, wy, m, amp)
+(
+  amp = ha_a * 6.2;
+  n = 0; j = 0;
+  loop(kw_ny + 1,
+    yn = min(kw_y1, kw_y0 + j * kw_c);
+    i = 0;
+    loop(kw_nx,
+      p = KWT + n * 5;
+      w = p[0]; wy = p[1];
+      (w > 0.002 || wy > 0.002) ? (
+        xn = i * kw_c;
+        m = amp * (hw_W(t - p[4]) - 0.45 * ha_a) + amp * 0.1 * sin(2 * $pi * (t / 1.7 - p[4] / 0.55) + xn / 40);
+        KWX[n] = w * p[2] * m;
+        KWY[n] = -wy * p[3] * 0.22 * m;
+      ) : ( KWX[n] = 0; KWY[n] = 0; );
+      n += 1; i += 1;
+    );
+    j += 1;
+  );
+);
+
+function hw_at(x, y) local(fi, fj, i, j, u, v, n, xa, xb)
+(
+  fj = (y - kw_y0) / kw_c;
+  (fj < 0 || fj > kw_ny) ? ( hw_y = 0; 0; ) : (
+    fi = x / kw_c; fi = max(0, min(kw_nx - 1.0001, fi));
+    i = floor(fi); u = fi - i; j = min(kw_ny - 1, floor(fj)); v = fj - j;
+    n = j * kw_nx + i;
+    hw_y = (KWY[n] * (1 - u) + KWY[n + 1] * u) * (1 - v) + (KWY[n + kw_nx] * (1 - u) + KWY[n + kw_nx + 1] * u) * v;
+    (KWX[n] * (1 - u) + KWX[n + 1] * u) * (1 - v) + (KWX[n + kw_nx] * (1 - u) + KWX[n + kw_nx + 1] * u) * v;
+  );
+);
+
+function hw_draw(s, xb, poy, ytop, ybot) local(j, i, n0, n1, xa, xc, ya, yc, cw, chh, s00, t00, s10, t10, s01, t01, s11, t11, mx, smx, tmn, tmx, xr)
+(
+  smx = xb - 1.01; tmn = ytop; tmx = ybot - 1.01;
+  gfx_set(1, 1, 1, 1, 0);
+  j = 0;
+  loop(kw_ny,
+    ya = floor(poy + min(kw_y1, kw_y0 + j * kw_c) * s); yc = min(ybot, floor(poy + min(kw_y1, kw_y0 + (j + 1) * kw_c) * s));
+    chh = yc - ya;
+    i = 0;
+    chh > 0 ? loop(kw_nx - 1,
+      n0 = j * kw_nx + i; n1 = n0 + kw_nx;
+      mx = max(max(abs(KWX[n0]), abs(KWX[n0 + 1])), max(abs(KWX[n1]), abs(KWX[n1 + 1])));
+      mx = max(mx, max(max(abs(KWY[n0]), abs(KWY[n0 + 1])), max(abs(KWY[n1]), abs(KWY[n1 + 1]))));
+      xa = floor(i * kw_c * s); xr = i == kw_nx - 2 ? kw_w : (i + 1) * kw_c; xc = min(xb, floor(xr * s));
+      cw = xc - xa;
+      (mx > 0.03 && cw > 0) ? (
+        s00 = max(0, min(smx, xa - KWX[n0] * s)); t00 = max(tmn, min(tmx, ya - KWY[n0] * s));
+        s10 = max(0, min(smx, xc - KWX[n0 + 1] * s)); t10 = max(tmn, min(tmx, ya - KWY[n0 + 1] * s));
+        s01 = max(0, min(smx, xa - KWX[n1] * s)); t01 = max(tmn, min(tmx, yc - KWY[n1] * s));
+        s11 = max(0, min(smx, xc - KWX[n1 + 1] * s)); t11 = max(tmn, min(tmx, yc - KWY[n1 + 1] * s));
+        gfx_deltablit(10, s00, t00, gfx_w, gfx_h, xa, ya, cw, chh,
+          (s10 - s00) / cw, (t10 - t00) / cw, (s01 - s00) / chh, (t01 - t00) / chh,
+          (s11 - s10 - s01 + s00) / (cw * chh), (t11 - t10 - t01 + t00) / (cw * chh), 0);
+      );
+      i += 1;
+    );
+    j += 1;
+  );
+);
+
+function ha_sil(sq) local(j, j1, y1, dx, sy, fx, x0, x1, bw, bh)
+(
+  bw = ha_bw; bh = ha_bh;
+  gfx_set(1, 1, 1, 1, 0);
+  j1 = min(bh, floor(kw_y0 * 2 * sq));
+  gfx_blit(34, 1, 0, AFP * 0.5, 0, 202, kw_y0, 0, 0, 404 * sq, kw_y0 * 2 * sq);
+  j = j1;
+  while (j < bh) (
+    y1 = (j + 0.5) / (2 * sq);
+    dx = hw_at(ABR[min(ABR_N - 1, floor(y1))], y1);
+    sy = max(0, min(ASH * 0.5 - 1, y1 - hw_y - 0.25 / sq));
+    fx = (2 * dx - AFP) * sq;
+    x0 = ceil(max(fx, 0)); x1 = floor(min(fx + AFW * sq, bw));
+    x1 > x0 ? gfx_blit(34, 1, 0, (x0 - fx) / (2 * sq), sy, (x1 - x0) / (2 * sq), 0.5 / sq, x0, j, x1 - x0, 1);
+    j += 1;
+  );
+);
+
+function ha_sblit(x1, w1, y1, y2) local(xa, xc, ya, yc, r)
+(
+  r = ha_bw / (CLX1 - CLX0);
+  xa = floor(x1 * uscale); xc = min(CLX1, floor((x1 + w1) * uscale));
+  ya = CLY0 + floor(y1 * uscale); yc = min(CLY1, CLY0 + floor(y2 * uscale));
+  (xc > xa && yc > ya) ? gfx_blit(40, 1, 0, xa * r, (ya - CLY0) * r, (xc - xa) * r, (yc - ya) * r, xa, ya, xc - xa, yc - ya);
+);
+
+function ha_smoke(t, img, k) local(s2, sq, bw, bh, od, j, lf, u, c, f, sd, rg, x0, y0, age, px, py, sz, env, av, gx, gy, v, ts, tg, dd, fx, fy, dx0, dy0, dw, sc, sx0)
+(
+  s2 = uscale * 0.5; sq = 0.25;
+  bw = ceil((CLX1 - CLX0) / s2 * sq); bh = ceil((CLY1 - CLY0) / s2 * sq);
+  (bw != ha_bw || bh != ha_bh) ? ( gfx_setimgdim(40, bw, bh); ha_bw = bw; ha_bh = bh; );
+  od = gfx_dest;
+  gfx_dest = 40;
+  gfx_set(0, 0, 0, 1, 0); gfx_rect(0, 0, bw, bh);
+  ts = ASM_T * k * 0.5; tg = ASM_G * k * 0.5;
+  hw_wd = hw_W(t) - 0.6;
+  j = 0;
+  loop(26,
+    lf = 8 + 5 * ha_h(j * 7.3 + 1);
+    u = (t + ha_h(j * 3.1 + 2) * lf) / lf; c = floor(u); f = u - c;
+    sd = c * 31.7 + j * 13.1;
+    rg = ha_h(sd);
+    rg < 0.55 ? ( x0 = 330 + 90 * ha_h(sd + 1); y0 = 760 + 520 * ha_h(sd + 2); ) :
+    rg < 0.8 ? ( x0 = -40 + 140 * ha_h(sd + 1); y0 = 330 + 380 * ha_h(sd + 2); ) :
+               ( x0 = 60 + 300 * ha_h(sd + 1); y0 = 230 + 200 * ha_h(sd + 2); );
+    age = f * lf;
+    py = y0 - (22 + 18 * ha_h(sd + 3)) * age;
+    px = x0 + (3 + 5 * ha_h(sd + 4)) * age + (8 + 8 * ha_h(sd + 5)) * sin(2 * $pi * age / (5 + 4 * ha_h(sd + 6)) + 6.283 * ha_h(sd + 7))
+       + 14 * hw_wd;
+    sz = (110 + 90 * ha_h(sd + 8)) * (0.7 + 0.8 * f);
+    env = (f < 0.25 ? (f / 0.25) * (f / 0.25) * (3 - 2 * f / 0.25) : 1) * (1 - f) ^ 1.3;
+    av = env * (0.24 + 0.16 * ha_h(sd + 11)) * ha_a;
+    gx = floor(px / AFD_C); gy = floor(py / AFD_C);
+    dd = (gx >= 0 && gx < AFD_W && gy >= 0 && gy < AFD_H) ? AFD[gy * AFD_W + gx] : 0;
+    (av >= 0.004 && dd < sz * 0.45 && px + sz * 0.5 > 0 && px - sz * 0.5 < 404 && py + sz * 0.5 > 0 && py - sz * 0.5 < 1226) ? (
+      v = floor(ASM_N * ha_h(sd + 12));
+      sc = sz * sq / ts;
+      fx = (px - sz * 0.5) * sq; fy = (py - sz * 0.5) * sq;
+      dx0 = ceil(fx); dy0 = ceil(fy);
+      dw = ceil(sz * sq) + 2;
+      sx0 = tg + v * (ts + tg);
+      gfx_set(1, 1, 1, av, 1);
+      gfx_blit(img, 1, 0, sx0 + (dx0 - fx) / sc, tg + (dy0 - fy) / sc, dw / sc, dw / sc, dx0, dy0, dw, dw);
+    );
+    j += 1;
+  );
+  ha_sil(sq);
+  gfx_dest = od;
+  gfx_set(1, 1, 1, 1, 3);
+  ha_sblit(0, 202, 0, ABN_Y0);
+  j = 0;
+  loop(ABN_N,
+    ha_sblit(0, ABN[2 * j], ABN_Y0 + j * ABN_H, ABN_Y0 + (j + 1) * ABN_H);
+    ha_sblit(ABN[2 * j + 1], 202 - ABN[2 * j + 1], ABN_Y0 + j * ABN_H, ABN_Y0 + (j + 1) * ABN_H);
+    j += 1;
+  );
+  gfx_set(1, 1, 1, 1, 0);
+);
+
+function ha_draw() local(on, t, k, v2, fi, hi, p, dx, dy, br, u, f, lv, j, s2, ps, gu, gi, gf, th0, th1, sm, th, env, dg, wg, tau, bl, rp, ycs, ge, g)
+(
+  !ha_t0 ? ( ha_t0 = time_precise(); ha_bs = -1000; ha_bn = 0; hw_gs = hw_gp = -1000; hw_gn = 0; hw_gk = 1; );
+  t = time_precise() - ha_t0;
+  on = (play_state & 1) && hc_anim > 0.5;
+  ha_a = on ? ha_a + (1 - ha_a) * 0.02 : ha_a * 0.97;
+  (on && !ha_on) ? ( ha_bn = max(ha_bn, t + 2 + 3 * ha_h(floor(t * 3.1))); hw_gn = max(hw_gn, t + 3); );
+  (on && t >= hw_gn) ? ( hw_gp = hw_gs; hw_gs = t; hw_gn = t + 7 + 8 * ha_h(floor(t * 5.3) + 1); hw_gk = 0.7 + 0.5 * ha_h(floor(t * 2.9) + 7); );
+  ha_on = on;
+  (on && t >= ha_bn && t - ha_bs > 0.3) ? ( ha_bs = t; ha_bn = t + 6 + 9 * ha_h(floor(t * 7.7) + 3); );
+  (g_mk && g_fx && ha_a >= 0.002) ? (
+    k = (g_fx2 && uscale > 1.25 && (!g_v2 || g_v22)) ? 2 : 1; fi = k == 2 ? 27 : 26; hi = k == 2 ? 29 : 28;
+    v2 = g_v2;
+    s2 = uscale * 0.5; ps = uscale / k;
+    HOX = 0; HOY = floor(ui_py(25));
+    CLX0 = 0; CLY0 = HOY; CLX1 = min(floor(sbx - UQ), floor(404 * s2)); CLY1 = HOY + floor(1226 * s2);
+    ha_ln = ha_a * (2.3 * sin(2 * $pi * t / 8.9 + 0.6) + 1.4 * (ha_n(t * 0.4, 3) - 0.5) + 0.3 * sin(2 * $pi * t / 2.3));
+    ha_nd = ha_a * 0.9 * sin(2 * $pi * t / 7.1 + 1.3);
+    v2 ? (
+      hw_field(t);
+      hw_draw(uscale, CLX1, HOY, CLY0, CLY1);
+    );
+    j = 0;
+    loop(AFF_N,
+      p = AFF + j * 13;
+      gfx_set(1, 1, 1, ha_a, 0);
+      ha_blit(fi, k, p[0], p[1], p[2], p[3], p[4], p[5]);
+      dx = (2.6 * sin(2 * $pi * t / (9 + 2.3 * j) + j * 1.7) + 1.2 * (ha_n(t * 0.35, 20 + j) - 0.5)) * ha_a * p[12];
+      dy = 2 * sin(2 * $pi * t / (11.5 + 1.9 * j) + j * 0.9) * ha_a * p[12];
+      br = 0.62 + 0.55 * ha_n(t * 0.45 + 3 * j, 40 + j);
+      gfx_set(1, 1, 1, (1 - ha_a + ha_a * br) * ha_a, 1);
+      ha_blit(fi, k, p[6], p[7], p[8], p[9], p[10] + dx, p[11] + dy);
+      j += 1;
+    );
+    j = 0;
+    loop(AST_N,
+      p = AST + j * 8;
+      u = (t + p[6]) / p[7]; f = u - floor(u);
+      abs(f - 0.5) < 0.2 ? (
+        lv = exp(-sqr((f - 0.5) / 0.09)) * (0.35 + 0.65 * ha_h(floor(u) + j)) * ha_a;
+        lv >= 0.01 ? (
+          ycs = p[5] + p[3] * 0.5;
+          v2 ? ( dx = 2 * hw_at((p[4] + p[2] * 0.5) * 0.5, ycs * 0.5); dy = 2 * hw_y; ) : ( dx = 0; dy = 0; );
+          gfx_set(1, 1, 1, lv * 0.33, 1); ha_blit(fi, k, p[0], p[1], p[2], p[3], p[4] + dx, p[5] + dy);
+        );
+      );
+      j += 1;
+    );
+    g_hd ? ha_hrows(hi, k);
+    v2 ? ha_smoke(t, k == 2 ? 37 : 36, k);
+    tau = t - ha_bs;
+    bl = tau < 0.08 ? tau / 0.08 : tau < 0.13 ? 1 : tau < 0.26 ? 1 - (tau - 0.13) / 0.13 : 0;
+    bl *= min(1, ha_a * 1.5);
+    bl > 0 ? (
+      rp = ha_ramp(133);
+      gfx_set(1, 1, 1, bl, 0);
+      ha_blit(fi, k, ABL[0], ABL[1], ABL[2], ABL[3], ABL[4] + rp * ha_ln, ABL[5] + rp * ha_nd);
+    );
+    gu = (t - 2) / 5; gi = floor(gu); gf = (gu - gi) * 5;
+    gf < 3 ? (
+      ha_h(gi + 5) < 0.5 ? ( th0 = -0.15 * $pi; th1 = 1.15 * $pi; ) : ( th0 = 1.15 * $pi; th1 = -0.15 * $pi; );
+      sm = gf / 3; sm = sm * sm * (3 - 2 * sm);
+      th = th0 + (th1 - th0) * sm;
+      env = sin($pi * gf / 3) * ha_a;
+      j = 0;
+      loop(AGL_N,
+        p = AGL + j * 7;
+        dg = p[6] - th; dg -= 2 * $pi * floor(dg / (2 * $pi) + 0.5);
+        wg = exp(-sqr(dg / 0.3)) * env;
+        wg >= 0.004 ? ( gfx_set(1, 1, 1, wg, 1); ha_blit(fi, k, p[0], p[1], p[2], p[3], p[4], p[5]); );
+        j += 1;
+      );
+    );
+    gfx_set(1, 1, 1, 1, 0);
+  );
+);
+
+function ui_hint(h) local(hv, gm)
+(
+  hv = slider(h); gm = ui_ival(1);
+  h == 1 ? sprintf(#u_hint, "Type: %s", 170 + ui_ival(1)) :
+  h == 2 || h == 3 ? sprintf(#u_hint, "%s: %.1f %%", 190 + h - 1, hv * 100) :
+  h == 4 ? sprintf(#u_hint, "Param A (%s): %.1f %%", 120 + gm, hv * 100) :
+  h == 5 ? sprintf(#u_hint, "Param B (%s): %.1f %%", 140 + gm, hv * 100) :
+  h == 6 ? sprintf(#u_hint, "DC Couple: %s", hv > 0.5 ? "On" : "Off") :
+  h == 7 ? sprintf(#u_hint, "Y Input: %s", 160 + ui_ival(7)) :
+  h == 8 ? sprintf(#u_hint, "Mix: %.1f %%", hv) :
+  h == 9 ? sprintf(#u_hint, "Output: %+.1f dB", hv) :
+  h == 20 ? strcpy(#u_hint, "X input: track audio, pins 1/2") :
+  h == 21 ? strcpy(#u_hint, "Y input: sidechain pins 3/4 (or as set below)") :
+  h == 104 ? strcpy(#u_hint, "Click the picture to switch the animation off or on") :
+  (u_ysil > 1.5 && hc_ysrc < 1.5) ? strcpy(#u_hint, "Y is silent: route pins 3/4 or set Y = track") :
+  strcpy(#u_hint, "Double-click a knob to reset, Ctrl-drag for fine");
+);
+
+!u_init ? ( ui_inittables(); ha_init(); u_init = 1; u_lw = u_lh = -1; u_ysil = 0; u_tp = time_precise(); );
+
+u_down = mouse_cap & 1;
+u_click = u_down && !u_pd;
+u_wheel = mouse_wheel;
+mouse_wheel = 0;
+u_hov = 0;
+
+(gfx_w != u_lw || gfx_h != u_lh) ? ( ui_static(); u_lw = gfx_w; u_lh = gfx_h; );
+gfx_set(1, 1, 1, 1); gfx_x = 0; gfx_y = 0;
+gfx_blit(10, 1, 0);
+ha_draw();
+
+u_now = time_precise(); u_dt = min(0.5, max(0, u_now - u_tp)); u_tp = u_now;
+u_lx0 = max(g_xl, u_lx0 * exp(-u_dt * 8)); u_lx1 = max(g_xr, u_lx1 * exp(-u_dt * 8));
+u_ly0 = max(g_yl, u_ly0 * exp(-u_dt * 8)); u_ly1 = max(g_yr, u_ly1 * exp(-u_dt * 8));
+(u_ly0 < 0.0005 && u_ly1 < 0.0005 && (u_lx0 > 0.003 || u_lx1 > 0.003)) ? u_ysil += u_dt : u_ysil = 0;
+ui_lamp(ui_px(14.65), ui_py(38.37), 3.6 * UQ, 1, 0.62, 0.1, min(1, sqrt(u_lx0) * 1.4));
+ui_lamp(ui_px(41.65), ui_py(38.37), 3.6 * UQ, 1, 0.62, 0.1, min(1, sqrt(u_lx1) * 1.4));
+ui_lamp(ui_px(107.65), ui_py(38.37), 3.6 * UQ, 1, 0.62, 0.1, min(1, sqrt(u_ly0) * 1.4));
+ui_lamp(ui_px(134.65), ui_py(38.37), 3.6 * UQ, 1, 0.62, 0.1, min(1, sqrt(u_ly1) * 1.4));
+ui_hit(ui_px(4), ui_py(28), 50 * UQ, 34 * UQ) && u_hov == 0 ? u_hov = 20;
+ui_hit(ui_px(96), ui_py(28), 50 * UQ, 34 * UQ) && u_hov == 0 ? u_hov = 21;
+
+ui_led(6, 66.17, 38.89);
+ui_knob(2, 60.0, 62.98, 9.9, 5);
+ui_knob(3, 90.06, 62.98, 9.9, 5);
+ui_display(1, 100 + ui_ival(1), 30, 91.5, 90, 20, 1, 170);
+ui_knob(1, 74.99, 144.02, 15.87, 5);
+ui_display(4, 120 + ui_ival(1), 33, 174, 84, 18.5, 0, 0);
+ui_knob(4, 74.99, 212.95, 15.87, 3);
+ui_display(5, 140 + ui_ival(1), 33, 245.5, 84, 18.5, 0, 0);
+ui_knob(5, 74.99, 285.02, 15.87, 0);
+ui_knob(8, 25, 296, 9.9, 5);
+ui_knob(9, 125, 296, 9.9, 5);
+ui_choice(7, 22, 338, 106, 15);
+(u_hov == 0 && u_drag == 0 && g_mk && ui_hit(0, floor(ui_py(25)), floor(sbx - UQ), floor(613 * uscale))) ? (
+  u_hov = 104;
+  u_click ? ( ui_put(10, hc_anim > 0.5 ? 0 : 1); u_click = 0; );
+);
+
+u_drag > 0 ? (
+  u_down ? (
+    mouse_cap |= 65536;
+    u_fine = mouse_cap & 4;
+    u_fine != u_dfine ? ( u_dy0 = mouse_y; u_dv0 = ui_norm(u_drag); u_dfine = u_fine; );
+    ui_setn(u_drag, u_dv0 + (u_dy0 - mouse_y) / (200 * uscale) * (u_fine ? 0.1 : 1));
+  ) : (
+    automate(u_drag, 1);
+    u_drag = 0;
+  );
+);
+
+gfx_set(0.82, 0.83, 0.85, 1);
+ui_hint(u_drag > 0 ? u_drag : u_hov);
+ui_font(11 * uscale, 0);
+gfx_measurestr(#u_hint, u_tw, u_th);
+u_tw > 144 * UQ ? ( ui_font(11 * uscale * 144 * UQ / u_tw, 0); gfx_measurestr(#u_hint, u_tw, u_th); );
+gfx_x = floor(gfx_w * 0.5 - u_tw * 0.5); gfx_y = floor(ui_py(373.6) - u_th * 0.5);
+gfx_drawstr(#u_hint);
+
+u_pd = u_down;

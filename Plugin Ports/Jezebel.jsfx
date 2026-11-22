@@ -1,0 +1,2263 @@
+desc: Jezebel Drum Sequencer (Valley Topograph port) by chmaha
+tags: midi generator sequencer drum pattern euclidean
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  A port of Valley Topograph (and its little sibling uGraph), Dale Johnson's take on the Mutable Instruments Grids
+  topographic drum sequencer. Map X and Map Y move around a 5 x 5 map of drum patterns, the three Fill knobs set
+  how busy each part is, and Chaos shakes the pattern a little more each bar. Three sequencer modes: Henri (Topograph's
+  own, livelier blend of the map), Original (the Grids blend) and Euclidean (X, Y and Chaos set each part's length,
+  the Fill knobs its number of hits).
+  Jezebel makes MIDI only, so put a drum instrument after it on the same track. It follows REAPER's transport, or runs
+  free on its own tempo knob with Topograph's swing. Accented hits play at the Accent velocity; the three extra
+  outputs (accents, or accent, clock and reset) can go out as extra notes.
+  Ported from Topograph and uGraph by Dale Johnson (Valley Audio, ValleyRackFree,
+  https://github.com/ValleyAudio/ValleyRackFree, GPLv3+), based on Grids by Emilie Gillet (Mutable Instruments,
+  https://github.com/pichenettes/eurorack, GPLv3+).
+  Title lettering: Zarathustra by Lorene Ceccon (SIL Open Font License 1.1), rendered into the panel image.
+  Sidebar: Etoile polaire (The Pole Star), from La Lune et les etoiles (1902) by Alphonse Mucha, public domain
+  (Bibliotheque nationale de France, Gallica btv1b90077190, via Wikimedia Commons). While the transport plays the
+  picture comes gently to life; click it to switch the animation off or on.
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/Jezebel/JezebelPanel.png
+  Dependencies/Jezebel/JezebelPanel2x.png
+  Dependencies/Jezebel/JezebelImage.png
+  Dependencies/Jezebel/JezebelImage2x.png
+  Dependencies/Jezebel/JezebelImage-LICENSE.txt
+  Dependencies/Jezebel/JezebelTitle.png
+  Dependencies/Jezebel/JezebelTitle2x.png
+  Dependencies/Jezebel/JezebelStarGlow.png
+  Dependencies/Jezebel/JezebelStarGlow2x.png
+  Dependencies/Jezebel/JezebelStarWash.png
+  Dependencies/Jezebel/JezebelStarWash2x.png
+  Dependencies/Jezebel/JezebelStarSpark.png
+  Dependencies/Jezebel/JezebelStarSpark2x.png
+  Dependencies/Jezebel/JezebelLight.png
+  Dependencies/Jezebel/JezebelLight2x.png
+  Dependencies/Jezebel/JezebelArc.png
+  Dependencies/Jezebel/JezebelArc2x.png
+  Dependencies/Jezebel/JezebelHead.png
+  Dependencies/Jezebel/JezebelHead2x.png
+
+slider1:nu_x=0<0,1,0.001>-Map X
+slider2:nu_y=0<0,1,0.001>-Map Y
+slider3:nu_chaos=0<0,1,0.001>-Chaos
+slider4:nu_f1=0.5<0,1,0.001>-Fill 1
+slider5:nu_f2=0.5<0,1,0.001>-Fill 2
+slider6:nu_f3=0.5<0,1,0.001>-Fill 3
+slider7:nu_swing=0<0,0.9,0.001>-Swing
+slider8:nu_bpm=120<40,240,0.1>-Free Tempo (BPM)
+slider9:nu_mode=0<0,2,1{Henri,Original,Euclidean}>-Sequencer Mode
+slider10:nu_clock=0<0,1,1{Follow Transport,Free}>-Clock
+slider11:nu_res=2<0,2,1{4 PPQN,8 PPQN,24 PPQN}>-Transport Resolution
+slider12:nu_gate=0<0,1,1{Trigger,Gate}>-Note Output
+slider13:nu_acco=0<0,1,1{Individual Accents,Accent / Clock / Reset}>-Extra Outputs
+slider14:nu_aux=0<0,1,1{Off,On}>-Extra Output Notes
+slider15:nu_rmode=0<0,1,1{Toggle,Momentary}>-Run Mode
+slider16:nu_run=0<0,1,1{Stopped,Running}>-Free Run
+slider17:nu_rst=0<0,1,1{Off,Reset}>-Reset
+slider18:nu_n1=36<0,127,1>-Note 1
+slider19:nu_n2=38<0,127,1>-Note 2
+slider20:nu_n3=42<0,127,1>-Note 3
+slider21:nu_a1=35<0,127,1>-Extra Note 1
+slider22:nu_a2=40<0,127,1>-Extra Note 2
+slider23:nu_a3=46<0,127,1>-Extra Note 3
+slider24:nu_chan=10<1,16,1>-MIDI Channel
+slider25:nu_vel=100<1,127,1>-Velocity
+slider26:nu_accv=127<1,127,1>-Accent Velocity
+slider27:nu_len=10<1,100,1>-Trigger Length (ms)
+slider28:nu_thru=1<0,1,1{Off,On}>-MIDI Thru
+slider29:nu_anim=1<0,1,1{Off,On}>-Animation
+
+in_pin:none
+out_pin:none
+
+options:no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+last_srate = 0;
+
+NODES = 0;
+EUCL = 2400;
+DMAP = 3424;
+RS = 3456;
+ECNT = 3500;
+PERT = 3504;
+DENS = 3508;
+ELEN = 3512;
+NACT = 3520;
+OFFT = 3528;
+ONOTE = 3536;
+OCHN = 3544;
+GTF = 3552;
+LEDV = 3560;
+PATL = 3600;
+HITS = 3700;
+OQ = 4000;
+OQ_MAX = 1024;
+
+
+function f32k(x) local(t)
+(
+  t = x * 536870913;
+  t = t - (t - x);
+  abs(t) < 0.000000000000000000000000000000000000011754943508222875 ? 0 : t;
+);
+
+function hex_nib(c) ( c >= 97 ? c - 87 : c >= 65 ? c - 55 : c - 48; );
+function hex8(str, dst, n) local(i) (
+  i = 0;
+  loop(n, dst[i] = hex_nib(str_getchar(str, 2 * i)) * 16 + hex_nib(str_getchar(str, 2 * i + 1)); i += 1;);
+);
+function hex32(str, dst, n) local(i, j, v) (
+  i = 0;
+  loop(n,
+    v = 0; j = 0;
+    loop(8, v = v * 16 + hex_nib(str_getchar(str, 8 * i + j)); j += 1;);
+    dst[i] = v;
+    i += 1;
+  );
+);
+
+hex8("ff0000000000910000000000da00000048002400b60000006d0000004800000024006d0000000800ff000000000048000000b60000002400da00000091000000aa007100ff003800aa008d00c6003800aa007100e2001c00aa007100c6005500", NODES + 0, 96);
+hex8("e500190066001900cc0019004c000800ff00080033001900b200190099007f001c00c60038003800e2001c008d001c001c00aa001c001c00ff007100550055009f009f00ff003f009f009f00bf001f009f007f00ff001f009f007f00df005f00", NODES + 96, 96);
+hex8("ff0000007f000000000066000000e5000000b200cc0000004c0033009900190000007f0000000000ff00bf001f003f0000005f0000000000df0000001f009f00ff005500940055007f0055006a003f00d400aa00bf00aa0055002a00e9001500", NODES + 192, 96);
+hex8("ff00d4003f0000006a00940055007f00bf001500e90000001500aa0000002a00000000008d007100ff00c600000038000000550038001c00e2001c00aa003800ff00e700ff00d0008b005c0073005c00b90045002e002e00a2001700d0002e00", NODES + 288, 96);
+hex8("ff001f003f003f007f005f00bf003f00df001f009f003f001f003f005f001f00080000005f003f00ff0000007f000000080000009f003f00ff00df00bf001f004c001900ff007f0099003300cc0066004c003300e5007f0099003300b2006600", NODES + 384, 96);
+hex8("ff00330019004c000000000066000000cc00e5000000b200000099007f000800b2007f009900cc00ff00000019004c006600330000000000e50019001900cc00b2006600ff004c007f004c00e5004c0099006600ff0019007f003300cc003300", NODES + 480, 96);
+hex8("ff000000df0000001f0008007f0000005f0000009f0000005f003f00bf0000003300cc0000006600ff007f000800b2001900e50000004c00cc00990033001900ff00e200ff00ff00c6001c008d003800aa00380055001c00aa001c0071003800", NODES + 576, 96);
+hex8("df0000003f0000005f000000df001f00ff0000009f0000007f001f00bf001f00000000006d000000da000000b60048000800240091002400ff000800b6004800ff004800da002400da00000091000000ff002400b6002400b60000006d000000", NODES + 672, 96);
+hex8("ff000000da00000024000000da000000b6006d00ff00000000000000910048009f0000001f007f00ff001f0000005f0008000000bf001f00ff001f00df003f00ff001f003f001f005f001f003f007f009f001f003f001f00df00df00bf00bf00", NODES + 768, 96);
+hex8("e2001c001c008d0008000800ff00080071001c00c60055003800c600aa001c0008005f0008000800ff003f001f00df0008001f00bf000800ff007f007f009f0073002e00ff00b9008b001700d0007300e7004500ff00a2008b007300e7005c00", NODES + 864, 96);
+hex8("9100000000006d0000000000ff006d004800da000000000024000000b600000000007f009f007f009f00bf00df003f00ff005f001f005f001f0008003f000800ff00000091000000b6006d006d006d00da00000048000000b6004800b6002400", NODES + 960, 96);
+hex8("ff000000000000000000000000000000ff000000da0048240000b6000000916d00007f0000002a00d40000d40000d400000000002a000000ff000000aaaa7f5591006d6dda6d480091004800da006d00b6006d00ff004800b66d246dff6d6d00", NODES + 1056, 96);
+hex8("ff000000ff00bf00000000005f003f001f000000df00df00000008009f007f000000550038001c00ff001c000000e2000000aa0038007100c600000071008d00ff002a00e9003f00d4005500bf006a00bf001500aa000800aa007f0094009400", NODES + 1152, 96);
+hex8("ff00000000003f00bf005f001f00df00ff003f005f003f009f00000000007f004800000000000000ff000000000000004800480024000800da00b60091006d00ff00a200e700a200e7007300d0008b00b9005c00b9002e00a2004500a2001700", NODES + 1248, 96);
+hex8("ff000000330000000000000066000000cc0000009900000000000000330000000000000008002400ff000000b60008000000000048006d0091000000ff00da00d4000800aa0000007f00000055000800ff000800aa0000007f0000002a000800", NODES + 1344, 96);
+hex8("ff0000000000000024000000b6000000da000000000000004800000091006d002400240000000000ff000000b6000000000000000000006dda00000091004848ff001c00e2003800c600000000001c1caa0000008d0000007100000055555555", NODES + 1440, 96);
+hex8("ff00000000005f0000007f0000000000df005f003f001f00bf0000009f00000000001f00ff00000000005f00df00000000003f00bf000000000000009f007f008d001c001c001c007100080008000800ff000000e2000000c6003800aa005500", NODES + 1536, 96);
+hex8("ff00000008000000b600000048000000da00000024000000910000006d000000000033194c191900990000007f66b200cc0000000000ff0000006600e5004c00710000008d00550000000000aa000000381cff0000000000c6000000e2000000", NODES + 1632, 96);
+hex8("ff0008001c001c00c600380038005500ff00550071007100e2008d00aa008d000000000000000000ff0000007f00000000000000000000003f000000bf000000ff000000ff007f00000055000000d4000000d4002a00aa0000007f0000000000", NODES + 1728, 96);
+hex8("ff0000000000da00b6000000000091009100240000006d006d00000048002400000000006d00080048000000ff00b600000000009100080024000800da00b600ff0000000000e200550000008d00000000000000aa003800c600000071001c00", NODES + 1824, 96);
+hex8("ff00000071000000c600380055001c00ff000000e2000000aa0000008d0000000000000000000000ff0091006d00da002400b60048004800ff00000000006d00240024009100000048004800b600000048004800da0000006d006d00ff000000", NODES + 1920, 96);
+hex8("ff000000da0000009100000024000000da00000024000000b600480000006d000000000008000000ff005500d4002a0000000000080000005500aa007f002a006d006d00ff00000048004800da0000009100b600ff00000024002400da000800", NODES + 2016, 96);
+hex8("ff0000002a000000d40000000800d400aa00000055000000d40008007f000800ff00550000000000e20055000000c60000008d0038000000aa001c000000710071003800ff00000055003800e20000000000aa0000008d001c001c00c6001c00", NODES + 2112, 96);
+hex8("ff000000e5000000cc00cc0000004c00b20099003300b200b2007f0066333319000000000000001f00000000ff00001f000008000000bf9f7f5f5f00df003f00ff00ff00cccccccc0000333333330000cc00cc00999999999900000066666666", NODES + 2208, 96);
+hex8("aa00000000ff0000c6000000001c00008d00000000e200003800007100550000ff000000007100005500000000e200008d00000800aa3838c6000038008d1c00ff00000000bf00009f00000000df00005f000000003f00007f000000001f0000", NODES + 2304, 96);
+hex32("0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001", EUCL + 0, 32);
+hex32("0000000000000000000000000000000000000000000000000000000000000000000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000010000000300000003000000030000000300000003000000030000000300000003", EUCL + 32, 32);
+hex32("0000000000000000000000000000000000000000000000000000000100000001000000010000000100000001000000010000000100000001000000010000000100000005000000050000000500000005000000050000000500000005000000050000000500000005000000070000000700000007000000070000000700000007", EUCL + 64, 32);
+hex32("00000000000000000000000000000000000000010000000100000001000000010000000100000001000000010000000100000005000000050000000500000005000000050000000500000005000000050000000d0000000d0000000d0000000d0000000d0000000d0000000d0000000d0000000f0000000f0000000f0000000f", EUCL + 96, 32);
+hex32("000000000000000000000000000000000000000100000001000000010000000100000001000000010000000900000009000000090000000900000009000000090000000d0000000d0000000d0000000d0000000d0000000d0000001d0000001d0000001d0000001d0000001d0000001d0000001f0000001f0000001f0000001f", EUCL + 128, 32);
+hex32("000000000000000000000000000000010000000100000001000000010000000100000009000000090000000900000009000000090000001500000015000000150000001500000015000000150000002d0000002d0000002d0000002d0000002d0000003d0000003d0000003d0000003d0000003d0000003f0000003f0000003f", EUCL + 160, 32);
+hex32("000000000000000000000000000000010000000100000001000000010000001100000011000000110000001100000011000000290000002900000029000000290000002d0000002d0000002d0000002d0000005d0000005d0000005d0000005d0000005d0000007d0000007d0000007d0000007d0000007f0000007f0000007f", EUCL + 192, 32);
+hex32("000000000000000000000001000000010000000100000001000000110000001100000011000000110000002900000029000000290000002900000055000000550000005500000055000000ad000000ad000000ad000000ad000000dd000000dd000000dd000000dd000000fd000000fd000000fd000000fd000000ff000000ff", EUCL + 224, 32);
+hex32("00000000000000000000000100000001000000010000000100000021000000210000002100000049000000490000004900000049000000a9000000a9000000a9000000ad000000ad000000ad0000016d0000016d0000016d0000016d000001bd000001bd000001bd000001fd000001fd000001fd000001fd000001ff000001ff", EUCL + 256, 32);
+hex32("000000000000000000000001000000010000000100000021000000210000002100000091000000910000009100000129000001290000012900000155000001550000015500000155000001ad000001ad000001ad000002dd000002dd000002dd000003bd000003bd000003bd000003fd000003fd000003fd000003ff000003ff", EUCL + 288, 32);
+hex32("00000000000000000000000100000001000000010000004100000041000000410000009100000091000001290000012900000129000002a9000002a9000002a9000002ad000002ad000002ad000005ad000005ad000005ad000006dd000006dd0000077d0000077d0000077d000007fd000007fd000007fd000007ff000007ff", EUCL + 320, 32);
+hex32("000000000000000000000001000000010000004100000041000000410000011100000111000001110000024900000249000004a9000004a9000004a90000055500000555000006ad000006ad000006ad00000b6d00000b6d00000ddd00000ddd00000ddd00000f7d00000f7d00000f7d00000ffd00000ffd00000fff00000fff", EUCL + 352, 32);
+hex32("000000000000000000000001000000010000008100000081000002210000022100000221000004910000049100000929000009290000092900000aa900000aa900000aad00000aad00000dad00000dad00000dad000016dd000016dd00001bbd00001bbd00001bbd00001efd00001efd00001ffd00001ffd00001fff00001fff", EUCL + 384, 32);
+hex32("00000000000000000000000100000001000000810000008100000221000002210000089100000891000009290000092900000929000014a9000014a90000155500001555000016ad000016ad00002dad00002dad00002dad00002edd00002edd00003bbd00003bbd00003efd00003efd00003ffd00003ffd00003fff00003fff", EUCL + 416, 32);
+hex32("000000000000000000000001000000010000010100000101000004210000042100000891000008910000124900001249000025290000252900002aa900002aa900002aad00002aad000035ad000035ad00005b6d00005b6d00006edd00006edd000077bd000077bd00007dfd00007dfd00007ffd00007ffd00007fff00007fff", EUCL + 448, 32);
+hex32("00000000000000010000000100000101000001010000084100000841000011110000111100002491000024910000292900002929000052a9000052a9000055550000555500005aad00005aad0000adad0000adad0000b6dd0000b6dd0000dddd0000dddd0000ef7d0000ef7d0000fdfd0000fdfd0000fffd0000fffd0000ffff", EUCL + 480, 32);
+hex32("000000000000000100000001000002010000020100000841000008410000222100002221000044910000449100004929000094a9000094a90000aaa90000aaa90000aaad0000aaad0000d6ad0000d6ad00016dad000176dd000176dd0001bbbd0001bbbd0001ef7d0001ef7d0001fbfd0001fbfd0001fffd0001fffd0001ffff", EUCL + 512, 32);
+hex32("00000000000000010000000100000201000002010000104100001041000042210000889100008891000092490000924900012929000152a9000152a9000155550001555500015aad00015aad0001adad0002db6d0002db6d0002eedd0002eedd00037bbd0003df7d0003df7d0003fbfd0003fbfd0003fffd0003fffd0003ffff", EUCL + 544, 32);
+hex32("00000000000000010000000100000401000004010000208100004221000042210000889100012491000124910001492900014929000294a90002aaa90002aaa90002aaad0002aaad0002d6ad00056dad00056dad0005b6dd0005b6dd0006eedd00077bbd00077bbd0007befd0007f7fd0007f7fd0007fffd0007fffd0007ffff", EUCL + 576, 32);
+hex32("0000000000000001000000010000040100002081000020810000842100011111000111110002449100024491000249290004a5290004a52900054aa9000555550005555500056aad0006b5ad0006b5ad000b6dad000b76dd000b76dd000ddddd000ddddd000ef7bd000fbefd000fbefd000ff7fd000ffffd000ffffd000fffff", EUCL + 608, 32);
+hex32("00000000000000010000000100000801000040810000408100010841000222210002222100044891000492490004924900052929000a54a9000a54a9000aaaa9000aaaad000b56ad000b56ad0015adad0016db6d0016db6d00176edd001bbbbd001bbbbd001def7d001f7efd001f7efd001feffd001ffffd001ffffd001fffff", EUCL + 640, 32);
+hex32("000000000000000100000001000008010000810100020841000208410004222100048891000488910009249100094929001294a9001294a900154aa9001555550015555500156aad001ad6ad001ad6ad002d6dad002db6dd0036eedd0036eedd0037bbbd003bef7d003bef7d003efdfd003feffd003ffffd003ffffd003fffff", EUCL + 672, 32);
+hex32("00000000000000010000000100001001000081010002084100020841000842210008889100122491001224910012492900252929002952a9002952a9002aaaa9002aaaad002d5aad002d5aad0035adad005b6dad005bb6dd005bb6dd006eeedd006f7bbd007bef7d007bef7d007efdfd007fdffd007ffffd007ffffd007fffff", EUCL + 704, 32);
+hex32("00000000000000010000100100001001000101010004104100084221000842210011111100224491002492490029292900292929004a94a900552aa900555555005555550055aaad006ad6ad00adadad00adadad00b6db6d00bb76dd00dddddd00ef7bbd00ef7bbd00f7df7d00fdfdfd00ffdffd00ffdffd00fffffd00ffffff", EUCL + 736, 32);
+hex32("0000000000000001000020010000200100020201000820810010842100222221002222210044889100492491004a49290094a5290094a52900a952a900aaaaa900aaaaad00ad5aad00d6b5ad00d6b5ad016b6dad016db6dd0176eedd01bbbbbd01bbbbbd01def7bd01efbefd01fbfbfd01ffbffd01ffbffd01fffffd01ffffff", EUCL + 768, 32);
+hex32("00000000000000010000200100020201000202010010208100210841004422210048889100922491009224910092492901252929014a94a901552aa901555555015555550155aaad016ad6ad01b5adad02db6dad02dbb6dd02dbb6dd036eeedd0377bbbd03bdef7d03dfbefd03fbfbfd03fbfbfd03ffbffd03fffffd03ffffff", EUCL + 800, 32);
+hex32("00000000000000010000400100040201000402010010208100410841008442210088889101224491012492490149492901494929025294a902a552a902aaaaa902aaaaad02b55aad035ad6ad056d6dad056d6dad05b6db6d05bb76dd06eeeedd06f77bbd077def7d07dfbefd07f7fbfd07f7fbfd07ff7ffd07fffffd07ffffff", EUCL + 832, 32);
+hex32("0000000000000001000040010008040100204081008208410082084100884221011111110224489102492491024a492904a52929052a54a90554aaa905555555055555550556aaad05ab56ad06b5adad0b6b6dad0b6db6dd0bb76edd0ddddddd0eef7bbd0efbef7d0efbef7d0fbf7efd0feff7fd0fff7ffd0ffffffd0fffffff", EUCL + 864, 32);
+hex32("00000000000000010000800100080401004081010082084101084221022222210222222102448891049124910492492905252929095294a90a954aa90aaaaaa90aaaaaad0ad56aad0d5ad6ad15b5adad16db6dad16ddb6dd1b76eedd1bbbbbbd1bbbbbbd1def7bbd1efbef7d1f7efdfd1feff7fd1ffefffd1ffffffd1fffffff", EUCL + 896, 32);
+hex32("0000000000000001000080010010040100808101010410410210842104422221044888910912449109249249094949291294a52914a952a91554aaa915555555155555551556aaad16ad5aad1ad6b5ad2d6d6dad2db6db6d2ddb76dd376eeedd377bbbbd3bdef7bd3df7df7d3efefdfd3fdff7fd3ffefffd3ffffffd3fffffff", EUCL + 928, 32);
+hex32("00000000000000010001000100200801008081010208208104210841084422210888889111224491124924911252492924a52929254a94a92a954aa92aaaaaa92aaaaaad2ad56aad356ad6ad36b5adad5b5b6dad5b6db6dd5dbb76dd6eeeeedd6f77bbbd77bdef7d7befbefd7efefdfd7fbfeffd7ffdfffd7ffffffd7fffffff", EUCL + 960, 32);
+hex32("000000000000000100010001002008010101010104082081084108411088422111111111224488912491249124924929292929294a5294a952a952a95552aaa9555aaaad5aad5aad6b5ad6adadadadadb6db6dadb6ddb6ddbb76eedddddddddddeef7bbdef7def7df7efbefdfdfdfdfdffbfeffdfffdfffdfffffffdffffffff", EUCL + 992, 32);
+
+function dmap_set(i, a, b, c, d, e) ( DMAP[i * 5] = a; DMAP[i * 5 + 1] = b; DMAP[i * 5 + 2] = c; DMAP[i * 5 + 3] = d; DMAP[i * 5 + 4] = e; );
+dmap_set(0, 10, 8, 0, 9, 11);
+dmap_set(1, 15, 7, 13, 12, 6);
+dmap_set(2, 18, 14, 4, 5, 3);
+dmap_set(3, 23, 16, 21, 1, 2);
+dmap_set(4, 24, 19, 17, 20, 22);
+
+function rnd_mod(a, m) ( a - m * floor(a / m); );
+
+function rnd_seed(seed) local(i, w)
+(
+  RS[0] = seed;
+  i = 1;
+  loop(30,
+    w = rnd_mod(16807 * RS[i - 1], 2147483647);
+    RS[i] = w;
+    i += 1;
+  );
+  RS[31] = RS[0]; RS[32] = RS[1]; RS[33] = RS[2];
+  rs_i = 34;
+  loop(310,
+    RS[rs_i % 34] = rnd_mod(RS[(rs_i + 3) % 34] + RS[(rs_i + 31) % 34], 4294967296);
+    rs_i += 1;
+  );
+);
+
+function rnd_byte() local(v)
+(
+  v = rnd_mod(RS[(rs_i + 3) % 34] + RS[(rs_i + 31) % 34], 4294967296);
+  RS[rs_i % 34] = v;
+  rs_i = rs_i >= 1000000 ? rs_i - 999974 : rs_i + 1;
+  rnd_mod(floor(v / 2), 256);
+);
+
+function q_out(o, a, b, c) local(p) (
+  oq_n < OQ_MAX ? (
+    p = OQ + oq_n * 4;
+    p[0] = o; p[1] = a; p[2] = b; p[3] = c;
+    oq_n += 1;
+  );
+);
+
+function q_flush() local(i, j, p, o, a, b, c) (
+  i = 1;
+  while (i < oq_n) (
+    p = OQ + i * 4;
+    o = p[0]; a = p[1]; b = p[2]; c = p[3];
+    j = i - 1;
+    while (j >= 0 && OQ[j * 4] > o) (
+      memcpy(OQ + (j + 1) * 4, OQ + j * 4, 4);
+      j -= 1;
+    );
+    p = OQ + (j + 1) * 4;
+    p[0] = o; p[1] = a; p[2] = b; p[3] = c;
+    i += 1;
+  );
+  i = 0;
+  loop(oq_n,
+    p = OQ + i * 4;
+    midisend(p[0], p[1], p[2], p[3]);
+    i += 1;
+  );
+  oq_n = 0;
+);
+
+function tdiv(a) ( a >= 0 ? floor(a / 127) : -floor(-a / 127); );
+
+function pg_cell(x) ( x >= 170 ? (x >= 255 ? 3 : 2) : x >= 85 ? 1 : 0; );
+
+function pg_read(st, ins, x, y) local(i, j, o, a, b, c, d, r, m)
+(
+  o = ins * 32 + st;
+  pg_mode == 0 ? (
+    i = pg_cell(x); j = pg_cell(y);
+    a = NODES[DMAP[i * 5 + j] * 96 + o];
+    b = NODES[DMAP[(i + 1) * 5 + j] * 96 + o];
+    c = NODES[DMAP[i * 5 + j + 1] * 96 + o];
+    d = NODES[DMAP[(i + 1) * 5 + j + 1] * 96 + o];
+    r = tdiv(tdiv((a * x + b * (127 - x)) * y + (c * x + d * (127 - x)) * (127 - y)));
+    r - 256 * floor(r / 256);
+  ) : (
+    i = x >> 6; j = y >> 6;
+    a = NODES[DMAP[i * 5 + j] * 96 + o];
+    b = NODES[DMAP[(i + 1) * 5 + j] * 96 + o];
+    c = NODES[DMAP[i * 5 + j + 1] * 96 + o];
+    d = NODES[DMAP[(i + 1) * 5 + j + 1] * 96 + o];
+    m = (x << 2) & 255;
+    a = floor((a * (255 - m) + b * m) / 255);
+    c = floor((c * (255 - m) + d * m) / 255);
+    m = (y << 2) & 255;
+    floor((a * (255 - m) + c * m) / 255);
+  );
+);
+
+function pg_drums() local(i, m, lvl, acc)
+(
+  pg_step === 0 ? (
+    i = 0;
+    loop(3,
+      PERT[i] = (rnd_byte() * (pg_chaos >> 2)) >> 8;
+      i += 1;
+    );
+  );
+  m = 1; acc = 0; i = 0;
+  loop(3,
+    lvl = pg_read(pg_step, i, pg_x, pg_y);
+    lvl < 255 - PERT[i] ? lvl += PERT[i] : lvl = 255;
+    lvl > 255 - DENS[i] ? (
+      lvl > 192 ? acc |= m;
+      pg_state |= m;
+    );
+    HITS[i * 32 + pg_step] = (pg_state & m) ? 1 + (lvl > 192) : 0;
+    m *= 2;
+    i += 1;
+  );
+  pg_alt ? (
+    pg_state |= acc ? 8 : 0;
+    pg_state |= pg_step === 0 ? 32 : 0;
+  ) : (
+    pg_state |= acc << 3;
+  );
+);
+
+function bit_at(v, k) local(q) ( q = floor(v / (2 ^ k)); q - 2 * floor(q / 2); );
+
+function pg_euclid() local(i, m, len, dn, rst, bits)
+(
+  !(pg_step & 1) ? (
+    m = 1; rst = 0; i = 0;
+    loop(3,
+      len = (ELEN[i] >> 3) + 1;
+      dn = DENS[i] >> 3;
+      while (ECNT[i] >= len) ( ECNT[i] -= len; );
+      bits = EUCL[(len - 1) * 32 + dn];
+      bit_at(bits, ECNT[i]) ? pg_state |= m;
+      ECNT[i] === 0 ? rst |= m;
+      HITS[i * 32 + (ECNT[i] & 31)] = (pg_state & m) ? 1 : 0;
+      m *= 2;
+      i += 1;
+    );
+    pg_alt ? (
+      pg_state |= rst ? 8 : 0;
+      pg_state |= rst === 7 ? 32 : 0;
+    ) : (
+      pg_state |= rst << 3;
+    );
+  );
+);
+
+function pg_tick(num)
+(
+  pg_state = 64 | (pg_alt ? 16 : 0);
+  pg_pulse === 0 ? (
+    g_step = pg_step;
+    pg_mode == 2 ? pg_euclid() : pg_drums();
+  );
+  pg_pulse += num;
+  while (pg_pulse >= 3) (
+    pg_pulse -= 3;
+    !(pg_step & 1) ? (
+      ECNT[0] = (ECNT[0] + 1) & 255; ECNT[1] = (ECNT[1] + 1) & 255; ECNT[2] = (ECNT[2] + 1) & 255;
+    );
+    pg_step += 1;
+  );
+  pg_step >= 32 ? pg_step -= 32;
+);
+
+function pg_reset() ( pg_step = 0; pg_pulse = 0; ECNT[0] = ECNT[1] = ECNT[2] = 0; );
+
+function pg_params()
+(
+  pg_x = floor(f32k(nu_x) * 255); pg_y = floor(f32k(nu_y) * 255); pg_chaos = floor(f32k(nu_chaos) * 255);
+  DENS[0] = floor(f32k(nu_f1) * 255); DENS[1] = floor(f32k(nu_f2) * 255); DENS[2] = floor(f32k(nu_f3) * 255);
+  ELEN[0] = pg_x; ELEN[1] = pg_y; ELEN[2] = pg_chaos;
+  pg_mode = floor(nu_mode + 0.5);
+  pg_alt = nu_acco >= 0.5;
+);
+
+function m_tempo(t) local(bi)
+(
+  bi = (60 / (t * 24));
+  (1 / (bi * m_sr));
+);
+
+function nu_note(i) ( i === 0 ? nu_n1 : i === 1 ? nu_n2 : i === 2 ? nu_n3 : i === 3 ? nu_a1 : i === 4 ? nu_a2 : nu_a3; );
+
+function nu_off(i, ofs) ( NACT[i] ? ( q_out(ofs, 128 | OCHN[i], ONOTE[i], 0); NACT[i] = 0; GTF[i] = 0; ); );
+
+function nu_emit(ofs, odur, fgate) local(i, b, acc, n)
+(
+  i = 0;
+  loop(6,
+    b = (pg_state >> i) & 1;
+    (b && (i < 3 || a_aux)) ? (
+      nu_off(i, ofs);
+      acc = i >= 3 ? 0 : pg_mode == 2 ? 0 : pg_alt ? (pg_state & 8) : (pg_state & (8 << i));
+      n = nu_note(i) | 0;
+      q_out(ofs, 144 | a_chan, n, (acc ? nu_accv : nu_vel) | 0);
+      ONOTE[i] = n; OCHN[i] = a_chan;
+      NACT[i] = 1;
+      GTF[i] = fgate;
+      fgate ? g_any = 1;
+      OFFT[i] = fgate ? 1000000000 : ofs + odur;
+      LEDV[i] = LEDV[i] >= 1000000 ? 1 : LEDV[i] + 1;
+    ) : (b && i < 3) ? (
+      LEDV[i] = LEDV[i] >= 1000000 ? 1 : LEDV[i] + 1;
+    );
+    i += 1;
+  );
+);
+
+function all_off() local(i) ( i = 0; loop(6, nu_off(i, 0); i += 1;); );
+
+function sw_t(n) local(c, r)
+(
+  c = floor(n / 12);
+  r = n - 12 * c;
+  12 * c + (r <= 5 ? r * (1 + a_sw) : 5 * (1 + a_sw) + (r - 5) * (1 - a_sw));
+);
+
+function nu_resync(p) local(n, sa, i, len)
+(
+  n = a_inc * floor((p - 12) / a_inc);
+  while (sw_t(n) < p - 0.00001) ( n += a_inc; );
+  n_next = n;
+  sa = floor(n / 3);
+  pg_pulse = n - 3 * sa;
+  pg_step = sa - 32 * floor(sa / 32);
+  i = 0;
+  loop(3,
+    len = (ELEN[i] >> 3) + 1;
+    ECNT[i] = sa > 0 ? ceil(sa / 2) % len : 0;
+    i += 1;
+  );
+);
+
+function pat_update() local(i, s, len, dn, bits)
+(
+  i = 0;
+  loop(3,
+    s = 0;
+    pg_mode == 2 ? (
+      len = (ELEN[i] >> 3) + 1;
+      dn = DENS[i] >> 3;
+      bits = EUCL[(len - 1) * 32 + dn];
+      loop(32, PATL[i * 32 + s] = s < len ? (bit_at(bits, s) ? 255 : 0) : -1; s += 1;);
+    ) : (
+      loop(32, PATL[i * 32 + s] = pg_read(s, i, pg_x, pg_y); s += 1;);
+    );
+    i += 1;
+  );
+  pat_len = 1;
+);
+
+<? !jsfx_has_set_midi_note_name ? printf("function set_midi_note_name(a,b,c,d) ( 0 );\n"); ?>
+
+function nn_update() local(key, i)
+(
+  key = nu_n1 + 128 * (nu_n2 + 128 * (nu_n3 + 128 * (nu_a1 + 128 * (nu_a2 + 128 * nu_a3))));
+  key = key * 64 + nu_chan * 4 + (nu_aux >= 0.5) * 2 + (nu_acco >= 0.5);
+  key += 0.5 * (floor(nu_mode + 0.5) == 2);
+  key !== nn_key ? (
+    nn_key = key;
+    set_midi_note_name(-1, 0, 0, "");
+    i = 5;
+    loop(6,
+      (i < 3 || nu_aux >= 0.5) ? (
+        floor(nu_mode + 0.5) == 2 ? (
+          set_midi_note_name(0, nu_note(i) | 0, (nu_chan - 1) | 0,
+            i == 0 ? "Jezebel Euclid 1" : i == 1 ? "Jezebel Euclid 2" : i == 2 ? "Jezebel Euclid 3" :
+            nu_acco >= 0.5 ? (i == 3 ? "Jezebel Any Reset" : i == 4 ? "Jezebel Clock" : "Jezebel All Reset") :
+            (i == 3 ? "Jezebel Reset 1" : i == 4 ? "Jezebel Reset 2" : "Jezebel Reset 3"));
+        ) : (
+          set_midi_note_name(0, nu_note(i) | 0, (nu_chan - 1) | 0,
+            i == 0 ? "Jezebel 1 (BD)" : i == 1 ? "Jezebel 2 (SD)" : i == 2 ? "Jezebel 3 (HH)" :
+            nu_acco >= 0.5 ? (i == 3 ? "Jezebel Accent" : i == 4 ? "Jezebel Clock" : "Jezebel Reset") :
+            (i == 3 ? "Jezebel Accent 1" : i == 4 ? "Jezebel Accent 2" : "Jezebel Accent 3"));
+        );
+      );
+      i -= 1;
+    );
+  );
+);
+
+rnd_seed(1);
+pg_reset();
+m_el = 0; m_ph = 0;
+eticks = 0;
+was_run = 0;
+g_step = -1;
+nn_key = -1;
+
+@slider
+last_srate != srate ? (
+  last_srate = srate;
+  m_sr = (srate);
+  m_key = -1;
+);
+nn_update();
+
+@block
+oq_n = 0;
+while (midirecv(mofs, mm1, mm2, mm3)) ( nu_thru >= 0.5 ? q_out(mofs, mm1, mm2, mm3); );
+
+pg_params();
+nn_update();
+a_aux = nu_aux >= 0.5;
+a_chan = (nu_chan - 1) | 0;
+a_gate = nu_gate >= 0.5;
+a_free = nu_clock >= 0.5;
+a_lensmp = floor(nu_len * 0.001 * srate + 0.5);
+a_rst = nu_rst >= 0.5 && !a_prst;
+a_prst = nu_rst >= 0.5;
+pk = pg_x + 256 * (pg_y + 256 * (DENS[0] + 256 * (DENS[1] + 256 * (DENS[2] + 256 * (pg_mode + 4 * pg_chaos)))));
+pk !== pat_key ? ( pat_key = pk; pat_update(); );
+
+(a_free !== a_pfree || a_chan !== a_pchan) ? all_off();
+a_pfree = a_free; a_pchan = a_chan;
+
+a_free ? (
+  a_mom = nu_rmode >= 0.5;
+  a_running = nu_run >= 0.5;
+  m_sw = max(0, min((0.9), (nu_swing)));
+  m_tp = (nu_bpm);
+  mk = m_tp + 1000 * m_sw;
+  mk !== m_key ? (
+    m_key = mk;
+    m_inclo = m_tempo((m_tp / (1 + m_sw)));
+    m_inchi = m_tempo((m_tp / (1 - m_sw)));
+  );
+  !a_running && was_run ? all_off();
+  b_s = 0;
+  loop(samplesblock,
+    (a_mom && !a_running) ? ( m_ph = 0; m_el = 1; );
+    (b_s == 0 && a_rst) ? ( pg_reset(); m_ph = 0; m_el = 1; eticks = 0; );
+    b_inc = eticks < 6 ? m_inclo : m_inchi;
+    b_pv = m_ph;
+    m_ph = m_el;
+    m_ph >= 1 ? m_ph -= 1;
+    m_el = (m_el + b_inc);
+    m_el >= 1 ? m_el -= 1;
+    (a_running && b_pv > m_ph) ? (
+      eticks = (eticks + 1) % 12;
+      b_i = 0;
+      loop(6, (NACT[b_i] && !GTF[b_i] && OFFT[b_i] <= b_s) ? nu_off(b_i, OFFT[b_i]); b_i += 1;);
+      pg_tick(1);
+      nu_emit(b_s, a_lensmp, a_gate);
+    );
+    (g_any && m_el >= 0.5) ? (
+      b_i = 0;
+      loop(6, (NACT[b_i] && GTF[b_i]) ? nu_off(b_i, b_s); b_i += 1;);
+      g_any = 0;
+    );
+    b_s += 1;
+  );
+  b_i = 0;
+  loop(6,
+    (NACT[b_i] && !GTF[b_i]) ? ( OFFT[b_i] < samplesblock ? nu_off(b_i, OFFT[b_i]) : OFFT[b_i] -= samplesblock; );
+    b_i += 1;
+  );
+  was_run = a_running;
+  !a_running ? g_step = -1;
+) : (
+  a_inc = nu_res < 0.5 ? 6 : nu_res < 1.5 ? 3 : 1;
+  a_sw = a_inc == 1 ? max(0, min(0.9, nu_swing)) : 0;
+  a_run = play_state & 1;
+  a_run ? (
+    a_tps = tempo / 60 * 24 / srate;
+    a_p0 = beat_position * 24;
+    a_jump = (!was_run || abs(a_p0 - a_pexp) > 0.1 || a_inc !== a_pinc || a_sw !== a_psw);
+    a_jump ? nu_resync(a_p0);
+    a_p1 = a_p0 + samplesblock * a_tps;
+    a_done = 0;
+    while (!a_done) (
+      a_tn = sw_t(n_next);
+      a_tick = a_tn < a_p1 ? max(0, floor((a_tn - a_p0) / a_tps + 0.001)) : samplesblock * 2;
+      a_oi = -1;
+      a_om = a_tick;
+      a_i = 0;
+      loop(6,
+        (NACT[a_i] && OFFT[a_i] < samplesblock && OFFT[a_i] <= a_om) ? ( a_om = OFFT[a_i]; a_oi = a_i; );
+        a_i += 1;
+      );
+      a_oi >= 0 ? (
+        nu_off(a_oi, floor(a_om));
+      ) : a_tick < samplesblock ? (
+        a_gd = floor((sw_t(n_next + a_inc) - a_tn) * 0.5 / a_tps + 0.5);
+        pg_tick(a_inc);
+        nu_emit(a_tick, a_gate ? max(1, a_gd) : a_lensmp, 0);
+        n_next += a_inc;
+      ) : (
+        a_done = 1;
+      );
+    );
+    a_i = 0;
+    loop(6, NACT[a_i] ? OFFT[a_i] -= samplesblock; a_i += 1;);
+    a_pexp = a_p1;
+    a_pinc = a_inc;
+    a_psw = a_sw;
+    was_run = 1;
+  ) : (
+    was_run ? all_off();
+    was_run = 0;
+    g_step = -1;
+  );
+);
+q_flush();
+
+@gfx 1023 684
+
+UDW = 440; UDH = 380; UK = 1.8; SBU = 128;
+NAG = 3600500;
+uscale = max(0.5, min(gfx_w / ((UDW + SBU) * UK), gfx_h / (UDH * UK)));
+UQ = UK * uscale;
+u_sbx = floor(SBU * UQ + 0.5);
+u_slk = max(0, gfx_w - u_sbx - UDW * UQ - 1);
+uox = u_sbx + floor(u_slk * 0.5);
+u_cx = floor(gfx_w * 0.5 - (440 - SBU) * 0.5 * UQ) + (440 - SBU) * 0.5 * UQ;
+!g_pnl_try ? (
+  g_pnl_try = 1;
+  g_pnl = gfx_loadimg(20, "Jezebel/JezebelPanel.png") >= 0 || gfx_loadimg(20, "Dependencies/Jezebel/JezebelPanel.png") >= 0;
+  g_pnl2 = gfx_loadimg(21, "Jezebel/JezebelPanel2x.png") >= 0 || gfx_loadimg(21, "Dependencies/Jezebel/JezebelPanel2x.png") >= 0;
+  g_mk = gfx_loadimg(22, "Jezebel/JezebelImage.png") >= 0 || gfx_loadimg(22, "Dependencies/Jezebel/JezebelImage.png") >= 0;
+  g_mk2 = gfx_loadimg(23, "Jezebel/JezebelImage2x.png") >= 0 || gfx_loadimg(23, "Dependencies/Jezebel/JezebelImage2x.png") >= 0;
+  g_tt = gfx_loadimg(24, "Jezebel/JezebelTitle.png") >= 0 || gfx_loadimg(24, "Dependencies/Jezebel/JezebelTitle.png") >= 0;
+  g_tt2 = gfx_loadimg(25, "Jezebel/JezebelTitle2x.png") >= 0 || gfx_loadimg(25, "Dependencies/Jezebel/JezebelTitle2x.png") >= 0;
+  NAG[0] = gfx_loadimg(26, "Jezebel/JezebelStarGlow.png") >= 0 || gfx_loadimg(26, "Dependencies/Jezebel/JezebelStarGlow.png") >= 0;
+  NAG[1] = gfx_loadimg(27, "Jezebel/JezebelStarGlow2x.png") >= 0 || gfx_loadimg(27, "Dependencies/Jezebel/JezebelStarGlow2x.png") >= 0;
+  NAG[2] = gfx_loadimg(28, "Jezebel/JezebelStarSpark.png") >= 0 || gfx_loadimg(28, "Dependencies/Jezebel/JezebelStarSpark.png") >= 0;
+  NAG[3] = gfx_loadimg(29, "Jezebel/JezebelStarSpark2x.png") >= 0 || gfx_loadimg(29, "Dependencies/Jezebel/JezebelStarSpark2x.png") >= 0;
+  NAG[4] = gfx_loadimg(30, "Jezebel/JezebelLight.png") >= 0 || gfx_loadimg(30, "Dependencies/Jezebel/JezebelLight.png") >= 0;
+  NAG[5] = gfx_loadimg(31, "Jezebel/JezebelLight2x.png") >= 0 || gfx_loadimg(31, "Dependencies/Jezebel/JezebelLight2x.png") >= 0;
+  NAG[6] = gfx_loadimg(32, "Jezebel/JezebelArc.png") >= 0 || gfx_loadimg(32, "Dependencies/Jezebel/JezebelArc.png") >= 0;
+  NAG[7] = gfx_loadimg(33, "Jezebel/JezebelArc2x.png") >= 0 || gfx_loadimg(33, "Dependencies/Jezebel/JezebelArc2x.png") >= 0;
+  NAG[10] = gfx_loadimg(36, "Jezebel/JezebelHead.png") >= 0 || gfx_loadimg(36, "Dependencies/Jezebel/JezebelHead.png") >= 0;
+  NAG[11] = gfx_loadimg(37, "Jezebel/JezebelHead2x.png") >= 0 || gfx_loadimg(37, "Dependencies/Jezebel/JezebelHead2x.png") >= 0;
+  NAG[12] = gfx_loadimg(38, "Jezebel/JezebelStarWash.png") >= 0 || gfx_loadimg(38, "Dependencies/Jezebel/JezebelStarWash.png") >= 0;
+  NAG[13] = gfx_loadimg(39, "Jezebel/JezebelStarWash2x.png") >= 0 || gfx_loadimg(39, "Dependencies/Jezebel/JezebelStarWash2x.png") >= 0;
+);
+
+function automate(s, e)
+(
+<?
+  max_sliders > 28 ? printf("slider_automate(2^(s-1), e);") : (
+    printf("s == 1 ? slider_automate(nu_x, e) : s == 2 ? slider_automate(nu_y, e) : s == 3 ? slider_automate(nu_chaos, e) : s == 4 ? slider_automate(nu_f1, e) :\n");
+    printf("s == 5 ? slider_automate(nu_f2, e) : s == 6 ? slider_automate(nu_f3, e) : s == 7 ? slider_automate(nu_swing, e) : s == 8 ? slider_automate(nu_bpm, e) :\n");
+    printf("s == 9 ? slider_automate(nu_mode, e) : s == 10 ? slider_automate(nu_clock, e) : s == 11 ? slider_automate(nu_res, e) : s == 12 ? slider_automate(nu_gate, e) :\n");
+    printf("s == 13 ? slider_automate(nu_acco, e) : s == 14 ? slider_automate(nu_aux, e) : s == 15 ? slider_automate(nu_rmode, e) : s == 16 ? slider_automate(nu_run, e) :\n");
+    printf("s == 17 ? slider_automate(nu_rst, e) : s == 18 ? slider_automate(nu_n1, e) : s == 19 ? slider_automate(nu_n2, e) : s == 20 ? slider_automate(nu_n3, e) :\n");
+    printf("s == 21 ? slider_automate(nu_a1, e) : s == 22 ? slider_automate(nu_a2, e) : s == 23 ? slider_automate(nu_a3, e) : s == 24 ? slider_automate(nu_chan, e) :\n");
+    printf("s == 25 ? slider_automate(nu_vel, e) : s == 26 ? slider_automate(nu_accv, e) : s == 27 ? slider_automate(nu_len, e) : s == 28 ? slider_automate(nu_thru, e) :\n");
+    printf("s == 29 ? slider_automate(nu_anim, e) : 0;");
+  );
+?>
+  0;
+);
+
+function ui_inittables()
+(
+  UMN = 3600000; UMX = 3600100; UDF = 3600200; UST = 3600300; ULC = 3600400;
+  NAL = 3600600; NAB = 3601000; NWT = 3610000; NWX = 3614000; NWY = 3615000; NWL = 3616000; NHT = 3620000; NHX = 3625000; NHY = 3626000; NBT = 3630000; NBX = 3635000; NBY = 3637000; NET = 3640000; NEX = 3641000; NEY = 3642000;
+  mem_set_values(UMN + 1, 0, 0, 0, 0, 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0);
+  mem_set_values(UMX + 1, 1, 1, 1, 1, 1, 1, 0.9, 240, 2, 1, 2, 1, 1, 1, 1, 1, 1, 127, 127, 127, 127, 127, 127, 16, 127, 127, 100, 1, 1);
+  mem_set_values(UDF + 1, 0, 0, 0, 0.5, 0.5, 0.5, 0, 120, 0, 0, 2, 0, 0, 0, 0, 0, 0, 36, 38, 42, 35, 40, 46, 10, 100, 127, 10, 1, 1);
+  mem_set_values(UST + 1, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1);
+  mem_set_values(NAL, 429, 672, 1, 1, 452, 689, 0.8, 1, 375, 767, 0.9, 1, 447, 954, 0.7, 1, 54, 992, 0.8, 1,
+                      134, 1037, 0.75, 1, 410, 735, 0.45, 0, 398, 860, 0.4, 0, 95, 1080, 0.4, 0);
+  na_nb = 39;
+  mem_set_values(NAB + 0, -3.076143, 0, 159, 97, 28, 0, -2.945243, 0, 144, 97, 36, 28);
+  mem_set_values(NAB + 12, -2.814343, 0, 127, 97, 51, 64, -2.683444, 0, 108, 98, 68, 115);
+  mem_set_values(NAB + 24, -2.552544, 0, 86, 98, 89, 183, -2.421644, 0, 58, 98, 115, 272);
+  mem_set_values(NAB + 36, -2.290745, 0, 20, 70, 123, 387, -2.159845, 0, 0, 74, 134, 510);
+  mem_set_values(NAB + 48, -2.028945, 0, 0, 95, 146, 644, -1.898046, 22, 0, 78, 145, 790);
+  mem_set_values(NAB + 60, -1.767146, 53, 0, 52, 143, 935, -1.636246, 75, 0, 43, 140, 1078);
+  mem_set_values(NAB + 72, -1.505346, 97, 0, 47, 137, 1218, -1.374447, 111, 0, 58, 131, 1355);
+  mem_set_values(NAB + 84, -1.243547, 128, 0, 65, 113, 1486, -1.112647, 135, 0, 93, 113, 1599);
+  mem_set_values(NAB + 96, -0.981748, 143, 0, 87, 117, 1712, -0.850848, 156, 0, 74, 117, 1829);
+  mem_set_values(NAB + 108, -0.719948, 171, 41, 59, 76, 1946, -0.589049, 193, 73, 37, 58, 2022);
+  mem_set_values(NAB + 120, -0.458149, 150, 98, 80, 66, 2080, -0.327249, 151, 120, 79, 48, 2146);
+  mem_set_values(NAB + 132, -0.196350, 155, 138, 75, 38, 2194, -0.065450, 156, 156, 74, 32, 2232);
+  mem_set_values(NAB + 144, 0.065450, 151, 172, 79, 32, 2264, 0.196350, 150, 184, 80, 31, 2296);
+  mem_set_values(NAB + 156, 0.327249, 116, 183, 114, 42, 2327, 0.458149, 114, 183, 98, 48, 2369);
+  mem_set_values(NAB + 168, 0.589049, 114, 184, 116, 82, 2417, 0.719948, 113, 185, 116, 90, 2499);
+  mem_set_values(NAB + 180, 0.850848, 112, 185, 118, 168, 2589, 0.981748, 112, 186, 118, 168, 2757);
+  mem_set_values(NAB + 192, 1.112647, 110, 186, 120, 341, 2925, 1.243547, 109, 185, 121, 411, 3266);
+  mem_set_values(NAB + 204, 1.374447, 108, 185, 122, 411, 3677, 1.505346, 86, 185, 103, 411, 4088);
+  mem_set_values(NAB + 216, 1.636246, 35, 185, 84, 387, 4499, 2.945243, 0, 181, 102, 36, 4886);
+  mem_set_values(NAB + 228, 3.076143, 0, 173, 96, 29, 4922);
+  nw_nx = 20; nw_ny = 46; nw_y0 = 232; nw_c = 8;
+  mem_set_values(NWT + 0, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 15, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 30, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 45, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 60, 0.0000, 0.0000, 0.0000, 0.0016, 0.0000, 0.0000, 0.0081, 0.0000, 0.0000, 0.0091, 0.0000, 0.0000, 0.0091, 0.0000, 0.0000);
+  mem_set_values(NWT + 75, 0.0051, 0.0000, 0.0000, 0.0070, 0.0000, 0.0000, 0.0091, 0.0000, 0.0000, 0.0062, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 90, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 105, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 120, 0.0008, 0.0000, 0.0000, 0.0192, 0.0000, 0.0000, 0.0523, 0.0000, 0.0000, 0.0523, 0.0000, 0.0000, 0.0377, 0.0000, 0.0000);
+  mem_set_values(NWT + 135, 0.0078, 0.0000, 0.0000, 0.0171, 0.0000, 0.0000, 0.0523, 0.0000, 0.0000, 0.0358, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 150, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 165, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 180, 0.0055, 0.0000, 0.0000, 0.0614, 0.0000, 0.0000, 0.0887, 0.0000, 0.0000, 0.0887, 0.0000, 0.0000, 0.0389, 0.0000, 0.0000);
+  mem_set_values(NWT + 195, 0.0059, 0.0000, 0.0000, 0.0363, 0.0000, 0.0000, 0.0887, 0.0000, 0.0000, 0.0772, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 210, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 225, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 240, 0.0187, 0.0000, 0.0000, 0.1054, 0.0000, 0.0000, 0.1265, 0.0000, 0.0000, 0.1177, 0.0000, 0.0000, 0.0288, 0.0000, 0.0000);
+  mem_set_values(NWT + 255, 0.0091, 0.0000, 0.0000, 0.0710, 0.0000, 0.0000, 0.1193, 0.0000, 0.0000, 0.0951, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 270, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 285, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 300, 0.0276, 0.0000, 0.0000, 0.1378, 0.0000, 0.0000, 0.1653, 0.0000, 0.0000, 0.1110, 0.0000, 0.0000, 0.0154, 0.0000, 0.0000);
+  mem_set_values(NWT + 315, 0.0071, 0.0000, 0.0000, 0.0521, 0.0000, 0.0000, 0.0558, 0.0000, 0.0000, 0.0208, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 330, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 345, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 360, 0.0342, 0.0000, 0.0000, 0.1709, 0.0000, 0.0000, 0.2051, 0.0000, 0.0000, 0.1040, 0.0000, 0.0000, 0.0086, 0.0000, 0.0000);
+  mem_set_values(NWT + 375, 0.0012, 0.0000, 0.0000, 0.0082, 0.0000, 0.0000, 0.0065, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000, 0.0006, 0.0000, 0.0000);
+  mem_set_values(NWT + 390, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0026, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000);
+  mem_set_values(NWT + 405, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 420, 0.0409, 0.0000, 0.0000, 0.2046, 0.0000, 0.0000, 0.2455, 0.0000, 0.0000, 0.0944, 0.0000, 0.0000, 0.0055, 0.0000, 0.0000);
+  mem_set_values(NWT + 435, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0003, 0.0000, 0.0000, 0.0105, 0.0000, 0.0000);
+  mem_set_values(NWT + 450, 0.0603, 0.0000, 0.0000, 0.1153, 0.0000, 0.0000, 0.1310, 0.0000, 0.0000, 0.0493, 0.0000, 0.0000, 0.0037, 0.0000, 0.0000);
+  mem_set_values(NWT + 465, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 480, 0.0478, 0.0000, 0.0000, 0.2388, 0.0000, 0.0000, 0.2866, 0.0000, 0.0000, 0.0974, 0.0000, 0.0000, 0.0047, 0.0000, 0.0000);
+  mem_set_values(NWT + 495, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0008, 0.0000, 0.0000, 0.0258, 0.0000, 0.0000);
+  mem_set_values(NWT + 510, 0.1116, 0.0000, 0.0000, 0.1185, 0.0000, 0.0000, 0.1084, 0.0000, 0.0000, 0.0963, 0.0000, 0.0000, 0.0176, 0.0000, 0.0000);
+  mem_set_values(NWT + 525, 0.0004, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 540, 0.0547, 0.0000, 0.0000, 0.2735, 0.0000, 0.0000, 0.3282, 0.0000, 0.0000, 0.1223, 0.0000, 0.0000, 0.0068, 0.0000, 0.0000);
+  mem_set_values(NWT + 555, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0006, 0.0000, 0.0000, 0.0114, 0.0000, 0.0000);
+  mem_set_values(NWT + 570, 0.0304, 0.0000, 0.0000, 0.0419, 0.0000, 0.0000, 0.1761, 0.0000, 0.0000, 0.2003, 0.0000, 0.0000, 0.0386, 0.0000, 0.0000);
+  mem_set_values(NWT + 585, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 600, 0.0617, 0.0000, 0.0000, 0.3086, 0.0000, 0.0000, 0.3703, 0.0000, 0.0000, 0.1982, 0.0000, 0.0000, 0.0272, 0.0000, 0.0000);
+  mem_set_values(NWT + 615, 0.0015, 0.0000, 0.0000, 0.0008, 0.0000, 0.0000, 0.0005, 0.0000, 0.0000, 0.0036, 0.0000, 0.0000, 0.0445, 0.0000, 0.0000);
+  mem_set_values(NWT + 630, 0.0598, 0.0000, 0.0000, 0.0431, 0.0000, 0.0000, 0.2006, 0.0000, 0.0000, 0.1817, 0.0000, 0.0000, 0.0333, 0.0000, 0.0000);
+  mem_set_values(NWT + 645, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 660, 0.0688, 0.0000, 0.0000, 0.3440, 0.0000, 0.0000, 0.4128, 0.0000, 0.0000, 0.3961, 0.0000, 0.0000, 0.1643, 0.0000, 0.0000);
+  mem_set_values(NWT + 675, 0.0346, 0.0000, 0.0000, 0.0260, 0.0000, 0.0000, 0.0133, 0.0000, 0.0000, 0.0036, 0.0000, 0.0000, 0.0366, 0.0000, 0.0000);
+  mem_set_values(NWT + 690, 0.0486, 0.0000, 0.0000, 0.0182, 0.0000, 0.0000, 0.0675, 0.0000, 0.0000, 0.0488, 0.0000, 0.0000, 0.0059, 0.0000, 0.0000);
+  mem_set_values(NWT + 705, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 720, 0.0760, 0.0000, 0.0000, 0.3798, 0.0000, 0.0000, 0.4557, 0.0000, 0.0000, 0.4557, 0.0000, 0.0000, 0.4450, 0.0000, 0.0000);
+  mem_set_values(NWT + 735, 0.2095, 0.0000, 0.0000, 0.1019, 0.0000, 0.0000, 0.0396, 0.0000, 0.0000, 0.0022, 0.0000, 0.0000, 0.0029, 0.0000, 0.0000);
+  mem_set_values(NWT + 750, 0.0075, 0.0000, 0.0000, 0.0108, 0.0000, 0.0000, 0.0060, 0.0000, 0.0000, 0.0025, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000);
+  mem_set_values(NWT + 765, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 780, 0.0832, 0.0000, 0.0000, 0.4159, 0.0000, 0.0000, 0.4990, 0.0000, 0.0000, 0.4990, 0.0000, 0.0000, 0.4990, 0.0000, 0.0000);
+  mem_set_values(NWT + 795, 0.4954, 0.0000, 0.0000, 0.2689, 0.0000, 0.0000, 0.0906, 0.0000, 0.0000, 0.0169, 0.0000, 0.0000, 0.0047, 0.0000, 0.0000);
+  mem_set_values(NWT + 810, 0.0367, 0.0000, 0.0000, 0.0869, 0.0000, 0.0000, 0.0194, 0.0000, 0.0000, 0.0004, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 825, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 840, 0.0904, 0.0000, 0.0000, 0.4522, 0.0000, 0.0000, 0.5427, 0.0000, 0.0000, 0.5427, 0.0000, 0.0000, 0.5427, 0.0000, 0.0000);
+  mem_set_values(NWT + 855, 0.5427, 0.0000, 0.0000, 0.5427, 0.0000, 0.0000, 0.4126, 0.0000, 0.0000, 0.2142, 0.0000, 0.0000, 0.1024, 0.0000, 0.0000);
+  mem_set_values(NWT + 870, 0.0860, 0.0000, 0.0000, 0.0912, 0.0000, 0.0000, 0.0185, 0.0000, 0.0000, 0.0007, 0.0000, 0.0000, 0.0016, 0.0000, 0.0000);
+  mem_set_values(NWT + 885, 0.0011, 0.0000, 0.0000, 0.0005, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 900, 0.0978, 0.0000, 0.0000, 0.4889, 0.0000, 0.0000, 0.5866, 0.0000, 0.0000, 0.5866, 0.0000, 0.0000, 0.5866, 0.0000, 0.0000);
+  mem_set_values(NWT + 915, 0.5866, 0.0000, 0.0000, 0.5866, 0.0000, 0.0000, 0.5866, 0.0000, 0.0000, 0.5866, 0.0000, 0.0000, 0.4966, 0.0000, 0.0000);
+  mem_set_values(NWT + 930, 0.3058, 0.0000, 0.0000, 0.0777, 0.0000, 0.0000, 0.0072, 0.0000, 0.0000, 0.0079, 0.0000, 0.0000, 0.0410, 0.0000, 0.0000);
+  mem_set_values(NWT + 945, 0.0338, 0.0000, 0.0000, 0.0209, 0.0000, 0.0000, 0.0025, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 960, 0.1052, 0.0000, 0.0000, 0.5258, 0.0000, 0.0000, 0.6309, 0.0000, 0.0000, 0.6309, 0.0000, 0.0000, 0.6309, 0.0000, 0.0000);
+  mem_set_values(NWT + 975, 0.6309, 0.0000, 0.0000, 0.6309, 0.0000, 0.0000, 0.6309, 0.0000, 0.0000, 0.6309, 0.0000, 0.0000, 0.6309, 0.0000, 0.0000);
+  mem_set_values(NWT + 990, 0.6309, 0.0000, 0.0000, 0.3359, 0.0000, 0.0000, 0.0906, 0.0000, 0.0000, 0.0304, 0.0000, 0.0000, 0.0966, 0.0000, 0.0000);
+  mem_set_values(NWT + 1005, 0.1048, 0.0000, 0.0000, 0.0851, 0.0000, 0.0000, 0.0102, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1020, 0.1126, 0.0000, 0.0000, 0.5629, 0.0000, 0.0000, 0.6755, 0.0000, 0.0000, 0.6755, 0.0000, 0.0000, 0.6755, 0.0000, 0.0000);
+  mem_set_values(NWT + 1035, 0.6755, 0.0000, 0.0000, 0.6755, 0.0000, 0.0000, 0.6755, 0.0000, 0.0000, 0.6755, 0.0000, 0.0000, 0.6755, 0.0000, 0.0000);
+  mem_set_values(NWT + 1050, 0.6755, 0.0000, 0.0000, 0.6755, 0.0000, 0.0000, 0.4562, 0.0000, 0.0000, 0.2000, 0.0000, 0.0000, 0.0721, 0.0000, 0.0000);
+  mem_set_values(NWT + 1065, 0.0365, 0.0000, 0.0000, 0.0317, 0.0000, 0.0000, 0.0038, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1080, 0.1200, 0.0000, 0.0000, 0.6002, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000);
+  mem_set_values(NWT + 1095, 0.7203, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000);
+  mem_set_values(NWT + 1110, 0.7203, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000, 0.6899, 0.0000, 0.0000, 0.3525, 0.0000, 0.0000);
+  mem_set_values(NWT + 1125, 0.0798, 0.0000, 0.0000, 0.0111, 0.0000, 0.0000, 0.0013, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1140, 0.1276, 0.0000, 0.0000, 0.6378, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000);
+  mem_set_values(NWT + 1155, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000);
+  mem_set_values(NWT + 1170, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000, 0.7654, 0.0000, 0.0000);
+  mem_set_values(NWT + 1185, 0.4441, 0.0000, 0.0000, 0.1820, 0.0000, 0.0000, 0.0570, 0.0000, 0.0000, 0.0052, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1200, 0.1351, 0.0000, 0.0000, 0.6756, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000);
+  mem_set_values(NWT + 1215, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000);
+  mem_set_values(NWT + 1230, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000, 0.8107, 0.0000, 0.0000);
+  mem_set_values(NWT + 1245, 0.8107, 0.0000, 0.0000, 0.6527, 0.0000, 0.0000, 0.3755, 0.0000, 0.0000, 0.0438, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1260, 0.1234, 0.0000, 0.0000, 0.7135, 0.0000, 0.0000, 0.8563, 0.0000, 0.0000, 0.8563, 0.0000, 0.0000, 0.8563, 0.0000, 0.0000);
+  mem_set_values(NWT + 1275, 0.8563, 0.0000, 0.0000, 0.8563, 0.0000, 0.0000, 0.8563, 0.0000, 0.0000, 0.8563, 0.0000, 0.0000, 0.8563, 0.0000, 0.0000);
+  mem_set_values(NWT + 1290, 0.6646, 0.0000, 0.0000, 0.5087, 0.0000, 0.0000, 0.5645, 0.0000, 0.0000, 0.5698, 0.0000, 0.0000, 0.7426, 0.0000, 0.0000);
+  mem_set_values(NWT + 1305, 0.7021, 0.0000, 0.0000, 0.5747, 0.0000, 0.0000, 0.3948, 0.0000, 0.0000, 0.0459, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1320, 0.0352, 0.0000, 0.0000, 0.4266, 0.0000, 0.0000, 0.9020, 0.0000, 0.0000, 0.9020, 0.0000, 0.0000, 0.9020, 0.0000, 0.0000);
+  mem_set_values(NWT + 1335, 0.9020, 0.0000, 0.0000, 0.9020, 0.0000, 0.0000, 0.9020, 0.0000, 0.0000, 0.9020, 0.0000, 0.0000, 0.7696, 0.0000, 0.0000);
+  mem_set_values(NWT + 1350, 0.2064, 0.0000, 0.0000, 0.0700, 0.0000, 0.0000, 0.1734, 0.0000, 0.0000, 0.1935, 0.0000, 0.0000, 0.4117, 0.0000, 0.0000);
+  mem_set_values(NWT + 1365, 0.4430, 0.0000, 0.0000, 0.1980, 0.0000, 0.0000, 0.0716, 0.0000, 0.0000, 0.0063, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1380, 0.0032, 0.0400, 126.0198, 0.0905, 0.0000, 0.0000, 0.3981, 0.0000, 0.0000, 0.7108, 0.0000, 0.0000, 0.8363, 0.0000, 0.0000);
+  mem_set_values(NWT + 1395, 0.7493, 0.0000, 0.0000, 0.8705, 0.0000, 0.0000, 0.9480, 0.0000, 0.0000, 0.9480, 0.0000, 0.0000, 0.5034, 0.0000, 0.0000);
+  mem_set_values(NWT + 1410, 0.0540, 0.0000, 0.0000, 0.0043, 0.0102, 40.3113, 0.0242, 0.0000, 0.0000, 0.0375, 0.0000, 0.0000, 0.1692, 0.0000, 0.0000);
+  mem_set_values(NWT + 1425, 0.3363, 0.0000, 0.0000, 0.1224, 0.0000, 0.0000, 0.0067, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1440, 0.0000, 0.3576, 127.2831, 0.0023, 0.0840, 119.4362, 0.0197, 0.0000, 0.0000, 0.0605, 0.0000, 0.0000, 0.0860, 0.0000, 0.0000);
+  mem_set_values(NWT + 1455, 0.0712, 0.0000, 0.0000, 0.1349, 0.0000, 0.0000, 0.3016, 0.0000, 0.0000, 0.3353, 0.0000, 0.0000, 0.1128, 0.0000, 0.0000);
+  mem_set_values(NWT + 1470, 0.0066, 0.0075, 51.0000, 0.0001, 0.0719, 44.1022, 0.0002, 0.0401, 37.6431, 0.0010, 0.0114, 31.8904, 0.0169, 0.0000, 0.0000);
+  mem_set_values(NWT + 1485, 0.0477, 0.0000, 0.0000, 0.0144, 0.0000, 0.0000, 0.0005, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1500, 0.0000, 0.4821, 129.0310, 0.0000, 0.6338, 121.2972, 0.0000, 0.3398, 113.6002, 0.0000, 0.1342, 105.9481, 0.0000, 0.0883, 98.3514);
+  mem_set_values(NWT + 1515, 0.0000, 0.1504, 90.8240, 0.0000, 0.0224, 83.3847, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1530, 0.0000, 0.0892, 55.2178, 0.0000, 0.1306, 48.9183, 0.0000, 0.1206, 43.1856, 0.0000, 0.0366, 38.2753, 0.0000, 0.0051, 34.5398);
+  mem_set_values(NWT + 1545, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1560, 0.0000, 0.4764, 131.2440, 0.0000, 0.8009, 123.6487, 0.0000, 0.6861, 116.1077, 0.0000, 0.5232, 108.6324, 0.0000, 0.5240, 101.2373);
+  mem_set_values(NWT + 1575, 0.0000, 0.5395, 93.9415, 0.0000, 0.3671, 86.7698, 0.0000, 0.1516, 79.7559, 0.0000, 0.1045, 72.9452, 0.0000, 0.1444, 66.4003);
+  mem_set_values(NWT + 1590, 0.0000, 0.2458, 60.2080, 0.0000, 0.1838, 54.4885, 0.0000, 0.1461, 49.4065, 0.0000, 0.0671, 45.1774, 0.0000, 0.0405, 42.0595);
+  mem_set_values(NWT + 1605, 0.0000, 0.0177, 40.3113, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1620, 0.0000, 0.5100, 133.8992, 0.0000, 0.8227, 126.4634, 0.0000, 0.7657, 119.1008, 0.0000, 0.6889, 111.8258, 0.0000, 0.5942, 104.6566);
+  mem_set_values(NWT + 1635, 0.0000, 0.5617, 97.6166, 0.0000, 0.5407, 90.7359, 0.0000, 0.4940, 84.0536, 0.0000, 0.4407, 77.6209, 0.0000, 0.3979, 71.5052);
+  mem_set_values(NWT + 1650, 0.0000, 0.3539, 65.7951, 0.0000, 0.2754, 60.6053, 0.0000, 0.1790, 56.0803, 0.0000, 0.1148, 52.3927, 0.0000, 0.0784, 49.7293);
+  mem_set_values(NWT + 1665, 0.0000, 0.0280, 48.2597, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1680, 0.0000, 0.5100, 136.9708, 0.0000, 0.8475, 129.7112, 0.0000, 0.7917, 122.5439, 0.0000, 0.7369, 115.4859, 0.0000, 0.6366, 108.5587);
+  mem_set_values(NWT + 1695, 0.0000, 0.6251, 101.7890, 0.0000, 0.5176, 95.2103, 0.0000, 0.4928, 88.8651, 0.0000, 0.4492, 82.8070, 0.0000, 0.4359, 77.1038);
+  mem_set_values(NWT + 1710, 0.0000, 0.4004, 71.8401, 0.0000, 0.3196, 67.1193, 0.0000, 0.2087, 63.0635, 0.0000, 0.1606, 59.8080, 0.0000, 0.0986, 57.4891);
+  mem_set_values(NWT + 1725, 0.0000, 0.0350, 56.2228, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1740, 0.0000, 0.5096, 140.4315, 0.0000, 0.8472, 133.3604, 0.0000, 0.8149, 126.4002, 0.0000, 0.7586, 119.5701, 0.0000, 0.6502, 112.8938);
+  mem_set_values(NWT + 1755, 0.0000, 0.6618, 106.4002, 0.0000, 0.5740, 100.1249, 0.0000, 0.2807, 94.1116, 0.0000, 0.1716, 88.4138, 0.0000, 0.2665, 83.0963);
+  mem_set_values(NWT + 1770, 0.0000, 0.4308, 78.2368, 0.0000, 0.3657, 73.9256, 0.0000, 0.2669, 70.2638, 0.0000, 0.1911, 67.3573, 0.0000, 0.1191, 65.3070);
+  mem_set_values(NWT + 1785, 0.0000, 0.0401, 64.1950, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1800, 0.0000, 0.5077, 144.2532, 0.0000, 0.8323, 137.3790, 0.0000, 0.8023, 130.6331, 0.0000, 0.7322, 124.0363, 0.0000, 0.6597, 117.6138);
+  mem_set_values(NWT + 1815, 0.0000, 0.6690, 111.3957, 0.0000, 0.5508, 105.4182, 0.0000, 0.1395, 99.7246, 0.0000, 0.0401, 94.3663, 0.0000, 0.1633, 89.4036);
+  mem_set_values(NWT + 1830, 0.0000, 0.3944, 84.9058, 0.0000, 0.4109, 80.9506, 0.0000, 0.3117, 77.6209, 0.0000, 0.2219, 75.0000, 0.0000, 0.1395, 73.1642);
+  mem_set_values(NWT + 1845, 0.0000, 0.0420, 72.1734, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1860, 0.0000, 0.5011, 148.4082, 0.0000, 0.7833, 141.7357, 0.0000, 0.6702, 135.2072, 0.0000, 0.5571, 128.8449, 0.0000, 0.5417, 122.6744);
+  mem_set_values(NWT + 1875, 0.0000, 0.5984, 116.7262, 0.0000, 0.4032, 111.0360, 0.0000, 0.0534, 105.6456, 0.0000, 0.0058, 100.6032, 0.0000, 0.0461, 95.9635);
+  mem_set_values(NWT + 1890, 0.0000, 0.3259, 91.7878, 0.0000, 0.4446, 88.1419, 0.0000, 0.3519, 85.0941, 0.0000, 0.2530, 82.7103, 0.0000, 0.1409, 81.0494);
+  mem_set_values(NWT + 1905, 0.0000, 0.0465, 80.1561, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1920, 0.0000, 0.4687, 152.8692, 0.0000, 0.6745, 146.4001, 0.0000, 0.4268, 140.0893, 0.0000, 0.1894, 133.9589, 0.0000, 0.2176, 128.0352);
+  mem_set_values(NWT + 1935, 0.0000, 0.3436, 122.3479, 0.0000, 0.2277, 116.9316, 0.0000, 0.0669, 111.8258, 0.0000, 0.0064, 107.0747, 0.0000, 0.0124, 102.7278);
+  mem_set_values(NWT + 1950, 0.0000, 0.1832, 98.8383, 0.0000, 0.4671, 95.4620, 0.0000, 0.3919, 92.6553, 0.0000, 0.2843, 90.4710, 0.0000, 0.1804, 88.9550);
+  mem_set_values(NWT + 1965, 0.0000, 0.0572, 88.1419, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 1980, 0.0000, 0.2014, 157.6103, 0.0000, 0.3012, 151.3440, 0.0000, 0.1311, 145.2481, 0.0000, 0.0063, 139.3449, 0.0000, 0.0148, 133.6600);
+  mem_set_values(NWT + 1995, 0.0000, 0.1189, 128.2225, 0.0000, 0.1922, 123.0650, 0.0000, 0.1260, 118.2244, 0.0000, 0.0274, 113.7409, 0.0000, 0.0067, 109.6586);
+  mem_set_values(NWT + 2010, 0.0000, 0.1103, 106.0236, 0.0000, 0.4277, 102.8834, 0.0000, 0.4236, 100.2846, 0.0000, 0.3156, 98.2700, 0.0000, 0.2006, 96.8762);
+  mem_set_values(NWT + 2025, 0.0000, 0.0635, 96.1301, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2040, 0.0000, 0.0148, 162.6069, 0.0000, 0.0236, 156.5407, 0.0000, 0.0137, 150.6552, 0.0000, 0.0027, 144.9724, 0.0000, 0.0052, 139.5170);
+  mem_set_values(NWT + 2055, 0.0000, 0.0286, 134.3168, 0.0000, 0.0475, 129.4025, 0.0000, 0.0425, 124.8079, 0.0000, 0.0154, 120.5695, 0.0000, 0.0048, 116.7262);
+  mem_set_values(NWT + 2070, 0.0000, 0.0299, 113.3181, 0.0000, 0.2235, 110.3857, 0.0000, 0.3683, 107.9676, 0.0000, 0.3465, 106.0990, 0.0000, 0.2211, 104.8094);
+  mem_set_values(NWT + 2085, 0.0000, 0.0699, 104.1201, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2100, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2115, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0113, 123.9072);
+  mem_set_values(NWT + 2130, 0.0000, 0.0566, 120.7021, 0.0000, 0.2747, 117.9534, 0.0000, 0.3526, 115.6936, 0.0000, 0.3347, 113.9517, 0.0000, 0.2351, 112.7519);
+  mem_set_values(NWT + 2145, 0.0000, 0.0727, 112.1116, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2160, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2175, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0126, 131.1831);
+  mem_set_values(NWT + 2190, 0.0000, 0.2168, 128.1601, 0.0000, 0.3745, 125.5747, 0.0000, 0.4424, 123.4544, 0.0000, 0.3016, 121.8236, 0.0000, 0.1686, 120.7021);
+  mem_set_values(NWT + 2205, 0.0000, 0.0678, 120.1041, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2220, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2235, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0049, 141.7921, 0.0000, 0.0713, 138.5388);
+  mem_set_values(NWT + 2250, 0.0000, 0.4960, 135.6798, 0.0000, 0.6493, 133.2404, 0.0000, 0.3789, 131.2440, 0.0000, 0.3509, 129.7112, 0.0000, 0.2052, 128.6585);
+  mem_set_values(NWT + 2265, 0.0000, 0.0586, 128.0976, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2280, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2295, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0195, 149.0537, 0.0000, 0.2296, 145.9623);
+  mem_set_values(NWT + 2310, 0.0000, 0.6086, 143.2515, 0.0000, 0.6196, 140.9433, 0.0000, 0.5139, 139.0575, 0.0000, 0.3674, 137.6118, 0.0000, 0.1864, 136.6199);
+  mem_set_values(NWT + 2325, 0.0000, 0.0553, 136.0919, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2340, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2355, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0477, 156.3873, 0.0000, 0.3423, 153.4438);
+  mem_set_values(NWT + 2370, 0.0000, 0.6083, 150.8675, 0.0000, 0.5581, 148.6775, 0.0000, 0.4495, 146.8911, 0.0000, 0.3359, 145.5232, 0.0000, 0.1950, 144.5856);
+  mem_set_values(NWT + 2385, 0.0000, 0.0523, 144.0868, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2400, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2415, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0034, 166.9281, 0.0000, 0.0875, 163.7834, 0.0000, 0.3641, 160.9752);
+  mem_set_values(NWT + 2430, 0.0000, 0.5384, 158.5213, 0.0000, 0.4786, 156.4385, 0.0000, 0.3821, 154.7417, 0.0000, 0.2848, 153.4438, 0.0000, 0.1820, 152.5549);
+  mem_set_values(NWT + 2445, 0.0000, 0.0425, 152.0822, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2460, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2475, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0054, 174.2441, 0.0000, 0.0964, 171.2338, 0.0000, 0.3610, 168.5497);
+  mem_set_values(NWT + 2490, 0.0000, 0.4473, 166.2077, 0.0000, 0.3940, 164.2224, 0.0000, 0.3103, 162.6069, 0.0000, 0.2282, 161.3722, 0.0000, 0.1485, 160.5273);
+  mem_set_values(NWT + 2505, 0.0000, 0.0365, 160.0781, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2520, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2535, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0027, 181.6177, 0.0000, 0.0593, 178.7316, 0.0000, 0.3170, 176.1619);
+  mem_set_values(NWT + 2550, 0.0000, 0.3515, 173.9224, 0.0000, 0.3089, 172.0262, 0.0000, 0.2420, 170.4846, 0.0000, 0.1771, 169.3074, 0.0000, 0.1157, 168.5022);
+  mem_set_values(NWT + 2565, 0.0000, 0.0279, 168.0744, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2580, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2595, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0101, 186.2713, 0.0000, 0.2246, 183.8070);
+  mem_set_values(NWT + 2610, 0.0000, 0.2546, 181.6618, 0.0000, 0.2189, 179.8472, 0.0000, 0.1781, 178.3732, 0.0000, 0.1326, 177.2484, 0.0000, 0.0842, 176.4795);
+  mem_set_values(NWT + 2625, 0.0000, 0.0200, 176.0710, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2640, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2655, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0044, 193.8479, 0.0000, 0.1399, 191.4811);
+  mem_set_values(NWT + 2670, 0.0000, 0.1577, 189.4228, 0.0000, 0.1386, 187.6832, 0.0000, 0.1105, 186.2713, 0.0000, 0.0824, 185.1945, 0.0000, 0.0519, 184.4587);
+  mem_set_values(NWT + 2685, 0.0000, 0.0116, 184.0679, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2700, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2715, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0542, 199.1808);
+  mem_set_values(NWT + 2730, 0.0000, 0.0607, 197.2029, 0.0000, 0.0533, 195.5326, 0.0000, 0.0425, 194.1778, 0.0000, 0.0317, 193.1450, 0.0000, 0.0199, 192.4396);
+  mem_set_values(NWT + 2745, 0.0000, 0.0042, 192.0651, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2760, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2775, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2790, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NWT + 2805, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  nh_nx = 24; nh_ny = 38; nh_x0 = 56; nh_y0 = 24; nh_c = 4;
+  nh_pax = 86; nh_pay = 100; nh_pbx = 128; nh_pby = 104; nh_fax = 87.5; nh_fay = 70; nh_fbx = 117.5; nh_fby = 75;
+  mem_set_values(NHT + 0, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 15, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 30, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 45, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 60, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 75, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 90, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 105, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 120, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 135, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 150, 0.0029, 0.0000, 0.0000, 0.0000, 0.0000, 0.0048, 0.0000, 0.0000, 0.0000, 0.0000, 0.0042, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 165, 0.0025, 0.0000, 0.0000, 0.0000, 0.0000, 0.0018, 0.0000, 0.0000, 0.0000, 0.0000, 0.0013, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 180, 0.0005, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 195, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 210, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 225, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 240, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 255, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0018, 0.0000, 0.0000, 0.0000, 0.0000, 0.0091, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 270, 0.0259, 0.0000, 0.0000, 0.0000, 0.0000, 0.0409, 0.0003, 0.0000, 0.0003, 0.0000, 0.0361, 0.0001, 0.0000, 0.0001, 0.0000);
+  mem_set_values(NHT + 285, 0.0236, 0.0000, 0.0000, 0.0000, 0.0000, 0.0194, 0.0000, 0.0000, 0.0000, 0.0000, 0.0145, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 300, 0.0061, 0.0000, 0.0000, 0.0000, 0.0000, 0.0013, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 315, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 330, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 345, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 360, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 375, 0.0017, 0.0000, 0.0000, 0.0000, 0.0000, 0.0120, 0.0000, 0.0000, 0.0000, 0.0000, 0.0495, 0.0001, 0.0000, 0.0001, 0.0000);
+  mem_set_values(NHT + 390, 0.1237, 0.0120, 0.0000, 0.0120, 0.0000, 0.1831, 0.0745, 0.0000, 0.0745, 0.0000, 0.1627, 0.0400, 0.0000, 0.0400, 0.0000);
+  mem_set_values(NHT + 405, 0.1174, 0.0026, 0.0000, 0.0026, 0.0000, 0.1068, 0.0109, 0.0000, 0.0109, 0.0000, 0.0822, 0.0058, 0.0000, 0.0058, 0.0000);
+  mem_set_values(NHT + 420, 0.0355, 0.0002, 0.0000, 0.0002, 0.0000, 0.0078, 0.0000, 0.0000, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 435, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 450, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 465, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 480, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0007, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 495, 0.0079, 0.0000, 0.0000, 0.0000, 0.0000, 0.0476, 0.0002, 0.0000, 0.0002, 0.0000, 0.1642, 0.0160, 0.0000, 0.0160, 0.0000);
+  mem_set_values(NHT + 510, 0.3505, 0.1790, 0.0000, 0.1790, 0.0000, 0.4737, 0.7160, 0.0000, 0.7160, 0.0000, 0.4201, 0.4460, 0.0000, 0.4460, 0.0000);
+  mem_set_values(NHT + 525, 0.3322, 0.0742, 0.0000, 0.0742, 0.0000, 0.3243, 0.3595, 0.0000, 0.3595, 0.0000, 0.2550, 0.2184, 0.0000, 0.2184, 0.0000);
+  mem_set_values(NHT + 540, 0.1142, 0.0094, 0.0000, 0.0094, 0.0000, 0.0275, 0.0000, 0.0000, 0.0000, 0.0000, 0.0040, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 555, 0.0005, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 570, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 585, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 600, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0023, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 615, 0.0229, 0.0000, 0.0000, 0.0000, 0.0000, 0.1200, 0.0050, 0.0000, 0.0050, 0.0000, 0.3558, 0.2325, 0.0000, 0.2325, 0.0000);
+  mem_set_values(NHT + 630, 0.6535, 0.7931, 0.0000, 0.7931, 0.0000, 0.8020, 1.0000, 0.0000, 1.0000, 0.0000, 0.7108, 0.7910, 0.0000, 0.7910, 0.0000);
+  mem_set_values(NHT + 645, 0.6052, 0.2817, 0.0000, 0.2817, 0.0000, 0.6090, 0.9646, 0.0000, 0.9646, 0.0000, 0.4857, 0.6922, 0.0000, 0.6922, 0.0000);
+  mem_set_values(NHT + 660, 0.2336, 0.0533, 0.0000, 0.0533, 0.0000, 0.0712, 0.0001, 0.0000, 0.0001, 0.0000, 0.0189, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 675, 0.0052, 0.0000, 0.0000, 0.0000, 0.0000, 0.0012, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 690, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 705, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 720, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0003, 0.0000, 0.0000, 0.0000, 0.0000, 0.0059, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 735, 0.0490, 0.0000, 0.0000, 0.0000, 0.0000, 0.2185, 0.0231, 0.0000, 0.0231, 0.0000, 0.5586, 0.5282, 0.0000, 0.5282, 0.0000);
+  mem_set_values(NHT + 750, 0.9025, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 1.0000, 0.0000, 1.0000, 0.0000, 0.9290, 0.9571, 0.0000, 0.9571, 0.0000);
+  mem_set_values(NHT + 765, 0.8357, 0.5081, 0.0000, 0.5081, 0.0000, 0.8345, 1.0000, 0.0000, 1.0000, 0.0000, 0.6781, 0.8653, 0.0003, 0.8653, 0.0003);
+  mem_set_values(NHT + 780, 0.3854, 0.1036, 0.0084, 0.1036, 0.0084, 0.1858, 0.0132, 0.0128, 0.0132, 0.0128, 0.0899, 0.0014, 0.0014, 0.0014, 0.0014);
+  mem_set_values(NHT + 795, 0.0377, 0.0000, 0.0000, 0.0000, 0.0000, 0.0125, 0.0000, 0.0000, 0.0000, 0.0000, 0.0031, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 810, 0.0003, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 825, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 840, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0010, 0.0000, 0.0000, 0.0000, 0.0000, 0.0131, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 855, 0.0892, 0.0007, 0.0000, 0.0007, 0.0000, 0.3322, 0.0995, 0.0000, 0.0995, 0.0000, 0.7272, 0.8169, 0.0000, 0.8169, 0.0000);
+  mem_set_values(NHT + 870, 1.0000, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 1.0000, 0.0000, 1.0000, 0.0000);
+  mem_set_values(NHT + 885, 1.0000, 0.7893, 0.0000, 0.7893, 0.0000, 0.9882, 1.0000, 0.0000, 1.0000, 0.0000, 0.8416, 0.8733, 0.0123, 0.8733, 0.0123);
+  mem_set_values(NHT + 900, 0.6153, 0.3545, 0.2612, 0.3545, 0.2612, 0.4488, 0.3907, 0.3977, 0.3907, 0.3977, 0.3027, 0.0596, 0.0869, 0.0596, 0.0869);
+  mem_set_values(NHT + 915, 0.1660, 0.0005, 0.0076, 0.0005, 0.0076, 0.0716, 0.0000, 0.0003, 0.0000, 0.0003, 0.0223, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 930, 0.0027, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 945, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 960, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0021, 0.0000, 0.0000, 0.0000, 0.0000, 0.0243, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 975, 0.1419, 0.0051, 0.0000, 0.0051, 0.0000, 0.4517, 0.2825, 0.0000, 0.2825, 0.0000, 0.8614, 1.0000, 0.0000, 1.0000, 0.0000);
+  mem_set_values(NHT + 990, 1.0000, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 1.0000, 0.0000, 1.0000, 0.0000);
+  mem_set_values(NHT + 1005, 1.0000, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 1.0000, 0.0000, 1.0000, 0.0000, 1.0000, 0.8007, 0.0332, 0.8007, 0.0332);
+  mem_set_values(NHT + 1020, 0.9033, 0.5235, 0.4765, 0.6857, 0.6240, 0.8134, 0.4991, 0.5009, 0.9965, 1.0000, 0.6613, 0.2657, 0.6936, 0.2657, 0.6936);
+  mem_set_values(NHT + 1035, 0.4500, 0.0050, 0.2803, 0.0050, 0.2803, 0.2427, 0.0000, 0.0506, 0.0000, 0.0506, 0.0921, 0.0000, 0.0019, 0.0000, 0.0019);
+  mem_set_values(NHT + 1050, 0.0138, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1065, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1080, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0034, 0.0000, 0.0000, 0.0000, 0.0000, 0.0355, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1095, 0.1887, 0.0205, 0.0000, 0.0178, 0.0000, 0.5442, 0.5191, 0.0000, 0.4489, 0.0000, 0.9489, 1.0000, 0.0000, 0.8648, 0.0000);
+  mem_set_values(NHT + 1110, 1.0000, 1.0000, 0.0000, 0.8648, 0.0000, 1.0000, 1.0000, 0.0000, 0.8648, 0.0000, 1.0000, 1.0000, 0.0000, 0.8648, 0.0000);
+  mem_set_values(NHT + 1125, 1.0000, 1.0000, 0.0000, 0.8648, 0.0000, 1.0000, 1.0000, 0.0000, 0.8648, 0.0000, 1.0000, 0.6978, 0.0226, 0.6034, 0.0226);
+  mem_set_values(NHT + 1140, 1.0000, 0.5184, 0.4816, 0.4862, 0.5224, 1.0000, 0.5000, 0.5000, 0.8648, 1.0000, 0.9956, 0.3764, 0.6236, 0.5220, 1.0000);
+  mem_set_values(NHT + 1155, 0.8006, 0.0479, 0.9521, 0.0435, 1.0000, 0.5209, 0.0004, 0.5195, 0.0003, 0.5195, 0.2395, 0.0000, 0.0472, 0.0000, 0.0472);
+  mem_set_values(NHT + 1170, 0.0498, 0.0000, 0.0002, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1185, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1200, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0037, 0.0000, 0.0000, 0.0000, 0.0000, 0.0382, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1215, 0.1991, 0.0304, 0.0000, 0.0135, 0.0000, 0.5634, 0.6096, 0.0000, 0.2697, 0.0000, 0.9661, 1.0000, 0.0000, 0.4424, 0.0000);
+  mem_set_values(NHT + 1230, 1.0000, 1.0000, 0.0000, 0.4424, 0.0000, 1.0000, 1.0000, 0.0000, 0.4424, 0.0000, 1.0000, 1.0000, 0.0000, 0.4424, 0.0000);
+  mem_set_values(NHT + 1245, 1.0000, 1.0000, 0.0000, 0.4424, 0.0000, 1.0000, 0.9999, 0.0001, 0.4424, 0.0001, 1.0000, 0.7192, 0.0330, 0.3182, 0.0325);
+  mem_set_values(NHT + 1260, 1.0000, 0.5333, 0.4667, 0.2842, 0.5528, 1.0000, 0.5000, 0.5000, 0.4424, 0.9832, 1.0000, 0.5000, 0.5000, 0.4424, 0.9832);
+  mem_set_values(NHT + 1275, 1.0000, 0.2326, 0.7674, 0.1341, 0.9832, 0.7939, 0.0111, 0.9889, 0.0050, 0.9832, 0.4439, 0.0000, 0.2663, 0.0000, 0.2618);
+  mem_set_values(NHT + 1290, 0.1328, 0.0000, 0.0057, 0.0000, 0.0056, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1305, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1320, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0027, 0.0000, 0.0000, 0.0000, 0.0000, 0.0300, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1335, 0.1671, 0.0103, 0.0000, 0.0007, 0.0000, 0.5056, 0.3573, 0.0000, 0.0228, 0.0000, 0.9179, 1.0000, 0.0000, 0.0637, 0.0000);
+  mem_set_values(NHT + 1350, 1.0000, 1.0000, 0.0000, 0.0637, 0.0000, 1.0000, 1.0000, 0.0000, 0.0637, 0.0000, 1.0000, 1.0000, 0.0000, 0.0637, 0.0000);
+  mem_set_values(NHT + 1365, 1.0000, 1.0000, 0.0000, 0.0637, 0.0000, 1.0000, 0.9999, 0.0001, 0.0637, 0.0001, 1.0000, 0.9547, 0.0453, 0.0633, 0.0316);
+  mem_set_values(NHT + 1380, 1.0000, 0.5884, 0.4116, 0.0637, 0.4686, 1.0000, 0.5000, 0.5000, 0.0637, 0.6700, 1.0000, 0.5000, 0.5000, 0.0637, 0.6700);
+  mem_set_values(NHT + 1395, 1.0000, 0.4149, 0.5851, 0.0452, 0.6700, 0.9852, 0.0929, 0.9071, 0.0065, 0.6700, 0.6666, 0.0009, 0.6893, 0.0001, 0.4619);
+  mem_set_values(NHT + 1410, 0.2845, 0.0000, 0.0670, 0.0000, 0.0449, 0.0028, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1425, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1440, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0016, 0.0000, 0.0000, 0.0000, 0.0000, 0.0199, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1455, 0.1263, 0.0016, 0.0000, 0.0000, 0.0000, 0.4293, 0.1801, 0.0000, 0.0000, 0.0000, 0.8516, 0.9908, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1470, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1485, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 0.9824, 0.0176, 0.0000, 0.0040);
+  mem_set_values(NHT + 1500, 1.0000, 0.6815, 0.3185, 0.0000, 0.1055, 1.0000, 0.5000, 0.5000, 0.0000, 0.2258, 1.0000, 0.5000, 0.5000, 0.0000, 0.2258);
+  mem_set_values(NHT + 1515, 1.0000, 0.4974, 0.5026, 0.0000, 0.2258, 1.0000, 0.2340, 0.7660, 0.0000, 0.2258, 0.8784, 0.0058, 0.9942, 0.0000, 0.2258);
+  mem_set_values(NHT + 1530, 0.5015, 0.0000, 0.3548, 0.0000, 0.0801, 0.0706, 0.0000, 0.0054, 0.0000, 0.0012, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1545, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1560, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000, 0.0139, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1575, 0.0996, 0.0009, 0.0000, 0.0000, 0.0000, 0.3739, 0.1478, 0.0000, 0.0000, 0.0000, 0.7978, 0.9583, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1590, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1605, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 0.9975, 0.0025, 0.0000, 0.0000);
+  mem_set_values(NHT + 1620, 1.0000, 0.8421, 0.1579, 0.0000, 0.0000, 1.0000, 0.5326, 0.4674, 0.0000, 0.0000, 1.0000, 0.5000, 0.5000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1635, 1.0000, 0.5000, 0.5000, 0.0000, 0.0000, 1.0000, 0.3263, 0.6737, 0.0000, 0.0000, 1.0000, 0.0168, 0.9832, 0.0000, 0.0000);
+  mem_set_values(NHT + 1650, 0.7413, 0.0000, 0.8432, 0.0000, 0.0000, 0.2577, 0.0000, 0.1069, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1665, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1680, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0006, 0.0000, 0.0000, 0.0000, 0.0000, 0.0103, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1695, 0.0805, 0.0005, 0.0000, 0.0000, 0.0000, 0.3264, 0.1000, 0.0000, 0.0000, 0.0000, 0.7429, 0.8661, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1710, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1725, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.0000, 0.0000, 0.0000, 1.0000, 0.9998, 0.0002, 0.0000, 0.0000);
+  mem_set_values(NHT + 1740, 1.0000, 0.9573, 0.0427, 0.0000, 0.0000, 1.0000, 0.6301, 0.3699, 0.0000, 0.0000, 1.0000, 0.5000, 0.5000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1755, 1.0000, 0.4837, 0.5163, 0.0000, 0.0000, 1.0000, 0.2175, 0.7825, 0.0000, 0.0000, 1.0000, 0.0086, 0.9914, 0.0000, 0.0000);
+  mem_set_values(NHT + 1770, 0.9481, 0.0000, 0.9995, 0.0000, 0.0000, 0.5425, 0.0000, 0.5116, 0.0000, 0.0000, 0.0344, 0.0000, 0.0053, 0.0000, 0.0000);
+  mem_set_values(NHT + 1785, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1800, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0004, 0.0000, 0.0000, 0.0000, 0.0000, 0.0078, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1815, 0.0656, 0.0001, 0.0000, 0.0000, 0.0000, 0.2856, 0.0405, 0.0000, 0.0000, 0.0000, 0.6912, 0.6058, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1830, 1.0000, 0.8960, 0.0000, 0.0000, 0.0000, 1.0000, 0.8960, 0.0000, 0.0000, 0.0000, 1.0000, 0.8960, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1845, 1.0000, 0.8960, 0.0000, 0.0000, 0.0000, 1.0000, 0.8960, 0.0000, 0.0000, 0.0000, 1.0000, 0.8960, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1860, 0.8442, 0.6908, 0.0033, 0.0000, 0.0000, 0.7973, 0.6804, 0.1477, 0.0000, 0.0000, 0.9076, 0.4870, 0.5130, 0.0000, 0.0000);
+  mem_set_values(NHT + 1875, 0.9998, 0.2222, 0.7778, 0.0000, 0.0000, 0.9998, 0.0218, 0.9782, 0.0000, 0.0000, 0.9998, 0.0002, 0.9998, 0.0000, 0.0000);
+  mem_set_values(NHT + 1890, 0.9998, 0.0000, 1.0000, 0.0000, 0.0000, 0.7891, 0.0000, 0.9444, 0.0000, 0.0000, 0.2709, 0.0000, 0.1275, 0.0000, 0.0000);
+  mem_set_values(NHT + 1905, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1920, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0004, 0.0000, 0.0000, 0.0000, 0.0000, 0.0078, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1935, 0.0653, 0.0001, 0.0000, 0.0000, 0.0000, 0.2839, 0.0232, 0.0000, 0.0000, 0.0000, 0.6878, 0.3921, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1950, 1.0000, 0.6480, 0.0000, 0.0000, 0.0000, 1.0000, 0.6480, 0.0000, 0.0000, 0.0000, 1.0000, 0.6480, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1965, 1.0000, 0.6480, 0.0000, 0.0000, 0.0000, 1.0000, 0.6480, 0.0000, 0.0000, 0.0000, 0.7418, 0.5165, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 1980, 0.4852, 0.1094, 0.0000, 0.0000, 0.0000, 0.4160, 0.0466, 0.0088, 0.0000, 0.0000, 0.5776, 0.0746, 0.2177, 0.0000, 0.0000);
+  mem_set_values(NHT + 1995, 0.8716, 0.0135, 0.8441, 0.0000, 0.0000, 0.9978, 0.0002, 0.8960, 0.0000, 0.0000, 0.9978, 0.0000, 0.8960, 0.0000, 0.0000);
+  mem_set_values(NHT + 2010, 0.9978, 0.0000, 0.8960, 0.0000, 0.0000, 0.9579, 0.0000, 0.8957, 0.0000, 0.0000, 0.5532, 0.0000, 0.4768, 0.0000, 0.0000);
+  mem_set_values(NHT + 2025, 0.0798, 0.0000, 0.0120, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2040, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0006, 0.0000, 0.0000, 0.0000, 0.0000, 0.0103, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2055, 0.0805, 0.0002, 0.0000, 0.0000, 0.0000, 0.3250, 0.0399, 0.0000, 0.0000, 0.0000, 0.7391, 0.3091, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2070, 1.0000, 0.3520, 0.0000, 0.0000, 0.0000, 1.0000, 0.3520, 0.0000, 0.0000, 0.0000, 1.0000, 0.3520, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2085, 1.0000, 0.3520, 0.0000, 0.0000, 0.0000, 0.8193, 0.3169, 0.0000, 0.0000, 0.0000, 0.4625, 0.0756, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2100, 0.2110, 0.0034, 0.0000, 0.0000, 0.0000, 0.1552, 0.0001, 0.0001, 0.0000, 0.0000, 0.3135, 0.0003, 0.0218, 0.0000, 0.0000);
+  mem_set_values(NHT + 2115, 0.6552, 0.0000, 0.3721, 0.0000, 0.0000, 0.9864, 0.0000, 0.6480, 0.0000, 0.0000, 0.9863, 0.0000, 0.6480, 0.0000, 0.0000);
+  mem_set_values(NHT + 2130, 0.9863, 0.0000, 0.6480, 0.0000, 0.0000, 0.9863, 0.0000, 0.6480, 0.0000, 0.0000, 0.7060, 0.0000, 0.5902, 0.0000, 0.0000);
+  mem_set_values(NHT + 2145, 0.2735, 0.0000, 0.0743, 0.0000, 0.0000, 0.0157, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2160, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000, 0.0138, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2175, 0.0993, 0.0001, 0.0000, 0.0000, 0.0000, 0.3728, 0.0152, 0.0000, 0.0000, 0.0000, 0.7956, 0.0995, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2190, 0.9996, 0.1040, 0.0000, 0.0000, 0.0000, 0.9996, 0.1040, 0.0000, 0.0000, 0.0000, 0.9996, 0.1040, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2205, 0.9996, 0.1040, 0.0000, 0.0000, 0.0000, 0.6327, 0.0541, 0.0000, 0.0000, 0.0000, 0.2684, 0.0027, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2220, 0.0792, 0.0000, 0.0000, 0.0000, 0.0000, 0.0511, 0.0000, 0.0000, 0.0000, 0.0000, 0.1697, 0.0000, 0.0024, 0.0000, 0.0000);
+  mem_set_values(NHT + 2235, 0.4672, 0.0000, 0.1148, 0.0000, 0.0000, 0.8257, 0.0000, 0.3520, 0.0000, 0.0000, 0.9468, 0.0000, 0.3520, 0.0000, 0.0000);
+  mem_set_values(NHT + 2250, 0.9467, 0.0000, 0.3520, 0.0000, 0.0000, 0.9467, 0.0000, 0.3520, 0.0000, 0.0000, 0.7157, 0.0000, 0.3416, 0.0000, 0.0000);
+  mem_set_values(NHT + 2265, 0.3315, 0.0000, 0.0542, 0.0000, 0.0000, 0.0754, 0.0000, 0.0003, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2280, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0015, 0.0000, 0.0000, 0.0000, 0.0000, 0.0191, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2295, 0.1233, 0.0000, 0.0000, 0.0000, 0.0000, 0.4233, 0.0000, 0.0000, 0.0000, 0.0000, 0.8442, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2310, 0.9968, 0.0000, 0.0000, 0.0000, 0.0000, 0.9968, 0.0000, 0.0000, 0.0000, 0.0000, 0.9968, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2325, 0.9142, 0.0000, 0.0000, 0.0000, 0.0000, 0.5048, 0.0000, 0.0000, 0.0000, 0.0000, 0.1692, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2340, 0.0335, 0.0000, 0.0000, 0.0000, 0.0000, 0.0191, 0.0000, 0.0000, 0.0000, 0.0000, 0.0916, 0.0000, 0.0001, 0.0000, 0.0000);
+  mem_set_values(NHT + 2355, 0.3029, 0.0000, 0.0107, 0.0000, 0.0000, 0.6089, 0.0000, 0.0846, 0.0000, 0.0000, 0.8329, 0.0000, 0.1040, 0.0000, 0.0000);
+  mem_set_values(NHT + 2370, 0.8605, 0.0000, 0.1040, 0.0000, 0.0000, 0.8373, 0.0000, 0.1040, 0.0000, 0.0000, 0.6071, 0.0000, 0.0977, 0.0000, 0.0000);
+  mem_set_values(NHT + 2385, 0.2876, 0.0000, 0.0142, 0.0000, 0.0000, 0.0766, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2400, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0027, 0.0000, 0.0000, 0.0000, 0.0000, 0.0290, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2415, 0.1612, 0.0000, 0.0000, 0.0000, 0.0000, 0.4889, 0.0000, 0.0000, 0.0000, 0.0000, 0.8901, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2430, 0.9842, 0.0000, 0.0000, 0.0000, 0.0000, 0.9842, 0.0000, 0.0000, 0.0000, 0.0000, 0.9842, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2445, 0.8310, 0.0000, 0.0000, 0.0000, 0.0000, 0.4184, 0.0000, 0.0000, 0.0000, 0.0000, 0.1211, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2460, 0.0187, 0.0000, 0.0000, 0.0000, 0.0000, 0.0089, 0.0000, 0.0000, 0.0000, 0.0000, 0.0508, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2475, 0.1875, 0.0000, 0.0000, 0.0000, 0.0000, 0.4091, 0.0000, 0.0000, 0.0000, 0.0000, 0.5864, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2490, 0.6468, 0.0000, 0.0000, 0.0000, 0.0000, 0.6042, 0.0000, 0.0000, 0.0000, 0.0000, 0.4415, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2505, 0.2116, 0.0000, 0.0000, 0.0000, 0.0000, 0.0573, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2520, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0048, 0.0000, 0.0000, 0.0000, 0.0000, 0.0433, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2535, 0.2055, 0.0000, 0.0000, 0.0000, 0.0000, 0.5451, 0.0000, 0.0000, 0.0000, 0.0000, 0.8982, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2550, 0.9499, 0.0000, 0.0000, 0.0000, 0.0000, 0.9499, 0.0000, 0.0000, 0.0000, 0.0000, 0.9499, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2565, 0.7224, 0.0000, 0.0000, 0.0000, 0.0000, 0.3376, 0.0000, 0.0000, 0.0000, 0.0000, 0.0882, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2580, 0.0118, 0.0000, 0.0000, 0.0000, 0.0000, 0.0054, 0.0000, 0.0000, 0.0000, 0.0000, 0.0319, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2595, 0.1172, 0.0000, 0.0000, 0.0000, 0.0000, 0.2561, 0.0000, 0.0000, 0.0000, 0.0000, 0.3673, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2610, 0.4049, 0.0000, 0.0000, 0.0000, 0.0000, 0.3790, 0.0000, 0.0000, 0.0000, 0.0000, 0.2787, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2625, 0.1350, 0.0000, 0.0000, 0.0000, 0.0000, 0.0371, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2640, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0077, 0.0000, 0.0000, 0.0000, 0.0000, 0.0592, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2655, 0.2412, 0.0000, 0.0000, 0.0000, 0.0000, 0.5606, 0.0000, 0.0000, 0.0000, 0.0000, 0.8399, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2670, 0.8889, 0.0000, 0.0000, 0.0000, 0.0000, 0.8889, 0.0000, 0.0000, 0.0000, 0.0000, 0.8580, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2685, 0.5845, 0.0000, 0.0000, 0.0000, 0.0000, 0.2536, 0.0000, 0.0000, 0.0000, 0.0000, 0.0602, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2700, 0.0072, 0.0000, 0.0000, 0.0000, 0.0000, 0.0036, 0.0000, 0.0000, 0.0000, 0.0000, 0.0197, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2715, 0.0666, 0.0000, 0.0000, 0.0000, 0.0000, 0.1395, 0.0000, 0.0000, 0.0000, 0.0000, 0.1961, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2730, 0.2143, 0.0000, 0.0000, 0.0000, 0.0000, 0.2001, 0.0000, 0.0000, 0.0000, 0.0000, 0.1470, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2745, 0.0711, 0.0000, 0.0000, 0.0000, 0.0000, 0.0195, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2760, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0112, 0.0000, 0.0000, 0.0000, 0.0000, 0.0736, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2775, 0.2589, 0.0000, 0.0000, 0.0000, 0.0000, 0.5317, 0.0000, 0.0000, 0.0000, 0.0000, 0.7317, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2790, 0.8024, 0.0000, 0.0000, 0.0000, 0.0000, 0.7932, 0.0000, 0.0000, 0.0000, 0.0000, 0.6881, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2805, 0.4460, 0.0000, 0.0000, 0.0000, 0.0000, 0.1797, 0.0000, 0.0000, 0.0000, 0.0000, 0.0388, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2820, 0.0041, 0.0000, 0.0000, 0.0000, 0.0000, 0.0020, 0.0000, 0.0000, 0.0000, 0.0000, 0.0098, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2835, 0.0294, 0.0000, 0.0000, 0.0000, 0.0000, 0.0581, 0.0000, 0.0000, 0.0000, 0.0000, 0.0800, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2850, 0.0867, 0.0000, 0.0000, 0.0000, 0.0000, 0.0805, 0.0000, 0.0000, 0.0000, 0.0000, 0.0587, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2865, 0.0280, 0.0000, 0.0000, 0.0000, 0.0000, 0.0076, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2880, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0147, 0.0000, 0.0000, 0.0000, 0.0000, 0.0833, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2895, 0.2564, 0.0000, 0.0000, 0.0000, 0.0000, 0.4718, 0.0000, 0.0000, 0.0000, 0.0000, 0.6045, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2910, 0.6427, 0.0000, 0.0000, 0.0000, 0.0000, 0.6269, 0.0000, 0.0000, 0.0000, 0.0000, 0.5312, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2925, 0.3289, 0.0000, 0.0000, 0.0000, 0.0000, 0.1240, 0.0000, 0.0000, 0.0000, 0.0000, 0.0245, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2940, 0.0023, 0.0000, 0.0000, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000, 0.0035, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2955, 0.0086, 0.0000, 0.0000, 0.0000, 0.0000, 0.0155, 0.0000, 0.0000, 0.0000, 0.0000, 0.0208, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2970, 0.0224, 0.0000, 0.0000, 0.0000, 0.0000, 0.0207, 0.0000, 0.0000, 0.0000, 0.0000, 0.0149, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 2985, 0.0070, 0.0000, 0.0000, 0.0000, 0.0000, 0.0019, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0168, 0.0000, 0.0000, 0.0000, 0.0000, 0.0849, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3015, 0.2338, 0.0000, 0.0000, 0.0000, 0.0000, 0.3932, 0.0000, 0.0000, 0.0000, 0.0000, 0.4768, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3030, 0.4961, 0.0000, 0.0000, 0.0000, 0.0000, 0.4791, 0.0000, 0.0000, 0.0000, 0.0000, 0.3980, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3045, 0.2372, 0.0000, 0.0000, 0.0000, 0.0000, 0.0847, 0.0000, 0.0000, 0.0000, 0.0000, 0.0156, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3060, 0.0013, 0.0000, 0.0000, 0.0000, 0.0000, 0.0003, 0.0000, 0.0000, 0.0000, 0.0000, 0.0008, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3075, 0.0015, 0.0000, 0.0000, 0.0000, 0.0000, 0.0022, 0.0000, 0.0000, 0.0000, 0.0000, 0.0028, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3090, 0.0029, 0.0000, 0.0000, 0.0000, 0.0000, 0.0027, 0.0000, 0.0000, 0.0000, 0.0000, 0.0019, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3105, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3120, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0166, 0.0000, 0.0000, 0.0000, 0.0000, 0.0766, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3135, 0.1944, 0.0000, 0.0000, 0.0000, 0.0000, 0.3063, 0.0000, 0.0000, 0.0000, 0.0000, 0.3576, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3150, 0.3672, 0.0000, 0.0000, 0.0000, 0.0000, 0.3524, 0.0000, 0.0000, 0.0000, 0.0000, 0.2888, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3165, 0.1678, 0.0000, 0.0000, 0.0000, 0.0000, 0.0578, 0.0000, 0.0000, 0.0000, 0.0000, 0.0102, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3180, 0.0008, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3195, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3210, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3225, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3240, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0142, 0.0000, 0.0000, 0.0000, 0.0000, 0.0614, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3255, 0.1470, 0.0000, 0.0000, 0.0000, 0.0000, 0.2214, 0.0000, 0.0000, 0.0000, 0.0000, 0.2525, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3270, 0.2574, 0.0000, 0.0000, 0.0000, 0.0000, 0.2466, 0.0000, 0.0000, 0.0000, 0.0000, 0.2015, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3285, 0.1166, 0.0000, 0.0000, 0.0000, 0.0000, 0.0399, 0.0000, 0.0000, 0.0000, 0.0000, 0.0070, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3300, 0.0005, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3315, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3330, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3345, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3360, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0107, 0.0000, 0.0000, 0.0000, 0.0000, 0.0440, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3375, 0.1005, 0.0000, 0.0000, 0.0000, 0.0000, 0.1465, 0.0000, 0.0000, 0.0000, 0.0000, 0.1644, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3390, 0.1669, 0.0000, 0.0000, 0.0000, 0.0000, 0.1601, 0.0000, 0.0000, 0.0000, 0.0000, 0.1317, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3405, 0.0770, 0.0000, 0.0000, 0.0000, 0.0000, 0.0268, 0.0000, 0.0000, 0.0000, 0.0000, 0.0048, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3420, 0.0004, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3435, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3450, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3465, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3480, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0070, 0.0000, 0.0000, 0.0000, 0.0000, 0.0275, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3495, 0.0603, 0.0000, 0.0000, 0.0000, 0.0000, 0.0855, 0.0000, 0.0000, 0.0000, 0.0000, 0.0947, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3510, 0.0958, 0.0000, 0.0000, 0.0000, 0.0000, 0.0918, 0.0000, 0.0000, 0.0000, 0.0000, 0.0755, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3525, 0.0444, 0.0000, 0.0000, 0.0000, 0.0000, 0.0155, 0.0000, 0.0000, 0.0000, 0.0000, 0.0028, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3540, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3555, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3570, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3585, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3600, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0037, 0.0000, 0.0000, 0.0000, 0.0000, 0.0139, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3615, 0.0294, 0.0000, 0.0000, 0.0000, 0.0000, 0.0407, 0.0000, 0.0000, 0.0000, 0.0000, 0.0446, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3630, 0.0447, 0.0000, 0.0000, 0.0000, 0.0000, 0.0422, 0.0000, 0.0000, 0.0000, 0.0000, 0.0340, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3645, 0.0195, 0.0000, 0.0000, 0.0000, 0.0000, 0.0067, 0.0000, 0.0000, 0.0000, 0.0000, 0.0012, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3660, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3675, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3690, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3705, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3720, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0014, 0.0000, 0.0000, 0.0000, 0.0000, 0.0049, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3735, 0.0101, 0.0000, 0.0000, 0.0000, 0.0000, 0.0136, 0.0000, 0.0000, 0.0000, 0.0000, 0.0147, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3750, 0.0145, 0.0000, 0.0000, 0.0000, 0.0000, 0.0132, 0.0000, 0.0000, 0.0000, 0.0000, 0.0101, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3765, 0.0055, 0.0000, 0.0000, 0.0000, 0.0000, 0.0018, 0.0000, 0.0000, 0.0000, 0.0000, 0.0003, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3780, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3795, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3810, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3825, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3840, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0003, 0.0000, 0.0000, 0.0000, 0.0000, 0.0010, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3855, 0.0020, 0.0000, 0.0000, 0.0000, 0.0000, 0.0026, 0.0000, 0.0000, 0.0000, 0.0000, 0.0028, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3870, 0.0026, 0.0000, 0.0000, 0.0000, 0.0000, 0.0022, 0.0000, 0.0000, 0.0000, 0.0000, 0.0016, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3885, 0.0008, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3900, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3915, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3930, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3945, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3960, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3975, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 3990, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4005, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4020, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4035, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4050, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4065, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4080, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4095, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4110, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4125, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4140, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4155, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4170, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4185, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4200, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4215, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4230, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4245, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4260, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4275, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4290, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4305, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4320, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4335, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4350, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4365, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4380, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4395, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4410, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4425, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4440, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4455, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4470, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4485, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4500, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4515, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4530, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4545, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4560, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4575, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4590, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4605, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4620, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4635, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4650, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NHT + 4665, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  nb_nx = 33; nb_ny = 44; nb_x0 = 68; nb_y0 = 168; nb_c = 4; nb_rx = 75; nb_ry = 250; nb_nl = 40;
+  mem_set_values(NBT + 0, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 15, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 30, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 45, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 60, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 75, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 90, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 105, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0166, 0.1360, 0.0000, 0.1460, 0.1304, 0.0000);
+  mem_set_values(NBT + 120, 0.0926, 0.1253, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0337, 0.1118, 0.0000);
+  mem_set_values(NBT + 135, 0.1868, 0.1105, 0.0000, 0.1057, 0.1100, 0.0000, 0.0122, 0.1105, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 150, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 165, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 180, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 195, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 210, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0108, 0.1221, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 225, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.5752, 0.1005, 0.0000, 0.4357, 0.1000, 0.0000);
+  mem_set_values(NBT + 240, 0.0666, 0.1005, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 255, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 270, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 285, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 300, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 315, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 330, 0.0000, 0.0000, 0.0000, 0.6622, 0.0906, 0.0000, 0.5765, 0.0900, 0.0000, 0.1204, 0.0906, 0.0000, 0.0035, 0.0922, 0.0000);
+  mem_set_values(NBT + 345, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 360, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 375, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 390, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 405, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 420, 0.0529, 0.0943, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.5910, 0.0806, 0.0000);
+  mem_set_values(NBT + 435, 0.5791, 0.0800, 0.0000, 0.1666, 0.0806, 0.0000, 0.0075, 0.0825, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 450, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 465, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 480, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 495, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 510, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.2308, 0.0806, 0.0000);
+  mem_set_values(NBT + 525, 0.4982, 0.0762, 0.0000, 0.4107, 0.0728, 0.0000, 0.5790, 0.0707, 0.0000, 0.5429, 0.0700, 0.0000, 0.2075, 0.0707, 0.0000);
+  mem_set_values(NBT + 540, 0.0143, 0.0728, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 555, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 570, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 585, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 600, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 615, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.5667, 0.0671, 0.0000, 0.5391, 0.0632, 0.0000);
+  mem_set_values(NBT + 630, 0.5193, 0.0608, 0.0000, 0.4750, 0.0600, 0.0000, 0.2333, 0.0608, 0.0000, 0.0242, 0.0632, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 645, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 660, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 675, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 690, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 705, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 720, 0.0000, 0.0000, 0.0000, 0.4175, 0.0583, 0.0000, 0.4439, 0.0539, 0.0000, 0.4111, 0.0510, 0.0000, 0.3838, 0.0500, 0.0000);
+  mem_set_values(NBT + 735, 0.2340, 0.0510, 0.0000, 0.0359, 0.0539, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 750, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 765, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 780, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 795, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 810, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.3375, 0.0500, 0.0000);
+  mem_set_values(NBT + 825, 0.3397, 0.0447, 0.0000, 0.2997, 0.0412, 0.0000, 0.2793, 0.0400, 0.0000, 0.1988, 0.0412, 0.0000, 0.0411, 0.0447, 0.0000);
+  mem_set_values(NBT + 840, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 855, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 870, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 885, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 900, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 915, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.2645, 0.0424, 0.0000, 0.2406, 0.0361, 0.0000, 0.1893, 0.0316, 0.0000);
+  mem_set_values(NBT + 930, 0.1660, 0.0300, 0.0000, 0.1286, 0.0316, 0.0000, 0.0318, 0.0361, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 945, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 960, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 975, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 990, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1005, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1020, 0.2030, 0.0361, 0.0000, 0.1507, 0.0283, 0.0000, 0.0778, 0.0224, 0.0000, 0.0416, 0.0200, 0.0000, 0.0395, 0.0224, 0.0000);
+  mem_set_values(NBT + 1035, 0.0147, 0.0283, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1050, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1065, 0.0000, 0.0000, 0.0016, 0.0000, 0.0000, 0.0008, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1080, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1095, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1110, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.1295, 0.0316, 0.0000, 0.0783, 0.0224, 0.0000);
+  mem_set_values(NBT + 1125, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0004);
+  mem_set_values(NBT + 1140, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0072, 0.0000, 0.0000, 0.0091);
+  mem_set_values(NBT + 1155, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0206, 0.0000, 0.0000, 0.0162, 0.0000, 0.0000, 0.0077);
+  mem_set_values(NBT + 1170, 0.0000, 0.0000, 0.0019, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1185, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1200, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1215, 0.0000, 0.0000, 0.0000, 0.1164, 0.0300, 0.0000, 0.0478, 0.0200, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1230, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0019, 0.0000, 0.0000, 0.0217, 0.0000, 0.0000, 0.0305);
+  mem_set_values(NBT + 1245, 0.0000, 0.0000, 0.0443, 0.0000, 0.0000, 0.0661, 0.0000, 0.0000, 0.0846, 0.0000, 0.0000, 0.1045, 0.0000, 0.0000, 0.1186);
+  mem_set_values(NBT + 1260, 0.0000, 0.0000, 0.1127, 0.0000, 0.0000, 0.0819, 0.0000, 0.0000, 0.0426, 0.0000, 0.0000, 0.0122, 0.0000, 0.0000, 0.0016);
+  mem_set_values(NBT + 1275, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1290, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1305, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.1292, 0.0316, 0.0000);
+  mem_set_values(NBT + 1320, 0.0732, 0.0224, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1335, 0.0000, 0.0000, 0.0441, 0.0000, 0.0000, 0.0969, 0.0000, 0.0000, 0.1504, 0.0000, 0.0000, 0.1956, 0.0000, 0.0000, 0.2369);
+  mem_set_values(NBT + 1350, 0.0000, 0.0000, 0.2792, 0.0000, 0.0000, 0.3208, 0.0000, 0.0000, 0.3471, 0.0000, 0.0000, 0.3291, 0.0000, 0.0000, 0.2530);
+  mem_set_values(NBT + 1365, 0.0000, 0.0000, 0.1486, 0.0000, 0.0000, 0.0511, 0.0000, 0.0000, 0.0087, 0.0000, 0.0000, 0.0003, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1380, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1395, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1410, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.1643, 0.0361, 0.0000, 0.1465, 0.0283, 0.0000, 0.0626, 0.0224, 0.0000);
+  mem_set_values(NBT + 1425, 0.0122, 0.0200, 0.0004, 0.0212, 0.0224, 0.0077, 0.0042, 0.0283, 0.0413, 0.0000, 0.0000, 0.1298, 0.0000, 0.0000, 0.2630);
+  mem_set_values(NBT + 1440, 0.0000, 0.0000, 0.3854, 0.0000, 0.0000, 0.4687, 0.0000, 0.0000, 0.5285, 0.0000, 0.0000, 0.5809, 0.0000, 0.0000, 0.6273);
+  mem_set_values(NBT + 1455, 0.0000, 0.0000, 0.6528, 0.0000, 0.0000, 0.6242, 0.0000, 0.0000, 0.5165, 0.0000, 0.0000, 0.3504, 0.0000, 0.0000, 0.1477);
+  mem_set_values(NBT + 1470, 0.0000, 0.0000, 0.0319, 0.0000, 0.0000, 0.0016, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1485, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1500, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1515, 0.2143, 0.0424, 0.0000, 0.2401, 0.0361, 0.0000, 0.1848, 0.0316, 0.0001, 0.1407, 0.0300, 0.0019, 0.0593, 0.0316, 0.0165);
+  mem_set_values(NBT + 1530, 0.0052, 0.0361, 0.0820, 0.0000, 0.0000, 0.2445, 0.0000, 0.0000, 0.4707, 0.0000, 0.0000, 0.6543, 0.0000, 0.0000, 0.7534);
+  mem_set_values(NBT + 1545, 0.0000, 0.0000, 0.8043, 0.0000, 0.0000, 0.8397, 0.0000, 0.0000, 0.8675, 0.0000, 0.0000, 0.8802, 0.0000, 0.0000, 0.8553);
+  mem_set_values(NBT + 1560, 0.0000, 0.0000, 0.7657, 0.0000, 0.0000, 0.6004, 0.0000, 0.0000, 0.3076, 0.0000, 0.0000, 0.0826, 0.0000, 0.0000, 0.0050);
+  mem_set_values(NBT + 1575, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1590, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1605, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.2734, 0.0500, 0.0000, 0.3397, 0.0447, 0.0000);
+  mem_set_values(NBT + 1620, 0.2968, 0.0412, 0.0002, 0.2224, 0.0400, 0.0033, 0.0641, 0.0412, 0.0264, 0.0032, 0.0447, 0.1227, 0.0000, 0.0000, 0.3440);
+  mem_set_values(NBT + 1635, 0.0000, 0.0000, 0.6268, 0.0000, 0.0000, 0.8308, 0.0000, 0.0000, 0.9193, 0.0000, 0.0000, 0.9490, 0.0000, 0.0000, 0.9626);
+  mem_set_values(NBT + 1650, 0.0000, 0.0000, 0.9716, 0.0000, 0.0000, 0.9746, 0.0000, 0.0000, 0.9625, 0.0000, 0.0000, 0.9171, 0.0000, 0.0000, 0.8076);
+  mem_set_values(NBT + 1665, 0.0000, 0.0000, 0.4853, 0.0000, 0.0000, 0.1557, 0.0000, 0.0000, 0.0112, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1680, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1695, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1710, 0.0000, 0.0000, 0.0000, 0.3384, 0.0583, 0.0000, 0.4440, 0.0539, 0.0000, 0.4041, 0.0510, 0.0004, 0.2788, 0.0500, 0.0050);
+  mem_set_values(NBT + 1725, 0.0584, 0.0510, 0.0370, 0.0000, 0.0000, 0.1585, 0.0000, 0.0000, 0.4141, 0.0000, 0.0000, 0.7117, 0.0000, 0.0000, 0.9045);
+  mem_set_values(NBT + 1740, 0.0000, 0.0000, 0.9752, 0.0000, 0.0000, 0.9913, 0.0000, 0.0000, 0.9949, 0.0000, 0.0000, 0.9965, 0.0000, 0.0000, 0.9968);
+  mem_set_values(NBT + 1755, 0.0000, 0.0000, 0.9933, 0.0000, 0.0000, 0.9787, 0.0000, 0.0000, 0.9238, 0.0000, 0.0000, 0.6173, 0.0000, 0.0000, 0.2249);
+  mem_set_values(NBT + 1770, 0.0000, 0.0000, 0.0183, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1785, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1800, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.4069, 0.0671, 0.0000);
+  mem_set_values(NBT + 1815, 0.5513, 0.0632, 0.0000, 0.5105, 0.0608, 0.0006, 0.3295, 0.0600, 0.0073, 0.0568, 0.0608, 0.0492, 0.0000, 0.0000, 0.1939);
+  mem_set_values(NBT + 1830, 0.0000, 0.0000, 0.4700, 0.0000, 0.0000, 0.7619, 0.0000, 0.0000, 0.9328, 0.0000, 0.0000, 0.9883, 0.0000, 0.0000, 0.9984);
+  mem_set_values(NBT + 1845, 0.0000, 0.0000, 0.9996, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 0.9992, 0.0000, 0.0000, 0.9959);
+  mem_set_values(NBT + 1860, 0.0000, 0.0000, 0.9683, 0.0000, 0.0000, 0.6840, 0.0000, 0.0000, 0.2697, 0.0000, 0.0000, 0.0240, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1875, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1890, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1905, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.3493, 0.0762, 0.0000, 0.6604, 0.0728, 0.0000, 0.6168, 0.0707, 0.0009);
+  mem_set_values(NBT + 1920, 0.3803, 0.0700, 0.0104, 0.0583, 0.0707, 0.0641, 0.0000, 0.0000, 0.2322, 0.0000, 0.0000, 0.5229, 0.0000, 0.0000, 0.8014);
+  mem_set_values(NBT + 1935, 0.0000, 0.0000, 0.9490, 0.0000, 0.0000, 0.9923, 0.0000, 0.0000, 0.9994, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 1950, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 0.9992, 0.0000, 0.0000, 0.9806, 0.0000, 0.0000, 0.7099);
+  mem_set_values(NBT + 1965, 0.0000, 0.0000, 0.2934, 0.0000, 0.0000, 0.0280, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1980, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 1995, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2010, 0.4018, 0.0854, 0.0000, 0.7706, 0.0825, 0.0001, 0.7194, 0.0806, 0.0015, 0.4145, 0.0800, 0.0147, 0.0551, 0.0806, 0.0824);
+  mem_set_values(NBT + 2025, 0.0000, 0.0000, 0.2742, 0.0000, 0.0000, 0.5750, 0.0000, 0.0000, 0.8360, 0.0000, 0.0000, 0.9614, 0.0000, 0.0000, 0.9947);
+  mem_set_values(NBT + 2040, 0.0000, 0.0000, 0.9996, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2055, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 0.9839, 0.0000, 0.0000, 0.7207, 0.0000, 0.0000, 0.3076, 0.0000, 0.0000, 0.0311);
+  mem_set_values(NBT + 2070, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2085, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2100, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.4546, 0.0949, 0.0000, 0.8816, 0.0922, 0.0001);
+  mem_set_values(NBT + 2115, 0.8208, 0.0906, 0.0023, 0.4469, 0.0900, 0.0203, 0.0530, 0.0906, 0.1042, 0.0000, 0.0000, 0.3197, 0.0000, 0.0000, 0.6257);
+  mem_set_values(NBT + 2130, 0.0000, 0.0000, 0.8665, 0.0000, 0.0000, 0.9712, 0.0000, 0.0000, 0.9964, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2145, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 0.9853);
+  mem_set_values(NBT + 2160, 0.0000, 0.0000, 0.7271, 0.0000, 0.0000, 0.3180, 0.0000, 0.0000, 0.0338, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2175, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2190, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2205, 0.0000, 0.0000, 0.0000, 0.4973, 0.1044, 0.0000, 0.9930, 0.1020, 0.0002, 0.9156, 0.1005, 0.0034, 0.4599, 0.1000, 0.0277);
+  mem_set_values(NBT + 2220, 0.0470, 0.1005, 0.1300, 0.0000, 0.0000, 0.3680, 0.0000, 0.0000, 0.6744, 0.0000, 0.0000, 0.8928, 0.0000, 0.0000, 0.9789);
+  mem_set_values(NBT + 2235, 0.0000, 0.0000, 0.9976, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2250, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9860, 0.0000, 0.0000, 0.7311, 0.0000, 0.0000, 0.3255);
+  mem_set_values(NBT + 2265, 0.0000, 0.0000, 0.0360, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2280, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2295, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.4975, 0.1140, 0.0000);
+  mem_set_values(NBT + 2310, 0.9986, 0.1118, 0.0004, 0.9244, 0.1105, 0.0050, 0.4365, 0.1100, 0.0372, 0.0395, 0.1105, 0.1599, 0.0000, 0.0000, 0.4186);
+  mem_set_values(NBT + 2325, 0.0000, 0.0000, 0.7203, 0.0000, 0.0000, 0.9151, 0.0000, 0.0000, 0.9847, 0.0000, 0.0000, 0.9984, 0.0000, 0.0000, 0.9999);
+  mem_set_values(NBT + 2340, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2355, 0.0000, 0.0000, 0.9864, 0.0000, 0.0000, 0.7332, 0.0000, 0.0000, 0.3295, 0.0000, 0.0000, 0.0372, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2370, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2385, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2400, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.6787, 0.1237, 0.0000, 0.9981, 0.1217, 0.0006, 0.9065, 0.1204, 0.0073);
+  mem_set_values(NBT + 2415, 0.3904, 0.1200, 0.0492, 0.0303, 0.1204, 0.1940, 0.0000, 0.0000, 0.4705, 0.0000, 0.0000, 0.7627, 0.0000, 0.0000, 0.9338);
+  mem_set_values(NBT + 2430, 0.0000, 0.0000, 0.9891, 0.0000, 0.0000, 0.9990, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2445, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9864, 0.0000, 0.0000, 0.7333);
+  mem_set_values(NBT + 2460, 0.0000, 0.0000, 0.3297, 0.0000, 0.0000, 0.0373, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2475, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2490, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0066, 0.1360, 0.0000);
+  mem_set_values(NBT + 2505, 0.9960, 0.1334, 0.0000, 0.9975, 0.1315, 0.0009, 0.8888, 0.1304, 0.0104, 0.3540, 0.1300, 0.0640, 0.0244, 0.1304, 0.2319);
+  mem_set_values(NBT + 2520, 0.0000, 0.0000, 0.5227, 0.0000, 0.0000, 0.8013, 0.0000, 0.0000, 0.9490, 0.0000, 0.0000, 0.9924, 0.0000, 0.0000, 0.9994);
+  mem_set_values(NBT + 2535, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2550, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9862, 0.0000, 0.0000, 0.7321, 0.0000, 0.0000, 0.3272, 0.0000, 0.0000, 0.0365);
+  mem_set_values(NBT + 2565, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2580, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2595, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.4891, 0.1456, 0.0000, 0.9958, 0.1432, 0.0001, 0.9959, 0.1414, 0.0014);
+  mem_set_values(NBT + 2610, 0.8662, 0.1404, 0.0142, 0.3123, 0.1400, 0.0809, 0.0184, 0.1404, 0.2715, 0.0000, 0.0000, 0.5724, 0.0000, 0.0000, 0.8347);
+  mem_set_values(NBT + 2625, 0.0000, 0.0000, 0.9611, 0.0000, 0.0000, 0.9947, 0.0000, 0.0000, 0.9996, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2640, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 0.9859);
+  mem_set_values(NBT + 2655, 0.0000, 0.0000, 0.7303, 0.0000, 0.0000, 0.3235, 0.0000, 0.0000, 0.0353, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2670, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0190, 0.1803, 0.0000);
+  mem_set_values(NBT + 2685, 0.0380, 0.1749, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.2434, 0.1581, 0.0000);
+  mem_set_values(NBT + 2700, 0.9282, 0.1552, 0.0000, 0.9771, 0.1530, 0.0001, 0.9880, 0.1513, 0.0019, 0.8303, 0.1503, 0.0179, 0.2714, 0.1500, 0.0962);
+  mem_set_values(NBT + 2715, 0.0141, 0.1503, 0.3052, 0.0000, 0.0000, 0.6119, 0.0000, 0.0000, 0.8595, 0.0000, 0.0000, 0.9693, 0.0000, 0.0000, 0.9962);
+  mem_set_values(NBT + 2730, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2745, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 0.9855, 0.0000, 0.0000, 0.7280, 0.0000, 0.0000, 0.3190);
+  mem_set_values(NBT + 2760, 0.0000, 0.0000, 0.0340, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2775, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0275, 0.1836, 0.0000, 0.1496, 0.1789, 0.0000);
+  mem_set_values(NBT + 2790, 0.2794, 0.1746, 0.0000, 0.3871, 0.1709, 0.0000, 0.5333, 0.1676, 0.0000, 0.7578, 0.1649, 0.0000, 0.9083, 0.1628, 0.0001);
+  mem_set_values(NBT + 2805, 0.8866, 0.1612, 0.0021, 0.6168, 0.1603, 0.0196, 0.1610, 0.1600, 0.1027, 0.0068, 0.1603, 0.3191, 0.0000, 0.0000, 0.6277);
+  mem_set_values(NBT + 2820, 0.0000, 0.0000, 0.8690, 0.0000, 0.0000, 0.9724, 0.0000, 0.0000, 0.9967, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2835, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9999);
+  mem_set_values(NBT + 2850, 0.0000, 0.0000, 0.9850, 0.0000, 0.0000, 0.7251, 0.0000, 0.0000, 0.3139, 0.0000, 0.0000, 0.0326, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2865, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2880, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0047, 0.1879, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2895, 0.0551, 0.1772, 0.0000, 0.4848, 0.1746, 0.0000, 0.6495, 0.1726, 0.0001, 0.4504, 0.1712, 0.0019, 0.1774, 0.1703, 0.0179);
+  mem_set_values(NBT + 2910, 0.0296, 0.1700, 0.0962, 0.0000, 0.0000, 0.3052, 0.0000, 0.0000, 0.6119, 0.0000, 0.0000, 0.8595, 0.0000, 0.0000, 0.9693);
+  mem_set_values(NBT + 2925, 0.0000, 0.0000, 0.9962, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 2940, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 0.9841, 0.0000, 0.0000, 0.7212);
+  mem_set_values(NBT + 2955, 0.0000, 0.0000, 0.3075, 0.0000, 0.0000, 0.0310, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2970, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 2985, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.1881, 0.1844, 0.0000);
+  mem_set_values(NBT + 3000, 0.1981, 0.1825, 0.0001, 0.0668, 0.1811, 0.0014, 0.0111, 0.1803, 0.0142, 0.0000, 0.0000, 0.0809, 0.0000, 0.0000, 0.2715);
+  mem_set_values(NBT + 3015, 0.0000, 0.0000, 0.5724, 0.0000, 0.0000, 0.8347, 0.0000, 0.0000, 0.9611, 0.0000, 0.0000, 0.9947, 0.0000, 0.0000, 0.9996);
+  mem_set_values(NBT + 3030, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 3045, 0.0000, 0.0000, 0.9996, 0.0000, 0.0000, 0.9825, 0.0000, 0.0000, 0.7145, 0.0000, 0.0000, 0.2980, 0.0000, 0.0000, 0.0288);
+  mem_set_values(NBT + 3060, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3075, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3090, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0177, 0.1942, 0.0000, 0.0128, 0.1924, 0.0000, 0.0000, 0.0000, 0.0009);
+  mem_set_values(NBT + 3105, 0.0000, 0.0000, 0.0104, 0.0000, 0.0000, 0.0640, 0.0000, 0.0000, 0.2319, 0.0000, 0.0000, 0.5227, 0.0000, 0.0000, 0.8013);
+  mem_set_values(NBT + 3120, 0.0000, 0.0000, 0.9490, 0.0000, 0.0000, 0.9924, 0.0000, 0.0000, 0.9994, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 3135, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9993, 0.0000, 0.0000, 0.9793);
+  mem_set_values(NBT + 3150, 0.0000, 0.0000, 0.7025, 0.0000, 0.0000, 0.2829, 0.0000, 0.0000, 0.0258, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3165, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3180, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3195, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0006, 0.0000, 0.0000, 0.0073, 0.0000, 0.0000, 0.0492);
+  mem_set_values(NBT + 3210, 0.0000, 0.0000, 0.1940, 0.0000, 0.0000, 0.4705, 0.0000, 0.0000, 0.7628, 0.0000, 0.0000, 0.9338, 0.0000, 0.0000, 0.9891);
+  mem_set_values(NBT + 3225, 0.0000, 0.0000, 0.9990, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 3240, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 0.9985, 0.0000, 0.0000, 0.9731, 0.0000, 0.0000, 0.6829, 0.0000, 0.0000, 0.2611);
+  mem_set_values(NBT + 3255, 0.0000, 0.0000, 0.0220, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3270, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3285, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3300, 0.0000, 0.0000, 0.0004, 0.0000, 0.0000, 0.0050, 0.0000, 0.0000, 0.0372, 0.0000, 0.0000, 0.1600, 0.0000, 0.0000, 0.4187);
+  mem_set_values(NBT + 3315, 0.0000, 0.0000, 0.7204, 0.0000, 0.0000, 0.9152, 0.0000, 0.0000, 0.9847, 0.0000, 0.0000, 0.9984, 0.0000, 0.0000, 0.9999);
+  mem_set_values(NBT + 3330, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 0.9968);
+  mem_set_values(NBT + 3345, 0.0000, 0.0000, 0.9625, 0.0000, 0.0000, 0.6544, 0.0000, 0.0000, 0.2340, 0.0000, 0.0000, 0.0178, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3360, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3375, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3390, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0034);
+  mem_set_values(NBT + 3405, 0.0000, 0.0000, 0.0278, 0.0000, 0.0000, 0.1303, 0.0000, 0.0000, 0.3685, 0.0000, 0.0000, 0.6750, 0.0000, 0.0000, 0.8932);
+  mem_set_values(NBT + 3420, 0.0000, 0.0000, 0.9790, 0.0000, 0.0000, 0.9976, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 3435, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9995, 0.0000, 0.0000, 0.9937, 0.0000, 0.0000, 0.9459, 0.0000, 0.0000, 0.6164);
+  mem_set_values(NBT + 3450, 0.0000, 0.0000, 0.2034, 0.0000, 0.0000, 0.0138, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3465, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3480, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3495, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0023, 0.0000, 0.0000, 0.0205, 0.0000, 0.0000, 0.1049);
+  mem_set_values(NBT + 3510, 0.0000, 0.0000, 0.3213, 0.0000, 0.0000, 0.6278, 0.0000, 0.0000, 0.8678, 0.0000, 0.0000, 0.9717, 0.0000, 0.0000, 0.9965);
+  mem_set_values(NBT + 3525, 0.0000, 0.0000, 0.9998, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 0.9987);
+  mem_set_values(NBT + 3540, 0.0000, 0.0000, 0.9880, 0.0000, 0.0000, 0.9207, 0.0000, 0.0000, 0.5686, 0.0000, 0.0000, 0.1712, 0.0000, 0.0000, 0.0103);
+  mem_set_values(NBT + 3555, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3570, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3585, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001);
+  mem_set_values(NBT + 3600, 0.0000, 0.0000, 0.0015, 0.0000, 0.0000, 0.0150, 0.0000, 0.0000, 0.0837, 0.0000, 0.0000, 0.2774, 0.0000, 0.0000, 0.5791);
+  mem_set_values(NBT + 3615, 0.0000, 0.0000, 0.8388, 0.0000, 0.0000, 0.9624, 0.0000, 0.0000, 0.9949, 0.0000, 0.0000, 0.9996, 0.0000, 0.0000, 1.0000);
+  mem_set_values(NBT + 3630, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9997, 0.0000, 0.0000, 0.9967, 0.0000, 0.0000, 0.9767, 0.0000, 0.0000, 0.8819);
+  mem_set_values(NBT + 3645, 0.0000, 0.0000, 0.5095, 0.0000, 0.0000, 0.1385, 0.0000, 0.0000, 0.0073, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3660, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3675, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3690, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0010, 0.0000, 0.0000, 0.0108);
+  mem_set_values(NBT + 3705, 0.0000, 0.0000, 0.0658, 0.0000, 0.0000, 0.2365, 0.0000, 0.0000, 0.5287, 0.0000, 0.0000, 0.8055, 0.0000, 0.0000, 0.9506);
+  mem_set_values(NBT + 3720, 0.0000, 0.0000, 0.9927, 0.0000, 0.0000, 0.9994, 0.0000, 0.0000, 1.0000, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 0.9985);
+  mem_set_values(NBT + 3735, 0.0000, 0.0000, 0.9899, 0.0000, 0.0000, 0.9501, 0.0000, 0.0000, 0.8163, 0.0000, 0.0000, 0.4334, 0.0000, 0.0000, 0.1052);
+  mem_set_values(NBT + 3750, 0.0000, 0.0000, 0.0049, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3765, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3780, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3795, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0006, 0.0000, 0.0000, 0.0076, 0.0000, 0.0000, 0.0508, 0.0000, 0.0000, 0.1984);
+  mem_set_values(NBT + 3810, 0.0000, 0.0000, 0.4769, 0.0000, 0.0000, 0.7677, 0.0000, 0.0000, 0.9358, 0.0000, 0.0000, 0.9896, 0.0000, 0.0000, 0.9990);
+  mem_set_values(NBT + 3825, 0.0000, 0.0000, 0.9999, 0.0000, 0.0000, 0.9990, 0.0000, 0.0000, 0.9933, 0.0000, 0.0000, 0.9679, 0.0000, 0.0000, 0.8878);
+  mem_set_values(NBT + 3840, 0.0000, 0.0000, 0.7022, 0.0000, 0.0000, 0.3330, 0.0000, 0.0000, 0.0711, 0.0000, 0.0000, 0.0029, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3855, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3870, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3885, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0004);
+  mem_set_values(NBT + 3900, 0.0000, 0.0000, 0.0053, 0.0000, 0.0000, 0.0386, 0.0000, 0.0000, 0.1639, 0.0000, 0.0000, 0.4249, 0.0000, 0.0000, 0.7256);
+  mem_set_values(NBT + 3915, 0.0000, 0.0000, 0.9174, 0.0000, 0.0000, 0.9850, 0.0000, 0.0000, 0.9981, 0.0000, 0.0000, 0.9988, 0.0000, 0.0000, 0.9946);
+  mem_set_values(NBT + 3930, 0.0000, 0.0000, 0.9746, 0.0000, 0.0000, 0.9105, 0.0000, 0.0000, 0.7665, 0.0000, 0.0000, 0.5329, 0.0000, 0.0000, 0.2169);
+  mem_set_values(NBT + 3945, 0.0000, 0.0000, 0.0397, 0.0000, 0.0000, 0.0014, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3960, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3975, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 3990, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0002, 0.0000, 0.0000, 0.0036, 0.0000, 0.0000, 0.0287);
+  mem_set_values(NBT + 4005, 0.0000, 0.0000, 0.1333, 0.0000, 0.0000, 0.3734, 0.0000, 0.0000, 0.6782, 0.0000, 0.0000, 0.8921, 0.0000, 0.0000, 0.9749);
+  mem_set_values(NBT + 4020, 0.0000, 0.0000, 0.9920, 0.0000, 0.0000, 0.9909, 0.0000, 0.0000, 0.9758, 0.0000, 0.0000, 0.9227, 0.0000, 0.0000, 0.7956);
+  mem_set_values(NBT + 4035, 0.0000, 0.0000, 0.5859, 0.0000, 0.0000, 0.3412, 0.0000, 0.0000, 0.1140, 0.0000, 0.0000, 0.0172, 0.0000, 0.0000, 0.0005);
+  mem_set_values(NBT + 4050, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4065, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4080, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4095, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0024, 0.0000, 0.0000, 0.0209, 0.0000, 0.0000, 0.1055, 0.0000, 0.0000, 0.3188);
+  mem_set_values(NBT + 4110, 0.0000, 0.0000, 0.6153, 0.0000, 0.0000, 0.8421, 0.0000, 0.0000, 0.9364, 0.0000, 0.0000, 0.9554, 0.0000, 0.0000, 0.9479);
+  mem_set_values(NBT + 4125, 0.0000, 0.0000, 0.9104, 0.0000, 0.0000, 0.8073, 0.0000, 0.0000, 0.6172, 0.0000, 0.0000, 0.3815, 0.0000, 0.0000, 0.1791);
+  mem_set_values(NBT + 4140, 0.0000, 0.0000, 0.0473, 0.0000, 0.0000, 0.0057, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4155, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4170, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4185, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0001, 0.0000, 0.0000, 0.0015);
+  mem_set_values(NBT + 4200, 0.0000, 0.0000, 0.0142, 0.0000, 0.0000, 0.0775, 0.0000, 0.0000, 0.2500, 0.0000, 0.0000, 0.5079, 0.0000, 0.0000, 0.7178);
+  mem_set_values(NBT + 4215, 0.0000, 0.0000, 0.8077, 0.0000, 0.0000, 0.8222, 0.0000, 0.0000, 0.8042, 0.0000, 0.0000, 0.7431, 0.0000, 0.0000, 0.6058);
+  mem_set_values(NBT + 4230, 0.0000, 0.0000, 0.4017, 0.0000, 0.0000, 0.2038, 0.0000, 0.0000, 0.0755, 0.0000, 0.0000, 0.0154, 0.0000, 0.0000, 0.0014);
+  mem_set_values(NBT + 4245, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4260, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4275, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4290, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0008, 0.0000, 0.0000, 0.0082, 0.0000, 0.0000, 0.0473);
+  mem_set_values(NBT + 4305, 0.0000, 0.0000, 0.1602, 0.0000, 0.0000, 0.3373, 0.0000, 0.0000, 0.4858, 0.0000, 0.0000, 0.5481, 0.0000, 0.0000, 0.5529);
+  mem_set_values(NBT + 4320, 0.0000, 0.0000, 0.5297, 0.0000, 0.0000, 0.4683, 0.0000, 0.0000, 0.3509, 0.0000, 0.0000, 0.2030, 0.0000, 0.0000, 0.0852);
+  mem_set_values(NBT + 4335, 0.0000, 0.0000, 0.0249, 0.0000, 0.0000, 0.0039, 0.0000, 0.0000, 0.0003, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4350, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4365, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4380, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4395, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4410, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4425, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NBT + 4440, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  ne_nx = 22; ne_ny = 30; ne_x0 = 16; ne_y0 = 164; ne_c = 4;
+  mem_set_values(NET + 0, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 16, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 32, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 48, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 64, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 80, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0023, 0.0035, 0.0047, 0.0058);
+  mem_set_values(NET + 96, 0.0068, 0.0075, 0.0080, 0.0084, 0.0086, 0.0087, 0.0031, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 112, 0.0027, 0.0052, 0.0084, 0.0117, 0.0147, 0.0170, 0.0187, 0.0199, 0.0206, 0.0210, 0.0212, 0.0213, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 128, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0034, 0.0075, 0.0136, 0.0205, 0.0267, 0.0314, 0.0345, 0.0364, 0.0374, 0.0380, 0.0383);
+  mem_set_values(NET + 144, 0.0384, 0.0368, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0079, 0.0164, 0.0276, 0.0389, 0.0479);
+  mem_set_values(NET + 160, 0.0536, 0.0567, 0.0582, 0.0589, 0.0592, 0.0594, 0.0594, 0.0502, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 176, 0.0000, 0.0159, 0.0303, 0.0473, 0.0628, 0.0737, 0.0796, 0.0822, 0.0833, 0.0836, 0.0837, 0.0838, 0.0838, 0.0629, 0.0000, 0.0000);
+  mem_set_values(NET + 192, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0284, 0.0498, 0.0727, 0.0912, 0.1027, 0.1082, 0.1103, 0.1109, 0.1111);
+  mem_set_values(NET + 208, 0.1112, 0.1112, 0.1112, 0.0760, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0462, 0.0753, 0.1031);
+  mem_set_values(NET + 224, 0.1232, 0.1344, 0.1391, 0.1406, 0.1410, 0.1411, 0.1411, 0.1411, 0.1411, 0.1013, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 240, 0.0000, 0.0000, 0.0000, 0.0696, 0.1063, 0.1377, 0.1580, 0.1680, 0.1718, 0.1729, 0.1731, 0.1732, 0.1732, 0.1732, 0.1732, 0.1461);
+  mem_set_values(NET + 256, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0972, 0.1409, 0.1747, 0.1945, 0.2031, 0.2060, 0.2067);
+  mem_set_values(NET + 272, 0.2069, 0.2069, 0.2069, 0.2069, 0.2069, 0.1980, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.1266);
+  mem_set_values(NET + 288, 0.1767, 0.2125, 0.2315, 0.2390, 0.2412, 0.2417, 0.2418, 0.2418, 0.2418, 0.2418, 0.2418, 0.2418, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 304, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.1554, 0.2117, 0.2496, 0.2684, 0.2752, 0.2771, 0.2775, 0.2775, 0.2775, 0.2775, 0.2775);
+  mem_set_values(NET + 320, 0.2775, 0.2775, 0.0043, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.1824, 0.2448, 0.2854, 0.3047, 0.3114);
+  mem_set_values(NET + 336, 0.3131, 0.3135, 0.3135, 0.3135, 0.3135, 0.3135, 0.3135, 0.3134, 0.0134, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 352, 0.0000, 0.2074, 0.2760, 0.3199, 0.3403, 0.3472, 0.3490, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3493, 0.3492, 0.0150, 0.0000);
+  mem_set_values(NET + 368, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.2299, 0.3050, 0.3527, 0.3748, 0.3822, 0.3841, 0.3844, 0.3845, 0.3845);
+  mem_set_values(NET + 384, 0.3845, 0.3845, 0.3845, 0.3843, 0.0165, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.2432, 0.3248, 0.3776);
+  mem_set_values(NET + 400, 0.4025, 0.4122, 0.4155, 0.4155, 0.4150, 0.4145, 0.4140, 0.4140, 0.4140, 0.4137, 0.0177, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 416, 0.0000, 0.0000, 0.0000, 0.2465, 0.3354, 0.3957, 0.4262, 0.4397, 0.4451, 0.4449, 0.4441, 0.4430, 0.4420, 0.4420, 0.4419, 0.4414);
+  mem_set_values(NET + 432, 0.0189, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.2166, 0.3137, 0.3890, 0.4329, 0.4588, 0.4731, 0.4719);
+  mem_set_values(NET + 448, 0.4694, 0.4602, 0.4509, 0.4508, 0.4506, 0.4496, 0.0192, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.1695);
+  mem_set_values(NET + 464, 0.2732, 0.3662, 0.4284, 0.4709, 0.4968, 0.4958, 0.4921, 0.4748, 0.4572, 0.4571, 0.4564, 0.4539, 0.0192, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 480, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.1128, 0.2180, 0.3329, 0.4216, 0.4796, 0.5152, 0.5131, 0.5061, 0.4852, 0.4635, 0.4630);
+  mem_set_values(NET + 496, 0.4609, 0.4547, 0.0189, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0503, 0.1489, 0.2792, 0.3927, 0.4688);
+  mem_set_values(NET + 512, 0.5186, 0.5198, 0.5121, 0.4892, 0.4639, 0.4626, 0.4571, 0.4430, 0.0764, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 528, 0.0000, 0.0000, 0.0758, 0.2109, 0.3416, 0.4296, 0.4926, 0.4996, 0.4935, 0.4769, 0.4546, 0.4578, 0.4522, 0.4308, 0.1635, 0.0000);
+  mem_set_values(NET + 544, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0023, 0.1294, 0.2634, 0.3542, 0.4280, 0.4433, 0.4428, 0.4361);
+  mem_set_values(NET + 560, 0.4183, 0.4257, 0.4179, 0.3856, 0.1823, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0579);
+  mem_set_values(NET + 576, 0.1738, 0.2537, 0.3282, 0.3582, 0.3739, 0.3872, 0.3847, 0.3936, 0.3820, 0.3341, 0.1059, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 592, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0939, 0.1510, 0.2119, 0.2434, 0.2653, 0.2930, 0.3038, 0.3156, 0.3063, 0.2589);
+  mem_set_values(NET + 608, 0.0954, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0375, 0.0720, 0.1129, 0.1391);
+  mem_set_values(NET + 624, 0.1609, 0.1849, 0.1955, 0.2016, 0.1911, 0.1563, 0.0774, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 640, 0.0000, 0.0000, 0.0093, 0.0268, 0.0491, 0.0671, 0.0840, 0.0998, 0.1077, 0.1084, 0.0992, 0.0785, 0.0500, 0.0078, 0.0000, 0.0000);
+  mem_set_values(NET + 656, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+  mem_set_values(NET + 672, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+);
+
+!g_tab ? ( g_tab = 1; ui_inittables(); );
+
+function ui_min(s) ( UMN[s]; );
+function ui_max(s) ( UMX[s]; );
+function ui_def(s) ( UDF[s]; );
+function ui_stp(s) ( UST[s]; );
+function ui_norm(s) ( (slider(s) - ui_min(s)) / (ui_max(s) - ui_min(s)); );
+function ui_set(s, xv) local(lo, hi, st, nv, old)
+(
+  lo = ui_min(s); hi = ui_max(s); st = ui_stp(s);
+  nv = max(lo, min(hi, xv));
+  nv = lo + floor((nv - lo) / st + 0.5) * st;
+  nv = max(lo, min(hi, nv));
+  old = slider(s);
+  slider(s) = nv;
+  nv !== old ? automate(s, 0);
+);
+function ui_setn(s, nn) ( ui_set(s, ui_min(s) + max(0, min(1, nn)) * (ui_max(s) - ui_min(s))); );
+function ui_put(s, xv) ( ui_set(s, xv); automate(s, 1); );
+
+function ui_px(u) ( uox + u * UQ; );
+function ui_py(v) ( v * UQ; );
+function ui_hit(hx, hy, hw, hh) ( mouse_x >= hx && mouse_x < hx + hw && mouse_y >= hy && mouse_y < hy + hh; );
+function ui_hitc(cx, cy, rr) ( sqr(mouse_x - cx) + sqr(mouse_y - cy) <= sqr(rr); );
+function ui_font(fs, b) ( gfx_setfont(1, "Arial", max(11, floor(fs + 0.5)), b ? 'b' : 0); );
+function ui_ctext(str, cx, cy, fs, b) local(tw, th)
+(
+  ui_font(fs, b);
+  gfx_measurestr(str, tw, th);
+  gfx_x = floor(cx - tw * 0.5 + 0.5); gfx_y = floor(cy - th * 0.5 + 0.5);
+  gfx_drawstr(str);
+);
+function ui_ltext(str, lx, cy, fs, b) local(tw, th)
+(
+  ui_font(fs, b);
+  gfx_measurestr(str, tw, th);
+  gfx_x = floor(lx + 0.5); gfx_y = floor(cy - th * 0.5 + 0.5);
+  gfx_drawstr(str);
+);
+function ui_rtext(str, rx, cy, fs, b) local(tw, th)
+(
+  ui_font(fs, b);
+  gfx_measurestr(str, tw, th);
+  gfx_x = floor(rx - tw + 0.5); gfx_y = floor(cy - th * 0.5 + 0.5);
+  gfx_drawstr(str);
+);
+function ui_rect(u, v, w, h) local(x0, y0)
+(
+  x0 = floor(ui_px(u) + 0.5); y0 = floor(ui_py(v) + 0.5);
+  gfx_rect(x0, y0, max(1, floor(ui_px(u + w) + 0.5) - x0), max(1, floor(ui_py(v + h) + 0.5) - y0));
+);
+function ui_grey(c) ( gfx_set(c / 255, c / 255, c / 255, 1); );
+function ui_utext(str, u, v, fs, b) ( ui_ctext(str, ui_px(u), ui_py(v), fs * UQ, b); );
+
+function ui_click_at(s, sc)
+(
+  (u_ctarget == s && time_precise() - u_ctime < 0.3) ? (
+    ui_put(s, ui_def(s));
+    u_drag = 0;
+  ) : (
+    u_drag = s; u_dy0 = mouse_y; u_dv0 = ui_norm(s); u_dfine = mouse_cap & 4; u_dsc = sc;
+  );
+  u_ctarget = s; u_ctime = time_precise();
+  u_click = 0;
+);
+
+function ui_wheel(s) local(st)
+(
+  st = ui_stp(s);
+  st >= 1 ? ui_put(s, slider(s) + (u_wheel > 0 ? 1 : -1) * st)
+          : ( ui_setn(s, ui_norm(s) + (u_wheel / 120) * ((mouse_cap & 4) ? 0.002 : 0.02)); automate(s, 1); );
+  u_wheel = 0;
+);
+
+function ui_kcol(col, k)
+(
+  col == 0 ? gfx_set(0.18 * k, 0.50 * k, 0.93 * k, 1) :
+  col == 1 ? gfx_set(0.88 * k, 0.05 * k, 0.05 * k, 1) :
+  col == 2 ? gfx_set(0.96 * k, 0.48 * k, 0.05 * k, 1) :
+  col == 3 ? gfx_set(0.98 * k, 0.83 * k, 0.10 * k, 1) :
+             gfx_set(0.93 * k, 0.93 * k, 0.93 * k, 1);
+);
+
+function ui_bar(cx, cy, ca, sa, r0, r1, hw) local(x0, y0, x1, y1, xx, yy, dx, dy, ss, tt, cv)
+(
+  x0 = floor(min(cx + sa * r0, cx + sa * r1) - hw - 2); x1 = ceil(max(cx + sa * r0, cx + sa * r1) + hw + 2);
+  y0 = floor(min(cy - ca * r0, cy - ca * r1) - hw - 2); y1 = ceil(max(cy - ca * r0, cy - ca * r1) + hw + 2);
+  yy = y0;
+  loop(y1 - y0 + 1,
+    xx = x0;
+    loop(x1 - x0 + 1,
+      dx = xx + 0.5 - cx; dy = yy + 0.5 - cy;
+      ss = dx * sa - dy * ca; tt = dx * ca + dy * sa;
+      cv = max(0, min(1, min(ss - r0, r1 - ss) + 0.5)) * max(0, min(1, hw - abs(tt) + 0.5));
+      cv > 0 ? ( gfx_a = cv; gfx_rect(xx, yy, 1, 1); );
+      xx += 1;
+    );
+    yy += 1;
+  );
+  gfx_a = 1;
+);
+
+function ui_knob(s, cu, cv, ru, col) local(cx, cy, rr, hov, nn, ang, ca, sa, k, ta)
+(
+  cx = ui_px(cu); cy = ui_py(cv); rr = ru * UQ;
+  hov = ui_hitc(cx, cy, rr + 2);
+  hov ? u_hov = s;
+  (u_click && hov) ? ui_click_at(s, 200 * uscale);
+  (hov && u_wheel != 0 && u_drag == 0) ? ui_wheel(s);
+  nn = max(0, min(1, ui_norm(s)));
+  ang = (-0.75 + 1.5 * nn) * $pi;
+  ca = cos(ang); sa = sin(ang);
+  gfx_set(0, 0, 0, 1); gfx_circle(cx, cy, rr, 1, 1);
+  gfx_set(0.22, 0.22, 0.22, 1); gfx_circle(cx, cy, rr * 0.80, 0, 1);
+  ui_kcol(col, hov || u_drag == s ? 1 : 0.94); gfx_circle(cx, cy, rr * 0.62, 1, 1);
+  ui_bar(cx, cy, ca, sa, rr * 0.45, rr * 0.97, max(1, rr * 0.055));
+);
+
+function ui_lamp(cx, cy, rr, on)
+(
+  on > 0.01 ? (
+    gfx_set(1, 0.1, 0.05, 0.28 * on); gfx_circle(cx, cy, rr * 1.8, 1, 1);
+    gfx_set(0.24 + 0.76 * on, 0.06 + 0.04 * on, 0.05, 1); gfx_circle(cx, cy, rr, 1, 1);
+    gfx_set(1, 1, 1, 0.35 * on); gfx_circle(cx - rr * 0.3, cy - rr * 0.3, rr * 0.35, 1, 1);
+  ) : (
+    gfx_set(0.24, 0.06, 0.05, 1); gfx_circle(cx, cy, rr, 1, 1);
+  );
+);
+
+function ui_button(cu, cv, id, on, act) local(cx, cy, hov)
+(
+  cx = ui_px(cu); cy = ui_py(cv);
+  hov = act && ui_hitc(cx, cy, 8 * UQ);
+  hov ? u_hov = id;
+  ui_grey(act ? 205 : 150); gfx_circle(cx, cy, 7.1 * UQ, 1, 1);
+  ui_grey(act ? 120 : 95); gfx_circle(cx, cy, 7.1 * UQ, 0, 1);
+  ui_lamp(cx, cy, 4.2 * UQ, on);
+  hov ? ( gfx_set(1, 1, 1, 0.35); gfx_circle(cx, cy, 7.6 * UQ, 0, 1); );
+  hov && u_click;
+);
+
+function ui_seg(s, u, v, w, h, n, lab0, lab1, lab2) local(k, x0, x1, y0, hov, sel, cw)
+(
+  cw = w / n;
+  k = 0;
+  sel = floor(slider(s) + 0.5);
+  loop(n,
+    x0 = u + k * cw;
+    hov = ui_hit(floor(ui_px(x0)), floor(ui_py(v)), floor(ui_px(x0 + cw)) - floor(ui_px(x0)), floor(ui_py(v + h)) - floor(ui_py(v)));
+    hov ? u_hov = s;
+    (hov && u_click) ? ( ui_put(s, k); u_click = 0; );
+    sel == k ? ui_grey(hov ? 238 : 225) : ui_grey(hov ? 92 : 70);
+    ui_rect(x0 + 0.4, v, cw - 0.8, h);
+    sel == k ? ui_grey(25) : ui_grey(232);
+    ui_utext(k == 0 ? lab0 : k == 1 ? lab1 : lab2, x0 + cw * 0.5, v + h * 0.5, 6.4, sel == k);
+    k += 1;
+  );
+  (u_wheel != 0 && u_drag == 0 && ui_hit(floor(ui_px(u)), floor(ui_py(v)), floor(w * UQ), floor(h * UQ))) ? (
+    ui_put(s, max(0, min(n - 1, sel + (u_wheel > 0 ? 1 : -1))));
+    u_wheel = 0;
+  );
+);
+
+function ui_row(lab, v) ( ui_grey(232); ui_ltext(lab, ui_px(249), ui_py(v + 6), 6.6 * UQ, 0); );
+
+function ui_numbox(s, u, v, w, h, kind, act) local(x0, y0, hov, val, nn)
+(
+  x0 = floor(ui_px(u)); y0 = floor(ui_py(v));
+  hov = ui_hit(x0, y0, floor(w * UQ), floor(h * UQ));
+  hov ? u_hov = s;
+  (u_click && hov) ? ui_click_at(s, 220 * uscale);
+  (hov && u_wheel != 0 && u_drag == 0) ? ui_wheel(s);
+  ui_grey(hov || u_drag == s ? 30 : 22); ui_rect(u, v, w, h);
+  ui_grey(act ? 120 : 80);
+  gfx_rect(x0, y0, floor(w * UQ), 1); gfx_rect(x0, y0 + floor(h * UQ) - 1, floor(w * UQ), 1);
+  gfx_rect(x0, y0, 1, floor(h * UQ)); gfx_rect(x0 + floor(w * UQ) - 1, y0, 1, floor(h * UQ));
+  val = floor(slider(s) + 0.5);
+  kind == 1 ? (
+    nn = val - 12 * floor(val / 12);
+    sprintf(#u_t, "%s%d %d", nn == 0 ? "C" : nn == 1 ? "C#" : nn == 2 ? "D" : nn == 3 ? "D#" : nn == 4 ? "E" : nn == 5 ? "F" :
+            nn == 6 ? "F#" : nn == 7 ? "G" : nn == 8 ? "G#" : nn == 9 ? "A" : nn == 10 ? "A#" : "B", floor(val / 12) - 1, val);
+  ) : kind == 2 ? sprintf(#u_t, "%d ms", val) : sprintf(#u_t, "%d", val);
+  act ? ui_grey(235) : ui_grey(150);
+  ui_utext(#u_t, u + w * 0.5, v + h * 0.5, 6.2, 0);
+);
+
+function ui_outbox(i, s, u, v, act) local(c, f)
+(
+  c = LEDV[i];
+  c !== ULC[i] ? ( ULC[i] = c; ULC[10 + i] = 1; );
+  f = ULC[10 + i];
+  ui_numbox(s, u, v, 32, 13, 1, act);
+  f > 0.02 ? ( gfx_set(1, 0.15, 0.08, 0.45 * f); ui_rect(u, v, 32, 13); ULC[10 + i] = f * u_decay; ) : ULC[10 + i] = 0;
+);
+
+function ui_static()
+(
+  gfx_dest = 10; gfx_setimgdim(10, gfx_w, gfx_h);
+  ui_grey(40); gfx_rect(0, 0, gfx_w, gfx_h);
+  g_pnl ? (
+    gfx_set(1, 1, 1, 1);
+    gfx_x = ui_px(0); gfx_y = ui_py(0);
+    (g_pnl2 && uscale > 1.25) ? gfx_blit(21, uscale / 2, 0) : gfx_blit(20, uscale, 0);
+  ) : (
+    gfx_set(1, 1, 1, 1);
+    ui_rect(0, 23.6, 240, 0.9); ui_rect(0, 356, 240, 0.9);
+    ui_grey(83); ui_rect(96, 264.5, 138, 77.5);
+    gfx_set(1, 1, 1, 1);
+    ui_utext("Swing", 177, 90, 8, 0); ui_utext("Reset", 26.5, 152, 8, 0); ui_utext("Run", 85, 152, 8, 0);
+    ui_utext("Clock", 26.5, 89.5, 8, 1);
+    ui_utext("1", 129, 221, 8, 0); ui_utext("2", 165, 221, 8, 0); ui_utext("3", 201, 221, 8, 0);
+    ui_utext("Fill", 111, 246.5, 8, 1); ui_utext("Trig", 111, 286, 8, 0); ui_utext("Acc", 111, 320.5, 8, 0);
+  );
+  g_mk ? (
+    gfx_set(1, 1, 1, 1);
+    gfx_x = 0; gfx_y = ui_py(24.5);
+    (g_mk2 && uscale > 1.25) ? gfx_blit(23, uscale / 2, 0) : gfx_blit(22, uscale, 0);
+  ) : (
+    ui_grey(140);
+    ui_ctext("Etoile polaire", u_sbx - SBU * 0.5 * UQ, ui_py(190), 7 * UQ, 0);
+  );
+  gfx_set(1, 1, 1, 1);
+  ui_rect(240, 23.9, max(200, (gfx_w - uox) / UQ - 240), 1); ui_rect(240, 356, max(200, (gfx_w - uox) / UQ - 240), 0.9);
+  ui_rect(240, 23.9, 0.9, 333);
+  u_ox0 = uox; uox = u_sbx;
+  ui_rect(-SBU, 23.9, SBU + (u_ox0 - u_sbx) / UQ, 1); ui_rect(-SBU, 356, SBU + (u_ox0 - u_sbx) / UQ, 0.9);
+  ui_rect(-0.9, 23.9, 0.9, 333);
+  uox = u_ox0;
+  g_tt ? (
+    gfx_y = 0;
+    (g_tt2 && uscale > 1.25) ? ( gfx_x = floor((gfx_w - 1022 * uscale) * 0.5); gfx_blit(25, uscale / 2, 0); )
+                             : ( gfx_x = floor((gfx_w - 1022 * uscale) * 0.5); gfx_blit(24, uscale, 0); );
+  ) : ui_ctext("Jezebel", u_cx, ui_py(12.2), 18 * UQ, 0);
+  gfx_set(0.80, 0.80, 0.80, 1);
+  ui_rtext("by chmaha", u_sbx + 436 * UQ + u_slk, ui_py(7.6), 12 * uscale, 0);
+  ui_rtext("based on Topograph by Dale Johnson (Valley Audio)", u_sbx + 436 * UQ + u_slk, ui_py(16.6), 11 * uscale, 0);
+  ui_grey(232);
+  ui_ltext("Pattern", ui_px(249), ui_py(33), 6.6 * UQ, 1);
+  ui_row("Mode", 128); ui_row("Clock", 145); ui_row("Host Rate", 162); ui_row("Notes", 179);
+  ui_row("Extra Outs", 196); ui_row("Extra Notes", 213); ui_row("Run Button", 230); ui_row("MIDI Thru", 247);
+  ui_utext("Channel", 272, 270, 6.2, 0); ui_utext("Velocity", 318, 270, 6.2, 0); ui_utext("Accent", 364, 270, 6.2, 0); ui_utext("Trigger", 410, 270, 6.2, 0);
+  gfx_dest = -1;
+);
+
+function ui_pattern() local(x0, y0, cw, rh, i, s, lv, hit, act, cur, len, thr, by, bh, eu)
+(
+  x0 = 249; y0 = 41; cw = 182 / 32; rh = 24;
+  eu = floor(nu_mode + 0.5) == 2;
+  ui_grey(22); ui_rect(x0 - 1, y0 - 1, 184, 3 * rh + 4);
+  i = 0;
+  loop(3,
+    by = y0 + i * (rh + 1);
+    len = eu ? (ELEN[i] >> 3) + 1 : 32;
+    cur = eu ? (u_run ? ECNT[i] - len * floor(ECNT[i] / len) : -1) : (u_run ? g_step : -1);
+    thr = 255 - DENS[i];
+    s = 0;
+    loop(32,
+      lv = PATL[i * 32 + s];
+      hit = HITS[i * 32 + s];
+      act = s < len;
+      act ? (
+        ui_grey(s == cur ? 70 : (s & 7) == 0 ? 44 : 34);
+        ui_rect(x0 + s * cw + 0.3, by, cw - 0.6, rh);
+        eu ? (
+          lv > 0 ? ( ui_kcol(i + 1, 0.55); ui_rect(x0 + s * cw + 1, by + rh * 0.3, cw - 2, rh * 0.4); );
+        ) : (
+          bh = rh * max(0, lv) / 255;
+          lv > thr ? ui_kcol(i + 1, 0.55) : ui_grey(78);
+          ui_rect(x0 + s * cw + 0.8, by + rh - bh, cw - 1.6, max(0.6, bh));
+        );
+        (hit > 0 && u_run) ? ( ui_kcol(i + 1, s == cur ? 1.15 : 0.95); ui_rect(x0 + s * cw + 1.2, by + 1, cw - 2.4, hit > 1 ? 3.2 : 2); );
+      );
+      s += 1;
+    );
+    !eu ? ( gfx_set(1, 1, 1, 0.35); ui_rect(x0, by + rh - rh * thr / 255, 182, 0.35); );
+    i += 1;
+  );
+  gfx_set(0.70, 0.70, 0.72, 1);
+  eu ? sprintf(#u_t, "Euclidean: lengths %d / %d / %d", (ELEN[0] >> 3) + 1, (ELEN[1] >> 3) + 1, (ELEN[2] >> 3) + 1)
+     : strcpy(#u_t, "32 steps per bar, line = fill threshold");
+  ui_rtext(#u_t, ui_px(431), ui_py(33), 5.6 * UQ, 0);
+);
+
+function ui_hint(h) local(v, k)
+(
+  h == 104 ? strcpy(#u_hint, nu_anim > 0.5 ? "Click the picture to switch the animation off" : "Click the picture to switch the animation on") :
+  h == 101 ? strcpy(#u_hint, floor(nu_clock + 0.5) ? "Reset: back to step 1" : "Reset works on the Free clock") :
+  h == 102 ? strcpy(#u_hint, floor(nu_clock + 0.5) ? (nu_rmode >= 0.5 ? "Run: hold to play" : "Run: click to start or stop") : "Following REAPER's transport") :
+  h >= 1 && h <= 28 ? (
+    v = slider(h); k = floor(v + 0.5);
+    h == 1 ? (floor(nu_mode + 0.5) == 2 ? sprintf(#u_t, "Length 1: %d steps", (floor(v * 255) >> 3) + 1) : sprintf(#u_t, "Map X: %.1f%%", v * 100)) :
+    h == 2 ? (floor(nu_mode + 0.5) == 2 ? sprintf(#u_t, "Length 2: %d steps", (floor(v * 255) >> 3) + 1) : sprintf(#u_t, "Map Y: %.1f%%", v * 100)) :
+    h == 3 ? (floor(nu_mode + 0.5) == 2 ? sprintf(#u_t, "Length 3: %d steps", (floor(v * 255) >> 3) + 1) : sprintf(#u_t, "Chaos: %.1f%%", v * 100)) :
+    h == 4 ? sprintf(#u_t, "Fill 1: %.1f%%", v * 100) :
+    h == 5 ? sprintf(#u_t, "Fill 2: %.1f%%", v * 100) :
+    h == 6 ? sprintf(#u_t, "Fill 3: %.1f%%", v * 100) :
+    h == 7 ? sprintf(#u_t, "Swing: %.1f%% (Free clock, and Host Rate 24 PPQN)", v * 100) :
+    h == 8 ? sprintf(#u_t, "Free tempo: %.1f BPM", v) :
+    h == 9 ? strcpy(#u_t, k == 0 ? "Henri: Topograph's own blend of the map" : k == 1 ? "Original: the Grids blend of the map" : "Euclidean: X, Y, Chaos set lengths, Fills set hits") :
+    h == 10 ? strcpy(#u_t, k ? "Free: runs on its own tempo knob" : "Transport: follows REAPER's tempo and position") :
+    h == 11 ? sprintf(#u_t, "Host clock: %s", k == 0 ? "4 PPQN (no swing)" : k == 1 ? "8 PPQN (no swing)" : "24 PPQN") :
+    h == 12 ? strcpy(#u_t, k ? "Gate: notes last half a clock tick" : "Trigger: notes last the Trigger time") :
+    h == 13 ? strcpy(#u_t, k ? "Extra outputs: accent, clock, reset" : "Extra outputs: one accent per part") :
+    h == 14 ? strcpy(#u_t, k ? "Extra outputs play their notes" : "Extra outputs off") :
+    h == 15 ? strcpy(#u_t, k ? "Run button: momentary (hold)" : "Run button: toggle") :
+    h == 28 ? strcpy(#u_t, k ? "MIDI thru on" : "MIDI thru off") :
+    h >= 18 && h <= 23 ? sprintf(#u_t, "%s note: %d (drag or wheel)", h == 18 ? "Part 1" : h == 19 ? "Part 2" : h == 20 ? "Part 3" : h == 21 ? "Extra 1" : h == 22 ? "Extra 2" : "Extra 3", k) :
+    h == 24 ? sprintf(#u_t, "MIDI channel %d", k) :
+    h == 25 ? sprintf(#u_t, "Velocity %d", k) :
+    h == 26 ? sprintf(#u_t, "Accent velocity %d", k) :
+    h == 27 ? sprintf(#u_t, "Trigger length %d ms", k) : strcpy(#u_t, "");
+    strcpy(#u_hint, #u_t);
+  ) : strcpy(#u_hint, "Drag or wheel the knobs (Ctrl = fine, double-click = default)");
+);
+
+function na_h(i) local(x) ( x = sin(i * 127.1 + 311.7) * 43758.5453; x - floor(x); );
+function na_n(t, seed) local(i, f, a, b)
+(
+  i = floor(t); f = t - i;
+  a = na_h(i + seed * 101); b = na_h(i + 1 + seed * 101);
+  a + (b - a) * f * f * (3 - 2 * f);
+);
+
+function na_box(img, k, x0, y0, w, h, sx, sy) local(fx, fy, xa, ya, xb, yb)
+(
+  fx = x0 * na_s; fy = na_py + y0 * na_s;
+  xa = max(ceil(fx), 0); ya = max(ceil(fy), na_ymin);
+  xb = min(floor(fx + w * na_s), na_xmax); yb = min(floor(fy + h * na_s), na_ymax);
+  (xb > xa && yb > ya) ? gfx_blit(img, 1, 0, (sx + (xa - fx) / na_s) * k, (sy + (ya - fy) / na_s) * k,
+                                  (xb - xa) / na_s * k, (yb - ya) / na_s * k, xa, ya, xb - xa, yb - ya);
+);
+
+function na_line(img, k, x0, w, yy, sx, sy) local(xa, xb)
+(
+  xa = max(ceil(x0 * na_s), 0); xb = min(floor((x0 + w) * na_s), na_xmax);
+  xb > xa ? gfx_blit(img, 1, 0, (sx + xa / na_s - x0) * k, sy * k, (xb - xa) / na_s * k * 0.99999, k / na_s * 0.99999, xa, yy, xb - xa, 1);
+);
+
+function nw_field(t, g) local(n, j, i, p, w, xn, yn, a, d)
+(
+  a = 3.4 * g * na_amp;
+  nw_a = a;
+  n = 0; j = 0; p = NWT;
+  loop(nw_ny + 1,
+    yn = nw_y0 + j * nw_c;
+    i = 0;
+    loop(nw_nx,
+      w = p[0];
+      w > 0.002 ? (
+        xn = i * nw_c;
+        NWX[n] = w * a * (0.8 * sin(2 * $pi * (t / 2.6 - yn / 105 - xn / 220)) + 0.5 * sin(2 * $pi * (t / 1.7 - yn / 77) + 1.3)
+                          + 0.35 * sin(2 * $pi * (t / 4.1 - yn / 200) + 2.1));
+        NWY[n] = w * a * 0.45 * sin(2 * $pi * (t / 3.3 - yn / 140 + xn / 180) + 0.4);
+      ) : ( NWX[n] = 0; NWY[n] = 0; );
+      w = p[1];
+      w > 0.002 ? (
+        xn = i * nw_c; d = p[2];
+        w *= 1.6 * a;
+        NWX[n] += w * (0.8 * sin(2 * $pi * (t / 2.45 - d / 100 + xn / 260) + 0.9) + 0.5 * sin(2 * $pi * (t / 1.8 - d / 74) + 2.4)
+                       + 0.35 * sin(2 * $pi * (t / 3.9 - d / 190) + 0.6));
+        NWY[n] += w * 0.45 * sin(2 * $pi * (t / 3.1 - d / 130 + xn / 170) + 1.7);
+      );
+      n += 1; i += 1; p += 3;
+    );
+    j += 1;
+  );
+);
+
+function nb_field(t) local(n, j, i, k, p, w, xn, yn, tt, l, li, m0, m1, ab, ar)
+(
+  k = 0;
+  loop(nb_nl,
+    tt = t - k * 0.05;
+    NWL[k] = 0.8 * sin(2 * $pi * (tt / 2.6 - nb_ry / 105 - nb_rx / 220)) + 0.5 * sin(2 * $pi * (tt / 1.7 - nb_ry / 77) + 1.3)
+             + 0.35 * sin(2 * $pi * (tt / 4.1 - nb_ry / 200) + 2.1);
+    NWL[100 + k] = 0.45 * sin(2 * $pi * (tt / 3.3 - nb_ry / 140 + nb_rx / 180) + 0.4);
+    k += 1;
+  );
+  ab = 0.35 * nw_a; ar = 1.1 * na_amp;
+  n = 0; j = 0; p = NBT;
+  loop(nb_ny + 1,
+    yn = nb_y0 + j * nb_c;
+    i = 0;
+    loop(nb_nx,
+      NBX[n] = 0; NBY[n] = 0;
+      w = p[0];
+      w > 0.002 ? (
+        l = p[1] * 20; li = floor(l); l -= li;
+        m0 = NWL[li]; m1 = NWL[100 + li];
+        w *= ab;
+        NBX[n] = w * (m0 + (NWL[li + 1] - m0) * l);
+        NBY[n] = w * (m1 + (NWL[101 + li] - m1) * l);
+      );
+      w = p[2];
+      w > 0.002 ? (
+        xn = nb_x0 + i * nb_c; w *= ar;
+        NBX[n] += w * sin(2 * $pi * (t / 4.4 - yn / 60 + xn / 140));
+        NBY[n] += w * 0.35 * sin(2 * $pi * (t / 5.3 - yn / 80 + xn / 90) + 1);
+      );
+      n += 1; i += 1; p += 3;
+    );
+    j += 1;
+  );
+);
+
+function nh_field(t) local(n, j, i, p, ga, gb, gc, cx, cy, pa, pb, ka, kb, xn, yn, wc, wa, wb, fa, fb)
+(
+  ga = sin(2 * $pi * t / 6.2) * (0.85 + 0.3 * (na_n(t * 0.23, 71) - 0.5)) * na_amp;
+  gb = sin(2 * $pi * t / 6.2 - 0.5 + 0.6 * (na_n(t * 0.17, 73) - 0.5)) * (0.85 + 0.3 * (na_n(t * 0.21, 75) - 0.5)) * na_amp;
+  gc = 0.45 * (ga + gb);
+  cx = -0.2 * gc; cy = -gc;
+  pa = 0.035 * ga; pb = -0.035 * gb; ka = 0.045 * ga; kb = -0.045 * gb;
+  n = 0; p = NHT; j = 0;
+  loop(nh_ny + 1,
+    yn = nh_y0 + j * nh_c;
+    i = 0;
+    loop(nh_nx,
+      wc = p[0];
+      wc > 0.002 ? (
+        xn = nh_x0 + i * nh_c;
+        wa = p[1] * pa; wb = p[2] * pb; fa = p[3] * ka; fb = p[4] * kb;
+        NHX[n] = wc * cx + wa * (nh_pay - yn) + wb * (nh_pby - yn) + fa * (nh_fay - yn) + fb * (nh_fby - yn);
+        NHY[n] = wc * cy + wa * (xn - nh_pax) + wb * (xn - nh_pbx) + fa * (xn - nh_fax) + fb * (xn - nh_fbx);
+      ) : ( NHX[n] = 0; NHY[n] = 0; );
+      n += 1; i += 1; p += 5;
+    );
+    j += 1;
+  );
+);
+
+function nw_draw(img, GX, GY, gx0, gy0, c, nx, ny, s, xb, py, ytop, ybot, ox, oy, sx0, sx1, sy0, sy1)
+  local(j, i, n0, n1, xa, xc, ya, yc, cw, chh, s00, t00, s10, t10, s01, t01, s11, t11, mx, sw, sh)
+(
+  img == 10 ? ( sw = gfx_w; sh = gfx_h; ) : ( sw = sx1 + 1.01; sh = sy1 + 1.01; );
+  gfx_set(1, 1, 1, 1, 0);
+  j = 0;
+  loop(ny,
+    ya = max(ytop, floor(py + (gy0 + j * c) * s)); yc = min(ybot, floor(py + (gy0 + (j + 1) * c) * s));
+    chh = yc - ya;
+    i = 0;
+    chh > 0 ? loop(nx - 1,
+      n0 = j * nx + i; n1 = n0 + nx;
+      mx = max(max(abs(GX[n0]), abs(GX[n0 + 1])), max(abs(GX[n1]), abs(GX[n1 + 1])));
+      mx = max(mx, max(max(abs(GY[n0]), abs(GY[n0 + 1])), max(abs(GY[n1]), abs(GY[n1 + 1]))));
+      xa = floor((gx0 + i * c) * s); xc = min(xb, floor((gx0 + (i + 1) * c) * s));
+      cw = xc - xa;
+      (mx > 0.03 && cw > 0) ? (
+        s00 = max(sx0, min(sx1, xa - ox - GX[n0] * s)); t00 = max(sy0, min(sy1, ya - oy - GY[n0] * s));
+        s10 = max(sx0, min(sx1, xc - ox - GX[n0 + 1] * s)); t10 = max(sy0, min(sy1, ya - oy - GY[n0 + 1] * s));
+        s01 = max(sx0, min(sx1, xa - ox - GX[n1] * s)); t01 = max(sy0, min(sy1, yc - oy - GY[n1] * s));
+        s11 = max(sx0, min(sx1, xc - ox - GX[n1 + 1] * s)); t11 = max(sy0, min(sy1, yc - oy - GY[n1 + 1] * s));
+        gfx_deltablit(img, s00, t00, sw, sh, xa, ya, cw, chh,
+          (s10 - s00) / cw, (t10 - t00) / cw, (s01 - s00) / chh, (t01 - t00) / chh,
+          (s11 - s10 - s01 + s00) / (cw * chh), (t11 - t10 - t01 + t00) / (cw * chh), 0);
+      );
+      i += 1;
+    );
+    j += 1;
+  );
+);
+
+function nb_draw() local(bx0, by0, bw, bh)
+(
+  nb_field(na_t);
+  bx0 = max(0, floor(nb_x0 * na_s) - 1); by0 = max(na_ymin, floor(na_py + nb_y0 * na_s) - 1);
+  bw = min(na_xmax, ceil((nb_x0 + (nb_nx - 1) * nb_c) * na_s) + 1) - bx0;
+  bh = min(na_ymax, ceil(na_py + (nb_y0 + nb_ny * nb_c) * na_s) + 1) - by0;
+  (bw > 2 && bh > 2) ? (
+    (nb_bw != bw || nb_bh != bh) ? ( gfx_setimgdim(41, bw, bh); nb_bw = bw; nb_bh = bh; );
+    gfx_set(1, 1, 1, 1, 0);
+    gfx_dest = 41;
+    gfx_blit(-1, 1, 0, bx0, by0, bw, bh, 0, 0, bw, bh);
+    gfx_dest = -1;
+    nw_draw(41, NBX, NBY, nb_x0, nb_y0, nb_c, nb_nx, nb_ny, na_s, na_xmax, na_py, na_ymin, na_ymax, bx0, by0, 0, bw - 1.01, 0, bh - 1.01);
+  );
+);
+
+function ne_draw() local(n, j, i, w, xn, yn, a, t, bx0, by0, bw, bh)
+(
+  t = na_t; a = nw_a;
+  n = 0; j = 0;
+  loop(ne_ny + 1,
+    yn = ne_y0 + j * ne_c;
+    i = 0;
+    loop(ne_nx,
+      w = NET[n];
+      w > 0.002 ? (
+        xn = ne_x0 + i * ne_c;
+        NEX[n] = w * a * (0.8 * sin(2 * $pi * (t / 2.6 - yn / 105 - xn / 220)) + 0.5 * sin(2 * $pi * (t / 1.7 - yn / 77) + 1.3)
+                          + 0.35 * sin(2 * $pi * (t / 4.1 - yn / 200) + 2.1));
+        NEY[n] = w * a * 0.45 * sin(2 * $pi * (t / 3.3 - yn / 140 + xn / 180) + 0.4);
+      ) : ( NEX[n] = 0; NEY[n] = 0; );
+      n += 1; i += 1;
+    );
+    j += 1;
+  );
+  bx0 = max(0, floor(ne_x0 * na_s) - 1); by0 = max(na_ymin, floor(na_py + ne_y0 * na_s) - 1);
+  bw = min(na_xmax, ceil((ne_x0 + (ne_nx - 1) * ne_c) * na_s) + 1) - bx0;
+  bh = min(na_ymax, ceil(na_py + (ne_y0 + ne_ny * ne_c) * na_s) + 1) - by0;
+  (bw > 2 && bh > 2) ? (
+    (ne_bw != bw || ne_bh != bh) ? ( gfx_setimgdim(42, bw, bh); ne_bw = bw; ne_bh = bh; );
+    gfx_set(1, 1, 1, 1, 0);
+    gfx_dest = 42;
+    gfx_blit(-1, 1, 0, bx0, by0, bw, bh, 0, 0, bw, bh);
+    gfx_dest = -1;
+    nw_draw(42, NEX, NEY, ne_x0, ne_y0, ne_c, ne_nx, ne_ny, na_s, na_xmax, na_py, na_ymin, na_ymax, bx0, by0, 0, bw - 1.01, 0, bh - 1.01);
+  );
+);
+
+function nh_draw() local(bx0, by0, bw, bh)
+(
+  nh_field(na_t);
+  bx0 = max(0, floor(nh_x0 * na_s) - 1); by0 = max(na_ymin, floor(na_py + nh_y0 * na_s) - 1);
+  bw = min(na_xmax, ceil((nh_x0 + (nh_nx - 1) * nh_c) * na_s) + 1) - bx0;
+  bh = min(na_ymax, ceil(na_py + (nh_y0 + nh_ny * nh_c) * na_s) + 1) - by0;
+  (bw > 2 && bh > 2) ? (
+    (nh_bw != bw || nh_bh != bh) ? ( gfx_setimgdim(40, bw, bh); nh_bw = bw; nh_bh = bh; );
+    gfx_set(1, 1, 1, 1, 0);
+    gfx_dest = 40;
+    gfx_blit(-1, 1, 0, bx0, by0, bw, bh, 0, 0, bw, bh);
+    gfx_dest = -1;
+    nw_draw(40, NHX, NHY, nh_x0, nh_y0, nh_c, nh_nx, nh_ny, na_s, na_xmax, na_py, na_ymin, na_ymax, bx0, by0, 0, bw - 1.01, 0, bh - 1.01);
+  );
+);
+
+function na_draw() local(t, on, k, img, r, yu, y2, wf, lean, nod, dx, dy, gust, rp, sw, sg, kk, ph, i, p, n, bl, lv, ta, sph, a0, env, d, a, hp, hi, hj, hf, swl, fl, cx, cy, u, pr, ag, rr, mx, my, ci)
+(
+  !na_t0 ? na_t0 = time_precise();
+  t = time_precise() - na_t0;
+  on = (play_state & 1) && nu_anim > 0.5;
+  on ? ( na_amp = min(1, na_amp + 0.02); na_fade = min(1, na_fade + 0.05); )
+     : ( na_amp *= 0.97; na_amp < 0.002 ? na_amp = 0; na_fade = max(0, na_fade - 0.05); );
+  (g_mk && (na_amp > 0 || na_fade > 0)) ? (
+    k = (g_mk2 && uscale > 1.25) ? 2 : 1;
+    na_s = uscale; na_py = floor(ui_py(24.5));
+    na_xmax = floor(u_sbx - 0.9 * UQ + 0.5); na_ymin = floor(ui_py(24.9) + 0.5); na_ymax = floor(ui_py(356) + 0.5);
+    gfx_set(1, 1, 1, 1, 0);
+    na_amp > 0 ? (
+      gust = 1.0 + 0.45 * na_n(t * 0.25, 7);
+      nw_field(t, gust);
+      nw_draw(10, NWX, NWY, 0, nw_y0, nw_c, nw_nx, nw_ny, na_s, na_xmax, na_py, na_ymin, na_ymax, 0, 0, 0, na_xmax - 1.01, na_ymin, na_ymax - 1.01);
+      na_t = t; nb_draw(); ne_draw();
+    );
+    (na_amp > 0 && NAG[9 + k]) ? (
+      img = k == 2 ? 37 : 36;
+      lean = (1.4 * sin(2 * $pi * t / 8.3 + 0.7) + 1.2 * (na_n(t * 0.35, 3) - 0.5)) * na_amp;
+      nod = 0.6 * sin(2 * $pi * t / 5.9) * na_amp;
+      r = max(na_ymin, ceil(na_py));
+      loop(min(na_ymax, floor(na_py + 103 * na_s)) - r,
+        yu = (r - na_py) / na_s; y2 = 2 * yu;
+        wf = max(0, (205 - y2) / 205); wf *= wf;
+        dx = lean * wf * 0.5; dy = nod * wf * 0.5;
+        (abs(dx) > 0.004 || abs(dy) > 0.004) ? na_line(img, k, 120, 105, r, 3 - dx, 3 + yu - dy);
+        r += 1;
+      );
+    );
+    na_fade > 0 ? (
+      gfx_set(1, 1, 1, 1, 1);
+      NAG[5 + k] ? (
+        img = k == 2 ? 33 : 32;
+        ta = t - 2; kk = floor(ta / 7.5); sph = (ta - kk * 7.5) / 3;
+        sph < 1 ? (
+          a0 = -2.6 + 3.6 * sph; env = sin($pi * sph);
+          i = 0;
+          loop(na_nb,
+            p = NAB + i * 6;
+            d = p[0] - a0; d -= 2 * $pi * floor((d + $pi) / (2 * $pi));
+            a = 0.38 * env * na_fade * exp(-d * d / 0.0968);
+            a > 0.002 ? ( gfx_a = a; na_box(img, k, p[1], p[2], p[3], p[4], 0, p[5]); );
+            i += 1;
+          );
+        );
+      );
+      hp = t / 7 + 1.5 * na_n(t * 0.11, 41);
+      hi = floor(hp); hf = hp - hi; hf = hf * hf * (3 - 2 * hf);
+      hi -= 4 * floor(hi / 4); hj = hi + 1; hj -= 4 * floor(hj / 4);
+      swl = 0.5 + 0.5 * sin(2 * $pi * t / 6.1) * (0.6 + 0.4 * na_n(t * 0.3, 43));
+      kk = floor(t / 5.5); ph = t - kk * 5.5 - 0.8 - 3 * na_h(kk + 70);
+      fl = ph < 0 ? exp(-(ph / 0.25) * (ph / 0.25)) : exp(-ph / 1.0);
+      ph < -1 ? fl = 0;
+      cx = 102.5; cy = 64;
+      NAG[11 + k] ? (
+        gfx_set(1, 1, 1, 1, 0);
+        img = k == 2 ? 39 : 38;
+        sg = (0.40 + 0.18 * swl + 0.14 * fl) * na_fade;
+        gfx_a = sg * (1 - hf); na_box(img, k, 12, 0, 181, 154, 0, 154 * hi);
+        gfx_a = sg * hf; na_box(img, k, 12, 0, 181, 154, 0, 154 * hj);
+        gfx_set(1, 1, 1, 1, 1);
+      );
+      NAG[k - 1] ? (
+        img = k == 2 ? 27 : 26;
+        sg = (0.55 + 0.35 * swl + 0.5 * fl) * na_fade;
+        gfx_a = sg * (1 - hf); na_box(img, k, 12, 0, 181, 154, 0, 154 * (hi + 1));
+        gfx_a = sg * hf; na_box(img, k, 12, 0, 181, 154, 0, 154 * (hj + 1));
+        gfx_a = (0.7 + 0.2 * na_n(t * 3, 45) + 0.6 * fl) * na_fade; na_box(img, k, 12, 0, 181, 154, 0, 0);
+      );
+      NAG[1 + k] ? (
+        img = k == 2 ? 29 : 28;
+        a = (0.16 + 0.8 * fl) * na_fade;
+        a > 0.002 ? (
+          gfx_a = a;
+          gfx_blit(img, 1, 0.15 + 0.06 * t + 0.05 * sin(t * 0.7), 0, 0, 120 * k, 120 * k,
+                   floor((cx - 60) * na_s + 0.5), floor(na_py + (cy - 60) * na_s + 0.5), floor(120 * na_s + 0.5), floor(120 * na_s + 0.5), 0, 0);
+        );
+        i = 0;
+        loop(10,
+          pr = 3.2 + 0.9 * na_h(i + 90);
+          ag = t + pr * na_h(i + 95);
+          kk = floor(ag / pr); u = (ag - kk * pr) / (pr * 0.85);
+          u < 1 ? (
+            rr = 3 + 52 * u ^ 0.85;
+            a0 = 2 * $pi * na_h(kk * 7 + i) + (na_h(kk * 5 + i + 3) > 0.5 ? 1 : -1) * (1.1 + 0.6 * na_h(i + 99)) * u * pr * 0.85;
+            mx = cx + rr * cos(a0); my = cy + rr * sin(a0) * 0.85 - 10 * u;
+            ci = floor(na_h(kk * 3 + i + 11) * 5); ci = min(4, ci);
+            a = 0.9 * na_fade * sin($pi * u) * (1 - 0.3 * u);
+            (a > 0.002 && my > 6) ? ( gfx_a = a; na_box(img, k, mx - 6, my - 6, 12, 12, 12 * ci, 120); );
+          );
+          i += 1;
+        );
+      );
+      NAG[3 + k] ? (
+        i = 0;
+        loop(9,
+          p = NAL + i * 4;
+          n = na_n(t * (0.6 + 0.15 * i), 20 + i);
+          bl = max(0, n - 0.5) / 0.5;
+          mx = (p[0] + 0.5) * 0.5; my = (p[1] + 0.5) * 0.5;
+          lv = (0.25 * p[3] * (0.5 + 0.5 * sin(t * (1.1 + 0.2 * i) + i)) + 1.0 * bl * sqrt(bl)) * na_fade * p[2];
+          img = k == 2 ? 31 : 30;
+          lv > 0.002 ? ( gfx_a = lv; na_box(img, k, mx - 12, my - 12, 24, 24, 0, 0); );
+          (NAG[1 + k] && bl > 0.3) ? ( img = k == 2 ? 29 : 28; gfx_a = 0.85 * bl * bl * na_fade * p[2]; na_box(img, k, mx - 8, my - 8, 16, 16, 60, 120); );
+          i += 1;
+        );
+      );
+      gfx_set(1, 1, 1, 1, 0);
+    );
+    na_amp > 0 ? ( na_t = t; nh_draw(); );
+  );
+);
+
+u_decay = 0.8;
+u_down = mouse_cap & 1;
+u_click = u_down && !u_pd;
+u_wheel = mouse_wheel;
+mouse_wheel = 0;
+u_hov = 0;
+u_drag > 0 ? u_click = 0;
+u_free = floor(nu_clock + 0.5);
+u_run = u_free ? nu_run >= 0.5 : (play_state & 1);
+
+(u_cw != gfx_w || u_ch != gfx_h || u_fr < 2) ? ( ui_static(); u_cw = gfx_w; u_ch = gfx_h; u_fr += 1; );
+gfx_x = gfx_y = 0; gfx_blit(10, 1, 0);
+na_draw();
+
+ui_knob(8, 68.84, 59.99, 19.84, 0);
+ui_knob(1, 68.84, 185.99, 19.84, 4);
+ui_knob(2, 68.84, 245.99, 19.84, 4);
+ui_knob(3, 68.84, 305.99, 19.84, 4);
+ui_knob(4, 140.84, 59.99, 19.84, 1);
+ui_knob(5, 176.84, 122.99, 19.84, 2);
+ui_knob(6, 212.84, 185.99, 19.84, 3);
+ui_knob(7, 212.84, 59.99, 19.84, 4);
+
+gfx_set(1, 1, 1, 1);
+u_free ? sprintf(#u_t, "%.1f", nu_bpm) : strcpy(#u_t, "Host");
+ui_utext(#u_t, 69, 89, 8.4, 0);
+sprintf(#u_t, "%d%%", floor(nu_swing * 100 + 0.5));
+ui_utext(#u_t, 179.3, 62.3, 7.4, 0);
+u_eu = floor(nu_mode + 0.5) == 2;
+ui_utext(u_eu ? (sprintf(#u_t, "Len %d", (floor(nu_x * 255) >> 3) + 1); #u_t) : "Map X", 28.5, 186, 7.2, 0);
+ui_utext(u_eu ? (sprintf(#u_t, "Len %d", (floor(nu_y * 255) >> 3) + 1); #u_t) : "Map Y", 28.5, 246, 7.2, 0);
+ui_utext(u_eu ? (sprintf(#u_t, "Len %d", (floor(nu_chaos * 255) >> 3) + 1); #u_t) : "Chaos", 28.5, 306, 7.2, 0);
+u_i = 0;
+loop(3,
+  ui_grey(40); ui_rect(130.3 + 36 * u_i, 241.8, 26, 13);
+  gfx_set(1, 1, 1, 1);
+  sprintf(#u_t, "%d%%", floor((u_i == 0 ? nu_f1 : u_i == 1 ? nu_f2 : nu_f3) * 100 + 0.5));
+  ui_utext(#u_t, 143.3 + 36 * u_i, 248.3, 6.8, 0);
+  u_i += 1;
+);
+
+ui_seg(10, 13, 51, 31, 22, 2, "Host", "Free", "");
+
+ui_button(62.13, 123.13, 101, u_rstl, u_free) ? ( u_rstd = 1; ui_put(17, 1); u_rstl = 1; u_click = 0; );
+(u_rstd && !u_down) ? ( u_rstd = 0; ui_put(17, 0); );
+u_rstl *= u_rstd ? 1 : u_decay;
+ui_button(119.13, 123.13, 102, u_run, u_free) ? (
+  nu_rmode >= 0.5 ? ( u_rund = 1; ui_put(16, 1); ) : ui_put(16, nu_run >= 0.5 ? 0 : 1);
+  u_click = 0;
+);
+(u_rund && !u_down) ? ( u_rund = 0; ui_put(16, 0); );
+
+u_i = 0;
+loop(3,
+  u_c = LEDV[u_i];
+  u_c !== ULC[20 + u_i] ? ( ULC[20 + u_i] = u_c; ULC[30 + u_i] = 1; );
+  ui_lamp(ui_px(141.8 + 36 * u_i), ui_py(221.2), 3.2 * UQ, ULC[30 + u_i]);
+  ULC[30 + u_i] *= u_decay;
+  u_i += 1;
+);
+
+ui_outbox(0, 18, 127.5, 278.3, 1);
+ui_outbox(1, 19, 163.5, 278.3, 1);
+ui_outbox(2, 20, 199.5, 278.3, 1);
+ui_outbox(3, 21, 127.5, 314.3, nu_aux >= 0.5);
+ui_outbox(4, 22, 163.5, 314.3, nu_aux >= 0.5);
+ui_outbox(5, 23, 199.5, 314.3, nu_aux >= 0.5);
+
+ui_pattern();
+ui_seg(9, 318, 128, 114, 12, 3, "Henri", "Original", "Euclid");
+ui_seg(10, 318, 145, 114, 12, 2, "Transport", "Free", "");
+ui_seg(11, 318, 162, 114, 12, 3, "4 PPQN", "8 PPQN", "24 PPQN");
+ui_seg(12, 318, 179, 114, 12, 2, "Trigger", "Gate", "");
+ui_seg(13, 318, 196, 114, 12, 2, "Accents", "Acc/Clk/Rst", "");
+ui_seg(14, 318, 213, 114, 12, 2, "Off", "On", "");
+ui_seg(15, 318, 230, 114, 12, 2, "Toggle", "Momentary", "");
+ui_seg(28, 318, 247, 114, 12, 2, "Off", "On", "");
+ui_numbox(24, 254, 278, 36, 13, 0, 1);
+ui_numbox(25, 300, 278, 36, 13, 0, 1);
+ui_numbox(26, 346, 278, 36, 13, 0, 1);
+ui_numbox(27, 392, 278, 36, 13, 2, !floor(nu_gate + 0.5));
+
+u_drag > 0 ? (
+  u_down ? (
+    mouse_cap |= 65536;
+    u_fine = mouse_cap & 4;
+    u_fine != u_dfine ? ( u_dy0 = mouse_y; u_dv0 = ui_norm(u_drag); u_dfine = u_fine; );
+    ui_setn(u_drag, u_dv0 + (u_dy0 - mouse_y) / u_dsc * (u_fine ? 0.1 : 1));
+  ) : (
+    automate(u_drag, 1);
+    u_drag = 0;
+  );
+);
+
+(u_hov == 0 && u_drag == 0 && g_mk && ui_hit(0, floor(ui_py(24.9) + 0.5), floor(u_sbx - 0.9 * UQ + 0.5), floor(ui_py(356) + 0.5) - floor(ui_py(24.9) + 0.5))) ? (
+  u_hov = 104;
+  u_click ? ( ui_put(29, nu_anim > 0.5 ? 0 : 1); u_click = 0; );
+);
+
+gfx_set(0.82, 0.83, 0.85, 1);
+ui_hint(u_drag > 0 ? u_drag : u_hov);
+ui_ctext(#u_hint, u_cx, ui_py(368), 6.6 * UQ, 0);
+
+u_pd = u_down;

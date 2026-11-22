@@ -1,0 +1,1424 @@
+desc: Lucifera (Valley Feline port) by chmaha
+tags: filter lowpass bandpass state-variable OTA analog stereo
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  Stereo 2/4-pole OTA lowpass or bandpass filter with resonance, input drive and left/right cutoff spacing.
+  Ported from Valley Feline by Dale Johnson (ValleyRackFree, https://github.com/ValleyAudio/ValleyRackFree,
+  GPLv3+). Track audio feeds the left and right inputs (full scale = 10 V); the Output switch picks the L/R jacks or the Mix jack.
+  Title lettering: Zarathustra by Lorene Ceccon (SIL Open Font License 1.1), rendered into the panel image.
+  Sidebar picture: Alphonse Mucha, "Étoile du matin" (The Morning Star) from "La Lune et les étoiles", 1902, public domain
+  (Bibliothèque nationale de France, Gallica btv1b90077190, via Wikimedia Commons).
+  JSFX version released under GPLv3+ license
+  Claude generated some of this code
+provides:
+  Dependencies/Lucifera/LuciferaPanel.png
+  Dependencies/Lucifera/LuciferaPanel2x.png
+  Dependencies/Lucifera/LuciferaImage.png
+  Dependencies/Lucifera/LuciferaImage2x.png
+  Dependencies/Lucifera/LuciferaImage-LICENSE.txt
+  Dependencies/Lucifera/LuciferaTitle.png
+  Dependencies/Lucifera/LuciferaTitle2x.png
+  Dependencies/Lucifera/LuciferaRays.png
+  Dependencies/Lucifera/LuciferaTop.png
+  Dependencies/Lucifera/LuciferaTop2x.png
+  Dependencies/Lucifera/LuciferaGlow.png
+  Dependencies/Lucifera/LuciferaGlow2x.png
+  Dependencies/Lucifera/LuciferaFig.png
+  Dependencies/Lucifera/LuciferaShafts.png
+  Dependencies/Lucifera/LuciferaHaze.png
+  Dependencies/Lucifera/LuciferaDot.png
+  Dependencies/Lucifera/LuciferaBlink.png
+  Dependencies/Lucifera/LuciferaBlink2x.png
+  Dependencies/Lucifera/LuciferaCloth.png
+  Dependencies/Lucifera/LuciferaCloth2x.png
+  Dependencies/Lucifera/LuciferaClothBase.png
+  Dependencies/Lucifera/LuciferaClothBase2x.png
+
+slider1:sk_cut=10<0,10,0.001>-Cutoff Frequency
+slider2:sk_res=0<0,10,0.001>-Resonance
+slider3:sk_spc=0<-1,1,0.001>-Cutoff Spacing
+slider4:sk_tgt=0<0,1,0.001>-Spacing Target
+slider5:sk_poles=0<0,1,1{2,4}>-Poles
+slider6:sk_type=0<0,1,1{Lowpass,Bandpass}>-Type
+slider7:sk_drv=0<0,1,0.001>-Input Drive
+slider8:sk_omode=0<0,1,1{Left + Right,Mix}>-Output
+slider9:sk_in=0<-24,12,0.1>-Input (dB)
+slider10:sk_out=0<-24,12,0.1>-Output (dB)
+slider11:sk_anim=1<0,1,1{Off,On}>-Animation
+
+in_pin:Left
+in_pin:Right
+out_pin:Left
+out_pin:Right
+
+options:no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+ext_nodenorm = 1;
+
+
+OUTG = 0.1;
+
+function p2f(y) ( 2 ^ y; );
+
+function gtab(i) local(f, wd, tn, wa, g)
+(
+  f = (440 * p2f(((i - 500000) / 100000)));
+  wd = ((2 * $pi) * f);
+  tn = (tan((wd * tp2)));
+  wa = (itp * tn);
+  g = (wa * tp2);
+  gt_h = (1 / (g + 1));
+  g;
+);
+
+function set_cut(x) local(pc, cu, ps, frc, ga, gb, ha, hb, g, ih)
+  instance(pt, G1, G2, G3, gam, ihh)
+(
+  pt = x;
+  pc = x > 0 ? (x < 10 ? x : 10) : 0;
+  cu = (pc * 100000);
+  ps = floor(cu); frc = (cu - ps);
+  ga = gtab(ps); ha = gt_h;
+  gb = gtab(ps + 1); hb = gt_h;
+  g = (ga + (frc * (gb - ga)));
+  ih = (ha + (frc * (hb - ha)));
+  ihh = ih;
+  G1 = (g * ih); G2 = (G1 * G1); G3 = (G2 * G1); gam = (G3 * G1);
+);
+
+function ds(x)
+(
+  x < -1.25 ? -1 : x < -0.75 ? ((1 - ((x * (-2.5 - x)) - 0.5625)) - 1) : x > 1.25 ? 1 : x > 0.75 ? ((x * (2.5 - x)) - 0.5625) : x;
+);
+
+function lane(x) local(sg, u, a, v, o1, o2, o3, o4, o)
+  instance(z1, z2, z3, z4, G1, G2, G3, ihh, kg)
+(
+  sg = (G3 * z1);
+  sg = (sg + (G2 * z2));
+  sg = (sg + (G1 * z3));
+  sg = ((sg + z4) * ihh);
+  u = (x * 0.5);
+  u = (u - ((kq * ds(sg)) * 1.0666667222976685));
+  u = (u / kg);
+  v = ((ds(u) - z1) * G1); o1 = ds((v + z1)); z1 = (o1 + v);
+  v = ((ds(o1) - z2) * G1); o2 = ds((v + z2)); z2 = (o2 + v);
+  v = ((ds(o2) - z3) * G1); o3 = ds((v + z3)); z3 = (o3 + v);
+  v = ((ds(o3) - z4) * G1); o4 = ds((v + z4)); z4 = (o4 + v);
+  o = (o1 * w1);
+  o = (o + (o2 * w2));
+  o = (o + (o3 * w3));
+  (o + (o4 * w4));
+);
+
+function set_mode(m)
+(
+  m !== fmode ? (
+    fmode = m;
+    w1 = w2 = w3 = w4 = 0;
+    m == 0 ? w2 = 1 : m == 1 ? w4 = 1 : m == 2 ? ( w1 = 2; w2 = -2; ) : m == 3 ? ( w2 = 4; w3 = -8; w4 = 4; ) : w4 = 1;
+  );
+);
+
+function rate_setup()
+(
+  sr_f = (srate);
+  tp = (1 / sr_f); tp2 = (tp / 2); itp = (2 / tp);
+  chl.set_cut(chl.pt);
+  chr.set_cut(chr.pt);
+);
+
+function params() local(cut, res, s, t, d, m)
+(
+  cut = (sk_cut);
+  res = (sk_res);
+  s = (sk_spc);
+  s = s < 1 ? s : 1; s = s > -1 ? s : -1;
+  t = (sk_tgt);
+  lc = ((t * -s) + cut);
+  rc = (cut + s);
+  m = floor(((sk_poles) + ((sk_type) * 2)));
+  set_mode(m);
+  (lc !== plc || rc !== prc) ? (
+    plc = lc; prc = rc;
+    chl.set_cut(lc); chr.set_cut(rc);
+  );
+  res = res > 0 ? res : 0; res = res < 10 ? res : 10;
+  kq = (0.4000000059604645 * res);
+  chl.kg = (1 + (kq * chl.gam));
+  chr.kg = (1 + (kq * chr.gam));
+  d = (sk_drv);
+  d = d < 1 ? d : 1; d = d > 0 ? d : 0;
+  d = (d * d);
+  drv = ((d * 9.25) + 0.75);
+  g_in = 10 * 10 ^ (sk_in / 20);
+  g_out = OUTG * 10 ^ (sk_out / 20);
+);
+
+fmode = -1;
+set_mode(1);
+chl.pt = chr.pt = 10;
+plc = prc = 10;
+kq = 0;
+last_srate = 0;
+
+@slider
+last_srate != srate ? ( last_srate = srate; rate_setup(); );
+
+@block
+last_srate != srate ? ( last_srate = srate; rate_setup(); );
+params();
+!g_init ? ( g_init = 1; gi_t = g_in; go_t = g_out; );
+gi_c = gi_t; go_c = go_t;
+gi_s = (g_in - gi_t) / samplesblock; go_s = (g_out - go_t) / samplesblock;
+gi_t = g_in; go_t = g_out;
+gi_r = gi_s !== 0 || go_s !== 0;
+abs(chl.z1) < 0.000000000000000000000000000001 ? chl.z1 = 0;
+abs(chl.z2) < 0.000000000000000000000000000001 ? chl.z2 = 0;
+abs(chl.z3) < 0.000000000000000000000000000001 ? chl.z3 = 0;
+abs(chl.z4) < 0.000000000000000000000000000001 ? chl.z4 = 0;
+abs(chr.z1) < 0.000000000000000000000000000001 ? chr.z1 = 0;
+abs(chr.z2) < 0.000000000000000000000000000001 ? chr.z2 = 0;
+abs(chr.z3) < 0.000000000000000000000000000001 ? chr.z3 = 0;
+abs(chr.z4) < 0.000000000000000000000000000001 ? chr.z4 = 0;
+
+@sample
+gi_r ? ( gi_c += gi_s; go_c += go_s; );
+ol = chl.lane((((spl0 * gi_c) * drv) * 0.5));
+orr = chr.lane((((spl1 * gi_c) * drv) * 0.5));
+sk_omode >= 0.5 ? (
+  spl0 = spl1 = ((ol + orr) * 2.5) * go_c;
+) : (
+  spl0 = (ol * 5) * go_c;
+  spl1 = (orr * 5) * go_c;
+);
+
+@gfx 540 675
+
+UDW = 540; UDH = 675; UK = 2.5; SBU = 96;
+uscale = max(0.5, min(gfx_w / UDW, gfx_h / UDH));
+sbx = floor(SBU * UK * uscale + 0.5);
+uox = floor(sbx + (gfx_w - sbx - 120 * UK * uscale) * 0.5 + 0.5);
+UQ = UK * uscale;
+!g_pnl_try ? (
+  g_pnl_try = 1;
+  g_pnl = gfx_loadimg(20, "Lucifera/LuciferaPanel.png") >= 0 || gfx_loadimg(20, "Dependencies/Lucifera/LuciferaPanel.png") >= 0;
+  g_pnl2 = gfx_loadimg(21, "Lucifera/LuciferaPanel2x.png") >= 0 || gfx_loadimg(21, "Dependencies/Lucifera/LuciferaPanel2x.png") >= 0;
+  g_mk = gfx_loadimg(22, "Lucifera/LuciferaImage.png") >= 0 || gfx_loadimg(22, "Dependencies/Lucifera/LuciferaImage.png") >= 0;
+  g_mk2 = gfx_loadimg(23, "Lucifera/LuciferaImage2x.png") >= 0 || gfx_loadimg(23, "Dependencies/Lucifera/LuciferaImage2x.png") >= 0;
+  g_tt = gfx_loadimg(24, "Lucifera/LuciferaTitle.png") >= 0 || gfx_loadimg(24, "Dependencies/Lucifera/LuciferaTitle.png") >= 0;
+  g_tt2 = gfx_loadimg(25, "Lucifera/LuciferaTitle2x.png") >= 0 || gfx_loadimg(25, "Dependencies/Lucifera/LuciferaTitle2x.png") >= 0;
+  g_ra = gfx_loadimg(26, "Lucifera/LuciferaRays.png") >= 0 || gfx_loadimg(26, "Dependencies/Lucifera/LuciferaRays.png") >= 0;
+  g_tp = gfx_loadimg(28, "Lucifera/LuciferaTop.png") >= 0 || gfx_loadimg(28, "Dependencies/Lucifera/LuciferaTop.png") >= 0;
+  g_tp2 = gfx_loadimg(29, "Lucifera/LuciferaTop2x.png") >= 0 || gfx_loadimg(29, "Dependencies/Lucifera/LuciferaTop2x.png") >= 0;
+  g_sh = gfx_loadimg(34, "Lucifera/LuciferaShafts.png") >= 0 || gfx_loadimg(34, "Dependencies/Lucifera/LuciferaShafts.png") >= 0;
+  g_hz = gfx_loadimg(35, "Lucifera/LuciferaHaze.png") >= 0 || gfx_loadimg(35, "Dependencies/Lucifera/LuciferaHaze.png") >= 0;
+  g_dt = gfx_loadimg(36, "Lucifera/LuciferaDot.png") >= 0 || gfx_loadimg(36, "Dependencies/Lucifera/LuciferaDot.png") >= 0;
+  g_fg = gfx_loadimg(37, "Lucifera/LuciferaFig.png") >= 0 || gfx_loadimg(37, "Dependencies/Lucifera/LuciferaFig.png") >= 0;
+  g_ey = gfx_loadimg(38, "Lucifera/LuciferaBlink.png") >= 0 || gfx_loadimg(38, "Dependencies/Lucifera/LuciferaBlink.png") >= 0;
+  g_ey2 = gfx_loadimg(39, "Lucifera/LuciferaBlink2x.png") >= 0 || gfx_loadimg(39, "Dependencies/Lucifera/LuciferaBlink2x.png") >= 0;
+  g_gw = gfx_loadimg(32, "Lucifera/LuciferaGlow.png") >= 0 || gfx_loadimg(32, "Dependencies/Lucifera/LuciferaGlow.png") >= 0;
+  g_gw2 = gfx_loadimg(33, "Lucifera/LuciferaGlow2x.png") >= 0 || gfx_loadimg(33, "Dependencies/Lucifera/LuciferaGlow2x.png") >= 0;
+  g_an = g_mk && g_ra && g_tp && g_gw && g_sh && g_hz && g_dt && g_fg && g_ey;
+  g_an2 = g_mk2 && g_tp2 && g_gw2 && g_ey2;
+  g_cl = (gfx_loadimg(42, "Lucifera/LuciferaCloth.png") >= 0 || gfx_loadimg(42, "Dependencies/Lucifera/LuciferaCloth.png") >= 0)
+    && (gfx_loadimg(44, "Lucifera/LuciferaClothBase.png") >= 0 || gfx_loadimg(44, "Dependencies/Lucifera/LuciferaClothBase.png") >= 0);
+  g_cl2 = (gfx_loadimg(43, "Lucifera/LuciferaCloth2x.png") >= 0 || gfx_loadimg(43, "Dependencies/Lucifera/LuciferaCloth2x.png") >= 0)
+    && (gfx_loadimg(45, "Lucifera/LuciferaClothBase2x.png") >= 0 || gfx_loadimg(45, "Dependencies/Lucifera/LuciferaClothBase2x.png") >= 0);
+);
+
+function automate(s, e)
+(
+<?
+  max_sliders > 11 ? printf("slider_automate(2^(s-1), e);") : (
+    printf("s == 1 ? slider_automate(sk_cut, e) : s == 2 ? slider_automate(sk_res, e) : s == 3 ? slider_automate(sk_spc, e) : s == 4 ? slider_automate(sk_tgt, e) :\n");
+    printf("s == 5 ? slider_automate(sk_poles, e) : s == 6 ? slider_automate(sk_type, e) : s == 7 ? slider_automate(sk_drv, e) : s == 8 ? slider_automate(sk_omode, e) :\n");
+    printf("s == 9 ? slider_automate(sk_in, e) : s == 10 ? slider_automate(sk_out, e) : s == 11 ? slider_automate(sk_anim, e) : 0;");
+  );
+?>
+  0;
+);
+
+function ui_min(s) ( UMN[s]; );
+function ui_max(s) ( UMX[s]; );
+function ui_def(s) ( UDF[s]; );
+function ui_stp(s) ( UST[s]; );
+function ui_norm(s) ( (slider(s) - ui_min(s)) / (ui_max(s) - ui_min(s)); );
+function ui_set(s, x) local(lo, hi, st, nv, old)
+(
+  lo = ui_min(s); hi = ui_max(s); st = ui_stp(s);
+  nv = max(lo, min(hi, x));
+  nv = lo + floor((nv - lo) / st + 0.5) * st;
+  nv = max(lo, min(hi, nv));
+  old = slider(s);
+  slider(s) = nv;
+  nv !== old ? automate(s, 0);
+);
+function ui_setn(s, n) ( ui_set(s, ui_min(s) + max(0, min(1, n)) * (ui_max(s) - ui_min(s))); );
+function ui_put(s, x) ( ui_set(s, x); automate(s, 1); );
+
+function ui_px(u) ( uox + u * UQ; );
+function ui_py(v) ( v * UQ; );
+function ui_hit(x, y, w, h) ( mouse_x >= x && mouse_x < x + w && mouse_y >= y && mouse_y < y + h; );
+function ui_hitc(cx, cy, r) ( sqr(mouse_x - cx) + sqr(mouse_y - cy) <= sqr(r); );
+
+function ui_inittables()
+(
+  UMN = 100000; UMX = 100100; UDF = 100200; UST = 100300; USX = 100400;
+  mem_set_values(UMN + 1, 0, 0, -1, 0, 0, 0, 0, 0, -24, -24, 0);
+  mem_set_values(UMX + 1, 10, 10, 1, 1, 1, 1, 1, 1, 12, 12, 1);
+  mem_set_values(UDF + 1, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1);
+  mem_set_values(UST + 1, 0.001, 0.001, 0.001, 0.001, 1, 1, 0.001, 1, 0.1, 0.1, 1);
+);
+
+function ui_font(fs, b) ( gfx_setfont(1, "Arial", max(11, floor(fs + 0.5)), b ? 'b' : 0); );
+
+function ui_ctext(str, cx, cy, fs, b) local(tw, th)
+(
+  ui_font(fs, b);
+  gfx_measurestr(str, tw, th);
+  gfx_x = floor(cx - tw * 0.5 + 0.5); gfx_y = floor(cy - th * 0.5 + 0.5);
+  gfx_drawstr(str);
+);
+function ui_rtext(str, rx, cy, fs, b) local(tw, th)
+(
+  ui_font(fs, b);
+  gfx_measurestr(str, tw, th);
+  gfx_x = floor(rx - tw + 0.5); gfx_y = floor(cy - th * 0.5 + 0.5);
+  gfx_drawstr(str);
+);
+function plabel(str, cx, cy, fs) ( gfx_set(1, 1, 1, 1); ui_ctext(str, ui_px(cx), ui_py(cy), min(fs, 12) * UQ * 0.8, 0); );
+
+function ui_hrule(v, h) local(y0) ( y0 = floor(ui_py(v) + 0.5); gfx_rect(0, y0, gfx_w, max(1, floor(ui_py(v + h) + 0.5) - y0)); );
+function ui_rect(u, v, w, h) local(x0, y0) ( x0 = floor(ui_px(u) + 0.5); y0 = floor(ui_py(v) + 0.5); gfx_rect(x0, y0, max(1, floor(ui_px(u + w) + 0.5) - x0), max(1, floor(ui_py(v + h) + 0.5) - y0)); );
+function ui_grey(c) ( gfx_set(c / 255, c / 255, c / 255, 1); );
+
+function ui_slots() local(i, u, v)
+(
+  i = 1;
+  loop(4,
+    USX[i * 3] > 0 ? (
+      u = USX[i * 3]; v = USX[i * 3 + 1];
+      ui_grey(20); ui_rect(u + 4.2, v + 1, 12.4, 85.5);
+      ui_grey(12); ui_rect(u + 9.6, v + 4, 1.6, 79.5);
+    );
+    i += 1;
+  );
+);
+
+function ui_panelimg() local(src, base)
+(
+  src = (g_pnl2 && uscale > 1.25) ? 21 : 20;
+  base = src == 21 ? 2 * UK : UK;
+  gfx_set(1, 1, 1, 1);
+  gfx_x = ui_px(0); gfx_y = ui_py(0);
+  gfx_blit(src, UQ / base, 0);
+);
+
+function ui_static()
+(
+  gfx_dest = 10; gfx_setimgdim(10, gfx_w, gfx_h);
+  km_gc = 0;
+  ui_grey(40); gfx_rect(0, 0, gfx_w, gfx_h);
+  g_pnl ? ui_panelimg() : (
+    USX[3] = 9; USX[4] = 31.8; USX[6] = 36; USX[7] = 31.8; USX[9] = 63; USX[10] = 31.8; USX[12] = 89; USX[13] = 31.8;
+    ui_slots();
+    gfx_set(1, 1, 1, 1);
+    ui_rect(0, 24, 120, 0.75);
+    plabel("Freq", 19.621, 129.863, 12.00);
+    plabel("Res", 46.787, 128.668, 12.00);
+    plabel("Spc", 73.617, 129.825, 12.00);
+    plabel("2P", 19.438, 186.716, 12.00);
+    plabel("4P", 19.318, 148.723, 12.00);
+    plabel("BPF", 99.687, 148.722, 23.33);
+    plabel("Drive", 60.205, 186.789, 12.00);
+    plabel("LPF", 99.649, 186.823, 23.33);
+    plabel("Trgt", 99.566, 129.829, 23.33);
+  );
+  g_mk ? (
+    gfx_set(1, 1, 1, 1);
+    gfx_x = 0; gfx_y = floor(ui_py(24.75));
+    (g_mk2 && uscale > 1.25) ? gfx_blit(23, uscale / 2, 0) : gfx_blit(22, uscale, 0);
+  );
+  gfx_set(1, 1, 1, 1);
+  g_tt ? (
+    gfx_x = floor((gfx_w - (120 + SBU) * UQ) * 0.5); gfx_y = 0;
+    (g_tt2 && uscale > 1.25) ? gfx_blit(25, UQ / (2 * UK), 0) : gfx_blit(24, UQ / UK, 0);
+  ) : ui_ctext("Lucifera", gfx_w * 0.5, ui_py(12), 18 * UQ, 0);
+  ui_hrule(24, 0.75);
+  sx0 = floor(sbx - 0.75 * UQ + 0.5); sy0 = floor(ui_py(24) + 0.5);
+  gfx_rect(sx0, sy0, max(1, sbx - sx0), max(1, floor(ui_py(250) + 0.5) - sy0));
+  ui_rect(0, 197, 120, 0.75);
+  ui_hrule(250, 0.75);
+  plabel("Mix", 60, 205.5, 12);
+  plabel("L R", 60, 243.5, 12);
+  plabel("In", 19.5, 243.5, 12);
+  plabel("Out", 99.6, 243.5, 12);
+  gfx_set(0.80, 0.80, 0.80, 1);
+  ui_rtext("by chmaha", gfx_w - 1.5 * UQ, ui_py(7.6), 11 * uscale, 0);
+  ui_rtext("based on Valley Feline", gfx_w - 1.5 * UQ, ui_py(16), 11 * uscale, 0);
+  gfx_dest = -1;
+);
+
+function ui_click_at(s, sc)
+(
+  (u_ctarget == s && time_precise() - u_ctime < 0.3) ? (
+    ui_put(s, ui_def(s));
+    u_drag = 0;
+  ) : (
+    u_drag = s; u_dy0 = mouse_y; u_dv0 = ui_norm(s); u_dfine = mouse_cap & 4; u_dsc = sc;
+  );
+  u_ctarget = s; u_ctime = time_precise();
+  u_click = 0;
+);
+
+function ui_wheel(s) local(st)
+(
+  st = ui_stp(s);
+  st >= 1 ? ui_put(s, slider(s) + (u_wheel > 0 ? 1 : -1) * st)
+          : ( ui_setn(s, ui_norm(s) + (u_wheel / 120) * ((mouse_cap & 4) ? 0.002 : 0.02)); automate(s, 1); );
+  u_wheel = 0;
+);
+
+function ui_hcol(col, br)
+(
+  col == 0 ? ( br ? gfx_set(1, 0.475, 0, 1) : gfx_set(0.776, 0.333, 0, 1); ) :
+             ( br ? gfx_set(0.024, 0.875, 1, 1) : gfx_set(0, 0.588, 0.871, 1); );
+);
+
+function ui_vslider(s, u, v, col) local(x, y, hov, n, hy)
+(
+  USX[s * 3] = u; USX[s * 3 + 1] = v;
+  x = ui_px(u); y = ui_py(v);
+  hov = ui_hit(x, y, 22.8 * UQ, 87.5 * UQ);
+  hov ? u_hov = s;
+  (u_click && hov) ? ui_click_at(s, 60 * UQ);
+  (hov && u_wheel != 0 && u_drag == 0) ? ui_wheel(s);
+  n = max(0, min(1, ui_norm(s)));
+  hy = v - 0.55 + 1.5 + (1 - n) * 60;
+  u += 4.4;
+  gfx_set(0.118, 0.118, 0.118, 0.55); ui_rect(u + 0.3, hy + 25, 11.4, 5.4);
+  ui_grey(99); ui_rect(u, hy, 12, 1.5);
+  ui_grey(66); ui_rect(u, hy + 1.5, 12, 4);
+  ui_grey(99); ui_rect(u, hy + 5.5, 12, 1.5);
+  ui_grey(66); ui_rect(u, hy + 7, 12, 3.75);
+  ui_hcol(col, 0); ui_rect(u + 0.5, hy + 10.75, 11, 1.125);
+  ui_hcol(col, 1); ui_rect(u + 0.5, hy + 11.875, 11, 2.25);
+  ui_grey(66); ui_rect(u, hy + 14.125, 12, 3.875);
+  ui_grey(48); ui_rect(u, hy + 18, 12, 1.5);
+  ui_grey(66); ui_rect(u, hy + 19.5, 12, 4);
+  ui_grey(48); ui_rect(u, hy + 23.5, 12, 1.5);
+  (hov || u_drag == s) ? ( gfx_set(1, 1, 1, 0.10); ui_rect(u, hy, 12, 25); );
+);
+
+function ui_bar(cx, cy, ca, sa, r0, r1, hw) local(x0, y0, x1, y1, xx, yy, dx, dy, ss, tt, cv)
+(
+  x0 = floor(min(cx + sa * r0, cx + sa * r1) - hw - 2); x1 = ceil(max(cx + sa * r0, cx + sa * r1) + hw + 2);
+  y0 = floor(min(cy - ca * r0, cy - ca * r1) - hw - 2); y1 = ceil(max(cy - ca * r0, cy - ca * r1) + hw + 2);
+  yy = y0;
+  loop(y1 - y0 + 1,
+    xx = x0;
+    loop(x1 - x0 + 1,
+      dx = xx + 0.5 - cx; dy = yy + 0.5 - cy;
+      ss = dx * sa - dy * ca; tt = dx * ca + dy * sa;
+      cv = max(0, min(1, min(ss - r0, r1 - ss) + 0.5)) * max(0, min(1, hw - abs(tt) + 0.5));
+      cv > 0 ? ( gfx_a = cv; gfx_rect(xx, yy, 1, 1); );
+      xx += 1;
+    );
+    yy += 1;
+  );
+  gfx_a = 1;
+);
+
+function ui_knob(s, cu, cv, ru) local(cx, cy, rr, hov, n, a, ca, sa, k, ta)
+(
+  cx = ui_px(cu); cy = ui_py(cv); rr = ru * UQ;
+  hov = ui_hitc(cx, cy, rr + 2);
+  hov ? u_hov = s;
+  (u_click && hov) ? ui_click_at(s, 200 * uscale);
+  (hov && u_wheel != 0 && u_drag == 0) ? ui_wheel(s);
+  n = max(0, min(1, ui_norm(s)));
+  a = -0.75 * $pi + 1.5 * $pi * n;
+  ca = cos(a); sa = sin(a);
+  gfx_set(0, 0, 0, 1); gfx_circle(cx, cy, rr, 1, 1);
+  gfx_set(0.22, 0.22, 0.22, 1); gfx_circle(cx, cy, rr * 0.80, 0, 1);
+  ui_grey(hov || u_drag == s ? 255 : 245); gfx_circle(cx, cy, rr * 0.62, 1, 1);
+  ui_bar(cx, cy, ca, sa, rr * 0.45, rr * 0.97, max(1, rr * 0.055));
+);
+
+function ui_ckss(s, u, v) local(x, y, w, h, hov, k, ly, lh)
+(
+  x = ui_px(u); y = ui_py(v); w = 14 * UQ; h = 24 * UQ;
+  hov = ui_hit(x - 3, y - 3, w + 6, h + 6);
+  hov ? u_hov = s;
+  (u_click && hov) ? ( ui_put(s, slider(s) > 0.5 ? 0 : 1); u_click = 0; );
+  (hov && u_wheel != 0 && u_drag == 0) ? ui_wheel(s);
+  ui_grey(15); ui_rect(u + 1.2, v, 11.6, 24);
+  ui_grey(70); ui_rect(u + 1.2, v, 11.6, 0.7); ui_rect(u + 1.2, v + 23.3, 11.6, 0.7);
+  ui_rect(u + 1.2, v, 0.7, 24); ui_rect(u + 12.1, v, 0.7, 24);
+  k = floor(slider(s) + 0.5);
+  lh = 11; ly = v + (k > 0 ? 1.2 : 11.8);
+  ui_grey(hov ? 214 : 196); ui_rect(u + 2.6, ly, 8.8, lh);
+  ui_grey(150); ui_rect(u + 2.6, ly + lh * 0.30, 8.8, 0.8); ui_rect(u + 2.6, ly + lh * 0.62, 8.8, 0.8);
+  ui_grey(235); ui_rect(u + 2.6, ly, 8.8, 0.7);
+);
+
+function ui_hz(p) ( 440 * 2 ^ (max(0, min(10, p)) - 5); );
+function ui_fhz(dst, p) local(f)
+(
+  f = ui_hz(p);
+  f >= 1000 ? sprintf(dst, "%.2f kHz", f / 1000) : sprintf(dst, "%.1f Hz", f);
+);
+
+function ui_hint(h) local(v, k, gc, gs, gl, gr)
+(
+  h >= 1 && h <= 10 ? (
+    v = slider(h); k = floor(v + 0.5);
+    gc = sk_cut; gs = max(-1, min(1, sk_spc));
+    gl = gc - sk_tgt * gs; gr = gc + gs;
+    h == 1 ? ( ui_fhz(#u_a, v); sprintf(#u_t, "Cutoff: %.2f V (%s)", v, #u_a); ) :
+    h == 2 ? sprintf(#u_t, "Resonance: %.1f %% (self-oscillates near the top)", v * 10) :
+    h == 3 || h == 4 ? (
+      ui_fhz(#u_a, gl); ui_fhz(#u_b, gr);
+      h == 3 ? sprintf(#u_t, "Cutoff Spacing: %+.2f V (L %s, R %s)", v, #u_a, #u_b)
+             : sprintf(#u_t, "Spacing Target: %.0f %% (L %s, R %s)", v * 100, #u_a, #u_b);
+    ) :
+    h == 5 ? sprintf(#u_t, "Poles: %s", k ? "4 (24 dB/oct)" : "2 (12 dB/oct)") :
+    h == 6 ? sprintf(#u_t, "Type: %s", k ? "Bandpass" : "Lowpass") :
+    h == 7 ? sprintf(#u_t, "Input Drive: x%.2f (%+.1f dB)", 0.75 + 9.25 * v * v, 20 * log10(0.75 + 9.25 * v * v)) :
+    h == 8 ? sprintf(#u_t, "Output: %s", k ? "Mix (L + R summed to both sides)" : "Left and Right") :
+    h == 9 ? sprintf(#u_t, "Input level: %+.1f dB (0 dBFS = 10 V)", v) :
+    sprintf(#u_t, "Output level: %+.1f dB", v);
+    strcpy(#u_hint, #u_t);
+  ) : h == 104 ? strcpy(#u_hint, "Click the picture to switch the animation off or on")
+    : strcpy(#u_hint, "Double-click resets, Ctrl-drag for fine control");
+);
+
+function km_h(i) local(x) ( x = sin(i * 127.1 + 311.7) * 43758.5453; x - floor(x); );
+function km_n(x) local(i, f, a, b, c, d)
+(
+  i = floor(x); f = x - i;
+  a = km_h(i - 1); b = km_h(i); c = km_h(i + 1); d = km_h(i + 2);
+  b + 0.5 * f * (c - a + f * (2 * a - 5 * b + 4 * c - d + f * (3 * (b - c) + d - a)));
+);
+
+function km_light(t) local(i, p, g, br, sw, u, ths, v, gb)
+(
+  !km_bk ? ( gfx_setimgdim(40, 248, 168); km_bk = 1; );
+  gfx_dest = 40;
+  gfx_set(0, 0, 0, 1); gfx_rect(0, 0, 248, 168);
+  br = 0.75 * (0.5 - 0.5 * cos(2 * $pi * t / 7.3)) + 0.25 * km_n(t * 0.4 + 9);
+  gb = km_a * (0.15 + 0.18 * br);
+  sw = 0;
+  u = (t - km_sws) / 2.8;
+  (u >= 0 && u < 1) ? (
+    ths = 2.6179939 + (0.4363323 - 2.6179939) * (u * u * (3 - 2 * u));
+    sw = km_a * 0.42 * sin($pi * u);
+  );
+  gfx_set(1, 1, 1, 1, 1);
+  i = 0;
+  loop(km_nt,
+    p = KMT + i * 8;
+    g = p[0] === 0 ? gb : p[0] === 1 ? km_a * 0.15 * max(0, km_n(p[1] / 55 - t * 0.45)) : (
+      sw > 0 ? ( v = (p[1] - ths) / 0.13; abs(v) < 3 ? sw * exp(-v * v) : 0; ) : 0;
+    );
+    g > 0.004 ? (
+      gfx_a = g;
+      gfx_blit(26, 1, 0, p[6], p[7], p[4], p[5], p[2] + 4, p[3], p[4], p[5]);
+    );
+    i += 1;
+  );
+  gfx_mode = 0; gfx_a = 1;
+  gfx_dest = -1;
+);
+
+function km_gcache(g, k, s, poy, xb, y1, y2) local(kb)
+(
+  kb = (g_mk2 && uscale > 1.25) ? 2 : 1;
+  gfx_dest = 10;
+  gfx_set(1, 1, 1, 1);
+  gfx_blit(kb == 2 ? 23 : 22, 1, 0, 0, (y1 - poy) / s * kb, xb / s * kb, (y2 - y1) / s * kb, 0, y1, xb, y2 - y1);
+  g > 0.0005 ? (
+    gfx_set(1, 1, 1, g, 1);
+    gfx_blit(k == 2 ? 33 : 32, 1, 0, 0, (y1 - poy) / s * k, xb / s * k, (y2 - y1) / s * k, 0, y1, xb, y2 - y1);
+    gfx_mode = 0;
+  );
+  gfx_dest = -1;
+  km_gc = g;
+);
+
+function kw_field(t, g) local(n, j, i, p, xn, yn, a, w, wy, ps)
+(
+  ps = 2 * $pi * t / 11;
+  n = 0; j = 0;
+  loop(kw_ny + 1,
+    yn = min(kw_y1, kw_y0 + j * kw_c);
+    i = 0;
+    loop(kw_nx,
+      p = KWT + n * 5;
+      w = p[0]; wy = p[1];
+      (w > 0.002 || wy > 0.002) ? (
+        xn = i * kw_c;
+        a = km_a * g * 6.0;
+        KWX[n] = w * p[2] * (a * (0.55 * sin(2 * $pi * (t / 3.2 - yn / 130 - xn / 220) + p[4]) + 0.3 * sin(2 * $pi * (t / 5.1 - yn / 85) + 1.3 + 0.7 * p[4])) + km_a * 2.8 * sin(ps + 0.5 * p[4]));
+        KWY[n] = wy * p[3] * a * 0.6 * sin(2 * $pi * (t / 4.3 - yn / 160 + xn / 180) + 0.4 + 1.3 * p[4]);
+      ) : ( KWX[n] = 0; KWY[n] = 0; );
+      n += 1; i += 1;
+    );
+    j += 1;
+  );
+  n = 0; j = 0;
+  loop(kc_ny,
+    i = 0;
+    loop(kc_nx,
+      p = KCT + n * 4;
+      w = p[0] * 0.6;
+      xn = p[1]; yn = p[2];
+      a = km_a * g * 6.0;
+      KCX[n] = max(-7, min(7, w * kc_wx * (a * (0.55 * sin(2 * $pi * (t / 3.2 - yn / 130 - xn / 220) + kc_ph) + 0.3 * sin(2 * $pi * (t / 5.1 - yn / 85) + 1.3 + 0.7 * kc_ph) + 0.22 * sin(2 * $pi * (t / 1.9 - p[3] / 34) + kc_ph)) + km_a * 2.8 * sin(ps + 0.5 * kc_ph))));
+      KCY[n] = max(-4, min(4, w * kc_wy * a * (0.6 * sin(2 * $pi * (t / 4.3 - yn / 160 + xn / 180) + 0.4 + 1.3 * kc_ph) + 0.25 * sin(2 * $pi * (t / 2.3 - p[3] / 28) + 1.1))));
+      n += 1; i += 1;
+    );
+    j += 1;
+  );
+);
+
+function kw_draw(s, xb, poy, ytop, ybot) local(j, i, n0, n1, xa, xc, ya, yc, cw, chh, s00, t00, s10, t10, s01, t01, s11, t11, mx, smx, tmn, tmx)
+(
+  smx = xb - 1.01; tmn = ytop; tmx = ybot - 1.01;
+  gfx_set(1, 1, 1, 1);
+  j = 0;
+  loop(kw_ny,
+    ya = floor(poy + min(kw_y1, kw_y0 + j * kw_c) * s); yc = min(ybot, floor(poy + min(kw_y1, kw_y0 + (j + 1) * kw_c) * s));
+    chh = yc - ya;
+    i = 0;
+    chh > 0 ? loop(kw_nx - 1,
+      n0 = j * kw_nx + i; n1 = n0 + kw_nx;
+      mx = max(max(abs(KWX[n0]), abs(KWX[n0 + 1])), max(abs(KWX[n1]), abs(KWX[n1 + 1])));
+      mx = max(mx, max(max(abs(KWY[n0]), abs(KWY[n0 + 1])), max(abs(KWY[n1]), abs(KWY[n1 + 1]))));
+      xa = floor(i * kw_c * s); xc = min(xb, floor((i + 1) * kw_c * s));
+      cw = xc - xa;
+      (mx > 0.03 && cw > 0) ? (
+        s00 = max(0, min(smx, xa - KWX[n0] * s)); t00 = max(tmn, min(tmx, ya - KWY[n0] * s));
+        s10 = max(0, min(smx, xc - KWX[n0 + 1] * s)); t10 = max(tmn, min(tmx, ya - KWY[n0 + 1] * s));
+        s01 = max(0, min(smx, xa - KWX[n1] * s)); t01 = max(tmn, min(tmx, yc - KWY[n1] * s));
+        s11 = max(0, min(smx, xc - KWX[n1 + 1] * s)); t11 = max(tmn, min(tmx, yc - KWY[n1 + 1] * s));
+        gfx_deltablit(10, s00, t00, gfx_w, gfx_h, xa, ya, cw, chh,
+          (s10 - s00) / cw, (t10 - t00) / cw, (s01 - s00) / chh, (t01 - t00) / chh,
+          (s11 - s10 - s01 + s00) / (cw * chh), (t11 - t10 - t01 + t00) / (cw * chh), 0);
+      );
+      i += 1;
+    );
+    j += 1;
+  );
+);
+
+function kc_lean(y, lean) ( lean * min(1.25, max(0, (117.5 - y) / 97.5)); );
+
+function kc_draw(s, k, poy, lean) local(j, i, n0, n1, xa, xc, ya, yc, cw, chh, ys0, ys1, l0, l1, u0, u1, v0, v1, mx, sw, sh, ia, ib, b00, b10, b01, b11, c00, c10, c01, c11, d00, d10, d01, d11, e00, e10, e01, e11)
+(
+  ia = k == 2 ? 43 : 42; ib = k == 2 ? 45 : 44;
+  sw = (kc_c * (kc_nx - 1) + 2 * kc_p) * k - 1.01; sh = (kc_c * (kc_ny - 1) + 2 * kc_p) * k - 1.01;
+  gfx_set(1, 1, 1, 1);
+  j = 0;
+  loop(kc_ny - 1,
+    ys0 = kc_y0 + j * kc_c; ys1 = ys0 + kc_c;
+    ya = floor(poy + ys0 * s); yc = floor(poy + ys1 * s);
+    chh = yc - ya;
+    v0 = ((ya - poy) / s - kc_y0 + kc_p) * k; v1 = ((yc - poy) / s - kc_y0 + kc_p) * k;
+    l0 = kc_lean((ya - poy) / s, lean); l1 = kc_lean((yc - poy) / s, lean);
+    i = 0;
+    chh > 0 ? loop(kc_nx - 1,
+      n0 = j * kc_nx + i; n1 = n0 + kc_nx;
+      mx = max(max(abs(KCX[n0]), abs(KCX[n0 + 1])), max(abs(KCX[n1]), abs(KCX[n1 + 1])));
+      mx = max(mx, max(max(abs(KCY[n0]), abs(KCY[n0 + 1])), max(abs(KCY[n1]), abs(KCY[n1 + 1]))));
+      xa = floor((kc_x0 + i * kc_c) * s); xc = floor((kc_x0 + (i + 1) * kc_c) * s);
+      cw = xc - xa;
+      (mx > 0.02 && cw > 0) ? (
+        u0 = (xa / s - kc_x0 + kc_p) * k; u1 = (xc / s - kc_x0 + kc_p) * k;
+        b00 = max(0, min(sw, u0 - l0 * k)); b10 = max(0, min(sw, u1 - l0 * k));
+        b01 = max(0, min(sw, u0 - l1 * k)); b11 = max(0, min(sw, u1 - l1 * k));
+        c00 = max(0, min(sh, v0)); c01 = max(0, min(sh, v1));
+        gfx_deltablit(ib, b00, c00, sw + 1, sh + 1, xa, ya, cw, chh,
+          (b10 - b00) / cw, 0, (b01 - b00) / chh, (c01 - c00) / chh, (b11 - b10 - b01 + b00) / (cw * chh), 0, 0);
+        d00 = max(0, min(sw, u0 - (l0 + KCX[n0]) * k)); e00 = max(0, min(sh, v0 - KCY[n0] * k));
+        d10 = max(0, min(sw, u1 - (l0 + KCX[n0 + 1]) * k)); e10 = max(0, min(sh, v0 - KCY[n0 + 1] * k));
+        d01 = max(0, min(sw, u0 - (l1 + KCX[n1]) * k)); e01 = max(0, min(sh, v1 - KCY[n1] * k));
+        d11 = max(0, min(sw, u1 - (l1 + KCX[n1 + 1]) * k)); e11 = max(0, min(sh, v1 - KCY[n1 + 1] * k));
+        gfx_deltablit(ia, d00, e00, sw + 1, sh + 1, xa, ya, cw, chh,
+          (d10 - d00) / cw, (e10 - e00) / cw, (d01 - d00) / chh, (e01 - e00) / chh,
+          (d11 - d10 - d01 + d00) / (cw * chh), (e11 - e10 - e01 + e00) / (cw * chh), 0);
+      );
+      i += 1;
+    );
+    j += 1;
+  );
+);
+
+function kg_light(t) local(th, ga, gb, o1, o2)
+(
+  !kg_ok ? ( gfx_setimgdim(41, 120, 282); kg_ok = 1; );
+  gfx_dest = 41;
+  gfx_set(0, 0, 0, 1); gfx_rect(0, 0, 120, 282);
+  ga = 0.30 + 0.14 * sin(2 * $pi * t / 9.3) + 0.08 * km_n(t * 0.7 + 3);
+  gb = 0.20 + 0.12 * sin(2 * $pi * t / 6.1 + 2);
+  th = 0.11 * sin(2 * $pi * t / 31) + 0.04 * sin(2 * $pi * t / 13 + 1);
+  gfx_set(1, 1, 1, ga, 1);
+  gfx_blit(34, 1, th, 0, 0, ks_w, ks_h, 61.25 - ks_r, -6.25 - ks_oy, ks_w, ks_h, 0, ks_oy - ks_h * 0.5);
+  th = -0.09 * sin(2 * $pi * t / 23 + 1) - 0.05 * sin(2 * $pi * t / 17 + 4) + 0.06;
+  gfx_set(1, 1, 1, gb, 1);
+  gfx_blit(34, 1, th, 0, 0, ks_w, ks_h, 61.25 - ks_r, -6.25 - ks_oy, ks_w, ks_h, 0, ks_oy - ks_h * 0.5);
+  o1 = t * 3.75; o1 -= kh_w * floor(o1 / kh_w);
+  gfx_set(1, 1, 1, 0.12, 1);
+  gfx_x = floor(-o1); gfx_y = 0; gfx_blit(35, 1, 0);
+  gfx_x = floor(kh_w - o1); gfx_y = 0; gfx_blit(35, 1, 0);
+  o2 = t * 2.1 + 75; o2 -= kh_w * floor(o2 / kh_w);
+  gfx_set(1, 1, 1, 0.08, 1);
+  gfx_x = floor(o2 - kh_w); gfx_y = 20; gfx_blit(35, 1, 0);
+  gfx_x = floor(o2); gfx_y = 20; gfx_blit(35, 1, 0);
+  gfx_mode = 0;
+  gfx_set(1, 1, 1, 1);
+  gfx_x = 0; gfx_y = 0; gfx_blit(37, 1, 0);
+  gfx_dest = -1;
+);
+
+function kd_motes(t, s, xb, poy, ybot) local(i, p, c, u, nc, x, y, e, d, xx, yy)
+(
+  i = 0;
+  loop(km_nm,
+    p = KMM + i * 8;
+    c = t / p[4] + p[5]; nc = floor(c); u = c - nc;
+    x = p[0] + (km_h(nc * 7 + i * 13) - 0.5) * 50 + p[2] * u * p[4] + 3 * sin(2 * $pi * u * p[4] / 4.7 + p[7]);
+    y = p[1] + (km_h(nc * 5 + i * 17 + 3) - 0.5) * 60 + p[3] * u * p[4];
+    e = sqr(sin($pi * u)) * (0.6 + 0.4 * sin(t * 5.3 + p[7] * 3)) * km_a * 0.9;
+    e *= (x >= 0 && x < 240 && y >= 0 && y < 563) ? KSQ[floor(y / kq_c) * kq_nx + floor(x / kq_c)] : 0;
+    d = p[6] * 2.2 * s;
+    xx = x * s; yy = poy + y * s;
+    (e > 0.01 && xx > d && xx < xb - d && yy > poy + d && yy < ybot - d) ? (
+      gfx_set(1, 1, 1, e, 1);
+      gfx_blit(36, 1, 0, 0, 0, 32, 32, xx - d, yy - d, 2 * d, 2 * d);
+    );
+    i += 1;
+  );
+  gfx_mode = 0;
+);
+
+function ke_blink(t, lean, s, poy) local(tau, b, k, img, dx, ye, r, y, ya, yb, xa, xc, fx, fy, off)
+(
+  (km_on && t >= ke_next && t - ke_s > 0.3) ? ( ke_s = t; ke_next = t + 5 + 7 * km_h(floor(t * 7.7) + 3); );
+  tau = t - ke_s;
+  (km_a > 0.3 && tau < 0.26) ? (
+    b = tau < 0.08 ? sqr(tau / 0.08) : tau < 0.13 ? 1 : sqr(1 - (tau - 0.13) / 0.13);
+    k = (g_ey2 && uscale > 1.25) ? 2 : 1; img = k == 2 ? 39 : 38;
+    dx = lean * min(1.25, max(0, (117.5 - 36) / 97.5));
+    ye = 32.4 + b * (38.6 - 32.4);
+    fx = (114 + dx) * s; xa = ceil(fx); xc = floor((162 + dx) * s);
+    gfx_set(1, 1, 1, 1);
+    r = 5 * k;
+    while (26 + r / k < ye) (
+      y = 26 + r / k;
+      ya = floor(poy + y * s); yb = floor(poy + min(y + 1 / k, ye) * s);
+      yb > ya ? gfx_blit(img, 1, 0, (4 + (xa - fx) / s) * k, r, (xc - xa) / s * k, 1, xa, ya, xc - xa, yb - ya);
+      r += 1;
+    );
+    off = ye - 38.6;
+    fy = poy + (26 + off) * s; ya = ceil(fy); yb = floor(poy + (44 + off) * s);
+    gfx_a = min(1, b * 1.4);
+    gfx_blit(img, 1, 0, (4 + (xa - fx) / s) * k, 18 * k + (ya - fy) / s * k, (xc - xa) / s * k, (yb - ya) / s * k, xa, ya, xc - xa, yb - ya);
+    gfx_a = 1;
+  );
+);
+
+function km_draw() local(on, t, k, s, poy, ytop, ybot, xb, r, y, ya, yb, lean, dx, w, img, gg, y1, y2, g, ge, i, p, xa, xc)
+(
+  !km_t0 ? ( km_t0 = time_precise(); km_sws = -1000; km_swn = 0; km_tp = 0; kw_gs = -1000; kw_gn = 0; ke_s = -1000; ke_next = 0; );
+  t = time_precise() - km_t0;
+  on = (play_state & 1) && sk_anim >= 0.5;
+  (on && !km_on) ? ( km_tp = t; km_swn = max(km_swn, t + 2); kw_gn = max(kw_gn, t + 3); ke_next = max(ke_next, t + 1.5 + 2 * km_h(floor(t * 3.1))); );
+  km_on = on;
+  km_a = on ? km_a + (1 - km_a) * 0.02 : km_a * 0.97;
+  km_a < 0.002 ? km_a = 0;
+  (on && t >= km_swn) ? ( km_sws = t; km_swn = t + 9 + 5 * km_h(floor(t * 3.7) + 3); );
+  (on && t >= kw_gn) ? ( kw_gs = t; kw_gn = t + 7 + 8 * km_h(floor(t * 5.3) + 1); );
+  (g_an && km_a <= 0 && km_gc > 0) ? km_gcache(0, (g_an2 && uscale > 1.25) ? 2 : 1, uscale, floor(ui_py(24.75)), min(floor(240 * uscale), sx0), floor(floor(ui_py(24.75)) + 168 * uscale), floor(floor(ui_py(24.75)) + 465 * uscale));
+  (g_an && km_a > 0) ? (
+    k = (g_an2 && uscale > 1.25) ? 2 : 1;
+    s = uscale; poy = floor(ui_py(24.75));
+    ytop = floor(ui_py(24.75) + 0.5); ybot = floor(ui_py(250) + 0.5);
+    xb = min(floor(240 * s), sx0);
+    gg = km_a * 0.16 * (0.5 - 0.5 * cos(2 * $pi * (t - km_tp) / 23));
+    y1 = floor(poy + 168 * s); y2 = floor(poy + 465 * s);
+    abs(gg - km_gc) > 0.003 ? km_gcache(gg, k, s, poy, xb, y1, y2);
+    km_light(t);
+    lean = 2.0 * km_a * (0.65 * sin(2 * $pi * t / 8.3 + 0.7 * km_n(t * 0.05 + 11)) + 0.35 * (2 * km_n(t * 0.31 + 4) - 1));
+    w = xb / s * k;
+    r = 0;
+    gfx_set(1, 1, 1, 1);
+    img = k == 2 ? 29 : 28;
+    loop(118 * k,
+      y = r / k;
+      ya = max(ytop, floor(poy + y * s)); yb = floor(poy + (y + 1 / k) * s);
+      yb > ya ? (
+        dx = lean * min(1.25, max(0, (117.5 - y) / 97.5));
+        gfx_blit(img, 1, 0, (4 - dx) * k, r, w, 1, 0, ya, xb, yb - ya);
+      );
+      r += 1;
+    );
+    ge = t - kw_gs;
+    g = 0.6 + 0.4 * km_n(t * 0.17 + 5) + 0.75 * (ge < 0 ? 0 : ge < 0.9 ? sin(0.5 * $pi * ge / 0.9) : exp(-(ge - 0.9) / 2.2));
+    kw_field(t, g);
+    kw_draw(s, xb, poy, ytop, ybot);
+    g_cl ? kc_draw(s, (g_cl2 && k == 2) ? 2 : 1, poy, lean);
+    gfx_set(1, 1, 1, 1, 1);
+    r = 0;
+    loop(168,
+      ya = max(ytop, floor(poy + r * s)); yb = floor(poy + (r + 1) * s);
+      yb > ya ? (
+        dx = lean * min(1.25, max(0, (117 - r) / 97.5));
+        gfx_blit(40, 1, 0, 4 - dx, r, xb / s, 1, 0, ya, xb, yb - ya);
+      );
+      r += 1;
+    );
+    gfx_mode = 0;
+    kg_light(t);
+    gfx_set(1, 1, 1, km_a, 1);
+    i = 0;
+    loop(kt_n,
+      p = KTL + i * 4;
+      xa = floor(p[0] * s); xc = min(xb, floor((p[0] + p[2]) * s));
+      ya = floor(poy + p[1] * s); yb = min(ybot, floor(poy + (p[1] + p[3]) * s));
+      (xc > xa && yb > ya) ? gfx_blit(41, 1, 0, p[0] * 0.5, p[1] * 0.5, (xc - xa) / s * 0.5, (yb - ya) / s * 0.5, xa, ya, xc - xa, yb - ya);
+      i += 1;
+    );
+    gfx_mode = 0;
+    gg > 0.004 ? (
+      gfx_set(1, 1, 1, gg, 1);
+      img = k == 2 ? 33 : 32;
+      gfx_blit(img, 1, 0, 0, (ytop - poy) / s * k, w, (y1 - ytop) / s * k, 0, ytop, xb, y1 - ytop);
+      gfx_blit(img, 1, 0, 0, (y2 - poy) / s * k, w, (min(ybot, floor(poy + 563 * s)) - y2) / s * k, 0, y2, xb, min(ybot, floor(poy + 563 * s)) - y2);
+      gfx_mode = 0;
+    );
+    kd_motes(t, s, xb, poy, ybot);
+    ke_blink(t, lean, s, poy);
+    gfx_set(1, 1, 1, 1);
+  );
+);
+
+!u_init ? ( ui_inittables(); u_init = 1; );
+!km_init ? (
+  KMT = 120000; KWT = 130000; KMM = 136000; KWX = 137000; KWY = 138400; KTL = 139800; KSQ = 140100; KCT = 142500; KCX = 145100; KCY = 145800;
+km_nt = 301;
+mem_set_values(KMT + 0, 0, 0.000000, 0, 0, 167, 16, 0, 0);
+mem_set_values(KMT + 8, 0, 0.000000, 22, 16, 218, 16, 0, 16);
+mem_set_values(KMT + 16, 0, 0.000000, 53, 32, 187, 16, 0, 32);
+mem_set_values(KMT + 24, 0, 0.000000, 28, 48, 212, 16, 0, 48);
+mem_set_values(KMT + 32, 0, 0.000000, 2, 64, 238, 16, 0, 64);
+mem_set_values(KMT + 40, 0, 0.000000, 0, 80, 240, 16, 0, 80);
+mem_set_values(KMT + 48, 0, 0.000000, 0, 96, 82, 16, 0, 96);
+mem_set_values(KMT + 56, 0, 0.000000, 0, 112, 72, 4, 82, 96);
+mem_set_values(KMT + 64, 0, 0.000000, 49, 139, 5, 5, 154, 96);
+mem_set_values(KMT + 72, 0, 0.000000, 54, 145, 19, 15, 159, 96);
+mem_set_values(KMT + 80, 0, 0.000000, 53, 160, 10, 7, 178, 96);
+mem_set_values(KMT + 88, 1, 25.000000, 109, 0, 33, 10, 188, 96);
+mem_set_values(KMT + 96, 1, 45.000000, 93, 0, 59, 16, 0, 112);
+mem_set_values(KMT + 104, 1, 45.000000, 107, 16, 32, 4, 59, 112);
+mem_set_values(KMT + 112, 1, 65.000000, 82, 0, 81, 16, 91, 112);
+mem_set_values(KMT + 120, 1, 65.000000, 91, 16, 63, 12, 172, 112);
+mem_set_values(KMT + 128, 1, 85.000000, 72, 0, 94, 16, 0, 128);
+mem_set_values(KMT + 136, 1, 85.000000, 78, 16, 89, 16, 94, 128);
+mem_set_values(KMT + 144, 1, 85.000000, 95, 32, 9, 3, 183, 128);
+mem_set_values(KMT + 152, 1, 105.000000, 61, 0, 106, 16, 0, 144);
+mem_set_values(KMT + 160, 1, 105.000000, 67, 16, 103, 16, 106, 144);
+mem_set_values(KMT + 168, 1, 105.000000, 80, 32, 85, 10, 0, 160);
+mem_set_values(KMT + 176, 1, 125.000000, 51, 0, 28, 16, 85, 160);
+mem_set_values(KMT + 184, 1, 125.000000, 56, 16, 132, 16, 0, 176);
+mem_set_values(KMT + 192, 1, 125.000000, 72, 32, 102, 16, 132, 176);
+mem_set_values(KMT + 200, 1, 125.000000, 83, 48, 2, 1, 234, 176);
+mem_set_values(KMT + 208, 1, 145.000000, 41, 0, 26, 16, 0, 192);
+mem_set_values(KMT + 216, 1, 145.000000, 45, 16, 154, 16, 26, 192);
+mem_set_values(KMT + 224, 1, 145.000000, 55, 32, 137, 16, 0, 208);
+mem_set_values(KMT + 232, 1, 145.000000, 68, 48, 111, 16, 0, 224);
+mem_set_values(KMT + 240, 1, 145.000000, 100, 66, 3, 2, 111, 224);
+mem_set_values(KMT + 248, 1, 165.000000, 31, 0, 25, 16, 114, 224);
+mem_set_values(KMT + 256, 1, 165.000000, 35, 16, 174, 16, 0, 240);
+mem_set_values(KMT + 264, 1, 165.000000, 53, 32, 151, 16, 0, 256);
+mem_set_values(KMT + 272, 1, 165.000000, 55, 48, 138, 16, 0, 272);
+mem_set_values(KMT + 280, 1, 165.000000, 86, 64, 18, 12, 138, 272);
+mem_set_values(KMT + 288, 1, 185.000000, 21, 0, 24, 16, 156, 272);
+mem_set_values(KMT + 296, 1, 185.000000, 24, 16, 195, 16, 0, 288);
+mem_set_values(KMT + 304, 1, 185.000000, 53, 32, 162, 16, 0, 304);
+mem_set_values(KMT + 312, 1, 185.000000, 54, 48, 152, 16, 0, 320);
+mem_set_values(KMT + 320, 1, 185.000000, 86, 64, 18, 16, 152, 320);
+mem_set_values(KMT + 328, 1, 185.000000, 89, 81, 4, 3, 170, 320);
+mem_set_values(KMT + 336, 1, 205.000000, 11, 0, 24, 16, 174, 320);
+mem_set_values(KMT + 344, 1, 205.000000, 22, 16, 207, 16, 0, 336);
+mem_set_values(KMT + 352, 1, 205.000000, 193, 32, 33, 16, 207, 336);
+mem_set_values(KMT + 360, 1, 205.000000, 36, 48, 182, 16, 0, 352);
+mem_set_values(KMT + 368, 1, 205.000000, 40, 64, 165, 16, 0, 368);
+mem_set_values(KMT + 376, 1, 205.000000, 89, 81, 52, 14, 165, 368);
+mem_set_values(KMT + 384, 1, 225.000000, 1, 0, 23, 16, 217, 368);
+mem_set_values(KMT + 392, 1, 225.000000, 23, 16, 215, 16, 0, 384);
+mem_set_values(KMT + 400, 1, 225.000000, 206, 32, 31, 16, 0, 400);
+mem_set_values(KMT + 408, 1, 225.000000, 28, 48, 202, 16, 31, 400);
+mem_set_values(KMT + 416, 1, 225.000000, 27, 64, 188, 16, 0, 416);
+mem_set_values(KMT + 424, 1, 225.000000, 42, 80, 99, 16, 0, 432);
+mem_set_values(KMT + 432, 1, 225.000000, 79, 96, 3, 1, 99, 432);
+mem_set_values(KMT + 440, 1, 245.000000, 0, 0, 13, 12, 102, 432);
+mem_set_values(KMT + 448, 1, 245.000000, 226, 26, 14, 6, 115, 432);
+mem_set_values(KMT + 456, 1, 245.000000, 218, 32, 22, 16, 129, 432);
+mem_set_values(KMT + 464, 1, 245.000000, 28, 48, 212, 16, 0, 448);
+mem_set_values(KMT + 472, 1, 245.000000, 19, 64, 212, 16, 0, 464);
+mem_set_values(KMT + 480, 1, 245.000000, 28, 80, 54, 16, 0, 480);
+mem_set_values(KMT + 488, 1, 245.000000, 79, 96, 3, 1, 54, 480);
+mem_set_values(KMT + 496, 1, 265.000000, 0, 0, 3, 12, 57, 480);
+mem_set_values(KMT + 504, 1, 265.000000, 237, 28, 3, 4, 60, 480);
+mem_set_values(KMT + 512, 1, 265.000000, 229, 32, 11, 16, 63, 480);
+mem_set_values(KMT + 520, 1, 265.000000, 219, 48, 21, 16, 74, 480);
+mem_set_values(KMT + 528, 1, 265.000000, 10, 64, 230, 16, 0, 496);
+mem_set_values(KMT + 536, 1, 265.000000, 14, 80, 217, 14, 0, 512);
+mem_set_values(KMT + 544, 1, 265.000000, 67, 109, 6, 3, 217, 512);
+mem_set_values(KMT + 552, 1, 265.000000, 67, 112, 5, 2, 223, 512);
+mem_set_values(KMT + 560, 1, 285.000000, 231, 50, 9, 14, 228, 512);
+mem_set_values(KMT + 568, 1, 285.000000, 2, 64, 238, 16, 0, 526);
+mem_set_values(KMT + 576, 1, 285.000000, 2, 80, 237, 16, 0, 542);
+mem_set_values(KMT + 584, 1, 285.000000, 15, 96, 57, 16, 0, 558);
+mem_set_values(KMT + 592, 1, 285.000000, 67, 112, 5, 2, 57, 558);
+mem_set_values(KMT + 600, 1, 305.000000, 2, 69, 238, 11, 0, 574);
+mem_set_values(KMT + 608, 1, 305.000000, 0, 80, 240, 16, 0, 585);
+mem_set_values(KMT + 616, 1, 305.000000, 2, 96, 24, 11, 0, 601);
+mem_set_values(KMT + 624, 1, 325.000000, 0, 81, 240, 15, 0, 612);
+mem_set_values(KMT + 632, 1, 325.000000, 0, 96, 20, 16, 0, 627);
+mem_set_values(KMT + 640, 1, 325.000000, 3, 112, 2, 1, 20, 627);
+mem_set_values(KMT + 648, 1, 325.000000, 50, 139, 4, 5, 22, 627);
+mem_set_values(KMT + 656, 1, 325.000000, 69, 146, 4, 4, 26, 627);
+mem_set_values(KMT + 664, 1, 345.000000, 0, 94, 2, 2, 30, 627);
+mem_set_values(KMT + 672, 1, 345.000000, 0, 96, 12, 16, 32, 627);
+mem_set_values(KMT + 680, 1, 345.000000, 0, 112, 6, 4, 44, 627);
+mem_set_values(KMT + 688, 1, 345.000000, 50, 139, 4, 5, 50, 627);
+mem_set_values(KMT + 696, 1, 345.000000, 58, 146, 15, 13, 54, 627);
+mem_set_values(KMT + 704, 1, 365.000000, 0, 109, 3, 3, 69, 627);
+mem_set_values(KMT + 712, 1, 365.000000, 0, 112, 4, 4, 72, 627);
+mem_set_values(KMT + 720, 1, 365.000000, 54, 157, 8, 3, 76, 627);
+mem_set_values(KMT + 728, 1, 365.000000, 53, 160, 10, 6, 84, 627);
+mem_set_values(KMT + 736, 1, 385.000000, 54, 158, 7, 2, 94, 627);
+mem_set_values(KMT + 744, 1, 385.000000, 53, 160, 9, 6, 101, 627);
+mem_set_values(KMT + 752, 2, 0.340857, 160, 0, 4, 4, 110, 627);
+mem_set_values(KMT + 760, 2, 0.340857, 206, 22, 34, 10, 114, 627);
+mem_set_values(KMT + 768, 2, 0.340857, 230, 32, 10, 4, 148, 627);
+mem_set_values(KMT + 776, 2, 0.390857, 149, 0, 14, 6, 158, 627);
+mem_set_values(KMT + 784, 2, 0.390857, 189, 18, 51, 14, 172, 627);
+mem_set_values(KMT + 792, 2, 0.390857, 217, 32, 23, 11, 0, 643);
+mem_set_values(KMT + 800, 2, 0.440857, 146, 0, 15, 7, 23, 643);
+mem_set_values(KMT + 808, 2, 0.440857, 183, 17, 47, 15, 38, 643);
+mem_set_values(KMT + 816, 2, 0.440857, 206, 32, 34, 16, 85, 643);
+mem_set_values(KMT + 824, 2, 0.440857, 236, 48, 4, 3, 119, 643);
+mem_set_values(KMT + 832, 2, 0.490857, 143, 0, 18, 8, 123, 643);
+mem_set_values(KMT + 840, 2, 0.490857, 176, 17, 40, 15, 141, 643);
+mem_set_values(KMT + 848, 2, 0.490857, 197, 32, 43, 16, 181, 643);
+mem_set_values(KMT + 856, 2, 0.490857, 223, 48, 17, 10, 0, 659);
+mem_set_values(KMT + 864, 2, 0.540857, 141, 0, 26, 16, 17, 659);
+mem_set_values(KMT + 872, 2, 0.540857, 165, 16, 40, 16, 43, 659);
+mem_set_values(KMT + 880, 2, 0.540857, 189, 32, 46, 16, 83, 659);
+mem_set_values(KMT + 888, 2, 0.540857, 213, 48, 27, 16, 129, 659);
+mem_set_values(KMT + 896, 2, 0.540857, 237, 64, 3, 2, 156, 659);
+mem_set_values(KMT + 904, 2, 0.590857, 139, 0, 28, 16, 159, 659);
+mem_set_values(KMT + 912, 2, 0.590857, 161, 16, 35, 16, 187, 659);
+mem_set_values(KMT + 920, 2, 0.590857, 182, 32, 41, 16, 0, 675);
+mem_set_values(KMT + 928, 2, 0.590857, 204, 48, 36, 16, 41, 675);
+mem_set_values(KMT + 936, 2, 0.590857, 225, 64, 15, 11, 77, 675);
+mem_set_values(KMT + 944, 2, 0.640857, 138, 0, 26, 16, 92, 675);
+mem_set_values(KMT + 952, 2, 0.640857, 157, 16, 32, 16, 118, 675);
+mem_set_values(KMT + 960, 2, 0.640857, 181, 32, 31, 16, 150, 675);
+mem_set_values(KMT + 968, 2, 0.640857, 196, 48, 40, 16, 181, 675);
+mem_set_values(KMT + 976, 2, 0.640857, 218, 64, 22, 12, 0, 691);
+mem_set_values(KMT + 984, 2, 0.690857, 136, 0, 22, 16, 22, 691);
+mem_set_values(KMT + 992, 2, 0.690857, 154, 16, 22, 13, 44, 691);
+mem_set_values(KMT + 1000, 2, 0.690857, 180, 32, 23, 16, 66, 691);
+mem_set_values(KMT + 1008, 2, 0.690857, 189, 48, 36, 16, 89, 691);
+mem_set_values(KMT + 1016, 2, 0.690857, 206, 64, 34, 16, 125, 691);
+mem_set_values(KMT + 1024, 2, 0.690857, 224, 80, 16, 14, 159, 691);
+mem_set_values(KMT + 1032, 2, 0.740857, 135, 0, 22, 16, 175, 691);
+mem_set_values(KMT + 1040, 2, 0.740857, 151, 16, 13, 8, 197, 691);
+mem_set_values(KMT + 1048, 2, 0.740857, 173, 36, 23, 12, 210, 691);
+mem_set_values(KMT + 1056, 2, 0.740857, 182, 48, 29, 16, 0, 707);
+mem_set_values(KMT + 1064, 2, 0.740857, 199, 64, 33, 16, 29, 707);
+mem_set_values(KMT + 1072, 2, 0.740857, 221, 80, 19, 15, 62, 707);
+mem_set_values(KMT + 1080, 2, 0.790857, 134, 0, 20, 16, 81, 707);
+mem_set_values(KMT + 1088, 2, 0.790857, 148, 16, 13, 8, 101, 707);
+mem_set_values(KMT + 1096, 2, 0.790857, 163, 32, 25, 16, 114, 707);
+mem_set_values(KMT + 1104, 2, 0.790857, 178, 48, 28, 16, 139, 707);
+mem_set_values(KMT + 1112, 2, 0.790857, 198, 64, 26, 16, 167, 707);
+mem_set_values(KMT + 1120, 2, 0.790857, 221, 80, 17, 13, 193, 707);
+mem_set_values(KMT + 1128, 2, 0.840857, 133, 0, 18, 16, 210, 707);
+mem_set_values(KMT + 1136, 2, 0.840857, 146, 16, 10, 6, 228, 707);
+mem_set_values(KMT + 1144, 2, 0.840857, 161, 32, 21, 16, 0, 723);
+mem_set_values(KMT + 1152, 2, 0.840857, 177, 48, 18, 13, 21, 723);
+mem_set_values(KMT + 1160, 2, 0.890857, 132, 0, 16, 16, 39, 723);
+mem_set_values(KMT + 1168, 2, 0.890857, 143, 16, 6, 5, 55, 723);
+mem_set_values(KMT + 1176, 2, 0.890857, 161, 32, 12, 12, 61, 723);
+mem_set_values(KMT + 1184, 2, 0.940857, 131, 0, 15, 16, 73, 723);
+mem_set_values(KMT + 1192, 2, 0.940857, 141, 16, 7, 5, 88, 723);
+mem_set_values(KMT + 1200, 2, 0.990857, 130, 0, 13, 16, 95, 723);
+mem_set_values(KMT + 1208, 2, 0.990857, 139, 16, 8, 5, 108, 723);
+mem_set_values(KMT + 1216, 2, 1.040857, 129, 0, 12, 16, 116, 723);
+mem_set_values(KMT + 1224, 2, 1.040857, 137, 16, 7, 5, 128, 723);
+mem_set_values(KMT + 1232, 2, 1.090857, 128, 0, 11, 16, 135, 723);
+mem_set_values(KMT + 1240, 2, 1.090857, 136, 16, 6, 6, 146, 723);
+mem_set_values(KMT + 1248, 2, 1.140857, 127, 0, 11, 16, 152, 723);
+mem_set_values(KMT + 1256, 2, 1.140857, 134, 16, 6, 7, 163, 723);
+mem_set_values(KMT + 1264, 2, 1.190857, 127, 0, 9, 16, 169, 723);
+mem_set_values(KMT + 1272, 2, 1.190857, 132, 16, 7, 7, 178, 723);
+mem_set_values(KMT + 1280, 2, 1.240857, 126, 0, 8, 16, 185, 723);
+mem_set_values(KMT + 1288, 2, 1.240857, 131, 16, 6, 8, 193, 723);
+mem_set_values(KMT + 1296, 2, 1.290857, 125, 0, 8, 16, 199, 723);
+mem_set_values(KMT + 1304, 2, 1.290857, 130, 16, 5, 9, 207, 723);
+mem_set_values(KMT + 1312, 2, 1.340857, 125, 0, 6, 16, 212, 723);
+mem_set_values(KMT + 1320, 2, 1.340857, 128, 16, 5, 9, 218, 723);
+mem_set_values(KMT + 1328, 2, 1.390857, 124, 0, 5, 16, 223, 723);
+mem_set_values(KMT + 1336, 2, 1.390857, 127, 18, 5, 8, 228, 723);
+mem_set_values(KMT + 1344, 2, 1.390857, 136, 89, 5, 5, 233, 723);
+mem_set_values(KMT + 1352, 2, 1.440857, 124, 0, 4, 16, 0, 739);
+mem_set_values(KMT + 1360, 2, 1.440857, 125, 16, 5, 9, 4, 739);
+mem_set_values(KMT + 1368, 2, 1.440857, 136, 89, 5, 6, 9, 739);
+mem_set_values(KMT + 1376, 2, 1.490857, 123, 0, 4, 16, 14, 739);
+mem_set_values(KMT + 1384, 2, 1.490857, 123, 16, 3, 2, 18, 739);
+mem_set_values(KMT + 1392, 2, 1.540857, 122, 0, 3, 16, 21, 739);
+mem_set_values(KMT + 1400, 2, 1.540857, 122, 16, 3, 3, 24, 739);
+mem_set_values(KMT + 1408, 2, 1.590857, 121, 0, 3, 16, 27, 739);
+mem_set_values(KMT + 1416, 2, 1.590857, 120, 16, 4, 5, 30, 739);
+mem_set_values(KMT + 1424, 2, 1.640857, 119, 0, 4, 16, 34, 739);
+mem_set_values(KMT + 1432, 2, 1.640857, 118, 16, 4, 6, 38, 739);
+mem_set_values(KMT + 1440, 2, 1.690857, 118, 0, 4, 16, 42, 739);
+mem_set_values(KMT + 1448, 2, 1.690857, 116, 16, 5, 8, 46, 739);
+mem_set_values(KMT + 1456, 2, 1.740857, 116, 0, 5, 16, 51, 739);
+mem_set_values(KMT + 1464, 2, 1.740857, 114, 16, 6, 10, 56, 739);
+mem_set_values(KMT + 1472, 2, 1.790857, 115, 0, 6, 16, 62, 739);
+mem_set_values(KMT + 1480, 2, 1.790857, 112, 16, 6, 11, 68, 739);
+mem_set_values(KMT + 1488, 2, 1.790857, 99, 66, 5, 10, 74, 739);
+mem_set_values(KMT + 1496, 2, 1.840857, 113, 0, 7, 16, 79, 739);
+mem_set_values(KMT + 1504, 2, 1.840857, 109, 16, 8, 13, 86, 739);
+mem_set_values(KMT + 1512, 2, 1.840857, 94, 65, 10, 11, 94, 739);
+mem_set_values(KMT + 1520, 2, 1.840857, 91, 81, 2, 4, 104, 739);
+mem_set_values(KMT + 1528, 2, 1.840857, 69, 146, 4, 4, 106, 739);
+mem_set_values(KMT + 1536, 2, 1.890857, 112, 0, 7, 16, 110, 739);
+mem_set_values(KMT + 1544, 2, 1.890857, 106, 16, 9, 15, 117, 739);
+mem_set_values(KMT + 1552, 2, 1.890857, 93, 61, 2, 3, 126, 739);
+mem_set_values(KMT + 1560, 2, 1.890857, 87, 65, 14, 15, 128, 739);
+mem_set_values(KMT + 1568, 2, 1.890857, 89, 81, 4, 4, 142, 739);
+mem_set_values(KMT + 1576, 2, 1.890857, 56, 146, 17, 14, 146, 739);
+mem_set_values(KMT + 1584, 2, 1.890857, 54, 160, 9, 6, 163, 739);
+mem_set_values(KMT + 1592, 2, 1.940857, 110, 1, 8, 15, 172, 739);
+mem_set_values(KMT + 1600, 2, 1.940857, 103, 16, 11, 16, 180, 739);
+mem_set_values(KMT + 1608, 2, 1.940857, 102, 32, 2, 2, 191, 739);
+mem_set_values(KMT + 1616, 2, 1.940857, 89, 58, 6, 6, 193, 739);
+mem_set_values(KMT + 1624, 2, 1.940857, 86, 64, 9, 16, 199, 739);
+mem_set_values(KMT + 1632, 2, 1.940857, 78, 81, 14, 15, 208, 739);
+mem_set_values(KMT + 1640, 2, 1.940857, 68, 96, 14, 16, 222, 739);
+mem_set_values(KMT + 1648, 2, 1.940857, 68, 112, 4, 2, 236, 739);
+mem_set_values(KMT + 1656, 2, 1.940857, 54, 157, 8, 3, 0, 755);
+mem_set_values(KMT + 1664, 2, 1.940857, 53, 160, 10, 6, 8, 755);
+mem_set_values(KMT + 1672, 2, 1.990857, 108, 1, 9, 15, 18, 755);
+mem_set_values(KMT + 1680, 2, 1.990857, 100, 16, 12, 16, 27, 755);
+mem_set_values(KMT + 1688, 2, 1.990857, 97, 32, 7, 6, 39, 755);
+mem_set_values(KMT + 1696, 2, 1.990857, 86, 55, 9, 9, 46, 755);
+mem_set_values(KMT + 1704, 2, 1.990857, 86, 64, 7, 16, 55, 755);
+mem_set_values(KMT + 1712, 2, 1.990857, 78, 94, 3, 2, 62, 755);
+mem_set_values(KMT + 1720, 2, 1.990857, 67, 96, 14, 16, 65, 755);
+mem_set_values(KMT + 1728, 2, 1.990857, 67, 112, 5, 2, 79, 755);
+mem_set_values(KMT + 1736, 2, 1.990857, 50, 139, 4, 5, 84, 755);
+mem_set_values(KMT + 1744, 2, 1.990857, 54, 158, 3, 2, 88, 755);
+mem_set_values(KMT + 1752, 2, 1.990857, 53, 160, 3, 4, 91, 755);
+mem_set_values(KMT + 1760, 2, 2.040857, 106, 1, 11, 15, 94, 755);
+mem_set_values(KMT + 1768, 2, 2.040857, 97, 16, 13, 16, 105, 755);
+mem_set_values(KMT + 1776, 2, 2.040857, 91, 32, 12, 12, 118, 755);
+mem_set_values(KMT + 1784, 2, 2.040857, 83, 52, 8, 12, 130, 755);
+mem_set_values(KMT + 1792, 2, 2.040857, 86, 64, 3, 3, 138, 755);
+mem_set_values(KMT + 1800, 2, 2.040857, 50, 140, 4, 4, 141, 755);
+mem_set_values(KMT + 1808, 2, 2.090857, 105, 1, 11, 15, 145, 755);
+mem_set_values(KMT + 1816, 2, 2.090857, 94, 16, 15, 16, 156, 755);
+mem_set_values(KMT + 1824, 2, 2.090857, 84, 32, 16, 16, 171, 755);
+mem_set_values(KMT + 1832, 2, 2.090857, 78, 48, 11, 12, 187, 755);
+mem_set_values(KMT + 1840, 2, 2.140857, 103, 4, 10, 12, 198, 755);
+mem_set_values(KMT + 1848, 2, 2.140857, 91, 16, 16, 16, 208, 755);
+mem_set_values(KMT + 1856, 2, 2.140857, 80, 32, 18, 16, 0, 771);
+mem_set_values(KMT + 1864, 2, 2.140857, 75, 48, 11, 10, 18, 771);
+mem_set_values(KMT + 1872, 2, 2.190857, 100, 3, 12, 13, 29, 771);
+mem_set_values(KMT + 1880, 2, 2.190857, 88, 16, 17, 16, 41, 771);
+mem_set_values(KMT + 1888, 2, 2.190857, 75, 32, 19, 16, 58, 771);
+mem_set_values(KMT + 1896, 2, 2.190857, 68, 48, 16, 10, 77, 771);
+mem_set_values(KMT + 1904, 2, 2.240857, 98, 3, 13, 13, 93, 771);
+mem_set_values(KMT + 1912, 2, 2.240857, 84, 16, 19, 16, 106, 771);
+mem_set_values(KMT + 1920, 2, 2.240857, 70, 32, 21, 16, 125, 771);
+mem_set_values(KMT + 1928, 2, 2.240857, 57, 48, 23, 16, 146, 771);
+mem_set_values(KMT + 1936, 2, 2.240857, 42, 66, 15, 14, 169, 771);
+mem_set_values(KMT + 1944, 2, 2.240857, 35, 80, 11, 8, 184, 771);
+mem_set_values(KMT + 1952, 2, 2.290857, 95, 3, 15, 13, 195, 771);
+mem_set_values(KMT + 1960, 2, 2.290857, 83, 16, 17, 16, 210, 771);
+mem_set_values(KMT + 1968, 2, 2.290857, 66, 32, 22, 16, 0, 787);
+mem_set_values(KMT + 1976, 2, 2.290857, 49, 48, 26, 16, 22, 787);
+mem_set_values(KMT + 1984, 2, 2.290857, 33, 64, 23, 16, 48, 787);
+mem_set_values(KMT + 1992, 2, 2.290857, 18, 80, 28, 16, 71, 787);
+mem_set_values(KMT + 2000, 2, 2.290857, 2, 96, 24, 16, 99, 787);
+mem_set_values(KMT + 2008, 2, 2.290857, 0, 112, 5, 4, 123, 787);
+mem_set_values(KMT + 2016, 2, 2.340857, 92, 3, 16, 13, 128, 787);
+mem_set_values(KMT + 2024, 2, 2.340857, 81, 16, 17, 11, 144, 787);
+mem_set_values(KMT + 2032, 2, 2.340857, 63, 32, 21, 16, 161, 787);
+mem_set_values(KMT + 2040, 2, 2.340857, 41, 48, 29, 16, 182, 787);
+mem_set_values(KMT + 2048, 2, 2.340857, 24, 64, 30, 16, 0, 803);
+mem_set_values(KMT + 2056, 2, 2.340857, 7, 80, 35, 16, 30, 803);
+mem_set_values(KMT + 2064, 2, 2.340857, 0, 96, 26, 16, 65, 803);
+mem_set_values(KMT + 2072, 2, 2.340857, 0, 112, 6, 4, 91, 803);
+mem_set_values(KMT + 2080, 2, 2.390857, 89, 2, 18, 14, 97, 803);
+mem_set_values(KMT + 2088, 2, 2.390857, 78, 16, 17, 11, 115, 803);
+mem_set_values(KMT + 2096, 2, 2.390857, 60, 36, 15, 10, 132, 803);
+mem_set_values(KMT + 2104, 2, 2.390857, 32, 49, 30, 15, 147, 803);
+mem_set_values(KMT + 2112, 2, 2.390857, 13, 64, 36, 16, 177, 803);
+mem_set_values(KMT + 2120, 2, 2.390857, 0, 80, 33, 16, 0, 819);
+mem_set_values(KMT + 2128, 2, 2.390857, 0, 96, 18, 16, 33, 819);
+mem_set_values(KMT + 2136, 2, 2.390857, 0, 112, 2, 2, 51, 819);
+mem_set_values(KMT + 2144, 2, 2.440857, 86, 2, 21, 14, 53, 819);
+mem_set_values(KMT + 2152, 2, 2.440857, 76, 16, 16, 11, 74, 819);
+mem_set_values(KMT + 2160, 2, 2.440857, 56, 35, 13, 8, 90, 819);
+mem_set_values(KMT + 2168, 2, 2.440857, 28, 49, 28, 15, 103, 819);
+mem_set_values(KMT + 2176, 2, 2.440857, 2, 64, 39, 16, 131, 819);
+mem_set_values(KMT + 2184, 2, 2.440857, 0, 80, 24, 16, 170, 819);
+mem_set_values(KMT + 2192, 2, 2.440857, 0, 96, 7, 6, 194, 819);
+mem_set_values(KMT + 2200, 2, 2.490857, 82, 1, 24, 15, 201, 819);
+mem_set_values(KMT + 2208, 2, 2.490857, 67, 16, 22, 11, 0, 835);
+mem_set_values(KMT + 2216, 2, 2.490857, 53, 34, 12, 7, 22, 835);
+mem_set_values(KMT + 2224, 2, 2.490857, 28, 56, 13, 8, 34, 835);
+mem_set_values(KMT + 2232, 2, 2.490857, 2, 64, 30, 16, 47, 835);
+mem_set_values(KMT + 2240, 2, 2.490857, 0, 80, 13, 11, 77, 835);
+mem_set_values(KMT + 2248, 2, 2.540857, 77, 1, 24, 15, 90, 835);
+mem_set_values(KMT + 2256, 2, 2.540857, 61, 16, 25, 11, 114, 835);
+mem_set_values(KMT + 2264, 2, 2.540857, 53, 33, 8, 6, 139, 835);
+mem_set_values(KMT + 2272, 2, 2.590857, 71, 0, 30, 16, 147, 835);
+mem_set_values(KMT + 2280, 2, 2.590857, 51, 16, 30, 12, 177, 835);
+mem_set_values(KMT + 2288, 2, 2.640857, 65, 0, 36, 16, 0, 851);
+mem_set_values(KMT + 2296, 2, 2.640857, 49, 16, 28, 12, 36, 851);
+mem_set_values(KMT + 2304, 2, 2.690857, 56, 0, 44, 16, 64, 851);
+mem_set_values(KMT + 2312, 2, 2.690857, 31, 16, 40, 11, 108, 851);
+mem_set_values(KMT + 2320, 2, 2.740857, 46, 0, 51, 16, 148, 851);
+mem_set_values(KMT + 2328, 2, 2.740857, 30, 16, 34, 12, 199, 851);
+mem_set_values(KMT + 2336, 2, 2.790857, 33, 0, 60, 16, 0, 867);
+mem_set_values(KMT + 2344, 2, 2.790857, 27, 16, 29, 11, 60, 867);
+mem_set_values(KMT + 2352, 2, 2.840857, 22, 0, 67, 16, 89, 867);
+mem_set_values(KMT + 2360, 2, 2.840857, 22, 16, 23, 6, 156, 867);
+mem_set_values(KMT + 2368, 2, 2.890857, 8, 0, 75, 16, 0, 883);
+mem_set_values(KMT + 2376, 2, 2.890857, 22, 16, 9, 2, 75, 883);
+mem_set_values(KMT + 2384, 2, 2.940857, 0, 0, 74, 12, 84, 883);
+mem_set_values(KMT + 2392, 2, 2.990857, 0, 0, 62, 12, 158, 883);
+mem_set_values(KMT + 2400, 2, 3.040857, 0, 0, 41, 7, 0, 899);
+kc_nx = 25; kc_ny = 25; kc_x0 = 52; kc_y0 = 61; kc_c = 6; kc_p = 10; kc_wx = 1.0000; kc_wy = 0.5500; kc_ph = 0.0000;
+mem_set_values(KCT + 0, 0.0000, 2.5000, 91.5000, 109.2543, 0.0000, 8.5000, 91.5000, 103.2543, 0.0000, 14.5000, 91.5000, 98.4728, 0.0000, 20.5000, 91.5000, 93.6914, 0.0000, 26.5000, 91.5000, 88.9100, 0.0000, 32.5000, 91.5000, 84.1286, 0.0000, 38.5000, 91.5000, 79.3472, 0.0000, 44.5000, 91.5000, 74.5659, 0.0000, 50.5000, 91.5000, 69.7845, 0.0000, 56.5000, 91.5000, 65.1000, 0.0000, 62.5000, 91.5000, 61.4814, 0.0000, 68.5000, 91.5000, 57.8628, 0.0000, 74.5000, 91.5000, 54.2442, 0.0000, 80.5000, 91.5000, 50.8302, 0.0000, 86.5000, 91.5000, 47.7333);
+mem_set_values(KCT + 60, 0.0000, 92.5000, 91.5000, 45.4380, 0.0000, 98.5000, 91.5000, 44.2566, 0.0000, 104.5000, 91.5000, 43.0752, 0.1097, 110.5000, 91.5000, 41.8938, 0.1518, 116.5000, 91.5000, 40.8938, 0.1505, 122.5000, 91.5000, 40.0000, 0.1534, 128.5000, 91.5000, 40.5000, 0.1507, 134.5000, 91.5000, 41.2953, 0.0832, 140.5000, 91.5000, 42.4767, 0.0000, 146.5000, 91.5000, 43.6581, 0.0000, 2.5000, 97.5000, 108.0729, 0.0000, 8.5000, 97.5000, 102.0729, 0.0000, 14.5000, 97.5000, 96.0729, 0.0000, 20.5000, 97.5000, 90.0729, 0.0000, 26.5000, 97.5000, 85.2915);
+mem_set_values(KCT + 120, 0.0000, 32.5000, 97.5000, 80.5100, 0.0000, 38.5000, 97.5000, 75.7286, 0.0000, 44.5000, 97.5000, 70.9473, 0.0000, 50.5000, 97.5000, 66.1659, 0.0000, 56.5000, 97.5000, 61.3845, 0.0000, 62.5000, 97.5000, 56.7000, 0.0000, 68.5000, 97.5000, 53.0814, 0.0000, 74.5000, 97.5000, 49.4628, 0.0000, 80.5000, 97.5000, 45.8442, 0.0000, 86.5000, 97.5000, 42.6457, 0.0000, 92.5000, 97.5000, 39.5442, 0.0533, 98.5000, 97.5000, 38.2566, 0.1343, 104.5000, 97.5000, 37.0752, 0.1278, 110.5000, 97.5000, 35.8938, 0.1224, 116.5000, 97.5000, 34.8938);
+mem_set_values(KCT + 180, 0.1177, 122.5000, 97.5000, 34.0000, 0.1203, 128.5000, 97.5000, 34.5000, 0.1246, 134.5000, 97.5000, 35.2953, 0.1310, 140.5000, 97.5000, 36.4767, 0.1205, 146.5000, 97.5000, 37.6581, 0.0000, 2.5000, 103.5000, 106.8915, 0.0000, 8.5000, 103.5000, 100.8915, 0.0000, 14.5000, 103.5000, 94.8915, 0.0000, 20.5000, 103.5000, 88.8915, 0.0000, 26.5000, 103.5000, 82.8915, 0.0000, 32.5000, 103.5000, 76.8915, 0.0000, 38.5000, 103.5000, 72.1101, 0.0000, 44.5000, 103.5000, 67.3287, 0.0000, 50.5000, 103.5000, 62.5473, 0.0000, 56.5000, 103.5000, 57.7659);
+mem_set_values(KCT + 240, 0.0000, 62.5000, 103.5000, 52.9845, 0.0000, 68.5000, 103.5000, 48.3000, 0.0000, 74.5000, 103.5000, 44.6814, 0.0000, 80.5000, 103.5000, 41.0628, 0.0000, 86.5000, 103.5000, 37.6488, 0.0427, 92.5000, 103.5000, 34.5519, 0.1085, 98.5000, 103.5000, 32.2566, 0.1025, 104.5000, 103.5000, 31.0752, 0.0965, 110.5000, 103.5000, 29.8938, 0.0915, 116.5000, 103.5000, 28.8938, 0.0871, 122.5000, 103.5000, 28.0000, 0.0895, 128.5000, 103.5000, 28.5000, 0.0935, 134.5000, 103.5000, 29.2953, 0.0994, 140.5000, 103.5000, 30.4767, 0.1055, 146.5000, 103.5000, 31.6581);
+mem_set_values(KCT + 300, 0.0000, 2.5000, 109.5000, 105.7101, 0.0000, 8.5000, 109.5000, 99.7101, 0.0000, 14.5000, 109.5000, 93.7101, 0.0080, 20.5000, 109.5000, 87.7101, 0.0375, 26.5000, 109.5000, 81.7101, 0.0000, 32.5000, 109.5000, 75.7101, 0.0000, 38.5000, 109.5000, 69.7101, 0.0000, 44.5000, 109.5000, 63.7101, 0.0000, 50.5000, 109.5000, 58.9287, 0.0000, 56.5000, 109.5000, 54.1473, 0.0000, 62.5000, 109.5000, 49.3659, 0.0000, 68.5000, 109.5000, 44.5845, 0.0000, 74.5000, 109.5000, 39.9000, 0.0000, 80.5000, 109.5000, 36.2814, 0.0000, 86.5000, 109.5000, 32.6628);
+mem_set_values(KCT + 360, 0.0943, 92.5000, 109.5000, 29.4643, 0.0792, 98.5000, 109.5000, 26.3628, 0.0731, 104.5000, 109.5000, 25.0752, 0.0676, 110.5000, 109.5000, 23.8938, 0.0630, 116.5000, 109.5000, 22.8938, 0.0591, 122.5000, 109.5000, 22.0000, 0.0613, 128.5000, 109.5000, 22.5000, 0.0649, 134.5000, 109.5000, 23.2953, 0.0703, 140.5000, 109.5000, 24.4767, 0.0758, 146.5000, 109.5000, 25.6659, 0.0000, 2.5000, 115.5000, 104.5287, 0.0901, 8.5000, 115.5000, 98.5287, 0.3000, 14.5000, 115.5000, 92.5287, 0.3000, 20.5000, 115.5000, 86.5287, 0.3000, 26.5000, 115.5000, 80.5287);
+mem_set_values(KCT + 420, 0.3000, 32.5000, 115.5000, 74.5287, 0.3000, 38.5000, 115.5000, 68.5287, 0.2621, 44.5000, 115.5000, 62.5287, 0.2507, 50.5000, 115.5000, 56.5287, 0.2128, 56.5000, 115.5000, 50.5287, 0.1839, 62.5000, 115.5000, 45.7473, 0.1560, 68.5000, 115.5000, 40.9659, 0.1294, 74.5000, 115.5000, 36.1845, 0.1046, 80.5000, 115.5000, 31.5000, 0.0865, 86.5000, 115.5000, 27.8814, 0.0702, 92.5000, 115.5000, 24.4674, 0.0563, 98.5000, 115.5000, 21.3705, 0.0465, 104.5000, 115.5000, 19.0752, 0.0416, 110.5000, 115.5000, 17.8938, 0.0376, 116.5000, 115.5000, 16.8938);
+mem_set_values(KCT + 480, 0.0342, 122.5000, 115.5000, 16.0000, 0.0361, 128.5000, 115.5000, 16.5000, 0.0392, 134.5000, 115.5000, 17.2953, 0.0440, 140.5000, 115.5000, 18.4767, 0.0529, 146.5000, 115.5000, 20.5798, 0.0000, 2.5000, 121.5000, 103.3473, 0.3000, 8.5000, 121.5000, 97.3473, 0.3000, 14.5000, 121.5000, 91.3473, 0.3000, 20.5000, 121.5000, 85.3473, 0.3000, 26.5000, 121.5000, 79.3473, 0.3000, 32.5000, 121.5000, 73.3473, 0.3000, 38.5000, 121.5000, 67.3473, 0.2822, 44.5000, 121.5000, 61.3473, 0.2431, 50.5000, 121.5000, 55.3473, 0.2056, 56.5000, 121.5000, 49.3473);
+mem_set_values(KCT + 540, 0.1697, 62.5000, 121.5000, 43.3473, 0.1358, 68.5000, 121.5000, 37.3473, 0.1102, 74.5000, 121.5000, 32.5659, 0.0860, 80.5000, 121.5000, 27.7845, 0.0640, 86.5000, 121.5000, 23.1000, 0.0482, 92.5000, 121.5000, 19.4814, 0.0353, 98.5000, 121.5000, 16.2829, 0.0238, 104.5000, 121.5000, 13.1814, 0.0194, 110.5000, 121.5000, 11.8938, 0.0162, 116.5000, 121.5000, 10.8938, 0.0134, 122.5000, 121.5000, 10.0000, 0.0149, 128.5000, 121.5000, 10.5000, 0.0174, 134.5000, 121.5000, 11.2953, 0.0214, 140.5000, 121.5000, 12.4845, 0.0334, 146.5000, 121.5000, 15.7984);
+mem_set_values(KCT + 600, 0.0000, 2.5000, 127.5000, 102.1659, 0.3000, 8.5000, 127.5000, 96.1659, 0.3000, 14.5000, 127.5000, 90.1659, 0.3000, 20.5000, 127.5000, 84.1659, 0.3000, 26.5000, 127.5000, 78.1659, 0.3000, 32.5000, 127.5000, 72.1659, 0.3000, 38.5000, 127.5000, 66.1659, 0.2744, 44.5000, 127.5000, 60.1659, 0.2356, 50.5000, 127.5000, 54.1659, 0.1984, 56.5000, 127.5000, 48.1659, 0.1629, 62.5000, 127.5000, 42.1659, 0.1293, 68.5000, 127.5000, 36.1659, 0.0978, 74.5000, 127.5000, 30.1659, 0.0688, 80.5000, 127.5000, 24.1659, 0.0478, 86.5000, 127.5000, 19.3845);
+mem_set_values(KCT + 660, 0.0293, 92.5000, 127.5000, 14.7000, 0.0174, 98.5000, 127.5000, 11.2860, 0.0083, 104.5000, 127.5000, 8.1891, 0.0028, 110.5000, 127.5000, 5.8938, 0.0010, 116.5000, 127.5000, 4.8938, 0.0000, 122.5000, 127.5000, 4.0000, 0.0005, 128.5000, 127.5000, 4.5000, 0.0017, 134.5000, 127.5000, 5.2954, 0.0062, 140.5000, 127.5000, 7.3984, 0.0200, 146.5000, 127.5000, 12.0829, 0.0000, 2.5000, 133.5000, 100.9845, 0.3700, 8.5000, 133.5000, 94.9845, 0.3700, 14.5000, 133.5000, 88.9845, 0.3700, 20.5000, 133.5000, 82.9845, 0.3700, 26.5000, 133.5000, 76.9845);
+mem_set_values(KCT + 720, 0.3700, 32.5000, 133.5000, 70.9845, 0.3700, 38.5000, 133.5000, 64.9845, 0.3289, 44.5000, 133.5000, 58.9845, 0.2814, 50.5000, 133.5000, 52.9845, 0.2359, 56.5000, 133.5000, 46.9845, 0.1925, 62.5000, 133.5000, 40.9845, 0.1516, 68.5000, 133.5000, 34.9845, 0.1134, 74.5000, 133.5000, 28.9845, 0.0783, 80.5000, 133.5000, 22.9845, 0.0469, 86.5000, 133.5000, 16.9845, 0.0203, 92.5000, 133.5000, 10.9845, 0.0045, 98.5000, 133.5000, 6.3000, 0.0000, 104.5000, 133.5000, 3.1969, 0.0000, 110.5000, 133.5000, 0.0000, 0.0000, 116.5000, 133.5000, 0.0000);
+mem_set_values(KCT + 780, 0.0000, 122.5000, 133.5000, 0.0000, 0.0000, 128.5000, 133.5000, 0.0000, 0.0000, 134.5000, 133.5000, 0.0000, 0.0009, 140.5000, 133.5000, 4.6969, 0.0191, 146.5000, 133.5000, 10.6891, 0.0000, 2.5000, 139.5000, 100.0000, 0.3414, 8.5000, 139.5000, 94.0000, 0.4540, 14.5000, 139.5000, 88.0000, 0.4540, 20.5000, 139.5000, 82.0000, 0.4540, 26.5000, 139.5000, 76.0000, 0.4540, 32.5000, 139.5000, 70.0000, 0.4540, 38.5000, 139.5000, 64.0000, 0.3938, 44.5000, 139.5000, 58.0000, 0.3359, 50.5000, 139.5000, 52.0000, 0.2805, 56.5000, 139.5000, 46.0000);
+mem_set_values(KCT + 840, 0.2278, 62.5000, 139.5000, 40.0000, 0.1781, 68.5000, 139.5000, 34.0000, 0.1318, 74.5000, 139.5000, 28.0000, 0.0894, 80.5000, 139.5000, 22.0000, 0.0517, 86.5000, 139.5000, 16.0000, 0.0203, 92.5000, 139.5000, 10.0000, 0.0000, 98.5000, 139.5000, 4.0000, 0.0000, 104.5000, 139.5000, 0.0000, 0.0000, 110.5000, 139.5000, 0.0000, 0.0000, 116.5000, 139.5000, 0.0000, 0.0000, 122.5000, 139.5000, 0.0000, 0.0000, 128.5000, 139.5000, 0.0000, 0.0000, 134.5000, 139.5000, 0.0000, 0.0000, 140.5000, 139.5000, 3.5000, 0.0180, 146.5000, 139.5000, 9.5000);
+mem_set_values(KCT + 900, 0.0000, 2.5000, 145.5000, 100.2953, 0.1776, 8.5000, 145.5000, 94.2953, 0.5380, 14.5000, 145.5000, 88.2953, 0.5380, 20.5000, 145.5000, 82.2953, 0.5380, 26.5000, 145.5000, 76.2953, 0.5380, 32.5000, 145.5000, 70.2953, 0.5380, 38.5000, 145.5000, 64.2953, 0.4701, 44.5000, 145.5000, 58.2953, 0.4014, 50.5000, 145.5000, 52.2953, 0.3356, 56.5000, 145.5000, 46.2953, 0.2729, 62.5000, 145.5000, 40.2953, 0.2139, 68.5000, 145.5000, 34.2953, 0.1588, 74.5000, 145.5000, 28.2953, 0.1083, 80.5000, 145.5000, 22.2953, 0.0633, 86.5000, 145.5000, 16.2953);
+mem_set_values(KCT + 960, 0.0256, 92.5000, 145.5000, 10.2954, 0.0004, 98.5000, 145.5000, 4.2954, 0.0000, 104.5000, 145.5000, 0.0000, 0.0000, 110.5000, 145.5000, 0.0000, 0.0000, 116.5000, 145.5000, 0.0000, 0.0000, 122.5000, 145.5000, 0.0000, 0.0000, 128.5000, 145.5000, 0.0000, 0.0000, 134.5000, 145.5000, 0.0000, 0.0016, 140.5000, 145.5000, 4.7954, 0.0209, 146.5000, 145.5000, 10.3860, 0.0000, 2.5000, 151.5000, 100.5000, 0.0000, 8.5000, 151.5000, 94.5000, 0.4833, 14.5000, 151.5000, 88.5000, 0.6220, 20.5000, 151.5000, 82.5000, 0.6220, 26.5000, 151.5000, 76.5000);
+mem_set_values(KCT + 1020, 0.6220, 32.5000, 151.5000, 70.5000, 0.6220, 38.5000, 151.5000, 64.5000, 0.5463, 44.5000, 151.5000, 58.5000, 0.4667, 50.5000, 151.5000, 52.5000, 0.3905, 56.5000, 151.5000, 46.5000, 0.3180, 62.5000, 151.5000, 40.5000, 0.2495, 68.5000, 151.5000, 34.5000, 0.1856, 74.5000, 151.5000, 28.5000, 0.1270, 80.5000, 151.5000, 22.5000, 0.0748, 86.5000, 151.5000, 16.5000, 0.0310, 92.5000, 151.5000, 10.5000, 0.0010, 98.5000, 151.5000, 4.5000, 0.0000, 104.5000, 151.5000, 0.0000, 0.0000, 110.5000, 151.5000, 0.0000, 0.0000, 116.5000, 151.5000, 0.0000);
+mem_set_values(KCT + 1080, 0.0000, 122.5000, 151.5000, 0.0000, 0.0000, 128.5000, 151.5000, 0.0000, 0.0000, 134.5000, 151.5000, 1.0000, 0.0000, 140.5000, 151.5000, 6.5907, 0.0000, 146.5000, 151.5000, 12.3845, 0.0000, 2.5000, 157.5000, 100.8938, 0.0000, 8.5000, 157.5000, 94.8938, 0.0000, 14.5000, 157.5000, 88.8938, 0.4269, 20.5000, 157.5000, 82.8938, 0.7060, 26.5000, 157.5000, 76.8938, 0.7060, 32.5000, 157.5000, 70.8938, 0.7060, 38.5000, 157.5000, 64.8938, 0.6261, 44.5000, 157.5000, 58.8938, 0.5355, 50.5000, 157.5000, 52.8938, 0.4488, 56.5000, 157.5000, 46.8938);
+mem_set_values(KCT + 1140, 0.3662, 62.5000, 157.5000, 40.8938, 0.2882, 68.5000, 157.5000, 34.8938, 0.2153, 74.5000, 157.5000, 28.8938, 0.1484, 80.5000, 157.5000, 22.8938, 0.0886, 86.5000, 157.5000, 16.8938, 0.0380, 92.5000, 157.5000, 10.8938, 0.0024, 98.5000, 157.5000, 4.8938, 0.0000, 104.5000, 157.5000, 0.0000, 0.0000, 110.5000, 157.5000, 0.0000, 0.0000, 116.5000, 157.5000, 0.0000, 0.0000, 122.5000, 157.5000, 0.0000, 0.0000, 128.5000, 157.5000, 0.0000, 0.0000, 134.5000, 157.5000, 3.1969, 0.0000, 140.5000, 157.5000, 8.5907, 0.0000, 146.5000, 157.5000, 14.1814);
+mem_set_values(KCT + 1200, 0.0000, 2.5000, 163.5000, 101.0000, 0.0000, 8.5000, 163.5000, 95.0000, 0.0000, 14.5000, 163.5000, 89.0000, 0.0000, 20.5000, 163.5000, 83.0000, 0.5746, 26.5000, 163.5000, 77.0000, 0.7900, 32.5000, 163.5000, 71.0000, 0.7900, 38.5000, 163.5000, 65.0000, 0.7024, 44.5000, 163.5000, 59.0000, 0.6010, 50.5000, 163.5000, 53.0000, 0.5039, 56.5000, 163.5000, 47.0000, 0.4113, 62.5000, 163.5000, 41.0000, 0.3239, 68.5000, 163.5000, 35.0000, 0.2423, 74.5000, 163.5000, 29.0000, 0.1673, 80.5000, 163.5000, 23.0000, 0.1002, 86.5000, 163.5000, 17.0000);
+mem_set_values(KCT + 1260, 0.0435, 92.5000, 163.5000, 11.0000, 0.0031, 98.5000, 163.5000, 5.0000, 0.0000, 104.5000, 163.5000, 0.0000, 0.0000, 110.5000, 163.5000, 0.0000, 0.0000, 116.5000, 163.5000, 0.0000, 0.0000, 122.5000, 163.5000, 0.0000, 0.0000, 128.5000, 163.5000, 1.5000, 0.0000, 134.5000, 163.5000, 6.4938, 0.0000, 140.5000, 163.5000, 11.3938, 0.0000, 146.5000, 163.5000, 16.3783, 0.0000, 2.5000, 169.5000, 101.0000, 0.0000, 8.5000, 169.5000, 95.0000, 0.0000, 14.5000, 169.5000, 89.0000, 0.0000, 20.5000, 169.5000, 83.0000, 0.1778, 26.5000, 169.5000, 77.0000);
+mem_set_values(KCT + 1320, 0.8740, 32.5000, 169.5000, 71.0000, 0.8740, 38.5000, 169.5000, 65.0000, 0.7771, 44.5000, 169.5000, 59.0000, 0.6649, 50.5000, 169.5000, 53.0000, 0.5574, 56.5000, 169.5000, 47.0000, 0.4551, 62.5000, 169.5000, 41.0000, 0.3584, 68.5000, 169.5000, 35.0000, 0.2681, 74.5000, 169.5000, 29.0000, 0.1851, 80.5000, 169.5000, 23.0000, 0.1109, 86.5000, 169.5000, 17.0000, 0.0481, 92.5000, 169.5000, 11.0000, 0.0035, 98.5000, 169.5000, 5.0000, 0.0000, 104.5000, 169.5000, 0.0000, 0.0000, 110.5000, 169.5000, 0.0000, 0.0000, 116.5000, 169.5000, 0.0000);
+mem_set_values(KCT + 1380, 0.0000, 122.5000, 169.5000, 0.0000, 0.0000, 128.5000, 169.5000, 1.5000, 0.0000, 134.5000, 169.5000, 7.5000, 0.0000, 140.5000, 169.5000, 13.5000, 0.0000, 146.5000, 169.5000, 19.5000, 0.0000, 2.5000, 175.5000, 101.0000, 0.0000, 8.5000, 175.5000, 95.0000, 0.0000, 14.5000, 175.5000, 89.0000, 0.0000, 20.5000, 175.5000, 83.0000, 0.6260, 26.5000, 175.5000, 77.0000, 0.9580, 32.5000, 175.5000, 71.0000, 0.9580, 38.5000, 175.5000, 65.0000, 0.8518, 44.5000, 175.5000, 59.0000, 0.7288, 50.5000, 175.5000, 53.0000, 0.6110, 56.5000, 175.5000, 47.0000);
+mem_set_values(KCT + 1440, 0.4988, 62.5000, 175.5000, 41.0000, 0.3928, 68.5000, 175.5000, 35.0000, 0.2938, 74.5000, 175.5000, 29.0000, 0.2029, 80.5000, 175.5000, 23.0000, 0.1215, 86.5000, 175.5000, 17.0000, 0.0527, 92.5000, 175.5000, 11.0000, 0.0038, 98.5000, 175.5000, 5.0000, 0.0000, 104.5000, 175.5000, 0.0000, 0.0000, 110.5000, 175.5000, 0.0000, 0.0000, 116.5000, 175.5000, 0.0000, 0.0000, 122.5000, 175.5000, 0.0000, 0.0000, 128.5000, 175.5000, 1.5000, 0.0000, 134.5000, 175.5000, 7.5000, 0.0000, 140.5000, 175.5000, 13.5000, 0.0000, 146.5000, 175.5000, 19.5000);
+mem_set_values(KCT + 1500, 0.0000, 2.5000, 181.5000, 101.0000, 0.0000, 8.5000, 181.5000, 95.0000, 0.0000, 14.5000, 181.5000, 89.0000, 0.0000, 20.5000, 181.5000, 83.0000, 0.8750, 26.5000, 181.5000, 77.0000, 1.0000, 32.5000, 181.5000, 71.0000, 1.0000, 38.5000, 181.5000, 65.0000, 0.8892, 44.5000, 181.5000, 59.0000, 0.7608, 50.5000, 181.5000, 53.0000, 0.6378, 56.5000, 181.5000, 47.0000, 0.5207, 62.5000, 181.5000, 41.0000, 0.4100, 68.5000, 181.5000, 35.0000, 0.3067, 74.5000, 181.5000, 29.0000, 0.2117, 80.5000, 181.5000, 23.0000, 0.1269, 86.5000, 181.5000, 17.0000);
+mem_set_values(KCT + 1560, 0.0550, 92.5000, 181.5000, 11.0000, 0.0040, 98.5000, 181.5000, 5.0000, 0.0000, 104.5000, 181.5000, 0.0000, 0.0000, 110.5000, 181.5000, 0.0000, 0.0000, 116.5000, 181.5000, 0.0000, 0.0000, 122.5000, 181.5000, 0.0000, 0.0000, 128.5000, 181.5000, 2.0000, 0.0000, 134.5000, 181.5000, 8.0000, 0.0000, 140.5000, 181.5000, 14.0000, 0.0000, 146.5000, 181.5000, 20.0000, 0.0000, 2.5000, 187.5000, 101.0000, 0.0000, 8.5000, 187.5000, 95.0000, 0.0000, 14.5000, 187.5000, 89.0000, 0.0000, 20.5000, 187.5000, 83.0000, 0.5797, 26.5000, 187.5000, 77.0000);
+mem_set_values(KCT + 1620, 1.0000, 32.5000, 187.5000, 71.0000, 1.0000, 38.5000, 187.5000, 65.0000, 0.8892, 44.5000, 187.5000, 59.0000, 0.7608, 50.5000, 187.5000, 53.0000, 0.6378, 56.5000, 187.5000, 47.0000, 0.5207, 62.5000, 187.5000, 41.0000, 0.4100, 68.5000, 187.5000, 35.0000, 0.3067, 74.5000, 187.5000, 29.0000, 0.2117, 80.5000, 187.5000, 23.0000, 0.1269, 86.5000, 187.5000, 17.0000, 0.0550, 92.5000, 187.5000, 11.0000, 0.0040, 98.5000, 187.5000, 5.0000, 0.0000, 104.5000, 187.5000, 0.0000, 0.0000, 110.5000, 187.5000, 0.0000, 0.0000, 116.5000, 187.5000, 0.0000);
+mem_set_values(KCT + 1680, 0.0000, 122.5000, 187.5000, 0.0000, 0.0000, 128.5000, 187.5000, 2.0000, 0.0000, 134.5000, 187.5000, 8.0000, 0.0000, 140.5000, 187.5000, 14.0000, 0.0000, 146.5000, 187.5000, 20.0000, 0.0000, 2.5000, 193.5000, 100.5000, 0.0000, 8.5000, 193.5000, 94.5000, 0.0000, 14.5000, 193.5000, 88.5000, 0.0000, 20.5000, 193.5000, 82.5000, 0.0000, 26.5000, 193.5000, 76.5000, 0.9793, 32.5000, 193.5000, 70.5000, 1.0000, 38.5000, 193.5000, 64.5000, 0.8783, 44.5000, 193.5000, 58.5000, 0.7503, 50.5000, 193.5000, 52.5000, 0.6278, 56.5000, 193.5000, 46.5000);
+mem_set_values(KCT + 1740, 0.5112, 62.5000, 193.5000, 40.5000, 0.4011, 68.5000, 193.5000, 34.5000, 0.2984, 74.5000, 193.5000, 28.5000, 0.2043, 80.5000, 193.5000, 22.5000, 0.1203, 86.5000, 193.5000, 16.5000, 0.0498, 92.5000, 193.5000, 10.5000, 0.0016, 98.5000, 193.5000, 4.5000, 0.0000, 104.5000, 193.5000, 0.0000, 0.0000, 110.5000, 193.5000, 0.0000, 0.0000, 116.5000, 193.5000, 0.0000, 0.0000, 122.5000, 193.5000, 0.0000, 0.0000, 128.5000, 193.5000, 2.0000, 0.0000, 134.5000, 193.5000, 8.0000, 0.0000, 140.5000, 193.5000, 14.0000, 0.0000, 146.5000, 193.5000, 20.0000);
+mem_set_values(KCT + 1800, 0.0000, 2.5000, 199.5000, 100.5000, 0.0000, 8.5000, 199.5000, 94.5000, 0.0000, 14.5000, 199.5000, 88.5000, 0.0000, 20.5000, 199.5000, 82.5000, 0.0000, 26.5000, 199.5000, 76.5000, 0.3523, 32.5000, 199.5000, 70.5000, 1.0000, 38.5000, 199.5000, 64.5000, 0.8783, 44.5000, 199.5000, 58.5000, 0.7503, 50.5000, 199.5000, 52.5000, 0.6278, 56.5000, 199.5000, 46.5000, 0.5112, 62.5000, 199.5000, 40.5000, 0.4011, 68.5000, 199.5000, 34.5000, 0.2984, 74.5000, 199.5000, 28.5000, 0.2043, 80.5000, 199.5000, 22.5000, 0.1203, 86.5000, 199.5000, 16.5000);
+mem_set_values(KCT + 1860, 0.0498, 92.5000, 199.5000, 10.5000, 0.0016, 98.5000, 199.5000, 4.5000, 0.0000, 104.5000, 199.5000, 0.0000, 0.0000, 110.5000, 199.5000, 0.0000, 0.0000, 116.5000, 199.5000, 0.0000, 0.0000, 122.5000, 199.5000, 0.0000, 0.0000, 128.5000, 199.5000, 2.0000, 0.0000, 134.5000, 199.5000, 8.0000, 0.0000, 140.5000, 199.5000, 14.0000, 0.0000, 146.5000, 199.5000, 20.0000, 0.0000, 2.5000, 205.5000, 100.5000, 0.0000, 8.5000, 205.5000, 94.5000, 0.0000, 14.5000, 205.5000, 88.5000, 0.0000, 20.5000, 205.5000, 82.5000, 0.0000, 26.5000, 205.5000, 76.5000);
+mem_set_values(KCT + 1920, 0.0000, 32.5000, 205.5000, 70.5000, 1.0000, 38.5000, 205.5000, 64.5000, 0.8783, 44.5000, 205.5000, 58.5000, 0.7503, 50.5000, 205.5000, 52.5000, 0.6278, 56.5000, 205.5000, 46.5000, 0.5112, 62.5000, 205.5000, 40.5000, 0.4011, 68.5000, 205.5000, 34.5000, 0.2984, 74.5000, 205.5000, 28.5000, 0.2043, 80.5000, 205.5000, 22.5000, 0.1203, 86.5000, 205.5000, 16.5000, 0.0498, 92.5000, 205.5000, 10.5000, 0.0016, 98.5000, 205.5000, 4.5000, 0.0000, 104.5000, 205.5000, 0.0000, 0.0000, 110.5000, 205.5000, 0.0000, 0.0000, 116.5000, 205.5000, 0.0000);
+mem_set_values(KCT + 1980, 0.0000, 122.5000, 205.5000, 0.0000, 0.0000, 128.5000, 205.5000, 2.0000, 0.0000, 134.5000, 205.5000, 8.0000, 0.0000, 140.5000, 205.5000, 14.0000, 0.0000, 146.5000, 205.5000, 20.0000, 0.0000, 2.5000, 211.5000, 100.5000, 0.0000, 8.5000, 211.5000, 94.5000, 0.0000, 14.5000, 211.5000, 88.5000, 0.0000, 20.5000, 211.5000, 82.5000, 0.0000, 26.5000, 211.5000, 76.5000, 0.0000, 32.5000, 211.5000, 70.5000, 0.1012, 38.5000, 211.5000, 64.5000, 0.7719, 44.5000, 211.5000, 58.5000, 0.7503, 50.5000, 211.5000, 52.5000, 0.6278, 56.5000, 211.5000, 46.5000);
+mem_set_values(KCT + 2040, 0.5112, 62.5000, 211.5000, 40.5000, 0.4011, 68.5000, 211.5000, 34.5000, 0.2984, 74.5000, 211.5000, 28.5000, 0.2043, 80.5000, 211.5000, 22.5000, 0.1203, 86.5000, 211.5000, 16.5000, 0.0498, 92.5000, 211.5000, 10.5000, 0.0016, 98.5000, 211.5000, 4.5000, 0.0000, 104.5000, 211.5000, 0.0000, 0.0000, 110.5000, 211.5000, 0.0000, 0.0000, 116.5000, 211.5000, 0.0000, 0.0000, 122.5000, 211.5000, 0.0000, 0.0000, 128.5000, 211.5000, 2.5000, 0.0000, 134.5000, 211.5000, 8.5000, 0.0000, 140.5000, 211.5000, 14.5000, 0.0000, 146.5000, 211.5000, 20.5000);
+mem_set_values(KCT + 2100, 0.0000, 2.5000, 217.5000, 100.5000, 0.0000, 8.5000, 217.5000, 94.5000, 0.0000, 14.5000, 217.5000, 88.5000, 0.0000, 20.5000, 217.5000, 82.5000, 0.0000, 26.5000, 217.5000, 76.5000, 0.0000, 32.5000, 217.5000, 70.5000, 0.0000, 38.5000, 217.5000, 64.5000, 0.0000, 44.5000, 217.5000, 58.5000, 0.0044, 50.5000, 217.5000, 52.5000, 0.3485, 56.5000, 217.5000, 46.5000, 0.5112, 62.5000, 217.5000, 40.5000, 0.4011, 68.5000, 217.5000, 34.5000, 0.2984, 74.5000, 217.5000, 28.5000, 0.2043, 80.5000, 217.5000, 22.5000, 0.1203, 86.5000, 217.5000, 16.5000);
+mem_set_values(KCT + 2160, 0.0498, 92.5000, 217.5000, 10.5000, 0.0016, 98.5000, 217.5000, 4.5000, 0.0000, 104.5000, 217.5000, 0.0000, 0.0000, 110.5000, 217.5000, 0.0000, 0.0000, 116.5000, 217.5000, 0.0000, 0.0000, 122.5000, 217.5000, 0.0000, 0.0000, 128.5000, 217.5000, 2.5000, 0.0000, 134.5000, 217.5000, 8.5000, 0.0000, 140.5000, 217.5000, 14.5000, 0.0000, 146.5000, 217.5000, 20.5000, 0.0000, 2.5000, 223.5000, 100.8938, 0.0000, 8.5000, 223.5000, 94.8938, 0.0000, 14.5000, 223.5000, 88.8938, 0.0000, 20.5000, 223.5000, 82.8938, 0.0000, 26.5000, 223.5000, 76.8938);
+mem_set_values(KCT + 2220, 0.0000, 32.5000, 223.5000, 70.8938, 0.0000, 38.5000, 223.5000, 64.8938, 0.0000, 44.5000, 223.5000, 58.8938, 0.0000, 50.5000, 223.5000, 52.8938, 0.0000, 56.5000, 223.5000, 46.8938, 0.0000, 62.5000, 223.5000, 40.8938, 0.0000, 68.5000, 223.5000, 34.8938, 0.0855, 74.5000, 223.5000, 28.8938, 0.2101, 80.5000, 223.5000, 22.8938, 0.1255, 86.5000, 223.5000, 16.8938, 0.0539, 92.5000, 223.5000, 10.8938, 0.0034, 98.5000, 223.5000, 4.8938, 0.0000, 104.5000, 223.5000, 2.0000, 0.0000, 110.5000, 223.5000, 2.0000, 0.0000, 116.5000, 223.5000, 2.0000);
+mem_set_values(KCT + 2280, 0.0000, 122.5000, 223.5000, 2.0000, 0.0000, 128.5000, 223.5000, 3.1984, 0.0000, 134.5000, 223.5000, 8.8938, 0.0000, 140.5000, 223.5000, 14.8938, 0.0000, 146.5000, 223.5000, 20.8938, 0.0000, 2.5000, 229.5000, 102.0752, 0.0000, 8.5000, 229.5000, 96.0752, 0.0000, 14.5000, 229.5000, 90.0752, 0.0000, 20.5000, 229.5000, 84.0752, 0.0000, 26.5000, 229.5000, 78.0752, 0.0000, 32.5000, 229.5000, 72.0752, 0.0000, 38.5000, 229.5000, 66.0752, 0.0000, 44.5000, 229.5000, 60.0752, 0.0000, 50.5000, 229.5000, 54.0752, 0.0000, 56.5000, 229.5000, 48.0752);
+mem_set_values(KCT + 2340, 0.0000, 62.5000, 229.5000, 42.0752, 0.0000, 68.5000, 229.5000, 36.0752, 0.0000, 74.5000, 229.5000, 30.0752, 0.2281, 80.5000, 229.5000, 24.0752, 0.1412, 86.5000, 229.5000, 18.0752, 0.0795, 92.5000, 229.5000, 13.1922, 0.0358, 98.5000, 229.5000, 9.0891, 0.0258, 104.5000, 229.5000, 8.0000, 0.0156, 110.5000, 229.5000, 8.0000, 0.0000, 116.5000, 229.5000, 8.0000, 0.0000, 122.5000, 229.5000, 8.0000, 0.0000, 128.5000, 229.5000, 8.4922, 0.0000, 134.5000, 229.5000, 11.5984, 0.0000, 140.5000, 229.5000, 16.3798, 0.0000, 146.5000, 229.5000, 22.0752);
+mem_set_values(KCT + 2400, 0.0000, 2.5000, 235.5000, 103.2566, 0.0000, 8.5000, 235.5000, 97.2566, 0.0000, 14.5000, 235.5000, 91.2566, 0.0000, 20.5000, 235.5000, 85.2566, 0.0000, 26.5000, 235.5000, 79.2566, 0.0000, 32.5000, 235.5000, 73.2566, 0.0000, 38.5000, 235.5000, 67.2566, 0.0000, 44.5000, 235.5000, 61.2566, 0.0000, 50.5000, 235.5000, 55.2566, 0.0000, 56.5000, 235.5000, 49.2566, 0.0000, 62.5000, 235.5000, 43.2566, 0.0000, 68.5000, 235.5000, 37.2566, 0.0000, 74.5000, 235.5000, 31.2566, 0.0203, 80.5000, 235.5000, 26.3736, 0.1486, 86.5000, 235.5000, 21.5922);
+mem_set_values(KCT + 2460, 0.1333, 92.5000, 235.5000, 17.4891, 0.0998, 98.5000, 235.5000, 14.8860, 0.0560, 104.5000, 235.5000, 14.0000, 0.0000, 110.5000, 235.5000, 14.0000, 0.0000, 116.5000, 235.5000, 14.0000, 0.0000, 122.5000, 235.5000, 14.0000, 0.0000, 128.5000, 235.5000, 14.4922, 0.0000, 134.5000, 235.5000, 16.2829, 0.0000, 140.5000, 235.5000, 19.9984, 0.0000, 146.5000, 235.5000, 24.7798);
+kq_nx = 30; kq_ny = 71; kq_c = 8;
+mem_set_values(KSQ + 0, 1.000, 1.000, 1.000, 1.000, 0.999, 0.989, 0.930, 0.882, 0.882, 0.882, 0.882, 0.882, 0.878, 0.009, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.983, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.951, 0.011, 0.001, 0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.245, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 60, 1.000, 0.997, 0.012, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.001, 0.995, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.976, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.821, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 120, 1.000, 0.976, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.821, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.976, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.936, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 180, 1.000, 0.985, 0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.989, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.500, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.003, 0.999, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 240, 1.000, 1.000, 1.000, 0.159, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.865, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.441, 0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.041, 0.284, 0.779, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 300, 1.000, 1.000, 1.000, 1.000, 1.000, 0.839, 0.008, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.014, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.998, 0.007, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.982, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 360, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.998, 0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.963, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.973, 0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.985, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 420, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.787, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.144, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.882, 0.941, 0.976, 0.991, 0.998, 1.000, 0.141, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.553, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 480, -0.000, -0.000, -0.000, 0.000, 0.003, 0.846, 0.001, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.423, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.301, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 540, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.167, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.061, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 600, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.023, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.006, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 660, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.002, 0.999, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.002, 0.999, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 720, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.003, 0.002, 0.057, 0.920, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.028, 0.893, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 780, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.182, 0.990, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.003, 0.978, 1.000);
+mem_set_values(KSQ + 840, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.022, 0.998, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.122);
+mem_set_values(KSQ + 900, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000);
+mem_set_values(KSQ + 960, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.006);
+mem_set_values(KSQ + 1020, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.016, 0.982, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.054, 0.668, 0.997, 1.000);
+mem_set_values(KSQ + 1080, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.060, 0.668, 0.989, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.943, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1140, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.015, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.895, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1200, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.500, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.180, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1260, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.960, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.017, 0.950, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1320, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.652, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.173, 0.998, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1380, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.014, 0.993, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.063, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1440, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.761, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.761, 1.000, 1.000);
+mem_set_values(KSQ + 1500, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.583, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.052, 0.957, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1560, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.665, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.035, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1620, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.004, 0.982, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.020, 0.996, 1.000, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1680, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.071, 0.999, 1.000, 1.000, 1.000, 1.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.196, 1.000, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1740, 0.014, 0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.001, 0.999, 1.000, 1.000, 1.000, 1.000, 0.993, 0.007, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.969, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1800, 1.000, 1.000, 0.057, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.768, 1.000, 1.000, 1.000, 1.000, 1.000, 0.637, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.095, 1.000, 1.000, 1.000);
+mem_set_values(KSQ + 1860, 1.000, 1.000, 0.999, 0.014, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.000, 0.986, 1.000, 1.000, 1.000, 1.000, 1.000, 0.998, 0.294, 0.002, 0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.644, 1.000, 1.000);
+mem_set_values(KSQ + 1920, 1.000, 1.000, 1.000, 1.000, 1.000, 0.999, 0.911, 0.818, 0.004, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.011, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.035, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.701, 1.000);
+mem_set_values(KSQ + 1980, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.166, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.007, 0.999, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.355, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.516);
+mem_set_values(KSQ + 2040, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.509, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, 0.004, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.661, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000);
+mem_set_values(KSQ + 2100, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000, 0.791, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000, -0.000);
+kt_n = 48;
+mem_set_values(KTL + 0, 0, 0, 40, 40);
+mem_set_values(KTL + 4, 40, 0, 40, 40);
+mem_set_values(KTL + 8, 80, 0, 40, 40);
+mem_set_values(KTL + 12, 120, 0, 40, 40);
+mem_set_values(KTL + 16, 160, 0, 40, 40);
+mem_set_values(KTL + 20, 200, 0, 40, 40);
+mem_set_values(KTL + 24, 0, 40, 40, 40);
+mem_set_values(KTL + 28, 40, 40, 40, 40);
+mem_set_values(KTL + 32, 120, 40, 40, 40);
+mem_set_values(KTL + 36, 160, 40, 40, 40);
+mem_set_values(KTL + 40, 200, 40, 40, 40);
+mem_set_values(KTL + 44, 0, 80, 40, 40);
+mem_set_values(KTL + 48, 40, 80, 40, 40);
+mem_set_values(KTL + 52, 160, 80, 40, 40);
+mem_set_values(KTL + 56, 200, 80, 40, 40);
+mem_set_values(KTL + 60, 0, 120, 40, 40);
+mem_set_values(KTL + 64, 40, 120, 40, 40);
+mem_set_values(KTL + 68, 160, 120, 40, 40);
+mem_set_values(KTL + 72, 200, 120, 40, 40);
+mem_set_values(KTL + 76, 120, 160, 40, 40);
+mem_set_values(KTL + 80, 160, 160, 40, 40);
+mem_set_values(KTL + 84, 200, 160, 40, 40);
+mem_set_values(KTL + 88, 120, 200, 40, 40);
+mem_set_values(KTL + 92, 160, 200, 40, 40);
+mem_set_values(KTL + 96, 200, 200, 40, 40);
+mem_set_values(KTL + 100, 200, 240, 40, 40);
+mem_set_values(KTL + 104, 120, 280, 40, 40);
+mem_set_values(KTL + 108, 160, 280, 40, 40);
+mem_set_values(KTL + 112, 200, 280, 40, 40);
+mem_set_values(KTL + 116, 120, 320, 40, 40);
+mem_set_values(KTL + 120, 160, 320, 40, 40);
+mem_set_values(KTL + 124, 200, 320, 40, 40);
+mem_set_values(KTL + 128, 160, 360, 40, 40);
+mem_set_values(KTL + 132, 200, 360, 40, 40);
+mem_set_values(KTL + 136, 160, 400, 40, 40);
+mem_set_values(KTL + 140, 200, 400, 40, 40);
+mem_set_values(KTL + 144, 0, 440, 40, 40);
+mem_set_values(KTL + 148, 160, 440, 40, 40);
+mem_set_values(KTL + 152, 200, 440, 40, 40);
+mem_set_values(KTL + 156, 0, 480, 40, 40);
+mem_set_values(KTL + 160, 40, 480, 40, 40);
+mem_set_values(KTL + 164, 200, 480, 40, 40);
+mem_set_values(KTL + 168, 0, 520, 40, 40);
+mem_set_values(KTL + 172, 40, 520, 40, 40);
+mem_set_values(KTL + 176, 200, 520, 40, 40);
+mem_set_values(KTL + 180, 0, 560, 40, 3);
+mem_set_values(KTL + 184, 40, 560, 40, 3);
+mem_set_values(KTL + 188, 200, 560, 40, 3);
+kw_nx = 25; kw_ny = 45; kw_y0 = 120; kw_y1 = 563; kw_c = 10;
+mem_set_values(KWT + 0, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.2261, 0.1244, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 60, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 120, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.3384, 1.0000, 0.5500, 0.0000, 0.2335, 0.3210, 1.0000, 0.5500, 0.0000, 0.2772, 0.2772, 1.0000, 0.5500, 0.0000, 0.1489, 0.1489, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.0523, 0.0288, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 180, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 240, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.9370, 1.0000, 0.5500, 0.0000, 0.4216, 0.9275, 1.0000, 0.5500, 0.0000, 0.7891, 0.8680, 1.0000, 0.5500, 0.0000, 0.5603, 0.5603, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 300, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 360, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.9985, 1.0000, 0.5500, 0.0000, 0.4537, 0.9980, 1.0000, 0.5500, 0.0000, 0.8548, 0.9403, 1.0000, 0.5500, 0.0000, 0.6616, 0.6616, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 420, 0.0000, 0.0000, 0.0294, 0.0162, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 480, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.8166, 0.8982, 1.0000, 0.5500, 0.0000, 0.6236, 0.6236, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 540, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 600, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.8511, 0.9362, 1.0000, 0.5500, 0.0000, 0.6668, 0.6668, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 660, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.0215, 0.0118, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 720, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.9091, 1.0000, 1.0000, 0.5500, 0.0000, 0.7570, 0.7570, 1.0000, 0.5500, 0.0000, 0.4612, 0.4612, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 780, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.3457, 0.2766, 0.6568, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 840, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.3339, 0.2671, 0.6344, 0.0000, 0.0000, 0.0005, 0.0004, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.9091, 1.0000, 1.0000, 0.5500, 0.0000, 0.8053, 0.8053, 1.0000, 0.5500, 0.0000, 0.5179, 0.5179, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 900, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.1378, 0.0758, 0.0000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 960, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0002, 0.0002, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.0923, 0.0739, 0.1754, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.9091, 1.0000, 1.0000, 0.5500, 0.0000, 0.8868, 0.8868, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 1020, 0.6437, 0.6437, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 1080, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0098, 0.0098, 1.0000, 0.8000, 1.9000, 0.0013, 0.0014, 1.0000, 0.8000, 1.9000, 0.0000, 0.0001, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.9091, 1.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 1140, 0.9913, 0.9913, 1.0000, 0.5500, 0.0000, 0.7561, 0.7561, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.7993, 1.8950, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 1200, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.4303, 0.4303, 1.0000, 0.8000, 1.9000, 0.4403, 0.4403, 1.0000, 0.8000, 1.9000, 0.4114, 0.4114, 1.0000, 0.8000, 1.9000, 0.3514, 0.3514, 1.0000, 0.8000, 1.9000, 0.2663, 0.2663, 1.0000, 0.8000, 1.9000, 0.1379, 0.1379, 1.0000, 0.8000, 1.9000, 0.0329, 0.0361, 1.0000, 0.8000, 1.9000, 0.0015, 0.0034, 1.0000, 0.8000, 1.9000, 0.0000, 0.0002, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 1260, 0.9091, 1.0000, 1.0000, 0.5500, 0.0000, 1.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.8606, 0.8606, 1.0000, 0.5500, 0.0000, 0.6145, 0.6145, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.7828, 1.7694, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 1320, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.4865, 0.4865, 1.0000, 0.8000, 1.9000, 0.7761, 0.7761, 1.0000, 0.8000, 1.9000, 0.7827, 0.7827, 1.0000, 0.8000, 1.9000, 0.7848, 0.7848, 1.0000, 0.8000, 1.9000, 0.7433, 0.7433, 1.0000, 0.8000, 1.9000, 0.5751, 0.5751, 1.0000, 0.8000, 1.9000, 0.2208, 0.2429, 1.0000, 0.8000, 1.9000, 0.0196, 0.0430, 1.0000, 0.8000, 1.9000, 0.0000, 0.0060, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 1380, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.9091, 1.0000, 1.0000, 0.5500, 0.0000, 1.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.9637, 0.9637, 1.0000, 0.5500, 0.0000, 0.7258, 0.7258, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.7021, 1.1562);
+mem_set_values(KWT + 1440, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.4370, 0.4370, 1.0000, 0.8000, 1.9000, 0.7378, 0.7378, 1.0000, 0.8000, 1.9000, 0.9998, 0.9998, 1.0000, 0.8000, 1.9000, 0.9982, 0.9982, 1.0000, 0.8000, 1.9000, 0.9850, 0.9850, 1.0000, 0.8000, 1.9000, 0.9050, 0.9050, 1.0000, 0.8000, 1.9000, 0.5606, 0.6167, 1.0000, 0.8000, 1.9000, 0.0981, 0.2157, 1.0000, 0.8000, 1.9000, 0.0000, 0.0634, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 1500, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.9091, 1.0000, 1.0000, 0.5500, 0.0000, 0.9462, 0.9462, 1.0000, 0.5500, 0.0000, 0.8611, 0.8611, 1.0000, 0.5500, 0.0000, 0.8193, 0.8193, 1.0000, 0.5500, 0.0000, 0.5819, 0.5819, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 1560, 0.0000, 0.0000, 1.0000, 0.6199, 0.5313, 0.0000, 0.0000, 1.0000, 0.8000, 1.8997, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.7376, 0.7376, 1.0000, 0.8000, 1.9000, 0.9998, 0.9998, 1.0000, 0.8000, 1.9000, 1.0000, 1.0000, 1.0000, 0.8000, 1.9000, 0.9996, 0.9996, 1.0000, 0.8000, 1.9000, 0.9896, 0.9896, 1.0000, 0.8000, 1.9000, 0.8070, 0.8877, 1.0000, 0.8000, 1.9000, 0.2442, 0.5372, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 1620, 0.0000, 0.2759, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.8489, 0.9338, 1.0000, 0.5500, 0.0000, 0.7349, 0.7349, 1.0000, 0.5500, 0.0000, 0.5819, 0.5819, 1.0000, 0.5500, 0.0000, 0.5341, 0.5341, 1.0000, 0.5500, 0.0000, 0.5341, 0.5341, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 1680, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5755, 0.1935, 0.0000, 0.0000, 1.0000, 0.7996, 1.8968, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.7099, 0.7099, 1.0000, 0.8000, 1.9000, 0.9743, 0.9743, 1.0000, 0.8000, 1.9000, 1.0000, 1.0000, 1.0000, 0.8000, 1.9000, 1.0000, 1.0000, 1.0000, 0.8000, 1.9000, 0.9993, 0.9993, 1.0000, 0.8000, 1.9000, 0.8861, 0.9747, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 1740, 0.3462, 0.7617, 1.0000, 0.8000, 1.9000, 0.0000, 0.5078, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.7391, 0.8130, 1.0000, 0.5500, 0.0000, 0.5458, 0.5458, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 1800, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5588, 0.0666, 0.0000, 0.0000, 1.0000, 0.7979, 1.8837, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.5939, 0.5939, 1.0000, 0.8000, 1.9000, 0.8662, 0.8662, 1.0000, 0.8000, 1.9000, 0.9998, 0.9998, 1.0000, 0.8000, 1.9000, 0.9989, 0.9989, 1.0000, 0.8000, 1.9000, 0.9935, 0.9935, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 1860, 0.8610, 0.9471, 1.0000, 0.8000, 1.9000, 0.3205, 0.7052, 1.0000, 0.8000, 1.9000, 0.0000, 0.4589, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.6906, 0.7597, 1.0000, 0.5500, 0.0000, 0.4646, 0.4646, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 1920, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5546, 0.0347, 0.0000, 0.0000, 1.0000, 0.7954, 1.8647, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.5336, 0.5336, 1.0000, 0.8000, 1.9000, 0.8154, 0.8154, 1.0000, 0.8000, 1.9000, 0.9841, 0.9841, 1.0000, 0.8000, 1.9000, 0.9550, 0.9550, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 1980, 0.8849, 0.8849, 1.0000, 0.8000, 1.9000, 0.6397, 0.7037, 1.0000, 0.8000, 1.9000, 0.1650, 0.3629, 1.0000, 0.8000, 1.9000, 0.0000, 0.1701, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4522, 0.9949, 1.0000, 0.5500, 0.0000, 0.6656, 0.7321, 1.0000, 0.5500, 0.0000, 0.4319, 0.4319, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 2040, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5570, 0.0534, 0.0000, 0.0000, 1.0000, 0.7971, 1.8776, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.4904, 0.4904, 1.0000, 0.8000, 1.9000, 0.7113, 0.7113, 1.0000, 0.8000, 1.9000, 0.7848, 0.7848, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 2100, 0.6341, 0.6341, 1.0000, 0.8000, 1.9000, 0.4489, 0.4489, 1.0000, 0.8000, 1.9000, 0.2237, 0.2460, 1.0000, 0.8000, 1.9000, 0.0339, 0.0746, 1.0000, 0.8000, 1.9000, 0.0000, 0.0200, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4431, 0.9749, 1.0000, 0.5500, 0.0000, 0.6454, 0.7099, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 2160, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0001, 0.0000, 0.0000, 1.0000, 0.5885, 0.2929, 0.0000, 0.0000, 1.0000, 0.7995, 1.8962, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.3839, 0.3839, 1.0000, 0.8000, 1.9000, 0.3770, 0.3770, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 2220, 0.2851, 0.2851, 1.0000, 0.8000, 1.9000, 0.1555, 0.1555, 1.0000, 0.8000, 1.9000, 0.0705, 0.0705, 1.0000, 0.8000, 1.9000, 0.0218, 0.0240, 1.0000, 0.8000, 1.9000, 0.0020, 0.0044, 1.0000, 0.8000, 1.9000, 0.0000, 0.0007, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4328, 0.9521, 1.0000, 0.5500, 0.0000, 0.6223, 0.6845, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 2280, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5505, 0.0039, 0.0000, 0.0000, 1.0000, 0.7305, 1.3719, 0.0000, 0.0000, 1.0000, 0.8000, 1.8997, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.2369, 0.2369, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 2340, 0.0968, 0.0968, 1.0000, 0.8000, 1.9000, 0.0286, 0.0286, 1.0000, 0.8000, 1.9000, 0.0089, 0.0089, 1.0000, 0.8000, 1.9000, 0.0024, 0.0024, 1.0000, 0.8000, 1.9000, 0.0004, 0.0005, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4258, 0.9368, 1.0000, 0.5500, 0.0000, 0.6068, 0.6675, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 2400, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0001, 0.0000, 0.0000, 1.0000, 0.5638, 0.1048, 0.0000, 0.0000, 1.0000, 0.7955, 1.8659, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 2460, 0.1299, 0.1299, 1.0000, 0.8000, 1.9000, 0.0221, 0.0221, 1.0000, 0.8000, 1.9000, 0.0010, 0.0010, 1.0000, 0.8000, 1.9000, 0.0001, 0.0001, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.1156, 0.0925, 0.2197, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4200, 0.9240, 1.0000, 0.5500, 0.0000, 0.5937, 0.6531, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 2520, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5502, 0.0012, 0.0000, 0.0000, 1.0000, 0.6823, 1.0051, 0.0000, 0.0000, 1.0000, 0.7998, 1.8986, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 2580, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0463, 0.0463, 1.0000, 0.8000, 1.9000, 0.0035, 0.0035, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.0014, 0.0011, 0.0026, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4094, 0.9008, 1.0000, 0.5500, 0.0000, 0.5700, 0.6270, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 2640, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5517, 0.0129, 0.0000, 0.0000, 1.0000, 0.7863, 1.7962, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 2700, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0333, 0.0333, 1.0000, 0.8000, 1.9000, 0.0014, 0.0014, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.0245, 0.0196, 0.0465, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4024, 0.8852, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 2760, 0.5540, 0.6094, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5646, 0.1111, 0.0000, 0.0000, 1.0000, 0.7991, 1.8934, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 2820, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.3333, 0.3333, 1.0000, 0.8000, 1.9000, 0.1203, 0.1203, 1.0000, 0.8000, 1.9000, 0.0136, 0.0136, 1.0000, 0.8000, 1.9000, 0.0008, 0.0008, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.2220, 0.1776, 0.4217, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 2880, 0.3965, 0.8722, 1.0000, 0.5500, 0.0000, 0.5405, 0.5946, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.6188, 0.5228, 0.0000, 0.0000, 1.0000, 0.8000, 1.8997, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 2940, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.5479, 0.5479, 1.0000, 0.8000, 1.9000, 0.3911, 0.3911, 1.0000, 0.8000, 1.9000, 0.1249, 0.1249, 1.0000, 0.8000, 1.9000, 0.0219, 0.0219, 1.0000, 0.8000, 1.9000, 0.0020, 0.0020, 1.0000, 0.8000, 1.9000, 0.0001, 0.0001, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.0005, 0.0004, 0.0009, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 3000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4000, 0.8799, 1.0000, 0.5500, 0.0000, 0.5485, 0.6034, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.6646, 0.8709, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 3060, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.6598, 0.6598, 1.0000, 0.8000, 1.9000, 0.7647, 0.7647, 1.0000, 0.8000, 1.9000, 0.4933, 0.4933, 1.0000, 0.8000, 1.9000, 0.1924, 0.1924, 1.0000, 0.8000, 1.9000, 0.0419, 0.0419, 1.0000, 0.8000, 1.9000, 0.0043, 0.0043, 1.0000, 0.8000, 1.9000, 0.0001, 0.0002, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 3120, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4024, 0.8852, 1.0000, 0.5500, 0.0000, 0.5540, 0.6094, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.6758, 0.9564);
+mem_set_values(KWT + 3180, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.6661, 0.6661, 1.0000, 0.8000, 1.9000, 0.9147, 0.9147, 1.0000, 0.8000, 1.9000, 0.8707, 0.8707, 1.0000, 0.8000, 1.9000, 0.6079, 0.6079, 1.0000, 0.8000, 1.9000, 0.2694, 0.2694, 1.0000, 0.8000, 1.9000, 0.0565, 0.0565, 1.0000, 0.8000, 1.9000, 0.0037, 0.0041, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 3240, 0.0000, 0.0001, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.3068, 0.2455, 0.5830, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4083, 0.8982, 1.0000, 0.5500, 0.0000, 0.5674, 0.6241, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 3300, 0.0000, 0.0000, 1.0000, 0.6825, 1.0067, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.6057, 0.6057, 1.0000, 0.8000, 1.9000, 0.8678, 0.8678, 1.0000, 0.8000, 1.9000, 0.9886, 0.9886, 1.0000, 0.8000, 1.9000, 0.9182, 0.9182, 1.0000, 0.8000, 1.9000, 0.6637, 0.6637, 1.0000, 0.8000, 1.9000, 0.2542, 0.2542, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 3360, 0.0304, 0.0335, 1.0000, 0.8000, 1.9000, 0.0005, 0.0011, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4200, 0.9240, 1.0000, 0.5500, 0.0000, 0.5937, 0.6531, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 3420, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.6897, 1.0619, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.7834, 0.7834, 1.0000, 0.8000, 1.9000, 0.9985, 0.9985, 1.0000, 0.8000, 1.9000, 0.9809, 0.9809, 1.0000, 0.8000, 1.9000, 0.8474, 0.8474, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 3480, 0.4381, 0.4381, 1.0000, 0.8000, 1.9000, 0.0704, 0.0774, 1.0000, 0.8000, 1.9000, 0.0014, 0.0030, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4373, 0.9621, 1.0000, 0.5500, 0.0000, 0.6324, 0.6957, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0004);
+mem_set_values(KWT + 3540, 0.0000, 0.0000, 0.9998, 0.5499, 0.0034, 0.0000, 0.0000, 0.9988, 0.5492, 0.0277, 0.0000, 0.0000, 0.9884, 0.6763, 1.2822, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.6870, 0.6870, 1.0000, 0.8000, 1.9000, 0.8877, 0.8877, 1.0000, 0.8000, 1.9000, 0.8560, 0.8560, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 3600, 0.6000, 0.6000, 1.0000, 0.8000, 1.9000, 0.2515, 0.2515, 1.0000, 0.8000, 1.9000, 0.0364, 0.0400, 1.0000, 0.8000, 1.9000, 0.0007, 0.0015, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4511, 0.9924, 1.0000, 0.5500, 0.0000, 0.6631, 0.7294, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.9999, 0.5499, 0.0017);
+mem_set_values(KWT + 3660, 0.0000, 0.0000, 0.9985, 0.5490, 0.0348, 0.0000, 0.0000, 0.9839, 0.5393, 0.3653, 0.0000, 0.0000, 0.9005, 0.4837, 2.2543, 0.0000, 0.0000, 0.8506, 0.4509, 3.3915, 0.0000, 0.0000, 0.9805, 0.7544, 2.0953, 0.0000, 0.0000, 0.9999, 0.7997, 1.9014, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.5261, 0.5261, 1.0000, 0.8000, 1.9000, 0.6021, 0.6021, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 3720, 0.4464, 0.4464, 1.0000, 0.8000, 1.9000, 0.1806, 0.1806, 1.0000, 0.8000, 1.9000, 0.0419, 0.0419, 1.0000, 0.8000, 1.9000, 0.0039, 0.0043, 1.0000, 0.8000, 1.9000, 0.0001, 0.0001, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.7100, 0.7810, 1.0000, 0.5500, 0.0000, 0.4929, 0.4929, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0002);
+mem_set_values(KWT + 3780, 0.0000, 0.0000, 0.9991, 0.5494, 0.0198, 0.0000, 0.0000, 0.9835, 0.5390, 0.3744, 0.0000, 0.0000, 0.9075, 0.4883, 2.0972, 0.0000, 0.0000, 0.8543, 0.4529, 3.3031, 0.0000, 0.0000, 0.8500, 0.4500, 3.3996, 0.0000, 0.0000, 0.8587, 0.4702, 3.3135, 0.0000, 0.0000, 0.9801, 0.7535, 2.0994, 0.0000, 0.0000, 0.9992, 0.7981, 1.9080, 0.0000, 0.0000, 1.0000, 0.7999, 1.9004, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 3840, 0.2783, 0.2783, 1.0000, 0.8000, 1.9000, 0.0915, 0.0915, 1.0000, 0.8000, 1.9000, 0.0174, 0.0174, 1.0000, 0.8000, 1.9000, 0.0019, 0.0019, 1.0000, 0.8000, 1.9000, 0.0001, 0.0001, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.0075, 0.0060, 0.0143, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.7633, 0.8397, 1.0000, 0.5500, 0.0000, 0.5639, 0.5639, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 3900, 0.0000, 0.0000, 1.0000, 0.5500, 0.0006, 0.0000, 0.0000, 0.9976, 0.5484, 0.0539, 0.0000, 0.0000, 0.9644, 0.5263, 0.8062, 0.0000, 0.0000, 0.8832, 0.4722, 2.6467, 0.0000, 0.0000, 0.8521, 0.4514, 3.3514, 0.0000, 0.0000, 0.8500, 0.4500, 3.3996, 0.0000, 0.0000, 0.8504, 0.4510, 3.3958, 0.0000, 0.0000, 0.8802, 0.5204, 3.0983, 0.0000, 0.0000, 0.9784, 0.7496, 2.1162, 0.0000, 0.0000, 0.9982, 0.7957, 1.9184, 0.0000, 0.0000, 0.9999, 0.7998, 1.9010, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000);
+mem_set_values(KWT + 3960, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0211, 0.0211, 1.0000, 0.8000, 1.9000, 0.0009, 0.0009, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.1931, 0.1545, 0.3669, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 1.0000, 1.0000, 0.5500, 0.0000, 0.4545, 1.0000, 1.0000, 0.5500, 0.0000, 0.8180, 0.8998, 1.0000, 0.5500, 0.0000, 0.6320, 0.6320, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 4020, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0008, 0.0000, 0.0000, 0.9970, 0.5480, 0.0689, 0.0000, 0.0000, 0.9615, 0.5244, 0.8718, 0.0000, 0.0000, 0.8881, 0.4754, 2.5371, 0.0000, 0.0000, 0.8535, 0.4524, 3.3198, 0.0000, 0.0000, 0.8501, 0.4500, 3.3986, 0.0000, 0.0000, 0.8501, 0.4502, 3.3993, 0.0000, 0.0000, 0.8556, 0.4631, 3.3440, 0.0000, 0.0000, 0.9151, 0.6019, 2.7488, 0.0000, 0.0000, 0.9808, 0.7552, 2.0921, 0.0000, 0.0000, 0.9975, 0.7941, 1.9253);
+mem_set_values(KWT + 4080, 0.0000, 0.0000, 0.9998, 0.7996, 1.9016, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0561, 0.0561, 1.0000, 0.8000, 1.9000, 0.0066, 0.0066, 1.0000, 0.8000, 1.9000, 0.0002, 0.0002, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.9986, 1.0000, 0.5500, 0.0000, 0.4543, 0.9994, 1.0000, 0.5500, 0.0000, 0.8714, 0.9585, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 4140, 0.7006, 0.7006, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0009, 0.0000, 0.0000, 0.9967, 0.5478, 0.0745, 0.0000, 0.0000, 0.9636, 0.5257, 0.8246, 0.0000, 0.0000, 0.9019, 0.4846, 2.2228, 0.0000, 0.0000, 0.8589, 0.4559, 3.1983, 0.0000, 0.0000, 0.8503, 0.4502, 3.3933, 0.0000, 0.0000, 0.8500, 0.4500, 3.3998, 0.0000, 0.0000, 0.8519, 0.4543, 3.3815, 0.0000, 0.0000, 0.8780, 0.5152, 3.1204, 0.0000, 0.0000, 0.9381, 0.6557, 2.5185);
+mem_set_values(KWT + 4200, 0.0000, 0.0000, 0.9797, 0.7527, 2.1028, 0.0000, 0.0000, 0.9965, 0.7919, 1.9346, 0.0000, 0.0000, 0.9997, 0.7994, 1.9026, 0.0000, 0.0000, 1.0000, 0.8000, 1.9001, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0483, 0.0483, 1.0000, 0.8000, 1.9000, 0.0046, 0.0046, 1.0000, 0.8000, 1.9000, 0.0001, 0.0001, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.0159, 0.0127, 0.0302, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.9467, 1.0000, 0.5500, 0.0000, 0.4420, 0.9724, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 4260, 0.9051, 0.9956, 1.0000, 0.5500, 0.0000, 0.7967, 0.7967, 1.0000, 0.5500, 0.0000, 0.5334, 0.5334, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0011, 0.0000, 0.0000, 0.9964, 0.5476, 0.0811, 0.0000, 0.0000, 0.9645, 0.5264, 0.8041, 0.0000, 0.0000, 0.9145, 0.4930, 1.9374, 0.0000, 0.0000, 0.8690, 0.4626, 2.9700, 0.0000, 0.0000, 0.8511, 0.4508, 3.3744, 0.0000, 0.0000, 0.8500, 0.4500, 3.3998, 0.0000, 0.0000, 0.8504, 0.4510, 3.3958, 0.0000, 0.0000, 0.8591, 0.4711, 3.3095);
+mem_set_values(KWT + 4320, 0.0000, 0.0000, 0.8948, 0.5544, 2.9524, 0.0000, 0.0000, 0.9401, 0.6603, 2.4985, 0.0000, 0.0000, 0.9763, 0.7447, 2.1370, 0.0000, 0.0000, 0.9952, 0.7888, 1.9479, 0.0000, 0.0000, 0.9995, 0.7989, 1.9048, 0.0000, 0.0000, 1.0000, 0.7999, 1.9003, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0294, 0.0294, 1.0000, 0.8000, 1.9000, 0.0010, 0.0012, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.6073, 1.0000, 0.5500, 0.0000);
+mem_set_values(KWT + 4380, 0.3399, 0.7477, 1.0000, 0.5500, 0.0000, 0.8432, 0.9276, 1.0000, 0.5500, 0.0000, 0.8816, 0.8816, 1.0000, 0.5500, 0.0000, 0.6435, 0.6435, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.9999, 0.5500, 0.0012, 0.0000, 0.0000, 0.9961, 0.5474, 0.0877, 0.0000, 0.0000, 0.9643, 0.5262, 0.8094, 0.0000, 0.0000, 0.9212, 0.4975, 1.7864, 0.0000, 0.0000, 0.8779, 0.4686, 2.7673, 0.0000, 0.0000, 0.8523, 0.4515, 3.3481, 0.0000, 0.0000, 0.8500, 0.4500, 3.3995, 0.0000, 0.0000, 0.8500, 0.4501, 3.3997);
+mem_set_values(KWT + 4440, 0.0000, 0.0000, 0.8513, 0.4530, 3.3869, 0.0000, 0.0000, 0.8642, 0.4831, 3.2580, 0.0000, 0.0000, 0.9000, 0.5666, 2.9002, 0.0000, 0.0000, 0.9387, 0.6569, 2.5132, 0.0000, 0.0000, 0.9712, 0.7329, 2.1876, 0.0000, 0.0000, 0.9921, 0.7815, 1.9794, 0.0000, 0.0000, 0.9988, 0.7971, 1.9122, 0.0000, 0.0000, 0.9999, 0.7997, 1.9015, 0.0683, 0.0683, 1.0000, 0.7999, 1.9002, 0.0036, 0.0040, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 1.0000, 0.8000, 1.9000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 4500, 0.0000, 0.1503, 1.0000, 0.5500, 0.0000, 0.1357, 0.2986, 1.0000, 0.5500, 0.0000, 0.5837, 0.6421, 1.0000, 0.5500, 0.0000, 0.9054, 0.9054, 1.0000, 0.5500, 0.0000, 0.7376, 0.7376, 1.0000, 0.5500, 0.0000, 0.0000, 0.0000, 0.9999, 0.5500, 0.0014, 0.0000, 0.0000, 0.9958, 0.5472, 0.0955, 0.0000, 0.0000, 0.9631, 0.5254, 0.8362, 0.0000, 0.0000, 0.9206, 0.4971, 1.7996, 0.0000, 0.0000, 0.8772, 0.4682, 2.7825, 0.0000, 0.0000, 0.8521, 0.4514, 3.3519, 0.0000, 0.0000, 0.8500, 0.4500, 3.3996);
+mem_set_values(KWT + 4560, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8501, 0.4502, 3.3992, 0.0000, 0.0000, 0.8521, 0.4550, 3.3785, 0.0000, 0.0000, 0.8684, 0.4930, 3.2158, 0.0000, 0.0000, 0.9033, 0.5744, 2.8667, 0.0000, 0.0000, 0.9347, 0.6477, 2.5527, 0.0000, 0.0000, 0.9621, 0.7116, 2.2791, 0.0000, 0.0000, 0.9856, 0.7665, 2.0437, 0.0000, 0.0000, 0.9962, 0.7912, 1.9376, 0.1268, 0.1268, 0.9988, 0.7972, 1.9118, 0.0071, 0.0078, 0.9994, 0.7987, 1.9055, 0.0000, 0.0001, 0.9998, 0.7995, 1.9023);
+mem_set_values(KWT + 4620, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0108, 1.0000, 0.5500, 0.0000, 0.0228, 0.0502, 1.0000, 0.5500, 0.0000, 0.2438, 0.2682, 1.0000, 0.5500, 0.0000, 0.6858, 0.6858, 1.0000, 0.5500, 0.0000, 0.7939, 0.7939, 1.0000, 0.5500, 0.0000, 0.5891, 0.5891, 0.9999, 0.5500, 0.0016, 0.0000, 0.0000, 0.9954, 0.5469, 0.1047, 0.0000, 0.0000, 0.9610, 0.5240, 0.8835, 0.0000, 0.0000, 0.9153, 0.4935, 1.9198, 0.0000, 0.0000, 0.8708, 0.4638, 2.9292, 0.0000, 0.0000, 0.8512, 0.4508, 3.3722);
+mem_set_values(KWT + 4680, 0.0000, 0.0000, 0.8500, 0.4500, 3.3998, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8501, 0.4503, 3.3986, 0.0000, 0.0000, 0.8531, 0.4573, 3.3687, 0.0000, 0.0000, 0.8715, 0.5001, 3.1854, 0.0000, 0.0000, 0.9038, 0.5756, 2.8618, 0.0000, 0.0000, 0.9289, 0.6341, 2.6109, 0.0000, 0.0000, 0.9504, 0.6843, 2.3957, 0.0000, 0.0000, 0.9720, 0.7347, 2.1800, 0.0000, 0.0000, 0.9845, 0.7637, 2.0554, 0.0102, 0.0112, 0.9892, 0.7747, 2.0083);
+mem_set_values(KWT + 4740, 0.0001, 0.0002, 0.9904, 0.7776, 1.9960, 0.0000, 0.0000, 0.0117, 0.0062, 0.0469, 0.0000, 0.0002, 1.0000, 0.5500, 0.0000, 0.0019, 0.0043, 1.0000, 0.5500, 0.0000, 0.0584, 0.0642, 1.0000, 0.5500, 0.0000, 0.3195, 0.3195, 1.0000, 0.5500, 0.0000, 0.5953, 0.5953, 1.0000, 0.5500, 0.0000, 0.5408, 0.5408, 0.9999, 0.5499, 0.0025, 0.5898, 0.5898, 0.9937, 0.5458, 0.1423, 0.4886, 0.4886, 0.9501, 0.5168, 1.1304, 0.0000, 0.0000, 0.8983, 0.4822, 2.3046, 0.0000, 0.0000, 0.8613, 0.4575, 3.1435);
+mem_set_values(KWT + 4800, 0.0000, 0.0000, 0.8505, 0.4503, 3.3887, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8502, 0.4505, 3.3980, 0.0000, 0.0000, 0.8537, 0.4587, 3.3628, 0.0000, 0.0000, 0.8720, 0.5014, 3.1796, 0.0000, 0.0000, 0.8974, 0.5607, 2.9256, 0.0000, 0.0000, 0.9098, 0.5895, 2.8019, 0.0000, 0.0000, 0.9186, 0.6102, 2.7136, 0.0000, 0.0000, 0.9251, 0.6251, 2.6495);
+mem_set_values(KWT + 4860, 0.0075, 0.0083, 0.9196, 0.6124, 2.7041, 0.0001, 0.0003, 0.8964, 0.5583, 2.9359, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0001, 0.0002, 1.0000, 0.5500, 0.0000, 0.0062, 0.0069, 1.0000, 0.5500, 0.0000, 0.0574, 0.0574, 1.0000, 0.5500, 0.0000, 0.1580, 0.1580, 1.0000, 0.5500, 0.0000, 0.2008, 0.2008, 0.9996, 0.5497, 0.0097, 0.1502, 0.1502, 0.9815, 0.5377, 0.4192, 0.3572, 0.3572, 0.9043, 0.4862, 2.1695, 0.7242, 0.7242, 0.8647, 0.4598, 3.0675);
+mem_set_values(KWT + 4920, 0.0000, 0.0000, 0.8523, 0.4515, 3.3483, 0.0000, 0.0000, 0.8501, 0.4501, 3.3982, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8502, 0.4505, 3.3977, 0.0000, 0.0000, 0.8530, 0.4571, 3.3695, 0.0000, 0.0000, 0.8609, 0.4755, 3.2908, 0.0000, 0.0000, 0.8647, 0.4843, 3.2529, 0.0000, 0.0000, 0.8633, 0.4809, 3.2674);
+mem_set_values(KWT + 4980, 0.0000, 0.0000, 0.8594, 0.4718, 3.3064, 0.0000, 0.0000, 0.8542, 0.4598, 3.3581, 0.0018, 0.0039, 0.8510, 0.4523, 3.3902, 0.0000, 0.0002, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.0010, 0.0005, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0002, 0.0002, 1.0000, 0.5500, 0.0000, 0.0024, 0.0024, 1.0000, 0.5500, 0.0000, 0.0088, 0.0088, 1.0000, 0.5500, 0.0000, 0.0156, 0.0156, 0.9929, 0.5453, 0.1601, 0.0265, 0.0265, 0.9003, 0.4835, 2.2604, 0.3974, 0.3974, 0.8553, 0.4535, 3.2802);
+mem_set_values(KWT + 5040, 0.8784, 0.8784, 0.8508, 0.4505, 3.3818, 0.0000, 0.0000, 0.8501, 0.4501, 3.3979, 0.0000, 0.0000, 0.8500, 0.4500, 3.3999, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8501, 0.4502, 3.3991, 0.0000, 0.0000, 0.8504, 0.4510, 3.3958, 0.0000, 0.0000, 0.8506, 0.4514, 3.3942);
+mem_set_values(KWT + 5100, 0.0000, 0.0000, 0.8504, 0.4510, 3.3958, 0.0000, 0.0000, 0.8502, 0.4504, 3.3981, 0.0000, 0.0000, 0.8500, 0.4501, 3.3996, 0.0114, 0.0250, 0.8500, 0.4500, 3.4000, 0.0000, 0.0030, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0025, 0.0013, 0.0000, 0.0000, 0.0000, 0.3940, 0.2167, 0.0000, 0.0000, 0.0000, 1.0000, 0.5500, 0.0000, 0.0001, 0.0001, 1.0000, 0.5500, 0.0000, 0.0010, 0.0010, 0.8727, 0.4652, 2.8847, 0.0325, 0.0325, 0.8508, 0.4506, 3.3809);
+mem_set_values(KWT + 5160, 0.4244, 0.4244, 0.8501, 0.4500, 3.3988, 0.8918, 0.8918, 0.8500, 0.4500, 3.3999, 0.8850, 0.8850, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000);
+mem_set_values(KWT + 5220, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0396, 0.0872, 0.8500, 0.4500, 3.4000, 0.0000, 0.0223, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0013, 0.0013, 0.8500, 0.4500, 3.4000);
+mem_set_values(KWT + 5280, 0.0388, 0.0388, 0.8500, 0.4500, 3.4000, 0.4519, 0.4519, 0.8500, 0.4500, 3.4000, 0.9043, 0.9043, 0.8500, 0.4500, 3.4000, 0.9969, 0.9969, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.9526, 0.9526, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000);
+mem_set_values(KWT + 5340, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0875, 0.1924, 0.8500, 0.4500, 3.4000, 0.0000, 0.0962, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 5400, 0.0017, 0.0015, 0.8500, 0.4500, 3.4000, 0.0454, 0.0422, 0.8500, 0.4500, 3.4000, 0.4792, 0.4449, 0.8500, 0.4500, 3.4000, 0.9154, 0.8500, 0.8500, 0.4500, 3.4000, 0.9975, 0.9262, 0.8500, 0.4500, 3.4000, 1.0000, 0.9286, 0.8500, 0.4500, 3.4000, 0.8093, 0.7515, 0.8500, 0.4500, 3.4000, 0.7378, 0.6851, 0.8500, 0.4500, 3.4000, 0.7649, 0.7102, 0.8500, 0.4500, 3.4000, 0.9191, 0.8534, 0.8500, 0.4500, 3.4000, 1.0000, 0.9286, 0.8500, 0.4500, 3.4000, 0.7507, 0.6970, 0.8500, 0.4500, 3.4000);
+mem_set_values(KWT + 5460, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.2317, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 5520, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0020, 0.0004, 0.8500, 0.4500, 3.4000, 0.0515, 0.0110, 0.8500, 0.4500, 3.4000, 0.4994, 0.1070, 0.8500, 0.4500, 3.4000, 0.9231, 0.1978, 0.8500, 0.4500, 3.4000, 0.9979, 0.2138, 0.8500, 0.4500, 3.4000, 1.0000, 0.2143, 0.8500, 0.4500, 3.4000, 1.0000, 0.2143, 0.8500, 0.4500, 3.4000, 1.0000, 0.2143, 0.8500, 0.4500, 3.4000, 1.0000, 0.2143, 0.8500, 0.4500, 3.4000, 1.0000, 0.2143, 0.8500, 0.4500, 3.4000, 1.0000, 0.2143, 0.8500, 0.4500, 3.4000);
+mem_set_values(KWT + 5580, 0.9014, 0.1932, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0803, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000);
+mem_set_values(KWT + 5640, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0020, 0.0000, 0.8500, 0.4500, 3.4000, 0.0524, 0.0000, 0.8500, 0.4500, 3.4000, 0.5005, 0.0000, 0.8500, 0.4500, 3.4000, 0.9235, 0.0000, 0.8500, 0.4500, 3.4000, 0.9979, 0.0000, 0.8500, 0.4500, 3.4000, 1.0000, 0.0000, 0.8500, 0.4500, 3.4000, 1.0000, 0.0000, 0.8500, 0.4500, 3.4000, 1.0000, 0.0000, 0.8500, 0.4500, 3.4000, 1.0000, 0.0000, 0.8500, 0.4500, 3.4000, 1.0000, 0.0000, 0.8500, 0.4500, 3.4000);
+mem_set_values(KWT + 5700, 1.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.9442, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000, 0.0000, 0.0000, 0.8500, 0.4500, 3.4000);
+km_nm = 30;
+mem_set_values(KMM + 0, 200.4658, 123.5564, -1.2093, -2.5976, 12.1460, 0.3407, 1.5104, 1.9739);
+mem_set_values(KMM + 8, 217.4706, 87.6591, -1.7819, -5.0059, 11.2177, 0.8947, 1.9629, 0.2224);
+mem_set_values(KMM + 16, 233.7270, 84.6162, -0.7139, -6.7260, 11.7223, 0.6364, 1.1236, 3.1291);
+mem_set_values(KMM + 24, 212.8542, 380.5298, 1.5320, -3.9248, 7.3636, 0.4649, 0.9691, 5.0358);
+mem_set_values(KMM + 32, 186.0608, 140.5588, -0.5480, -4.7597, 8.2149, 0.6058, 1.7435, 1.5061);
+mem_set_values(KMM + 40, 229.2990, 59.1015, 0.2456, -6.8708, 7.4295, 0.7993, 1.9973, 4.0001);
+mem_set_values(KMM + 48, 211.6103, 409.9385, 0.7243, -5.4696, 10.9991, 0.3848, 1.1145, 5.5041);
+mem_set_values(KMM + 56, 203.6707, 415.6408, -0.4724, -3.6814, 12.3244, 0.0796, 1.1227, 2.2754);
+mem_set_values(KMM + 64, 18.1956, 124.7539, 1.1964, -4.2554, 6.6752, 0.0450, 1.5328, 5.4941);
+mem_set_values(KMM + 72, 226.6192, 96.3602, -1.7014, -2.7814, 9.4317, 0.3320, 1.1356, 3.7310);
+mem_set_values(KMM + 80, 188.1315, 138.8828, -0.1676, -3.7696, 9.1162, 0.3641, 1.8219, 1.0227);
+mem_set_values(KMM + 88, 10.0871, 22.5118, -1.3688, -6.6973, 7.2665, 0.3747, 1.3720, 3.5406);
+mem_set_values(KMM + 96, 208.3717, 202.5405, 0.3902, -6.9903, 8.8089, 0.3172, 1.4423, 0.3190);
+mem_set_values(KMM + 104, 194.8086, 154.1688, -1.2637, -6.9046, 11.3641, 0.1223, 2.2636, 1.3375);
+mem_set_values(KMM + 112, 206.0951, 89.2147, 0.6457, -6.3181, 11.5014, 0.5535, 2.2464, 1.1700);
+mem_set_values(KMM + 120, 63.8744, 515.4682, 1.8417, -4.3235, 12.3831, 0.1641, 2.2182, 4.8511);
+mem_set_values(KMM + 128, 42.2670, 95.8225, -0.6926, -6.4807, 7.4041, 0.0185, 2.2066, 2.2676);
+mem_set_values(KMM + 136, 195.5328, 14.4601, -2.2144, -3.1050, 10.3024, 0.7280, 2.2408, 1.3690);
+mem_set_values(KMM + 144, 215.7600, 137.0634, 0.9054, -3.4123, 7.9887, 0.4770, 0.9638, 1.8079);
+mem_set_values(KMM + 152, 26.0632, 62.2615, 2.2735, -3.9109, 8.3579, 0.1077, 1.5276, 3.0162);
+mem_set_values(KMM + 160, 16.3585, 480.6738, -1.5972, -3.6599, 12.4368, 0.9593, 1.9532, 5.7417);
+mem_set_values(KMM + 168, 231.0500, 302.0765, 1.7469, -5.2185, 8.3759, 0.5009, 0.9488, 0.1174);
+mem_set_values(KMM + 176, 221.7650, 69.1734, -1.5414, -6.0074, 7.4766, 0.0760, 1.1934, 1.4027);
+mem_set_values(KMM + 184, 31.8394, 111.9941, 0.3266, -2.5895, 12.3646, 0.5873, 1.9624, 4.3798);
+mem_set_values(KMM + 192, 205.2031, 124.0289, 0.9802, -5.6230, 12.2318, 0.3651, 1.9223, 4.4418);
+mem_set_values(KMM + 200, 200.1517, 316.3260, -0.5499, -3.3639, 9.5107, 0.7460, 2.1799, 3.8434);
+mem_set_values(KMM + 208, 44.8404, 138.6501, 0.4008, -4.3426, 11.4321, 0.0951, 1.4445, 0.4980);
+mem_set_values(KMM + 216, 21.1266, 63.4624, 1.3155, -5.7314, 10.9508, 0.2333, 1.3021, 2.9606);
+mem_set_values(KMM + 224, 17.6473, 476.0969, 0.2324, -4.5762, 11.9605, 0.6014, 2.2879, 1.4579);
+mem_set_values(KMM + 232, 221.9903, 130.3784, -1.3890, -4.3190, 8.6165, 0.3186, 1.5642, 3.6821);
+ks_w = 230; ks_h = 306; ks_r = 115; ks_oy = 6; kh_w = 160;
+  km_init = 1;
+);
+
+u_down = mouse_cap & 1;
+u_click = u_down && !u_pd;
+u_wheel = mouse_wheel;
+mouse_wheel = 0;
+u_hov = 0;
+u_drag > 0 ? u_click = 0;
+
+(u_cw != gfx_w || u_ch != gfx_h || u_fr < 2) ? ( ui_static(); u_cw = gfx_w; u_ch = gfx_h; u_fr += 1; );
+gfx_x = gfx_y = 0; gfx_blit(10, 1, 0);
+g_mk ? km_draw();
+
+ui_vslider(1, 9, 31.8, 0);
+ui_vslider(2, 36, 31.8, 0);
+ui_vslider(3, 63, 31.8, 1);
+ui_vslider(4, 89, 31.8, 1);
+ui_ckss(5, 12.495, 157.662);
+ui_ckss(6, 93.505, 157.662);
+ui_knob(7, 44.1 + 15.873, 146.1 + 15.873, 15.873);
+ui_ckss(8, 53, 214.5);
+ui_knob(9, 19.5, 226.5, 9.9);
+ui_knob(10, 99.6, 226.5, 9.9);
+
+(u_hov == 0 && u_drag == 0 && g_mk && ui_hit(0, floor(ui_py(24.75)), sx0, floor(ui_py(250) + 0.5) - floor(ui_py(24.75)))) ? (
+  u_hov = 104;
+  u_click ? ( ui_put(11, sk_anim >= 0.5 ? 0 : 1); u_click = 0; );
+);
+
+u_drag > 0 ? (
+  u_down ? (
+    mouse_cap |= 65536;
+    u_fine = mouse_cap & 4;
+    u_fine != u_dfine ? ( u_dy0 = mouse_y; u_dv0 = ui_norm(u_drag); u_dfine = u_fine; );
+    ui_setn(u_drag, u_dv0 + (u_dy0 - mouse_y) / u_dsc * (u_fine ? 0.1 : 1));
+  ) : (
+    automate(u_drag, 1);
+    u_drag = 0;
+  );
+);
+
+gfx_set(0.82, 0.83, 0.85, 1);
+ui_hint(u_drag > 0 ? u_drag : u_hov);
+ui_font(11.5 * uscale, 0);
+gfx_measurestr(#u_hint, u_tw, u_th);
+gfx_x = floor(gfx_w * 0.5 - u_tw * 0.5); gfx_y = floor(ui_py(260.4) - u_th * 0.5);
+gfx_drawstr(#u_hint);
+
+u_pd = u_down;

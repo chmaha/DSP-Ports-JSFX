@@ -1,8 +1,10 @@
 desc: Sugar and Space (Valley Plateau port) by chmaha
 author: chmaha
-version: 1.0
+version: 1.1
 changelog:
-  Initial release.
+  Added a sidebar with Alphonse Mucha's The Evening Star (1902)
+  Title in the Zarathustra font, matching the Valley Girls series
+  The picture is animated while the transport plays; click the picture to turn it off
 tags: reverb plate dattorro
 about:
   A plate reverb after Jon Dattorro's 1997 tank: pre-delay, input low and high cut, size up to 4x the original
@@ -10,8 +12,26 @@ about:
   tuned mode for resonator effects and an optional soft-drive output stage.
   Ported from Plateau in ValleyRackFree by Dale Johnson (Valley Audio Soft)
   https://github.com/ValleyAudio/ValleyRackFree (GPL-3.0-or-later)
+  Sidebar image: Alphonse Mucha, "Etoile du soir" (The Evening Star) from "La Lune et les etoiles" (1902), public domain,
+  scan by the Bibliotheque nationale de France (Gallica btv1b90077190) via Wikimedia Commons
+  Title lettering: Zarathustra by Lorene Ceccon (SIL Open Font License)
   JSFX version released under GPLv3+ license
   Claude generated some of this code
+provides:
+  Dependencies/SugarAndSpace/SugarAndSpaceImage.png
+  Dependencies/SugarAndSpace/SugarAndSpaceImage2x.png
+  Dependencies/SugarAndSpace/SugarAndSpaceTitle.png
+  Dependencies/SugarAndSpace/SugarAndSpaceTitle2x.png
+  Dependencies/SugarAndSpace/SugarAndSpaceWarpA.png
+  Dependencies/SugarAndSpace/SugarAndSpaceWarpB.png
+  Dependencies/SugarAndSpace/SugarAndSpaceWarpC.png
+  Dependencies/SugarAndSpace/SugarAndSpaceStar.png
+  Dependencies/SugarAndSpace/SugarAndSpaceStar2x.png
+  Dependencies/SugarAndSpace/SugarAndSpaceGlow.png
+  Dependencies/SugarAndSpace/SugarAndSpaceGlow2x.png
+  Dependencies/SugarAndSpace/SugarAndSpaceEdge.png
+  Dependencies/SugarAndSpace/SugarAndSpaceEdge2x.png
+  Dependencies/SugarAndSpace/SugarAndSpaceImage-LICENSE.txt
 
 slider1:dry_level=1<0,1,0.001>-Dry
 slider2:wet_level=0.5<0,1,0.001>-Wet
@@ -32,6 +52,7 @@ slider16:diffuse_input=1<0,1,1{Off,On}>-Diffuse Input
 slider17:input_sens=0<0,1,1{0 dB,-18 dB}>-Input Sensitivity
 slider18:soft_drive=0<0,1,1{Clip,Soft Drive}>-Output
 slider19:clear_trig=0<0,1,1{Off,On}>-Clear
+slider20:pl_anim=1<0,1,1{Off,On}>-Animation
 
 in_pin:Left
 in_pin:Right
@@ -52,6 +73,7 @@ TT = alloc(13); TAP = alloc(7); TAPK = alloc(7);
 FA = alloc(10); FB = alloc(10); FC = alloc(10); FI = alloc(10); FK = alloc(10); FZ = alloc(10); FX = alloc(10);
 LP = alloc(4); LG = alloc(4); LQ = alloc(4); LS = alloc(4); LR = alloc(4); LU = alloc(4); LD = alloc(4);
 GSMIN = alloc(24); GSMAX = alloc(24); GSDEF = alloc(24); GSSTEP = alloc(24); GSNAME = alloc(24);
+AN_TAB = alloc(45 * 84 * 2); AWU = alloc(3780); AWL = alloc(3780); AWB = alloc(3780); AWH = alloc(3780); AWR = alloc(3780); AWO = alloc(3780); AWS = alloc(3780); AWF = alloc(3780);
 pl_last_srate = -1;
 pl_clrpend = 0; pl_cltrig = 0;
 
@@ -473,11 +495,11 @@ pl_run((spl0 * 5), (spl1 * 5));
 spl0 = pl_ol / 5;
 spl1 = pl_or / 5;
 
-@gfx 760 500
+@gfx 980 500
 
-gW0 = 760; gH0 = 500;
-z = max(0.4, min(gfx_w / gW0, gfx_h / gH0));
-ox = floor((gfx_w - gW0 * z) * 0.5);
+gW0 = 760; gH0 = 500; SBW = 220;
+z = max(0.4, min(gfx_w / (gW0 + SBW), gfx_h / gH0));
+ox = floor(SBW * z);
 oy = 0;
 gnow = time_precise();
 
@@ -504,6 +526,7 @@ function automate(s, e)
     printf("  s == 17 ? slider_automate(input_sens, e) :\n");
     printf("  s == 18 ? slider_automate(soft_drive, e) :\n");
     printf("  s == 19 ? slider_automate(clear_trig, e) :\n");
+    printf("  s == 20 ? slider_automate(pl_anim, e) :\n");
   );
 ?> 0;
 );
@@ -626,6 +649,152 @@ function ledbtn(x, y, on, label) local(QX, QY, hov, r) (
   r;
 );
 
+function an_hash(n) ( n = sin(n * 12.9898 + 4.1414) * 43758.5453; n - floor(n); );
+function an_n(x) local(i, f, p0, p1, p2, p3) (
+  i = floor(x); f = x - i;
+  p0 = an_hash(i - 1); p1 = an_hash(i); p2 = an_hash(i + 1); p3 = an_hash(i + 2);
+  0.5 * (2 * p1 + (p2 - p0) * f + (2 * p0 - 5 * p1 + 4 * p2 - p3) * f * f + (3 * p1 - p0 - 3 * p2 + p3) * f * f * f);
+);
+function an_rdmap(img, c) local(w, h, i, j, r, g, b, q) (
+  w = h = 0;
+  gfx_getimgdim(img, w, h);
+  (w == AN_GX && h == AN_GY) ? (
+    gfx_dest = img; q = 0; j = 0;
+    loop(AN_GY,
+      i = 0;
+      loop(AN_GX,
+        gfx_x = i; gfx_y = j; gfx_getpixel(r, g, b);
+        c == 0 ? ( AWU[q] = r; AWL[q] = g; AWB[q] = b; ) :
+        c == 1 ? ( AWH[q] = r; AWR[q] = g; AWO[q] = b; ) : ( AWS[q] = r; AWF[q] = g; );
+        q += 1; i += 1;
+      );
+      j += 1;
+    );
+    gfx_dest = -1;
+    1;
+  ) : 0;
+);
+
+function an_step() local(now, dstep, on) (
+  now = time_precise();
+  !an_t0 ? ( an_t0 = now; an_last = now; an_gs = -1000; an_gn = 0; );
+  dstep = max(0, min(0.1, now - an_last)); an_last = now;
+  an_t = now - an_t0;
+  on = (play_state & 1) && pl_anim > 0.5;
+  (on && !an_on) ? an_gn = max(an_gn, an_t + 3);
+  an_on = on;
+  (on && an_t >= an_gn) ? ( an_gs = an_gn; an_gn = an_gn + 7 + 8 * an_hash(floor(an_gn * 5.3) + 1); );
+  an_amp = on ? an_amp + (1 - an_amp) * (1 - exp(-dstep / 1.65)) : an_amp * exp(-dstep / 1.1);
+  an_amp < 0.002 ? an_amp = 0;
+);
+
+function an_cw(c, wx, wy, ph, xp, yp, t) (
+  an_mx += c * wx * (an_a * (0.55 * sin(2 * $pi * (t / 3.2 - yp / 130 - xp / 220) + ph) + 0.3 * sin(2 * $pi * (t / 5.1 - yp / 85) + 1.3 + 0.7 * ph)) + 2.2 * sin(2 * $pi * t / 11 + 0.5 * ph));
+  an_my += c * wy * an_a * 0.6 * sin(2 * $pi * (t / 4.3 - yp / 160 + xp / 180) + 0.4 + 1.3 * ph);
+);
+
+function an_mkpad(dst, src, edge, k) local(w, h)
+(
+  w = (220 + 2 * AN_PAD) * k; h = (414 + 2 * AN_PAD) * k;
+  gfx_setimgdim(dst, w, h);
+  gfx_dest = dst;
+  gfx_set(1, 1, 1, 1, 0);
+  gfx_blit(edge, 1, 0, 0, 0, w, h, 0, 0, w, h);
+  gfx_blit(src, 1, 0, 0, 0, 220 * k, 414 * k, AN_PAD * k, AN_PAD * k, 220 * k, 414 * k);
+  gfx_dest = -1;
+  1;
+);
+
+function an_warp(img, k, x0, y0, x1, y1) local(t, g, ge, lean, hth, lph, fcx, fcy, th, q, i, j, xp, yp, cu, cl, cb, ch, cr, co, cs, cf, hvx, hvy, tx, ty, p)
+(
+  t = an_t;
+  ge = t - an_gs;
+  g = 0.6 + 0.4 * an_n(t * 0.17 + 5) + 0.75 * ((ge < 0 || ge > 30) ? 0 : ge < 0.9 ? sin(0.5 * $pi * ge / 0.9) : exp(-(ge - 0.9) / 2.2));
+  lean = 2.0 * sin(2 * $pi * t / 8.3 + 0.6 * an_n(t * 0.11 + 51.3)) + (an_n(t * 0.37 + 77.9) - 0.5);
+  hth = 0.007 * (lean + 0.35 * sin(2 * $pi * t / 4.6 + 0.3));
+  lph = 0.018 * g * (0.65 * sin(2 * $pi * t / 3.7 + 0.9) + 0.35 * sin(2 * $pi * t / 2.3 + 2.4));
+  fcx = -hth * (AN_CY - AN_PY); fcy = hth * (AN_CX - AN_PX);
+  th = 0.035 * (0.65 * sin(2 * $pi * t / 6.7 + 0.4) + 0.35 * sin(2 * $pi * t / 4.1 + 1.9)) * (0.8 + 0.4 * an_n(t * 0.21 + 9.1));
+  an_a = 4.6 * g;
+  p = AN_TAB; q = 0; j = 0;
+  loop(AN_GY,
+    yp = 414 * j / (AN_GY - 1);
+    ty = min(1, min(yp, 414 - yp) * 0.2) * an_amp;
+    i = 0;
+    loop(AN_GX,
+      xp = 220 * i / (AN_GX - 1);
+      an_mx = an_my = hvx = hvy = 0;
+      cu = AWU[q]; cl = AWL[q]; cb = AWB[q]; ch = AWH[q]; cr = AWR[q]; co = AWO[q]; cs = AWS[q]; cf = AWF[q];
+      cu > 0 ? an_cw(cu, 1, 0.55, 0, xp, yp, t);
+      cl > 0 ? an_cw(cl, 0.85, 0.45, 3.4, xp, yp, t);
+      cb > 0 ? an_cw(cb, 0.8, 1, 1.9, xp, yp, t);
+      cr > 0 ? ( an_mx -= cr * th * (yp - AN_EY); an_my += cr * th * (xp - AN_EX); );
+      ch > 0 ? ( hvx = -ch * hth * (yp - AN_PY); hvy = ch * hth * (xp - AN_PX); );
+      co > 0 ? ( hvx -= co * lph * (yp - AN_AY); hvy += co * lph * (xp - AN_AX); );
+      cf > 0 ? ( hvx += cf * fcx; hvy += cf * fcy; );
+      cs > 0 ? (
+        an_mx += cs * 3 * (0.6 * sin(2 * $pi * t / 23 + 0.036 * yp) + 0.4 * sin(2 * $pi * t / 37 - 0.022 * yp + 1.7));
+        an_my += cs * 0.8 * sin(2 * $pi * t / 19 + 0.03 * xp);
+      );
+      tx = min(1, min(xp, 220 - xp) / 14) * an_amp;
+      p[0] = (max(-AN_PAD, min(220 + AN_PAD, xp - an_mx * tx - hvx * an_amp)) + AN_PAD) * k;
+      p[1] = (max(-AN_PAD, min(414 + AN_PAD, yp - an_my * ty - hvy * an_amp)) + AN_PAD) * k;
+      p += 2; q += 1; i += 1;
+    );
+    j += 1;
+  );
+  gfx_set(1, 1, 1, 1, 0);
+  gfx_transformblit(img, x0, y0, x1 - x0, y1 - y0, AN_GX, AN_GY, AN_TAB);
+);
+
+function an_fx(k, x0, y0, x1, y1) local(sx_, sy_, b, ga, gx, gy, gw, gh, n, cx, cy)
+(
+  sx_ = (x1 - x0) / (220 * k); sy_ = (y1 - y0) / (414 * k);
+  b = 0.55 + 0.45 * (0.5 + 0.5 * sin(2 * $pi * an_t / 7.2 - 1.2)) * (0.75 + 0.5 * an_n(an_t * 0.23 + 31.1));
+  ga = an_amp * 0.13 * 0.7 * b;
+  k == 2 ? ( gx = AN_GX2; gy = AN_GY2; gw = AN_GW2; gh = AN_GH2; ) : ( gx = AN_GX1; gy = AN_GY1; gw = AN_GW1; gh = AN_GH1; );
+  gfx_set(1, 1, 1, ga, 1);
+  gfx_blit(k == 2 ? 39 : 38, 1, 0, 0, 0, gw, gh, floor(x0 + gx * sx_), floor(y0 + gy * sy_),
+           floor(x0 + (gx + gw) * sx_) - floor(x0 + gx * sx_), floor(y0 + (gy + gh) * sy_) - floor(y0 + gy * sy_));
+  b = 0.5 + 0.5 * sin(2 * $pi * an_t / 5.3 - 1);
+  ga = an_amp * (0.10 + 0.22 * b * (0.6 + 0.8 * an_n(an_t * 1.7 + 3.3)));
+  n = 2 * AN_SR * k;
+  cx = AN_SX * k - n / 2; cy = AN_SY * k - n / 2;
+  gfx_set(1, 1, 1, ga, 1);
+  gfx_blit(k == 2 ? 28 : 27, 1, 0, 0, 0, n, n, floor(x0 + cx * sx_), floor(y0 + cy * sy_),
+           floor(x0 + (cx + n) * sx_) - floor(x0 + cx * sx_), floor(y0 + (cy + n) * sy_) - floor(y0 + cy * sy_));
+  gfx_set(1, 1, 1, 1, 0);
+);
+
+function sidebar() local(x0, x1, y0, y1, im, iw) (
+  x0 = floor(sx(-SBW)); x1 = floor(sx(0)); y0 = floor(sy(60)); y1 = floor(sy(474));
+  im = (g_img2 && (z > 1.2 || !g_img)) ? 21 : g_img ? 20 : -1;
+  im >= 0 ? (
+    iw = im == 21 ? 2 : 1;
+    gfx_set(1, 1, 1, 1);
+    gfx_x = x0; gfx_y = y0;
+    an_step();
+    (an_amp > 0 && an_ok && (iw == 2 ? an_ok2 : an_ok1)) ? (
+      an_warp(iw == 2 ? 30 : 29, iw, x0, y0, x1, y1);
+      an_fx(iw, x0, y0, x1, y1);
+    ) : gfx_blit(im, 1, 0, 0, 0, SBW * iw, 414 * iw, x0, y0, x1 - x0, y1 - y0);
+    (mouse_x >= x0 && mouse_x < x1 && mouse_y >= y0 && mouse_y < y1) ? (
+      hint("Click the picture to switch the animation off or on");
+      mouse_click ? ( tap_sl(20, pl_anim > 0.5 ? 0 : 1); mouse_click = 0; );
+    );
+  ) : (
+    gfx_set(0.118, 0.118, 0.118, 1);
+    gfx_rect(x0, y0, x1 - x0, y1 - y0, 1);
+    font(10, 'b');
+    gfx_set(0.80, 0.80, 0.80, 1);
+    text_c("Evening Star", -SBW * 0.5, 250);
+    font(9, 0);
+    text_c("(image file missing)", -SBW * 0.5, 268);
+  );
+  gfx_set(1, 1, 1, 1);
+  gfx_rect(x1 - max(1, floor(z)), y0, max(1, floor(z)), y1 - y0, 1);
+);
+
 function section(x, y, w, label) (
   font(10.5, 'b');
   white();
@@ -636,7 +805,12 @@ function section(x, y, w, label) (
 
 function gfx_setup() local(i) (
   i = 1;
-  loop(19, GSMIN[i] = 0; GSMAX[i] = 1; GSDEF[i] = 0; GSSTEP[i] = 0.001; i += 1;);
+  loop(20, GSMIN[i] = 0; GSMAX[i] = 1; GSDEF[i] = 0; GSSTEP[i] = 0.001; i += 1;);
+  GSDEF[20] = 1; GSSTEP[20] = 1;
+  AN_GX = 45; AN_GY = 84; AN_EX = -10; AN_EY = 55;
+  AN_PAD = 3; AN_PX = 160; AN_PY = 95; AN_CX = 207.5; AN_CY = 111; AN_AX = 142.5; AN_AY = 50;
+  AN_SX = 107.5; AN_SY = 52.5; AN_SR = 24;
+  AN_GX1 = 50; AN_GY1 = 0; AN_GW1 = 170; AN_GH1 = 150; AN_GX2 = 99; AN_GY2 = 0; AN_GW2 = 341; AN_GH2 = 301;
   GSDEF[1] = 1; GSDEF[2] = 0.5;
   GSMAX[3] = 0.5; GSSTEP[3] = 0.0001;
   GSMAX[4] = GSMAX[5] = GSMAX[9] = GSMAX[10] = 10; GSDEF[4] = GSDEF[5] = GSDEF[9] = GSDEF[10] = 10;
@@ -648,6 +822,20 @@ function gfx_setup() local(i) (
   GSMAX[12] = 16; GSDEF[12] = 0.5; GSSTEP[12] = 0.01;
   GSDEF[13] = 0.5;
   GSDEF[16] = 1;
+  g_img = gfx_loadimg(20, "SugarAndSpace/SugarAndSpaceImage.png") >= 0 || gfx_loadimg(20, "Dependencies/SugarAndSpace/SugarAndSpaceImage.png") >= 0;
+  g_img2 = gfx_loadimg(21, "SugarAndSpace/SugarAndSpaceImage2x.png") >= 0 || gfx_loadimg(21, "Dependencies/SugarAndSpace/SugarAndSpaceImage2x.png") >= 0;
+  g_ttl = gfx_loadimg(22, "SugarAndSpace/SugarAndSpaceTitle.png") >= 0 || gfx_loadimg(22, "Dependencies/SugarAndSpace/SugarAndSpaceTitle.png") >= 0;
+  g_ttl2 = gfx_loadimg(23, "SugarAndSpace/SugarAndSpaceTitle2x.png") >= 0 || gfx_loadimg(23, "Dependencies/SugarAndSpace/SugarAndSpaceTitle2x.png") >= 0;
+  an_ok1 = 1; an_ok2 = 1;
+  an_ok = (gfx_loadimg(24, "SugarAndSpace/SugarAndSpaceWarpA.png") >= 0 || gfx_loadimg(24, "Dependencies/SugarAndSpace/SugarAndSpaceWarpA.png") >= 0) && an_rdmap(24, 0);
+  an_ok &= (gfx_loadimg(25, "SugarAndSpace/SugarAndSpaceWarpB.png") >= 0 || gfx_loadimg(25, "Dependencies/SugarAndSpace/SugarAndSpaceWarpB.png") >= 0) && an_rdmap(25, 1);
+  an_ok &= (gfx_loadimg(26, "SugarAndSpace/SugarAndSpaceWarpC.png") >= 0 || gfx_loadimg(26, "Dependencies/SugarAndSpace/SugarAndSpaceWarpC.png") >= 0) && an_rdmap(26, 2);
+  an_ok1 &= gfx_loadimg(27, "SugarAndSpace/SugarAndSpaceStar.png") >= 0 || gfx_loadimg(27, "Dependencies/SugarAndSpace/SugarAndSpaceStar.png") >= 0;
+  an_ok2 &= gfx_loadimg(28, "SugarAndSpace/SugarAndSpaceStar2x.png") >= 0 || gfx_loadimg(28, "Dependencies/SugarAndSpace/SugarAndSpaceStar2x.png") >= 0;
+  an_ok1 &= gfx_loadimg(38, "SugarAndSpace/SugarAndSpaceGlow.png") >= 0 || gfx_loadimg(38, "Dependencies/SugarAndSpace/SugarAndSpaceGlow.png") >= 0;
+  an_ok2 &= gfx_loadimg(39, "SugarAndSpace/SugarAndSpaceGlow2x.png") >= 0 || gfx_loadimg(39, "Dependencies/SugarAndSpace/SugarAndSpaceGlow2x.png") >= 0;
+  an_ok1 &= g_img && (gfx_loadimg(31, "SugarAndSpace/SugarAndSpaceEdge.png") >= 0 || gfx_loadimg(31, "Dependencies/SugarAndSpace/SugarAndSpaceEdge.png") >= 0) && an_mkpad(29, 20, 31, 1);
+  an_ok2 &= g_img2 && (gfx_loadimg(32, "SugarAndSpace/SugarAndSpaceEdge2x.png") >= 0 || gfx_loadimg(32, "Dependencies/SugarAndSpace/SugarAndSpaceEdge2x.png") >= 0) && an_mkpad(30, 21, 32, 2);
   GSNAME[1] = "Dry"; GSNAME[2] = "Wet"; GSNAME[3] = "Pre-delay"; GSNAME[4] = "Input low cut"; GSNAME[5] = "Input high cut";
   GSNAME[6] = "Size"; GSNAME[7] = "Diffusion"; GSNAME[8] = "Decay"; GSNAME[9] = "Reverb low cut"; GSNAME[10] = "Reverb high cut";
   GSNAME[11] = "Mod rate"; GSNAME[12] = "Mod depth"; GSNAME[13] = "Mod shape";
@@ -665,18 +853,34 @@ g_tipi = -1;
 
 gfx_set(0.157, 0.157, 0.157, 1);
 gfx_rect(0, 0, gfx_w, gfx_h, 1);
+sidebar();
 gfx_set(0.118, 0.118, 0.118, 1);
-box(0, 0, gW0, 58);
+box(-SBW, 0, max(gW0 + SBW, gfx_w / z), 58);
 white();
-box(0, 58, gW0, 2);
-font(24, 'b');
-white();
-text_l("SUGAR AND SPACE", 22, 11);
-font(10, 'b');
+box(-SBW, 58, max(gW0 + SBW, gfx_w / z), 2);
+(g_ttl2 && (z > 1.2 || !g_ttl)) ? (
+  gfx_getimgdim(23, g_tw, g_th);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = floor(sx((gW0 - SBW) * 0.5) - g_tw * z * 0.25); gfx_y = floor(sy(11.5));
+  gfx_blit(23, z * 0.5, 0);
+) : g_ttl ? (
+  gfx_getimgdim(22, g_tw, g_th);
+  gfx_set(1, 1, 1, 1);
+  gfx_x = floor(sx((gW0 - SBW) * 0.5) - g_tw * z * 0.5); gfx_y = floor(sy(11.5));
+  gfx_blit(22, z, 0);
+) : (
+  font(24, 'b');
+  white();
+  text_c("Sugar and Space", (gW0 - SBW) * 0.5, 13);
+);
+g_rx = max(gW0, gfx_w / z - SBW) - 10;
 gfx_set(0.80, 0.80, 0.80, 1);
-text_l("PLATE REVERB", 296, 20);
 font(10, 0);
-text_l("by chmaha  ·  based on Plateau by Dale Johnson (Valley Audio Soft)", 24, 39);
+gfx_measurestr("by chmaha", g_tw, g_th);
+gfx_x = sx(g_rx) - g_tw; gfx_y = sy(12); gfx_drawstr("by chmaha");
+font(9, 0);
+gfx_measurestr("based on Plateau by Dale Johnson (Valley Audio Soft)", g_tw, g_th);
+gfx_x = sx(g_rx) - g_tw; gfx_y = sy(30); gfx_drawstr("based on Plateau by Dale Johnson (Valley Audio Soft)");
 
 section(22, 74, 330, "INPUT");
 vknob(62, 138, 22, 1, "DRY", 0);
@@ -713,8 +917,8 @@ ledbtn(580, 404, pl_clr, "CLEAR") ? pl_clrpend = 1;
 hitc(580, 404, 12) || hit(594, 395, 120, 18) ? hint("Clear: fades the reverb out over 4 ms, empties the tank and fades back in");
 
 gfx_set(0.118, 0.118, 0.118, 1);
-box(0, 474, gW0, 26);
+box(-SBW, 474, max(gW0 + SBW, gfx_w / z), 26);
 font(9, 0);
 gfx_set(0.86, 0.86, 0.86, 1);
-strlen(#ghint) ? text_l(#ghint, 22, 479) : text_l("Sugar and Space: Plateau by Dale Johnson (Valley Audio Soft)  -  GPL-3.0+", 22, 479);
+strlen(#ghint) ? text_l(#ghint, 22 - SBW, 479) : text_l("Drag or wheel the knobs (Ctrl/Shift = fine, double-click = default)", 22 - SBW, 479);
 g_tipi > 0 ? ( sl_text(g_tipi, #gkv); tooltip(g_tipx, g_tipy, #gkv); );
