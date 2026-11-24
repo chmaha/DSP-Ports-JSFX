@@ -1,0 +1,4327 @@
+desc: Daisy Bell (SAM, Klatt (rsynth) and Flite port) by chmaha
+tags: instrument speech text-to-speech
+author: chmaha
+version: 1.0
+changelog:
+  Initial release.
+about:
+  A text-to-speech instrument driven entirely by MIDI text meta events
+  Three engines:
+  SAM: Software Automatic Mouth by Don't Ask Software (1982), ported from Sebastian Macke's
+  reverse-engineered C version (https://github.com/s-macke/SAM). The SAM code has never been released
+  under a licence; it is included as freely circulating abandonware and will be removed at the rightful
+  owner's request.
+  Klatt: the Klatt formant synthesizer from rsynth by Nick Ing-Simmons, whose README describes its parts
+  as (he believed) in the public domain.
+  HAL: a modified version of Flite (CMU Festival Lite) and its cmu_us_kal voice, Copyright (c) 1999-2017
+  Language Technologies Institute, Carnegie Mellon University, BSD-like licence
+  (see Dependencies/DaisyBell/Flite-LICENSE.txt).
+  JSFX code released under AGPLv3+ license (this covers chmaha's code and the Flite port, not SAM or rsynth)
+  Claude generated some of this code
+provides:
+  Dependencies/DaisyBell/DaisyBell-HAL.wav
+  Dependencies/DaisyBell/Flite-LICENSE.txt
+// Copyright (C) 2026 chmaha
+// Copyright (c) 1999-2017 Language Technologies Institute, Carnegie Mellon University (Flite)
+// SAM (Software Automatic Mouth) by Don't Ask Software, 1982; C version by Sebastian Macke
+// rsynth by Nick Ing-Simmons (Klatt synthesizer)
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published
+// by the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// The AGPL covers chmaha's code and the Flite port. Flite's own licence and notices are in
+// Dependencies/DaisyBell/Flite-LICENSE.txt.
+// The SAM engine is translated from Sebastian Macke's reverse-engineered C version of SAM.
+// SAM has never been released under a licence; it is included as freely circulating
+// abandonware and will be removed at the rightful owner's request.
+// The Klatt engine is translated from rsynth, whose README describes its parts as
+// (the author believed) in the public domain.
+// https://github.com/s-macke/SAM
+// http://www.festvox.org/flite/
+
+slider1:engine=0<0,2,1{SAM,Klatt,HAL}>-Engine
+slider2:speed=72<20,200,1>-Speed
+slider3:pitch=64<10,200,1>-Pitch
+slider4:mouth=128<0,255,1>-Mouth
+slider5:throat=128<0,255,1>-Throat
+slider6:sing=0<0,1,1{Off,On}>-Sing
+slider7:keytrack=1<0,1,1{Off,On}>-MIDI Pitch
+slider8:noteoff=0<0,1,1{Play Out,Stop}>-Note Off
+slider9:phonetic=0<0,1,1{English,Phonemes}>-Input
+slider10:textmode=0<0,1,1{Speak,Lyric For Next Note}>-MIDI Text Action
+slider11:vol_db=0<-24,12,0.1>-Volume (dB)
+slider12:midi_ch=0<0,16,1{Omni,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}>-MIDI Channel
+slider13:text_type=1<0,8,1{Off,Any,Text,Copyright,Track Name,Instrument,Lyric,Marker,Cue Point}>-MIDI Text Type
+
+in_pin:none
+out_pin:Left output
+out_pin:Right output
+
+options:maxmem=16777216 no_meter
+options:want_all_kb
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+last_srate = srate;
+
+function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
+
+alloc.mp = 0;
+
+function hx(d, s) local(i, n, a, b)
+(
+  n = strlen(s); i = 0;
+  while (i < n) (
+    a = str_getchar(s, i); b = str_getchar(s, i + 1);
+    d[0] = ((a <= 57 ? a - 48 : a - 87) << 4) + (b <= 57 ? b - 48 : b - 87);
+    d += 1; i += 2;
+  );
+  d;
+);
+
+function rx(d, s) local(i, n, c)
+(
+  n = strlen(s); i = 0;
+  while (i < n) (
+    c = str_getchar(s, i);
+    c == 124 ? (d[-1] = d[-1] | 128) : (d[0] = c; d += 1;);
+    i += 1;
+  );
+  d;
+);
+
+t_stin = alloc(16);
+t_sig1 = alloc(96);
+t_sig2 = alloc(96);
+t_fl = alloc(256);
+t_fl2 = alloc(256);
+t_lens = alloc(256);
+t_len = alloc(256);
+t_samp0 = alloc(256);
+t_strp = alloc(16);
+t_arsc = alloc(256);
+t_brank = alloc(256);
+t_bout = alloc(256);
+t_bin = alloc(256);
+t_scf = alloc(256);
+t_f1 = alloc(256);
+t_f2 = alloc(256);
+t_f3 = alloc(256);
+t_a1 = alloc(256);
+t_a2 = alloc(256);
+t_a3 = alloc(256);
+t_sin = alloc(256);
+t_rect = alloc(256);
+t_smp = alloc(1280);
+t_rflag = alloc(256);
+t_rlet = alloc(26);
+t_rul1 = alloc(4084);
+t_rul2 = alloc(455);
+
+hx(t_stin, "2a3132333435363738");
+p = hx(t_sig1, "202e3f2c2d4949454141414155414945554f524c575957524c57594d4e4e4451535346542f2f5a5a5644432a4a2a2a2a45414f414f55422a2a442a2a472a2a47");
+p = hx(p, "2a2a502a2a542a2a4b2a2a4b2a2a555555");
+p = hx(t_sig2, "2a2a2a2a2a5948484541484f48585852584858585858482a2a2a2a2a2a58582a2a482a4848582a482a48482a2a2a2a2a5959595757572a2a2a2a2a2a2a2a2a58");
+p = hx(p, "2a2a2a2a2a2a2a2a2a2a2a582a2a4c4d4e");
+p = hx(t_fl, "0000000000a4a4a4a4a4a48484a4a48484848484848444444444444c4c4c484c4040404040404444444448404c440000b4b4b49494944e4e4e4e4e4e4e4e4e4e");
+p = hx(p, "4e4e4b4b4b4b4b4b4b4b4b4b4b4b80c1c1");
+p = hx(t_fl2, "80c1c1c1c100000000000000000000000000000000000010101010080c0804402420202400002420202420200020000000000000000000000004040400000000");
+p = hx(p, "0000000000040404000000000000");
+p = hx(t_lens, "00121212080b090b0e0f0b100c06060e0c0e0c0b08080b0a0908080808080305020202020202060608060602090402010e0f0f0f0e0e08020207020107020207");
+p = hx(p, "02020802020602020702040701040505");
+p = hx(t_len, "0012121208080808080b060c0a05050b0a0a0a090807090706080607070702050202020202020606070606020803011e0d0c0c0c0e0906010205010106010206");
+p = hx(p, "0102080202040202060104060104c7ff");
+hx(t_samp0, "181a171717");
+hx(t_strp, "0000e0e6ecf3f900060c06");
+hx(t_arsc, "000102020203030404050608090b0d0f00");
+p = hx(t_brank, "001f1f1f1f0202020202020202020505020a020805050b0a090808a00808171f121212121e1e1414141417171a1a1d1d0202020202021a1d1b1a1d1b1a1d1b1a");
+p = hx(p, "1d1b171d17171d17171d17171d171717");
+p = hx(t_bout, "00020202020404040404040404040404040403020404020202020201010101010101010101010202020100010001000505050505040402000102000102000102");
+p = hx(p, "0001020002020001030002030002a0a0");
+p = hx(t_bin, "00020202020404040404040404040404040403030404030303030301020302010303030301010303030202030203000005050505040402000202000302000402");
+p = hx(p, "0003020002020002030003030003b0a0");
+p = hx(t_scf, "0000000000000000000000000000000000000000000000000000000000000000f1e2d3bb7c950102030300720002000000000000000000000000000000000000");
+p = hx(p, "0000001b000019000000000000000000");
+p = hx(t_f1, "00131313130a0e12181a161410140e120e1212100c0e0a120e0a080606060611060606060e10090a080a060606050600121a141a120c06060606060606060606");
+p = hx(p, "0606060606060606060a0a0606062c13");
+p = hx(t_f2, "00434343435448423e282c1e242c4830241e32241c4418321e18522e36563643494f1a4249253342282f4f4f424f6e0048261e2a1e221a1a1a4242426e6e6e54");
+p = hx(p, "54541a1a1a4242426d566d5454547f7f");
+p = hx(t_f3, "005b5b5b5b6e5d5b5859575852595d3e52583e6e505d5a3c6e5a6e517965795b636a51795d525d674c5d6565796579005a5858585852515151797979706e6e5e");
+p = hx(p, "5e5e5151517979796565705e5e5e0801");
+p = hx(t_a1, "00000000000d0d0e0f0f0f0f0f0c0d0c0f0f0d0d0d0e0d0c0d0d0d0c090900000000000000000b0b0b0b0000010b00020e0f0f0f0f0d02040002040001040001");
+p = hx(p, "0400000000000000000c000000000f0f");
+p = hx(t_a2, "00000000000a0b0d0e0d0c0c0b090b0b0c0c0c08080c080a08080a030906000000000000000003050304000000050a020e0d0c0d0c0800010000010000010000");
+p = hx(p, "0100000000000000000a00000a000000");
+p = hx(t_a3, "000000000008070808010100010007050100060100070005010008000003000000000000000000010000000000010e0109010001000000000000000000000000");
+p = hx(p, "00000000000000000007000005001310");
+p = hx(t_sin, "000306090c101316191c1f2225282b2e313336393c3f414447494c4e515355585a5c5e60626466686a6b6d6f70717374757678797a7a7b7c7d7d7e7e7e7f7f7f");
+p = hx(p, "7f7f7f7f7e7e7e7d7d7c7b7a7a79787675747371706f6d6b6a68666462605e5c5a585553514e4c494744413f3c393633312e2b2825221f1c191613100c090603");
+p = hx(p, "00fdfaf7f4f0edeae7e4e1dedbd8d5d2cfcdcac7c4c1bfbcb9b7b4b2afadaba8a6a4a2a09e9c9a9896959391908f8d8c8b8a8887868685848383828282818181");
+p = hx(p, "8181818182828283838485868687888a8b8c8d8f9091939596989a9c9ea0a2a4a6a8abadafb2b4b7b9bcbfc1c4c7cacdcfd2d5d8dbdee1e4e7eaedf0f4f7fafd");
+p = hx(t_rect, "90909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090");
+p = hx(p, "90909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090909090");
+p = hx(p, "70707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070");
+p = hx(p, "70707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070707070");
+p = hx(t_smp, "38846b19c66318867398c6b11cca318cc73188c23098463118c6350cca310cc62110246912c23114c471084a2249ab6aa8ac495132d55288936c94221554d225");
+p = hx(p, "96d450a5462108856b18c46310ce6b188c71198c63350cc63399cc6cb54ea29946212882952ee3309cc5309ca2b19c67318866592c5318846750cae30aacab30");
+p = hx(p, "ac62308c63109462b18c8228963398d6b54c6229a54ab59cc63114d6389c4bb4866518ae671ca66319962319841308a652acca22896eab198c6234c462198663");
+p = hx(p, "18c42358d6a35042544aad4a25116b64894a63398a23312aeaa2a944c512cd42348c62188c63114866319d44331d46319cc6b10ccd3288c47318867308d66358");
+p = hx(p, "0781e0f03c0787903c7c0fc7c0c0f07c1e078080001c7870f1c71fc00cfe1c1f1f0e0a7ac071f2838f030f0f0c0079f861e0430f83e718f9c113dae9638f0f83");
+p = hx(p, "8387c31f3c70f0e1e1e387b8710e20e38d48781c938730e1c1c1e478218383c3870639e5c387070e1c1c70f4719c603632c31e3cf38f0e3c70e3c78f0f0f0e3c");
+p = hx(p, "78f0e38706f0e307c199870f18787070fcf310b18c8c317c70e1863c646cb0e1e30f238f0f1e3e383c387b8f070e3cf4171e3c78f29e7249e32536385839e2de");
+p = hx(p, "3c7878e1c761e1e1b0f0f0c3c70e38c0f0ce73731834b0e1c78e1c3cf838f0e1c18b868f1c7870f078acb18f3931db3861c30e0e387873171e391e3864e1f1c1");
+p = hx(p, "4e0f40a202c58f81a1fc120864e03c22e045078e0c3290f01f2049e0f80c60f0171a41aaa4d08d12821e1e03f83e030c73807044260324e13e044e041cc109cc");
+p = hx(p, "9e902107904364c00fc6909cc15b03e21d81e05e1d0384b82c0f80b183e030411e43898350fc242e1383f17c4c2cc90d83b0b582e4e8069c07a0991d073e828f");
+p = hx(p, "70307440ca10e4e80f92143f06f8848843810a343941c6e31c4703b0b8130ac264f818f960b3c0652060a68cc3812030261e1c38d301b02640f40bc3421f8532");
+p = hx(p, "266040c9cb01ec112840fa0434e0704c8c1d07690316c80423e8c69a0b1a03e0760605cf1ebc5831716600f83f04fc0c74278a8071c23a2606c01f050f9840ae");
+p = hx(p, "017fc007ff000efe0003df8003ef801bf1c200e7e018fce021fc803cfc400e7e003f3e000ffe001fff003ef007fc007e103fff003f380e7c01870cfcc7003e04");
+p = hx(p, "0f3e1f0f0f1f0f028387cf03870f3fc0079e603fc003fe003fe077e1c0fee0c3e001dff80307007e70007c3818fe0c1e781c7c3e0e1f1e1e3e007f8307db8783");
+p = hx(p, "07c7071071ff003fe201e0c1c3e1007fc005f020f8f070fe7879f8023f0c8f030f9fe0c1c78703c3c3b0e1e1c1e3e071f000fc707c0c3e380e1c70c3c70381c1");
+p = hx(p, "c7e7000fc7871909efc433e0c1fcf870f078f8f061c7001ff8017cf8f078703c7cce0e2183cf08078f08c1878f80c7e30007f8e0ef0039f7800ef8e1e3f8219f");
+p = hx(p, "c0ff03f807c01ff8c404fcc4c1bc87f00fc07f05e025ecc03e8447f08e03f803fbc019f8079c0c17f807e01fa1fc0ffc01f03f00fe03f01f00fd00ff880df901");
+p = hx(p, "ff007007c03e42f30dc47f80fc07f05ec03f00783f81ff01f801c3e80ce4648fe40ff007f0c21f007fc06f807e03f807f03fc0780f8207fe227770027603fe00");
+p = hx(p, "fe67007cc7f18ec63be03f84f319d80399fc09b80ff8009d2461f90d00fd03f01f903f01f81fd00ff83701f807f00fc03f00fe03f80fc03f00fa03f00f80ff01");
+p = hx(p, "b807f001fc01bc80131e007fe1407fa07fb0003fc01fc0380ff01f80ff01fc03f17e01fe01f0ff007fc01d07f00fc07e06e007e00ff806c1fe01fc03e00f00fc");
+p = hx(t_rflag, "00000000000000000000000000000000000000000000000000000000000000000002020202020282000002020202020203030303030303030303020202020202");
+p = hx(p, "02c0a8b0acc0a0b8a0c0bca0aca8acc0a0a0acb4a4c0a8a8b0c0bc000000020020209b20c0b920cda34c8a8e");
+mem_set_values(t_rlet, 0, 405, 503, 674, 825, 1221, 1286, 1406, 1479, 1830, 1847, 1870, 1937, 2033, 2133, 2721, 2814, 2852, 2885, 3117, 3495, 3638, 3667, 3886, 3911, 4058);
+p = rx(t_rul1, "]A| (A.)=EH4Y. |(A) =AH| (ARE) =AAR| (AR)O=AXR|(AR)#=EH4R| ^(AS)#=EY4S|(A)WA=AX|(AW)=AO5| :(ANY)=EH4NIY|(A)^+#=EY5|");
+p = rx(p, "#:(ALLY)=ULIY| (AL)#=UL|(AGAIN)=AXGEH4N|#:(AG)E=IHJ|(A)^%=EY|(A)^+:#=AE| :(A)^+ =EY4| (ARR)=AXR|(ARR)=AE4R|");
+p = rx(p, " ^(AR) =AA5R|(AR)=AA5R|(AIR)=EH4R|(AI)=EY4|(AY)=EY5|(AU)=AO4|#:(AL) =UL|#:(ALS) =ULZ|(ALK)=AO4K|(AL)^=AOL|");
+p = rx(p, " :(ABLE)=EY4BUL|(ABLE)=AXBUL|(A)VO=EY4|(ANG)+=EY4NJ|(ATARI)=AHTAA4RIY|(A)TOM=AE|(A)TTI=AE| (AT) =AET| (A)T=AH|(A)=AE|");
+p = rx(p, "]B| (B) =BIY4| (BE)^#=BIH|(BEING)=BIY4IHNX| (BOTH) =BOW4TH| (BUS)#=BIH4Z|(BREAK)=BREY5K|(BUIL)=BIH4L|(B)=B|]C|");
+p = rx(p, " (C) =SIY4| (CH)^=K|^E(CH)=K|(CHA)R#=KEH5|(CH)=CH| S(CI)#=SAY4|(CI)A=SH|(CI)O=SH|(CI)EN=SH|(CITY)=SIHTIY|(C)+=S|");
+p = rx(p, "(CK)=K|(COMMODORE)=KAA4MAHDOHR|(COM)=KAHM|(CUIT)=KIHT|(CREA)=KRIYEY|(C)=K|]D| (D) =DIY4| (DR.) =DAA4KTER|");
+p = rx(p, "#:(DED) =DIHD|.E(D) =D|#:^E(D) =T| (DE)^#=DIH| (DO) =DUW| (DOES)=DAHZ|(DONE) =DAH5N|(DOING)=DUW4IHNX| (DOW)=DAW|");
+p = rx(p, "#(DU)A=JUW|#(DU)^#=JAX|(D)=D|]E| (E) =IYIY4|#:(E) =|':^(E) =| :(E) =IY|#(ED) =D|#:(E)D =|(EV)ER=EH4V|(E)^%=IY4|");
+p = rx(p, "(ERI)#=IY4RIY|(ERI)=EH4RIH|#:(ER)#=ER|(ERROR)=EH4ROHR|(ERASE)=IHREY5S|(ER)#=EHR|(ER)=ER| (EVEN)=IYVEHN|#:(E)W=|");
+p = rx(p, "@(EW)=UW|(EW)=YUW|(E)O=IY|#:&(ES) =IHZ|#:(E)S =|#:(ELY) =LIY|#:(EMENT)=MEHNT|(EFUL)=FUHL|(EE)=IY4|(EARN)=ER5N|");
+p = rx(p, " (EAR)^=ER5|(EAD)=EHD|#:(EA) =IYAX|(EA)SU=EH5|(EA)=IY5|(EIGH)=EY4|(EI)=IY4| (EYE)=AY4|(EY)=IY|(EU)=YUW5|");
+p = rx(p, "(EQUAL)=IY4KWUL|(E)=EH|]F| (F) =EH4F|(FUL)=FUHL|(FRIEND)=FREH5ND|(FATHER)=FAA4DHER|(F)F=|(F)=F|]G| (G) =JIY4|");
+p = rx(p, "(GIV)=GIH5V| (G)I^=G|(GE)T=GEH5|SU(GGES)=GJEH4S|(GG)=G| B#(G)=G|(G)+=J|(GREAT)=GREY4T|(GON)E=GAO5N|#(GH)=| (GN)=N|");
+p = rx(p, "(G)=G|]H| (H) =EY4CH| (HAV)=/HAE6V| (HERE)=/HIYR| (HOUR)=AW5ER|(HOW)=/HAW|(H)#=/H|(H)=|]I| (IN)=IHN| (I) =AY4|(I) =AY|");
+p = rx(p, "(IN)D=AY5N|SEM(I)=IY| ANT(I)=AY|(IER)=IYER|#:R(IED) =IYD|(IED) =AY5D|(IEN)=IYEHN|(IE)T=AY4EH|(I')=AY5| :(I)^%=AY5|");
+p = rx(p, " :(IE) =AY4|(I)%=IY|(IE)=IY4| (IDEA)=AYDIY5AH|(I)^+:#=IH|(IR)#=AYR|(IZ)%=AYZ|(IS)%=AYZ|I^(I)^#=IH|+^(I)^+=AY|");
+p = rx(p, "#:^(I)^+=IH|(I)^+=AY|(IR)=ER|(IGH)=AY4|(ILD)=AY5LD| (IGN)=IHGN|(IGN) =AY4N|(IGN)^=AY4N|(IGN)%=AY4N|(ICRO)=AY4KROH|");
+p = rx(p, "(IQUE)=IY4K|(I)=IH|]J| (J) =JEY4|(J)=J|]K| (K) =KEY4| (K)N=|(K)=K|]L| (L) =EH4L|(LO)C#=LOW|L(L)=|#:^(L)%=UL|");
+p = rx(p, "(LEAD)=LIYD| (LAUGH)=LAE4F|(L)=L|]M| (M) =EH4M| (MR.) =MIH4STER| (MS.)=MIH5Z| (MRS.) =MIH4SIXZ|(MOV)=MUW4V|");
+p = rx(p, "(MACHIN)=MAHSHIY5N|M(M)=|(M)=M|]N| (N) =EH4N|E(NG)+=NJ|(NG)R=NXG|(NG)#=NXG|(NGL)%=NXGUL|(NG)=NX|(NK)=NXK| (NOW) =NAW4|");
+p = rx(p, "N(N)=|(NON)E=NAH4N|(N)=N|]O| (O) =OH4W|(OF) =AHV| (OH) =OW5|(OROUGH)=ER4OW|#:(OR) =ER|#:(ORS) =ERZ|(OR)=AOR|");
+p = rx(p, " (ONE)=WAHN|#(ONE) =WAHN|(OW)=OW| (OVER)=OW5VER|PR(O)V=UW4|(OV)=AH4V|(O)^%=OW5|(O)^EN=OW|(O)^I#=OW5|(OL)D=OW4L|");
+p = rx(p, "(OUGHT)=AO5T|(OUGH)=AH5F| (OU)=AW|H(OU)S#=AW4|(OUS)=AXS|(OUR)=OHR|(OULD)=UH5D|(OU)^L=AH5|(OUP)=UW5P|(OU)=AW|(OY)=OY|");
+p = rx(p, "(OING)=OW4IHNX|(OI)=OY5|(OOR)=OH5R|(OOK)=UH5K|F(OOD)=UW5D|L(OOD)=AH5D|M(OOD)=UW5D|(OOD)=UH5D|F(OOT)=UH5T|(OO)=UW5|");
+p = rx(p, "(O')=OH|(O)E=OW|(O) =OW|(OA)=OW4| (ONLY)=OW4NLIY| (ONCE)=WAH4NS|(ON'T)=OW4NT|C(O)N=AA|(O)NG=AO| :^(O)N=AH|I(ON)=UN|");
+p = rx(p, "#:(ON)=UN|#^(ON)=UN|(O)ST=OW|(OF)^=AO4F|(OTHER)=AH5DHER|R(O)B=RAA|^R(O):#=OW5|(OSS) =AO5S|#:^(OM)=AHM|(O)=AA|]P|");
+p = rx(p, " (P) =PIY4|(PH)=F|(PEOPL)=PIY5PUL|(POW)=PAW4|(PUT) =PUHT|(P)P=|(P)S=|(P)N=|(PROF.)=PROHFEH4SER|(P)=P|]Q| (Q) =KYUW4|");
+p = rx(p, "(QUAR)=KWOH5R|(QU)=KW|(Q)=K|]R| (R) =AA5R| (RE)^#=RIY|(R)R=|(R)=R|]S| (S) =EH4S|(SH)=SH|#(SION)=ZHUN|(SOME)=SAHM|");
+p = rx(p, "#(SUR)#=ZHER|(SUR)#=SHER|#(SU)#=ZHUW|#(SSU)#=SHUW|#(SED)=ZD|#(S)#=Z|(SAID)=SEHD|^(SION)=SHUN|(S)S=|.(S) =Z|#:.E(S) =Z|");
+p = rx(p, "#:^#(S) =S|U(S) =S| :#(S) =Z|##(S) =Z| (SCH)=SK|(S)C+=|#(SM)=ZUM|#(SN)'=ZUM|(STLE)=SUL|(S)=S|]T| (T) =TIY4|");
+p = rx(p, " (THE) #=DHIY| (THE) =DHAX|(TO) =TUX| (THAT)=DHAET| (THIS) =DHIHS| (THEY)=DHEY| (THERE)=DHEHR|(THER)=DHER|");
+p = rx(p, "(THEIR)=DHEHR| (THAN) =DHAEN| (THEM) =DHAEN|(THESE) =DHIYZ| (THEN)=DHEHN|(THROUGH)=THRUW4|(THOSE)=DHOHZ|");
+p = rx(p, "(THOUGH) =DHOW|(TODAY)=TUXDEY|(TOMO)RROW=TUMAA5|(TO)TAL=TOW5| (THUS)=DHAH4S|(TH)=TH|#:(TED)=TIXD|S(TI)#N=CH|(TI)O=SH|");
+p = rx(p, "(TI)A=SH|(TIEN)=SHUN|(TUR)#=CHER|(TU)A=CHUW| (TWO)=TUW|&(T)EN =|(T)=T|]U| (U) =YUW4| (UN)I=YUWN| (UN)=AHN|");
+p = rx(p, " (UPON)=AXPAON|@(UR)#=UH4R|(UR)#=YUH4R|(UR)=ER|(U)^ =AH|(U)^^=AH5|(UY)=AY5| G(U)#=|G(U)%=|G(U)#=W|#N(U)=YUW|@(U)=UW|");
+p = rx(p, "(U)=YUW|]V| (V) =VIY4|(VIEW)=VYUW5|(V)=V|]W| (W) =DAH4BULYUW| (WERE)=WER|(WA)SH=WAA|(WA)ST=WEY|(WA)S=WAH|(WA)T=WAA|");
+p = rx(p, "(WHERE)=WHEHR|(WHAT)=WHAHT|(WHOL)=/HOWL|(WHO)=/HUW|(WH)=WH|(WAR)#=WEHR|(WAR)=WAOR|(WOR)^=WER|(WR)=R|(WOM)A=WUHM|");
+p = rx(p, "(WOM)E=WIHM|(WEA)R=WEH|(WANT)=WAA5NT|ANS(WER)=ER|(W)=W|]X| (X) =EH4KR| (X)=Z|(X)=KS|]Y| (Y) =WAY4|(YOUNG)=YAHNX|");
+p = rx(p, " (YOUR)=YOHR| (YOU)=YUW| (YES)=YEHS| (Y)=Y|F(Y)=AY|PS(YCH)=AYK|#:^(Y)=IY|#:^(Y)I=IY| :(Y) =AY| :(Y)#=AY| :(Y)^+:#=IH|");
+p = rx(p, " :(Y)^#=AY|(Y)=IH|]Z| (Z) =ZIY4|(Z)=Z|j|");
+p = rx(t_rul2, "(A)=|(!)=.|(\") =-AH5NKWOWT-|(\")=KWOW4T-|(#)= NAH4MBER|($)= DAA4LER|(%)= PERSEH4NT|(&)= AEND|(')=|(*)= AE4STERIHSK|");
+p = rx(p, "(+)= PLAH4S|(,)=,| (-) =-|(-)=|(.)= POYNT|(/)= SLAE4SH|(0)= ZIY4ROW| (1ST)=FER4ST| (10TH)=TEH4NTH|(1)= WAH4N|");
+p = rx(p, " (2ND)=SEH4KUND|(2)= TUW4| (3RD)=THER4D|(3)= THRIY4|(4)= FOH4R| (5TH)=FIH4FTH|(5)= FAY4V| (64) =SIH4KSTIY FOHR|");
+p = rx(p, "(6)= SIH4KS|(7)= SEH4VUN| (8TH)=EY4TH|(8)= EY4T|(9)= NAY4N|(:)=.|(;)=.|(<)= LEH4S DHAEN|(=)= IY4KWULZ|");
+p = rx(p, "(>)= GREY4TER DHAEN|(?)=?|(@)= AE6T|(^)= KAE4RIXT|]A|");
+t_rul1n = 4076; t_rul2n = 447;
+
+t_mf = alloc(30); t_tf = alloc(30); t_mf2 = alloc(6); t_tf2 = alloc(6); t_tt = alloc(25);
+mem_set_values(t_mf, 0, 0, 0, 0, 0, 10, 14, 19, 24, 27, 23, 21, 16, 20, 14, 18, 14, 18, 18, 16, 13, 15, 11, 18, 14, 11, 9, 6, 6, 6);
+mem_set_values(t_tf, 255, 255, 255, 255, 255, 84, 73, 67, 63, 40, 44, 31, 37, 45, 73, 49, 36, 30, 51, 37, 29, 69, 24, 50, 30, 24, 83, 46, 54, 86);
+mem_set_values(t_mf2, 19, 27, 21, 27, 18, 13);
+mem_set_values(t_tf2, 72, 39, 31, 43, 30, 34);
+mem_set_values(t_tt, 162, 167, 167, 127, 128, 226, 60, 60, 0, 0, 225, 60, 59, 0, 0, 200, 0, 0, 54, 55, 199, 0, 0, 54, 54);
+
+t_sins = alloc(256); t_rects = alloc(256);
+i = 0;
+loop(256,
+  t_sins[i] = t_sin[i] > 127 ? t_sin[i] - 256 : t_sin[i];
+  t_rects[i] = t_rect[i] > 127 ? t_rect[i] - 256 : t_rect[i];
+  i += 1;
+);
+
+TXT_MAX = 1000;
+RC_CAP = 8192;
+rc_in = alloc(TXT_MAX + 16);
+rc_tmp = alloc(TXT_MAX + 32);
+rc_out = alloc(RC_CAP + 16);
+pin = alloc(272);
+ph_idx = alloc(256); ph_len = alloc(256); ph_str = alloc(256);
+o_idx = alloc(256); o_len = alloc(256); o_str = alloc(256);
+fr = alloc(7*256); fr_scf = alloc(256);
+s_ary = alloc(8);
+
+function sam_out(idx) local(b)
+(
+  s_bp += t_tt[s_oti*5 + idx]; s_oti = idx;
+  b = (s_bp/50)|0;
+  b + 5 < s_cap ? (
+    s_dst[b] = s_ary[0]; s_dst[b+1] = s_ary[1]; s_dst[b+2] = s_ary[2]; s_dst[b+3] = s_ary[3]; s_dst[b+4] = s_ary[4];
+  ) : s_full = 1;
+);
+
+function sam_out1(idx, v) ( s_ary[0] = s_ary[1] = s_ary[2] = s_ary[3] = s_ary[4] = v; sam_out(idx); );
+
+function sam_trans(a, b) ( (((a*b) >> 8)*2) & 255; );
+
+function sam_mouth_throat(m, t) local(p)
+(
+  p = 5;
+  while (p < 30) ( t_f1[p] = sam_trans(m, t_mf[p]); t_f2[p] = sam_trans(t, t_tf[p]); p += 1; );
+  p = 48;
+  while (p < 54) ( t_f1[p] = sam_trans(m, t_mf2[p-48]); t_f2[p] = sam_trans(t, t_tf2[p-48]); p += 1; );
+);
+
+function sam_ins(p, idx, len, st) local(i)
+(
+  p = p & 255;
+  i = 253;
+  while (i >= p) ( ph_idx[i+1] = ph_idx[i]; ph_len[i+1] = ph_len[i]; ph_str[i+1] = ph_str[i]; i -= 1; );
+  ph_idx[p] = idx; ph_len[p] = len; ph_str[p] = st;
+);
+
+function sam_parser1() local(x, pos, s1, s2, y, f, run, res)
+(
+  x = 0; pos = 0; run = 1; res = 0;
+  memset(ph_str, 0, 256);
+  while (run) (
+    s1 = pin[x];
+    s1 == 155 ? (
+      ph_idx[pos & 255] = 255; run = 0; res = 1;
+    ) : (
+      x += 1; s2 = pin[x];
+      f = -1; y = 0;
+      while (f < 0 && y < 81) ( (t_sig1[y] == s1 && t_sig2[y] != 42 && t_sig2[y] == s2) ? (f = y); y += 1; );
+      f >= 0 ? (
+        ph_idx[pos & 255] = f; pos += 1; x += 1;
+      ) : (
+        y = 0;
+        while (f < 0 && y < 81) ( (t_sig2[y] == 42 && t_sig1[y] == s1) ? (f = y); y += 1; );
+        f >= 0 ? (
+          ph_idx[pos & 255] = f; pos += 1;
+        ) : (
+          y = 8;
+          while (s1 != t_stin[y] && y > 0) ( y -= 1; );
+          y == 0 ? (run = 0; s_bad = x - 1;) : (ph_str[(pos-1) & 255] = y);
+        );
+      );
+    );
+    (x > 258 || pos > 250) ? (run = 0);
+  );
+  res;
+);
+
+function sam_parser2() local(pos, x, a, y, m58, lbl, done, x2, pm, idx, run, cnt)
+(
+  pos = 0; run = 1; cnt = 0;
+  while (run && cnt < 1024) (
+    x = pos; a = ph_idx[pos]; lbl = 0;
+    a == 0 ? (pos += 1) : a == 255 ? (run = 0) : (
+      t_fl[a] & 16 ? (
+        m58 = ph_str[pos];
+        sam_ins(pos+1, t_fl[a] & 32 ? 21 : 20, 0, m58);
+        x = pos; a = ph_idx[x]; lbl = 1;
+      ) : (a == 78 || a == 79 || a == 80) ? (
+        m58 = ph_str[x]; ph_idx[x] = 13;
+        sam_ins(x+1, a == 78 ? 24 : a == 79 ? 27 : 28, 0, m58);
+        pos += 1;
+      ) : (
+        done = 0;
+        ((t_fl[a] & 128) && ph_str[x]) ? (
+          x2 = (x+1) & 255;
+          ph_idx[x2] == 0 ? (
+            x2 = (x2+1) & 255; y = ph_idx[x2];
+            (y != 255 && (t_fl[y] & 128) && ph_str[x2]) ? (sam_ins(x2, 31, 0, 0); pos += 1; done = 1;);
+          );
+        );
+        !done ? (
+          x = pos; a = ph_idx[pos]; pm = (pos-1) & 255;
+          a == 23 ? (
+            y = ph_idx[pm];
+            y == 69 ? (ph_idx[pm] = 42) : y == 57 ? (ph_idx[pm] = 44) : (t_fl[y] & 128) ? (ph_idx[pos] = 18);
+            pos += 1;
+          ) : a == 24 ? (
+            (t_fl[ph_idx[pm]] & 128) ? (ph_idx[x] = 19);
+            pos += 1;
+          ) : a == 32 ? (
+            ph_idx[pm] == 60 ? (ph_idx[pos] = 38);
+            pos += 1;
+          ) : a == 60 ? (
+            idx = ph_idx[(pos+1) & 255];
+            (idx != 255 && !(t_fl[idx] & 32)) ? (ph_idx[pos] = 63);
+            pos += 1;
+          ) : (
+            a == 72 ? ( y = ph_idx[(pos+1) & 255]; (y == 255 || !(t_fl[y] & 32)) ? (ph_idx[pos] = 75); );
+            y = ph_idx[pos];
+            !(t_fl[y] & 1) ? (a = ph_idx[x]; lbl = 1;)
+            : ph_idx[pm] != 32 ? (a = y; lbl = 3;)
+            : (ph_idx[pos] = y - 12; pos += 1;);
+          );
+        );
+      );
+      lbl == 1 ? (
+        a == 53 ? ( (t_fl2[ph_idx[(x-1) & 255]] & 4) ? (ph_idx[x] = 16); pos += 1; )
+        : (a == 42 || a == 44) ? ( sam_ins(x+1, a+1, 0, ph_str[x]); pos += 1; )
+        : (lbl = 3);
+      );
+      lbl == 3 ? (
+        ((a != 69 && a != 57) || !(t_fl[ph_idx[(x-1) & 255]] & 128)) ? (pos += 1) : (
+          x = (x+1) & 255; a = ph_idx[x];
+          a != 0 ? (
+            ((t_fl[a] & 128) && !ph_str[x]) ? (ph_idx[pos] = 30);
+          ) : (
+            a = ph_idx[(x+1) & 255];
+            (a != 255 && (t_fl[a] & 128)) ? (ph_idx[pos] = 30);
+          );
+          pos += 1;
+        );
+      );
+    );
+    pos = pos & 255; cnt += 1;
+  );
+);
+
+function sam_copystress() local(pos, y, s, cnt)
+(
+  pos = 0; cnt = 0;
+  while (ph_idx[pos] != 255 && cnt < 512) (
+    y = ph_idx[pos];
+    t_fl[y] & 64 ? (
+      y = ph_idx[(pos+1) & 255];
+      (y != 255 && (t_fl[y] & 128)) ? (
+        s = ph_str[(pos+1) & 255];
+        (s != 0 && !(s & 128)) ? (ph_str[pos] = s + 1);
+      );
+    );
+    pos = (pos+1) & 255; cnt += 1;
+  );
+);
+
+function sam_setlen() local(pos, s)
+(
+  pos = 0;
+  while (pos < 256 && ph_idx[pos] != 255) (
+    s = ph_str[pos];
+    ph_len[pos] = (s == 0 || (s & 128)) ? t_len[ph_idx[pos]] : t_lens[ph_idx[pos]];
+    pos += 1;
+  );
+);
+
+function sam_adjust() local(x, idx, li, run, back, m56, a, cnt)
+(
+  x = 0; run = 1; cnt = 0;
+  while (run && cnt < 1024) (
+    idx = ph_idx[x];
+    idx == 255 ? (run = 0) : !(t_fl2[idx] & 1) ? (x = (x+1) & 255) : (
+      li = x; back = 1;
+      while (back) (
+        x = (x-1) & 255;
+        x == 0 ? (back = 0; run = 0;) : (idx = ph_idx[x]; back = idx != 255 && !(t_fl[idx] & 128););
+      );
+      run ? (
+        while (
+          idx = ph_idx[x];
+          (idx != 255 && (!(t_fl2[idx] & 32) || (t_fl[idx] & 4))) ? (a = ph_len[x]; ph_len[x] = ((a >> 1) + a + 1) & 255;);
+          x = (x+1) & 255;
+          x != li;
+        );
+        x = (x+1) & 255;
+      );
+    );
+    cnt += 1;
+  );
+  li = 0; run = 1; cnt = 0;
+  while (run && cnt < 1024) (
+    x = li; idx = ph_idx[x];
+    idx == 255 ? (run = 0) : (
+      t_fl[idx] & 128 ? (
+        x = (x+1) & 255; idx = ph_idx[x];
+        m56 = idx == 255 ? 65 : t_fl[idx];
+        !(t_fl[idx] & 64) ? (
+          (idx == 18 || idx == 19) ? (
+            x = (x+1) & 255; idx = ph_idx[x];
+            (t_fl[idx] & 64) ? (ph_len[li] = (ph_len[li] - 1) & 255);
+          );
+        ) : !(m56 & 4) ? (
+          m56 & 1 ? ( x = (x-1) & 255; m56 = ph_len[x] >> 3; ph_len[x] = (ph_len[x] - m56) & 255; );
+        ) : (
+          a = ph_len[(x-1) & 255]; ph_len[(x-1) & 255] = ((a >> 2) + a + 1) & 255;
+        );
+      ) : t_fl2[idx] & 8 ? (
+        x = (x+1) & 255; idx = ph_idx[x];
+        a = idx == 255 ? 0 : t_fl[idx] & 2;
+        a ? (ph_len[x] = 6; ph_len[(x-1) & 255] = 5;);
+      ) : t_fl[idx] & 2 ? (
+        while ( x = (x+1) & 255; idx = ph_idx[x]; idx == 0; );
+        (idx != 255 && (t_fl[idx] & 2)) ? (
+          ph_len[x] = ((ph_len[x] >> 1) + 1) & 255;
+          ph_len[li] = ((ph_len[li] >> 1) + 1) & 255;
+        );
+      ) : t_fl2[idx] & 16 ? (
+        (t_fl[ph_idx[(x-1) & 255]] & 2) ? (ph_len[x] = (ph_len[x] - 2) & 255);
+      );
+      li = (li+1) & 255;
+    );
+    cnt += 1;
+  );
+);
+
+function sam_prolong() local(pos, idx, x, a, ins, cnt)
+(
+  pos = 0; cnt = 0;
+  while (ph_idx[pos] != 255 && cnt < 1024) (
+    idx = ph_idx[pos]; ins = 0;
+    t_fl[idx] & 2 ? (
+      !(t_fl[idx] & 1) ? (ins = 1) : (
+        x = pos;
+        while ( x = (x+1) & 255; a = ph_idx[x]; a == 0; );
+        ins = a == 255 || !((t_fl[a] & 8) || a == 36 || a == 37);
+      );
+    );
+    ins ? (
+      sam_ins(pos+1, idx+1, t_len[idx+1], ph_str[pos]);
+      sam_ins(pos+2, idx+2, t_len[idx+2], ph_str[pos]);
+      pos = (pos+3) & 255;
+    ) : (pos = (pos+1) & 255);
+    cnt += 1;
+  );
+);
+
+function sam_breath() local(m54, m55, m66, x, idx, run, cnt)
+(
+  m54 = 255; m55 = 0; m66 = 0; run = 1; cnt = 0;
+  while (run && cnt < 2048) (
+    x = m66; idx = ph_idx[x];
+    idx == 255 ? (run = 0) : (
+      m55 = (m55 + ph_len[x]) & 255;
+      m55 < 232 ? (
+        (idx != 254 && (t_fl2[idx] & 1)) ? (
+          x = (x+1) & 255; m55 = 0; sam_ins(x, 254, 0, 0); m66 = (m66+2) & 255;
+        ) : (
+          idx == 0 ? (m54 = x);
+          m66 = (m66+1) & 255;
+        );
+      ) : m54 != 255 ? (
+        x = m54; ph_idx[x] = 31; ph_len[x] = 4; ph_str[x] = 0;
+        x = (x+1) & 255; m55 = 0; sam_ins(x, 254, 0, 0); x = (x+1) & 255; m66 = x;
+      ) : (
+        m55 = 0; sam_ins(x, 254, 0, 0); m66 = (x+1) & 255;
+      );
+    );
+    cnt += 1;
+  );
+);
+
+function sam_addinfl(m48) local(a, p1, cnt, inner)
+(
+  s49 = sX;
+  sX = sX <= 30 ? 0 : sX - 30;
+  cnt = 0;
+  while (fr[sX] == 127 && cnt < 256) ( sX = (sX+1) & 255; cnt += 1; );
+  a = fr[sX];
+  cnt = 0;
+  while (
+    a = (a + m48) & 255; p1 = a; fr[sX] = a;
+    inner = 1;
+    while (inner) ( sX = (sX+1) & 255; inner = sX != s49 && fr[sX] == 255; );
+    a = p1; cnt += 1;
+    sX != s49 && cnt < 512;
+  );
+  sX = s49;
+);
+
+function sam_sample() local(a, x, ph, y, t)
+(
+  s49 = sY;
+  x = ((s39 & 7) - 1) & 255;
+  s53 = t_samp0[x]; s47 = min(x, 4);
+  a = s39 & 248;
+  a == 0 ? (
+    ph = 255 - (fr[s49] >> 4); y = s66;
+    while (
+      a = t_smp[s47*256 + y];
+      loop(8, (a & 128) ? sam_out1(3, 160) : sam_out1(4, 96); a = (a << 1) & 255; );
+      y = (y+1) & 255; ph = (ph+1) & 255;
+      ph != 0;
+    );
+    s66 = y;
+  ) : (
+    y = 255 - a;
+    while (
+      a = t_smp[s47*256 + y];
+      loop(8,
+        t = a; a = (a << 1) & 255;
+        !(t & 128) ? ( sam_out1(1, (s53 & 15)*16); s53 == 0 ? sam_out1(2, 80); ) : sam_out1(2, 80);
+      );
+      y = (y+1) & 255;
+      y != 0;
+    );
+  );
+  s44 = 1; sY = s49;
+);
+
+function sam_render_setup() local(ph1, ph2, ph3, m38, m40, sc, m48, m36, m37, k, kb, m53s, i, run)
+(
+  o_idx[0] != 255 ? (
+    s44 = 0; sX = 0; run = 1;
+    while (run) (
+      sY = s44; sA = o_idx[s44]; s56 = sA;
+      sA == 255 ? (run = 0) : (
+        sA == 1 ? sam_addinfl(1) : sA == 2 ? sam_addinfl(255);
+        ph1 = t_strp[o_str[sY] + 1]; ph2 = o_len[sY]; sY = s56;
+        while (
+          fr[sX] = (s_pitch + ph1) & 255;
+          fr[256+sX] = t_f1[sY]; fr[512+sX] = t_f2[sY]; fr[768+sX] = t_f3[sY];
+          fr[1024+sX] = t_a1[sY]; fr[1280+sX] = t_a2[sY]; fr[1536+sX] = t_a3[sY];
+          fr_scf[sX] = t_scf[sY];
+          sX = (sX+1) & 255; ph2 = (ph2-1) & 255;
+          ph2 != 0;
+        );
+        s44 = (s44+1) & 255;
+        s44 == 0 ? (run = 0);
+      );
+    );
+
+    s44 = 0; s49 = 0; sX = 0; run = 1;
+    while (run) (
+      sY = o_idx[sX]; sA = o_idx[sX+1]; sX += 1;
+      sA == 255 ? (run = 0) : (
+        sX = sA; s56 = t_brank[sA]; sA = t_brank[sY];
+        sA == s56 ? ( ph1 = t_bout[sY]; ph2 = t_bout[sX]; )
+        : sA < s56 ? ( ph1 = t_bin[sX]; ph2 = t_bout[sX]; )
+        : ( ph1 = t_bout[sY]; ph2 = t_bin[sY]; );
+        s49 = (s49 + o_len[s44]) & 255;
+        sc = (s49 + ph2) & 255;
+        ph3 = (s49 - ph1) & 255;
+        m38 = (ph1 + ph2) & 255;
+        !(((m38 - 2) & 255) & 128) ? (
+          k = 0;
+          loop(7,
+            kb = k*256;
+            m40 = m38;
+            k == 0 ? (
+              m36 = o_len[s44] >> 1; m37 = o_len[s44+1] >> 1;
+              m40 = (m36 + m37) & 255; m37 = (m37 + s49) & 255; m36 = (s49 - m36) & 255;
+              s53 = (fr[m37] - fr[m36]) & 255;
+            ) : (
+              s53 = (fr[kb+sc] - fr[kb+ph3]) & 255;
+            );
+            m40 ? (
+              m53s = s53 >= 128 ? s53 - 256 : s53;
+              s50 = s53 & 128;
+              s51 = abs(m53s) % m40;
+              s53 = ((m53s/m40)|0) & 255;
+              sX = m40; sY = ph3; s56 = 0;
+              while (
+                m48 = (fr[kb+sY] + s53) & 255;
+                sY = (sY+1) & 255; sX -= 1;
+                sX != 0 ? (
+                  s56 = (s56 + s51) & 255;
+                  s56 >= m40 ? (
+                    s56 -= m40;
+                    !s50 ? ( m48 ? (m48 = (m48+1) & 255); ) : (m48 = (m48-1) & 255);
+                  );
+                  fr[kb+sY] = m48;
+                );
+                sX != 0;
+              );
+            );
+            k += 1;
+          );
+        );
+        s44 = (s44+1) & 255; sX = s44;
+      );
+    );
+
+    m48 = (s49 + o_len[s44]) & 255;
+    !s_sing ? ( i = 0; loop(256, fr[i] = (fr[i] - (fr[256+i] >> 1)) & 255; i += 1; ); );
+    i = 1024; loop(768, fr[i] = t_arsc[fr[i]]; i += 1; );
+
+    g_p1 = g_p2 = g_p3 = 0; sY = 0; sA = fr[0]; s44 = sA; g_m38 = (sA - (sA >> 2)) & 255; g_sc = 72; s66 = 0;
+    g_m48 = m48; g_run = 1; g_cnt = 0; gen_active = 1;
+  );
+);
+
+function sam_render_gen() local(skip, reload, f1, f2, f3, a1, a2, a3, i, mux)
+(
+  while (g_run && sam_bud > 0) (
+    s39 = fr_scf[sY];
+    skip = 0; reload = 0;
+    s39 & 248 ? (
+      sam_sample(); sY = (sY+2) & 255; g_m48 = (g_m48-2) & 255;
+    ) : (
+      f1 = fr[256+sY]; f2 = fr[512+sY]; f3 = fr[768+sY];
+      a1 = fr[1024+sY] & 15; a2 = fr[1280+sY] & 15; a3 = fr[1536+sY] & 15;
+      i = 0;
+      loop(5,
+        mux = t_sins[(g_p1 + ((i*f1) >> 2)) & 255]*a1 + t_sins[(g_p2 + ((i*f2) >> 2)) & 255]*a2 + t_rects[(g_p3 + ((i*f3) >> 2)) & 255]*a3;
+        s_ary[i] = (((mux/32)|0) + 128) & 255;
+        i += 1;
+      );
+      sam_out(0);
+      g_sc = (g_sc-1) & 255;
+      g_sc != 0 ? (skip = 1) : ( sY = (sY+1) & 255; g_m48 = (g_m48-1) & 255; );
+    );
+    !skip ? ( g_m48 == 0 ? (g_run = 0) : (g_sc = s_speed); );
+    g_run ? (
+      s44 = (s44-1) & 255;
+      s44 == 0 ? (reload = 1) : (
+        g_m38 = (g_m38-1) & 255;
+        (g_m38 != 0 || s39 == 0) ? (
+          g_p1 = (g_p1 + fr[256+sY]) & 255; g_p2 = (g_p2 + fr[512+sY]) & 255; g_p3 = (g_p3 + fr[768+sY]) & 255;
+        ) : ( sam_sample(); reload = 1; );
+      );
+      reload ? ( sA = fr[sY]; s44 = sA; g_m38 = (sA - (sA >> 2)) & 255; g_p1 = g_p2 = g_p3 = 0; );
+    );
+    g_cnt += 1; sam_bud -= 1;
+    (g_cnt > 4000000 || s_full) ? (g_run = 0);
+  );
+  !g_run ? (gen_active = 0);
+);
+
+function sam_run() local(a)
+(
+  gen_active ? sam_render_gen();
+  while (!gen_active && pr_run && pr_cnt < 1024 && sam_bud > 0) (
+    a = ph_idx[pr_x];
+    a == 255 ? ( o_idx[pr_y] = 255; sam_render_setup(); pr_run = 0; )
+    : a == 254 ? ( pr_x += 1; o_idx[pr_y] = 255; sam_render_setup(); pr_y = 0; )
+    : a == 0 ? ( pr_x += 1 )
+    : ( o_idx[pr_y] = a; o_len[pr_y] = ph_len[pr_x]; o_str[pr_y] = ph_str[pr_x]; pr_x += 1; pr_y = min(pr_y+1, 254); );
+    pr_x > 255 ? (pr_run = 0);
+    pr_cnt += 1;
+    gen_active ? sam_render_gen();
+  );
+  gen_active || (pr_run && pr_cnt < 1024);
+);
+
+function sam_main_begin()
+(
+  sam_mouth_throat(s_mouth, s_throat);
+  memset(ph_len, 0, 256); memset(ph_str, 0, 256);
+  ph_idx[255] = 32;
+  gen_active = 0;
+  sam_parser1() ? (
+    sam_parser2(); sam_copystress(); sam_setlen(); sam_adjust(); sam_prolong();
+    pr_x = 0; while (pr_x < 256 && ph_idx[pr_x] <= 80) ( pr_x += 1; ); pr_x < 256 ? (ph_idx[pr_x] = 255);
+    sam_breath();
+    pr_x = 0; pr_y = 0; pr_run = 1; pr_cnt = 0;
+    1;
+  ) : (pr_run = 0; 0);
+);
+
+function rc_rb(a, y) ( a >= 37541 ? t_rul2[a - 37541 + y] : t_rul1[a - 32000 + y]; );
+
+function sam_reciter(n) local(it, ro, i, a, c, f, x, y, m56, m57, m58, m59, m60, m61, m62, m64, m65, m66, ok, run, res, found, pd, sd, brk, cnt, lim)
+(
+  it = rc_tmp + 2; ro = rc_out;
+  it[-2] = it[-1] = 0; it[0] = 32;
+  i = 0;
+  loop(n,
+    a = rc_in[i] & 127;
+    a >= 112 ? (a = a & 95) : a >= 96 ? (a = a & 79);
+    it[i+1] = a; i += 1;
+  );
+  it[n+1] = 91; it[n+2] = it[n+3] = it[n+4] = it[n+5] = 0;
+  m56 = -1; m61 = -1; run = 1; res = -1; cnt = 0;
+  while (run && cnt < 200000) (
+    cnt += 1;
+    m61 += 1; a = it[m61]; m64 = a;
+    a == 91 ? (
+      m56 += 1; ro[m56] = 155; res = m56 + 1; run = 0;
+    ) : (a == 46 && !(t_rflag[it[m61+1]] & 1)) ? (
+      m56 += 1; ro[m56] = 46;
+    ) : (
+      m57 = t_rflag[a];
+      found = 0;
+      m57 & 2 ? ( m62 = 37541; lim = 37541 + t_rul2n; found = 1; )
+      : m57 == 0 ? ( it[m61] = 32; m56 += 1; ro[m56] = 32; )
+      : !(m57 & 128) ? (run = 0)
+      : ( m62 = 32000 + t_rlet[a - 65]; lim = 32000 + t_rul1n; found = 1; );
+      found ? (
+        ok = 0;
+        while (!ok && run && m62 < lim - 2 && cnt < 200000) (
+          cnt += 1;
+          while ( m62 += 1; !(rc_rb(m62, 0) & 128) && m62 < lim; );
+          y = 1; while (rc_rb(m62, y) != 40 && y < 255) ( y += 1; ); m66 = y;
+          while ( y += 1; rc_rb(m62, y) != 41 && y < 255; ); m65 = y;
+          while ( y += 1; (rc_rb(m62, y) & 127) != 61 && y < 255; ); m64 = y;
+          x = m61; m60 = x; y = m66 + 1; ok = m62 < lim - 2; brk = 0;
+          while (ok && !brk) (
+            rc_rb(m62, y) != it[x] ? (ok = 0) : (
+              y += 1;
+              y == m65 ? (brk = 1) : (x += 1; m60 = x;);
+            );
+          );
+          ok ? (
+            m59 = m61; pd = 0;
+            while (ok && !pd) (
+              m66 -= 1; a = rc_rb(m62, m66); m57 = a;
+              a & 128 ? (pd = 1) : t_rflag[a & 127] & 128 ? (
+                x = m59 - 1; it[x] != m57 ? (ok = 0) : (m59 = x);
+              ) : (
+                x = m59 - 1; c = it[x]; f = t_rflag[c];
+                a == 32 ? ( f & 128 ? (ok = 0) : (m59 = x); )
+                : a == 35 ? ( f & 64 ? (m59 = x) : (ok = 0); )
+                : a == 46 ? ( f & 8 ? (m59 = x) : (ok = 0); )
+                : a == 38 ? ( f & 16 ? (m59 = x) : c != 72 ? (ok = 0) : ( x -= 1; c = it[x]; (c == 67 || c == 83) ? (m59 = x) : (ok = 0); ); )
+                : a == 64 ? ( f & 4 ? (m59 = x) : (ok = 0); )
+                : a == 94 ? ( f & 32 ? (m59 = x) : (ok = 0); )
+                : a == 43 ? ( (c == 69 || c == 73 || c == 89) ? (m59 = x) : (ok = 0); )
+                : a == 58 ? ( while (m59 > 0 && (t_rflag[it[m59 - 1]] & 32)) ( m59 -= 1; ); )
+                : ( ok = 0; run = 0; );
+              );
+            );
+          );
+          ok ? (
+            m58 = m60; sd = 0;
+            while (ok && !sd) (
+              y = m65 + 1;
+              y == m64 ? (sd = 1) : (
+                m65 = y; a = rc_rb(m62, y); m57 = a;
+                t_rflag[a] & 128 ? (
+                  x = m58 + 1; it[x] != a ? (ok = 0) : (m58 = x);
+                ) : (
+                  x = m58 + 1; c = it[x]; f = t_rflag[c];
+                  a == 32 ? ( f & 128 ? (ok = 0) : (m58 = x); )
+                  : a == 35 ? ( f & 64 ? (m58 = x) : (ok = 0); )
+                  : a == 46 ? ( f & 8 ? (m58 = x) : (ok = 0); )
+                  : a == 38 ? ( f & 16 ? (m58 = x) : c != 72 ? (ok = 0) : ( x += 1; c = it[x]; (c == 67 || c == 83) ? (m58 = x) : (ok = 0); ); )
+                  : a == 64 ? ( f & 4 ? (m58 = x) : (ok = 0); )
+                  : a == 94 ? ( f & 32 ? (m58 = x) : (ok = 0); )
+                  : a == 43 ? ( (c == 69 || c == 73 || c == 89) ? (m58 = x) : (ok = 0); )
+                  : a == 58 ? ( while (t_rflag[it[m58 + 1]] & 32) ( m58 += 1; ); )
+                  : a == 37 ? (
+                    c != 69 ? (
+                      c != 73 ? (ok = 0) : (
+                        x += 1;
+                        it[x] != 78 ? (ok = 0) : ( x += 1; it[x] == 71 ? (m58 = x) : (ok = 0); );
+                      );
+                    ) : !(t_rflag[it[x + 1]] & 128) ? (m58 = x) : (
+                      x += 1; c = it[x];
+                      (c == 82 || c == 83 || c == 68) ? (m58 = x)
+                      : c == 76 ? ( x += 1; it[x] == 89 ? (m58 = x) : (ok = 0); )
+                      : c == 70 ? (
+                        x += 1;
+                        it[x] != 85 ? (ok = 0) : ( x += 1; it[x] == 76 ? (m58 = x) : (ok = 0); );
+                      )
+                      : (ok = 0);
+                    );
+                  )
+                  : ( ok = 0; run = 0; );
+                );
+              );
+            );
+          );
+        );
+        (ok && run) ? (
+          y = m64; m61 = m60;
+          while (
+            a = rc_rb(m62, y); m57 = a; a = a & 127;
+            (a != 61 && m56 < RC_CAP - 4) ? ( m56 += 1; ro[m56] = a; );
+            y += 1;
+            !(m57 & 128);
+          );
+        );
+      );
+    );
+    m56 >= RC_CAP - 4 ? (m56 = RC_CAP - 5);
+  );
+  res;
+);
+
+function sam_chunk_load(src, st, m) local(en, j, k)
+(
+  en = min(st + 120, m - 1);
+  en < m - 1 ? (
+    j = en;
+    while (j > st + 20 && src[j] != 32) ( j -= 1; );
+    j > st + 20 ? (en = j + 1);
+  );
+  k = 0;
+  loop(en - st, pin[k] = src[st + k]; k += 1; );
+  pin[k] = 155;
+  en;
+);
+
+function sam_chunks(m) local(st, en, ok)
+(
+  ok = 1; st = 0;
+  while (st < m - 1) (
+    en = sam_chunk_load(rc_out, st, m);
+    memset(ph_str, 0, 256);
+    !sam_parser1() ? (ok = 0; s_bad += st;);
+    st = en;
+  );
+  ok;
+);
+
+function sam_phon(n) local(i, c)
+(
+  i = 0;
+  loop(min(n, RC_CAP - 4),
+    c = rc_in[i];
+    c >= 97 && c <= 122 ? (c -= 32);
+    c == 10 || c == 13 || c == 9 ? (c = 32);
+    rc_out[i] = c; i += 1;
+  );
+  rc_out[i] = 155;
+  i + 1;
+);
+
+function sam_begin(dst, cap, n) local(m)
+(
+  s_dst = dst; s_cap = cap; s_bp = 0; s_oti = 0; s_full = 0; s_err = 0;
+  memset(fr, 0, 7*256); memset(fr_scf, 0, 256);
+  memset(dst, 128, 8);
+  m = s_phon ? sam_phon(n) : sam_reciter(n);
+  m > 0 ? (
+    memcpy(sam_pb, rc_out, m);
+    sam_m = m; sam_st = 0; sam_work = 0; gen_active = 0;
+  ) : (s_err = 1; sam_m = 0;);
+  sam_m > 1;
+);
+
+function sam_step() local(en)
+(
+  sam_bud = 1500;
+  while (sam_bud > 0 && (sam_work || (sam_st < sam_m - 1 && !s_full))) (
+    !sam_work ? (
+      en = sam_chunk_load(sam_pb, sam_st, sam_m);
+      sam_st = en; sam_bud -= 50;
+      sam_main_begin() ? (sam_work = 1) : (s_err = 1; spk_err = 1);
+    );
+    sam_work ? (sam_work = sam_run());
+  );
+  sam_work || (sam_st < sam_m - 1 && !s_full);
+);
+
+kl_ne = 84; kl_eq = 1;
+kl_el = alloc(84*100); kl_map = alloc(81*6);
+mem_set_values(kl_el + 0, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 3, 3, 31, 490, 100, 0, 0, 31, 1480, 100, 0, 0, 31, 2500, 100, 0, 0, 31, 60, 100, 0, 0, 31, 90, 100, 0, 0, 31, 150, 100, 0, 0, 31, 0, 100, 3, 0, 31, 0, 100, 3, 0, 31, 0, 100, 3, 0, 31, 0, 100, 3, 0, 31, 0, 100, 3, 0, 31, 0, 100, 3, 0, 31, 0, 100, 3, 0, 31, 0, 50, 0, 0, 31, 0, 50, 0, 0, 31, 0, 50, 0, 0, 31, 0, 50, 0, 0, 31);
+mem_set_values(kl_el + 100, 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 3, 3, 29, 490, 100, 3, 3, 29, 1480, 100, 3, 3, 29, 2500, 100, 3, 3, 29, 60, 100, 3, 3, 29, 90, 100, 3, 3, 29, 150, 100, 3, 3, 29, 0, 100, 3, 0, 29, 0, 100, 3, 0, 29, 0, 100, 3, 0, 29, 0, 100, 3, 0, 29, 0, 100, 3, 0, 29, 0, 100, 3, 0, 29, 0, 100, 3, 0, 29, 0, 50, 0, 0, 29, 0, 50, 0, 0, 29, 0, 50, 0, 0, 29, 0, 50, 0, 0, 29);
+mem_set_values(kl_el + 200, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 23, 190, 50, 2, 2, 23, 760, 50, 2, 2, 23, 2500, 100, 0, 2, 23, 60, 50, 2, 2, 23, 90, 50, 2, 2, 23, 150, 100, 0, 2, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 50, 0, 0, 23, 0, 50, 0, 0, 23, 34, 50, 0, 0, 23, 60, 50, 0, 0, 23);
+mem_set_values(kl_el + 300, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 29, 190, 100, 0, 0, 29, 760, 100, 0, 0, 29, 2500, 100, 0, 0, 29, 60, 100, 0, 0, 29, 90, 100, 0, 0, 29, 150, 100, 0, 0, 29, 0, 100, 0, 0, 29, 46.5, 100, 0, 0, 29, 33.4, 100, 0, 0, 29, 24.5, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 50, 0, 0, 29, 0, 50, 0, 0, 29, 34, 50, 0, 0, 29, 60, 50, 0, 0, 29);
+mem_set_values(kl_el + 400, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 23, 190, 50, 2, 2, 23, 760, 50, 2, 2, 23, 2500, 100, 2, 2, 23, 60, 50, 2, 2, 23, 90, 50, 2, 2, 23, 150, 100, 2, 2, 23, 0, 100, 0, 0, 23, 36, 100, 0, 0, 23, 22.9, 100, 0, 0, 23, 14, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 50, 0, 0, 23, 0, 50, 0, 0, 23, 34, 50, 0, 0, 23, 60, 50, 0, 0, 23);
+mem_set_values(kl_el + 500, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 26, 190, 50, 2, 2, 26, 760, 50, 2, 2, 26, 2500, 100, 0, 2, 26, 60, 50, 2, 2, 26, 90, 50, 2, 2, 26, 150, 100, 0, 2, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 50, 0, 0, 26, 49, 50, 0, 0, 26, 0, 50, 0, 0, 26, 0, 50, 0, 0, 26);
+mem_set_values(kl_el + 600, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 29, 190, 100, 0, 0, 29, 760, 100, 0, 0, 29, 2500, 100, 0, 0, 29, 60, 100, 0, 0, 29, 90, 100, 0, 0, 29, 150, 100, 0, 0, 29, 0, 100, 0, 0, 29, 46.5, 100, 0, 0, 29, 32.9, 100, 0, 0, 29, 24.5, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 49, 50, 0, 0, 29, 49, 50, 0, 0, 29, 0, 50, 0, 0, 29, 0, 50, 0, 0, 29);
+mem_set_values(kl_el + 700, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 26, 190, 50, 2, 0, 26, 760, 50, 2, 0, 26, 2500, 100, 0, 0, 26, 60, 50, 2, 0, 26, 90, 50, 2, 0, 26, 150, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 49, 50, 0, 0, 26, 49, 50, 0, 0, 26, 0, 50, 0, 0, 26, 0, 50, 0, 0, 26);
+mem_set_values(kl_el + 800, 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 23, 190, 50, 2, 2, 23, 1780, 50, 2, 2, 23, 2680, 0, 0, 2, 23, 60, 50, 2, 2, 23, 90, 50, 2, 2, 23, 150, 0, 0, 2, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 50, 0, 0, 23, 0, 50, 0, 0, 23, 34, 50, 0, 0, 23, 60, 50, 0, 0, 23);
+mem_set_values(kl_el + 900, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 29, 190, 100, 0, 0, 29, 1780, 100, 0, 0, 29, 2680, 100, 0, 0, 29, 60, 100, 0, 0, 29, 90, 100, 0, 0, 29, 150, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 28.1, 100, 0, 0, 29, 36.8, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 50, 0, 0, 29, 0, 50, 0, 0, 29, 34, 50, 0, 0, 29, 60, 50, 0, 0, 29);
+mem_set_values(kl_el + 1000, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 23, 190, 50, 2, 1, 23, 1780, 50, 2, 1, 23, 2680, 0, 2, 0, 23, 60, 50, 2, 1, 23, 90, 50, 2, 1, 23, 150, 0, 2, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 17.6, 100, 0, 0, 23, 26.2, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 50, 0, 0, 23, 0, 50, 0, 0, 23, 34, 50, 0, 0, 23, 60, 50, 0, 0, 23);
+mem_set_values(kl_el + 1100, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 26, 190, 50, 2, 2, 26, 1780, 50, 2, 2, 26, 2680, 0, 2, 2, 26, 60, 50, 2, 2, 26, 90, 50, 2, 2, 26, 150, 0, 2, 2, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 49, 50, 0, 0, 26, 0, 50, 0, 0, 26, 0, 50, 0, 0, 26);
+mem_set_values(kl_el + 1200, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 29, 190, 100, 0, 0, 29, 1780, 100, 0, 0, 29, 2680, 100, 0, 0, 29, 60, 100, 0, 0, 29, 90, 100, 0, 0, 29, 150, 100, 0, 0, 29, 0, 100, 0, 0, 29, 36, 100, 0, 0, 29, 24.6, 100, 0, 0, 29, 31.5, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 49, 50, 0, 0, 29, 49, 50, 0, 0, 29, 0, 50, 0, 0, 29, 0, 50, 0, 0, 29);
+mem_set_values(kl_el + 1300, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 26, 190, 50, 2, 0, 26, 1780, 50, 2, 0, 26, 2680, 0, 2, 0, 26, 60, 50, 2, 0, 26, 90, 50, 2, 0, 26, 150, 0, 2, 0, 26, 0, 100, 0, 0, 26, 25.5, 100, 0, 0, 26, 14.1, 100, 0, 0, 26, 21, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 49, 50, 0, 0, 26, 49, 50, 0, 0, 26, 0, 50, 0, 0, 26, 0, 50, 0, 0, 26);
+mem_set_values(kl_el + 1400, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 23, 190, 50, 3, 3, 23, 1480, 50, 3, 3, 23, 2620, 50, 3, 3, 23, 60, 50, 3, 3, 23, 90, 50, 3, 3, 23, 150, 50, 3, 3, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 50, 0, 0, 23, 0, 50, 0, 0, 23, 34, 50, 3, 3, 23, 60, 50, 3, 3, 23);
+mem_set_values(kl_el + 1500, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 29, 190, 100, 0, 0, 29, 1480, 100, 0, 0, 29, 2620, 100, 0, 0, 29, 60, 100, 0, 0, 29, 90, 100, 0, 0, 29, 150, 100, 0, 0, 29, 0, 100, 0, 0, 29, 48.2, 100, 0, 0, 29, 40.4, 100, 0, 0, 29, 15.8, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 50, 2, 0, 29, 0, 50, 2, 0, 29, 0, 50, 2, 0, 29, 0, 50, 2, 0, 29);
+mem_set_values(kl_el + 1600, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 23, 190, 50, 3, 3, 23, 1480, 50, 3, 3, 23, 2620, 50, 3, 3, 23, 60, 50, 3, 3, 23, 90, 50, 3, 3, 23, 150, 50, 3, 3, 23, 0, 100, 0, 0, 23, 37.8, 100, 0, 0, 23, 29.9, 100, 0, 0, 23, 5.2, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 50, 0, 0, 23, 0, 50, 0, 0, 23, 34, 50, 3, 3, 23, 60, 50, 3, 3, 23);
+mem_set_values(kl_el + 1700, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 26, 190, 50, 3, 3, 26, 1480, 50, 3, 3, 26, 2620, 50, 3, 3, 26, 60, 50, 3, 3, 26, 90, 50, 3, 3, 26, 150, 50, 3, 3, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 50, 3, 3, 26, 49, 50, 3, 3, 26, 0, 50, 0, 0, 26, 0, 50, 0, 0, 26);
+mem_set_values(kl_el + 1800, 1, 1, 2, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 29, 190, 100, 0, 0, 29, 1480, 100, 0, 0, 29, 2620, 100, 0, 0, 29, 60, 100, 0, 0, 29, 90, 100, 0, 0, 29, 150, 100, 0, 0, 29, 0, 100, 0, 0, 29, 43, 100, 0, 0, 29, 29.9, 100, 0, 0, 29, 10.5, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 100, 0, 0, 29, 0, 50, 2, 0, 29, 0, 50, 2, 0, 29, 0, 50, 2, 0, 29, 0, 50, 2, 0, 29);
+mem_set_values(kl_el + 1900, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 26, 190, 50, 3, 2, 26, 1480, 50, 3, 2, 26, 2620, 50, 3, 2, 26, 60, 50, 3, 2, 26, 90, 50, 3, 2, 26, 150, 50, 3, 2, 26, 0, 100, 0, 0, 26, 32.5, 100, 0, 0, 26, 19.4, 100, 0, 0, 26, 10.5, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 49, 50, 3, 2, 26, 49, 50, 3, 2, 26, 0, 50, 0, 0, 26, 0, 50, 0, 0, 26);
+mem_set_values(kl_el + 2000, 8, 8, 2, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 23, 490, 100, 0, 7, 23, 1480, 100, 0, 7, 23, 2500, 100, 0, 7, 23, 300, 20, 0, 7, 23, 90, 100, 0, 7, 23, 150, 100, 0, 7, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 100, 0, 0, 23, 0, 50, 0, 0, 23, 0, 50, 0, 0, 23, 34, 50, 0, 0, 23, 60, 50, 0, 0, 23);
+mem_set_values(kl_el + 2100, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 360, 0, 3, 0, 15, 480, 0, 3, 0, 15, 1000, 50, 3, 0, 15, 2200, 100, 5, 0, 15, 40, 50, 3, 0, 15, 175, 50, 3, 0, 15, 120, 100, 5, 0, 15, 1, 50, 3, 0, 15, 27.5, 100, 3, 0, 15, 22.6, 100, 3, 0, 15, 0, 100, 3, 0, 15, 0, 100, 3, 0, 15, 0, 100, 3, 0, 15, 0, 100, 3, 0, 15, 52, 50, 2, 0, 15, 52, 50, 2, 0, 15, 0, 50, 2, 0, 15, 0, 50, 2, 0, 15);
+mem_set_values(kl_el + 2200, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 450, 0, 3, 0, 15, 480, 0, 3, 0, 15, 1780, 50, 3, 3, 15, 2620, 50, 3, 0, 15, 40, 50, 3, 0, 15, 300, 50, 3, 3, 15, 260, 50, 3, 0, 15, 1, 50, 3, 0, 15, 32.5, 100, 3, 0, 15, 24.6, 100, 3, 0, 15, 6, 100, 3, 0, 15, 0, 100, 3, 0, 15, 0, 100, 3, 0, 15, 0, 100, 3, 0, 15, 52, 50, 2, 0, 15, 52, 50, 2, 0, 15, 0, 50, 2, 0, 15, 0, 50, 2, 0, 15);
+mem_set_values(kl_el + 2300, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 500, 0, 3, 0, 15, 180, 50, 3, 0, 15, 820, 50, 5, 3, 15, 2900, 50, 3, 3, 15, 400, 50, 5, 0, 15, 40, 50, 5, 3, 15, 200, 50, 3, 0, 15, 1, 50, 3, 3, 15, 27.5, 100, 3, 0, 15, 24.6, 100, 3, 0, 15, 0, 100, 3, 0, 15, 0, 100, 3, 0, 15, 0, 100, 3, 0, 15, 0, 100, 3, 0, 15, 52, 50, 2, 0, 15, 56, 50, 2, 0, 15, 14, 50, 2, 0, 15, 0, 50, 2, 0, 15);
+mem_set_values(kl_el + 2400, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 26, 190, 50, 2, 2, 26, 1600, 50, 2, 2, 26, 2680, 0, 2, 2, 26, 120, 50, 2, 2, 26, 140, 50, 2, 2, 26, 250, 0, 2, 2, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 0, 100, 0, 0, 26, 44, 50, 0, 0, 26, 60, 50, 0, 0, 26, 0, 50, 0, 0, 26, 0, 50, 0, 0, 26);
+mem_set_values(kl_el + 2500, 11, 11, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 10, 490, 100, 0, 5, 10, 1180, 50, 5, 5, 10, 1600, 50, 5, 5, 10, 60, 100, 0, 5, 10, 90, 50, 5, 5, 10, 150, 50, 5, 5, 10, 0, 100, 5, 5, 10, 32.5, 50, 5, 5, 10, 24.6, 50, 5, 5, 10, 0, 50, 5, 5, 10, 0, 50, 5, 5, 10, 0, 50, 5, 5, 10, 0, 50, 5, 5, 10, 52, 50, 0, 0, 10, 52, 50, 0, 0, 10, 0, 50, 0, 0, 10, 0, 50, 0, 0, 10);
+mem_set_values(kl_el + 2600, 10, 10, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 10, 490, 100, 0, 5, 10, 1180, 100, 0, 5, 10, 1600, 0, 5, 5, 10, 60, 50, 0, 5, 10, 90, 50, 5, 5, 10, 70, 50, 5, 5, 10, 0, 100, 5, 5, 10, 32.5, 50, 5, 5, 10, 24.6, 50, 5, 5, 10, 0, 50, 5, 5, 10, 0, 50, 5, 5, 10, 0, 50, 5, 5, 10, 0, 50, 5, 5, 10, 50, 50, 0, 0, 10, 16, 50, 0, 0, 10, 0, 50, 0, 0, 10, 0, 50, 0, 0, 10);
+mem_set_values(kl_el + 2700, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 18, 400, 50, 3, 2, 18, 1420, 50, 3, 2, 18, 2560, 50, 3, 2, 18, 60, 50, 3, 2, 18, 90, 50, 3, 2, 18, 150, 50, 3, 2, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 42, 50, 0, 0, 18, 0, 50, 0, 0, 18, 0, 50, 0, 0, 18, 6, 50, 0, 0, 18, 54, 50, 0, 0, 18);
+mem_set_values(kl_el + 2800, 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 20, 280, 50, 3, 2, 20, 1420, 50, 3, 2, 20, 2560, 50, 3, 2, 20, 60, 50, 3, 2, 20, 90, 50, 3, 2, 20, 150, 50, 3, 2, 20, 0, 100, 0, 0, 20, 37.8, 100, 0, 0, 20, 26.4, 100, 0, 0, 20, 19.2, 100, 0, 0, 20, 0, 100, 0, 0, 20, 0, 100, 0, 0, 20, 0, 100, 0, 0, 20, 49, 50, 0, 0, 20, 49, 50, 0, 0, 20, 0, 50, 0, 0, 20, 0, 50, 0, 0, 20);
+mem_set_values(kl_el + 2900, 15, 15, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 18, 400, 50, 3, 2, 18, 1780, 50, 3, 2, 18, 2680, 0, 3, 2, 18, 60, 50, 3, 2, 18, 90, 50, 3, 2, 18, 150, 0, 3, 2, 18, 0, 100, 0, 0, 18, 23.8, 100, 0, 0, 18, 17.6, 100, 0, 0, 18, 8.8, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 50, 0, 0, 18, 0, 50, 0, 0, 18, 34, 50, 0, 0, 18, 60, 50, 0, 0, 18);
+mem_set_values(kl_el + 3000, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 20, 280, 50, 3, 2, 20, 1600, 50, 3, 2, 20, 2560, 100, 3, 2, 20, 60, 50, 3, 2, 20, 90, 50, 3, 2, 20, 150, 100, 3, 2, 20, 0, 100, 0, 0, 20, 29, 100, 0, 0, 20, 15.8, 100, 0, 0, 20, 14, 100, 0, 0, 20, 0, 100, 0, 0, 20, 0, 100, 0, 0, 20, 0, 100, 0, 0, 20, 49, 50, 0, 0, 20, 49, 50, 0, 0, 20, 0, 50, 0, 0, 20, 0, 50, 0, 0, 20);
+mem_set_values(kl_el + 3100, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 18, 400, 50, 3, 2, 18, 1720, 50, 3, 2, 18, 2620, 100, 3, 2, 18, 200, 50, 3, 2, 18, 96, 50, 3, 2, 18, 220, 100, 3, 2, 18, 0, 100, 0, 0, 18, 25.5, 100, 0, 0, 18, 17.6, 100, 0, 0, 18, 26.2, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 50, 0, 0, 18, 0, 50, 0, 0, 18, 6, 50, 0, 0, 18, 60, 50, 0, 0, 18);
+mem_set_values(kl_el + 3200, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 20, 280, 50, 3, 2, 20, 1720, 50, 3, 2, 20, 2560, 100, 3, 2, 20, 60, 50, 3, 2, 20, 90, 50, 3, 2, 20, 150, 100, 3, 2, 20, 0, 100, 0, 0, 20, 22, 100, 0, 0, 20, 14.1, 100, 0, 0, 20, 22.8, 100, 0, 0, 20, 0, 100, 0, 0, 20, 0, 100, 0, 0, 20, 0, 100, 0, 0, 20, 40, 50, 0, 0, 20, 54, 50, 0, 0, 20, 0, 50, 0, 0, 20, 60, 50, 0, 0, 20);
+mem_set_values(kl_el + 3300, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 18, 400, 50, 3, 2, 18, 2020, 50, 3, 2, 18, 2560, 100, 3, 2, 18, 60, 50, 3, 2, 18, 90, 50, 3, 2, 18, 150, 100, 3, 2, 18, 0, 100, 0, 0, 18, 29, 100, 0, 0, 18, 31.6, 100, 0, 0, 18, 17.5, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 50, 0, 0, 18, 0, 50, 0, 0, 18, 34, 50, 0, 0, 18, 60, 50, 0, 0, 18);
+mem_set_values(kl_el + 3400, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 18, 400, 50, 3, 2, 18, 2200, 50, 3, 2, 18, 2560, 100, 3, 2, 18, 60, 50, 3, 2, 18, 90, 50, 3, 2, 18, 150, 100, 3, 2, 18, 0, 100, 0, 0, 18, 29, 100, 0, 0, 18, 31.6, 100, 0, 0, 18, 17.5, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 50, 0, 0, 18, 0, 50, 0, 0, 18, 34, 50, 0, 0, 18, 60, 50, 0, 0, 18);
+mem_set_values(kl_el + 3500, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 20, 280, 50, 3, 2, 20, 2020, 50, 3, 2, 20, 2560, 100, 3, 2, 20, 60, 50, 3, 2, 20, 90, 50, 3, 2, 20, 150, 100, 3, 2, 20, 0, 100, 0, 0, 20, 23.8, 100, 0, 0, 20, 26.4, 100, 0, 0, 20, 12.2, 100, 0, 0, 20, 0, 100, 0, 0, 20, 0, 100, 0, 0, 20, 0, 100, 0, 0, 20, 49, 50, 0, 0, 20, 49, 50, 0, 0, 20, 0, 50, 0, 0, 20, 0, 50, 0, 0, 20);
+mem_set_values(kl_el + 3600, 12, 12, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 18, 190, 50, 3, 3, 18, 1480, 50, 3, 3, 18, 2620, 50, 3, 3, 18, 60, 50, 3, 3, 18, 90, 50, 3, 3, 18, 150, 50, 3, 3, 18, 0, 100, 0, 0, 18, 37.8, 100, 0, 0, 18, 29.9, 100, 0, 0, 18, 5.2, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 100, 0, 0, 18, 0, 50, 0, 0, 18, 0, 50, 0, 0, 18, 34, 50, 0, 0, 18, 60, 50, 0, 0, 18);
+mem_set_values(kl_el + 3700, 10, 10, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 9, 490, 100, 0, 7, 9, 1480, 100, 0, 7, 9, 2500, 100, 0, 7, 9, 300, 20, 0, 7, 9, 90, 100, 0, 7, 9, 150, 100, 0, 7, 9, 0, 100, 0, 7, 9, 34.2, 100, 0, 7, 9, 15.8, 100, 0, 7, 9, 8.8, 100, 0, 7, 9, 0, 100, 0, 7, 9, 0, 100, 0, 7, 9, 0, 100, 0, 7, 9, 0, 50, 0, 0, 9, 0, 50, 0, 0, 9, 34, 50, 0, 0, 9, 60, 50, 0, 0, 9);
+mem_set_values(kl_el + 3800, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 11, 460, 50, 6, 0, 11, 1480, 50, 6, 0, 11, 2500, 50, 6, 0, 11, 60, 50, 6, 0, 11, 90, 50, 6, 0, 11, 150, 50, 6, 0, 11, 0, 100, 0, 0, 11, 23.8, 100, 0, 0, 11, 15.8, 100, 0, 0, 11, 7, 100, 0, 0, 11, 0, 100, 0, 0, 11, 0, 100, 0, 0, 11, 0, 100, 0, 0, 11, 52, 50, 0, 0, 11, 52, 50, 0, 0, 11, 0, 50, 0, 0, 11, 0, 50, 0, 0, 11);
+mem_set_values(kl_el + 3900, 10, 10, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 11, 460, 50, 0, 7, 11, 1480, 50, 0, 7, 11, 2500, 50, 0, 7, 11, 60, 50, 0, 7, 11, 90, 50, 0, 7, 11, 150, 50, 0, 7, 11, 0, 100, 0, 7, 11, 34.2, 100, 0, 7, 11, 15.8, 100, 0, 7, 11, 8.8, 100, 0, 7, 11, 0, 100, 0, 7, 11, 0, 100, 0, 7, 11, 0, 100, 0, 7, 11, 0, 50, 0, 0, 11, 0, 50, 0, 0, 11, 34, 50, 0, 0, 11, 60, 50, 0, 0, 11);
+mem_set_values(kl_el + 4000, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 11, 460, 50, 6, 0, 11, 940, 50, 6, 0, 11, 2500, 50, 6, 0, 11, 60, 50, 6, 0, 11, 90, 50, 6, 0, 11, 150, 50, 6, 0, 11, 0, 100, 0, 0, 11, 23.8, 100, 0, 0, 11, 15.8, 100, 0, 0, 11, 7, 100, 0, 0, 11, 0, 100, 0, 0, 11, 0, 100, 0, 0, 11, 0, 100, 0, 0, 11, 52, 50, 0, 0, 11, 52, 50, 0, 0, 11, 0, 50, 0, 0, 11, 0, 50, 0, 0, 11);
+mem_set_values(kl_el + 4100, 8, 8, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 10, 190, 50, 4, 4, 10, 760, 50, 4, 4, 10, 2020, 50, 4, 4, 10, 60, 50, 4, 4, 10, 90, 50, 4, 4, 10, 150, 50, 4, 4, 10, 0, 100, 4, 4, 10, 25.5, 50, 4, 4, 10, 10.6, 50, 4, 4, 10, 0, 50, 4, 4, 10, 0, 50, 4, 4, 10, 0, 50, 4, 4, 10, 0, 50, 4, 4, 10, 52, 50, 0, 0, 10, 52, 50, 0, 0, 10, 0, 50, 0, 0, 10, 0, 50, 0, 0, 10);
+mem_set_values(kl_el + 4200, 7, 7, 0, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 10, 250, 50, 4, 4, 10, 2500, 50, 4, 4, 10, 2980, 50, 4, 4, 10, 60, 50, 4, 4, 10, 90, 50, 4, 4, 10, 150, 50, 4, 4, 10, 0, 100, 4, 4, 10, 30.8, 50, 4, 4, 10, 28.1, 50, 4, 4, 10, 17.5, 50, 4, 4, 10, 0, 50, 4, 4, 10, 0, 50, 4, 4, 10, 0, 50, 4, 4, 10, 52, 50, 0, 0, 10, 16, 50, 0, 0, 10, 0, 50, 0, 0, 10, 0, 50, 0, 0, 10);
+mem_set_values(kl_el + 4300, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 640, 50, 5, 5, 2, 1600, 50, 5, 5, 2, 2500, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 43, 50, 5, 5, 2, 24.6, 50, 5, 5, 2, 15.8, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 4400, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 500, 50, 0, 0, 2, 890, 50, 5, 5, 2, 1120, 60, 5, 5, 2, 2600, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 46.5, 50, 5, 5, 2, 19.4, 50, 5, 5, 2, 8.8, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 46, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 4500, 8, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 370, 50, 4, 4, 2, 2100, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 34.2, 50, 4, 4, 2, 24.6, 50, 4, 4, 2, 15.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 4600, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 370, 50, 0, 0, 2, 470, 50, 4, 4, 2, 700, 50, 4, 4, 2, 2200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 17.6, 50, 4, 4, 2, 8.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 4700, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 790, 50, 5, 5, 2, 1340, 50, 5, 5, 2, 2500, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 46.5, 50, 5, 5, 2, 19.4, 50, 5, 5, 2, 8.8, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 4800, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 790, 50, 5, 5, 2, 1820, 50, 5, 5, 2, 2500, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 46.5, 50, 5, 5, 2, 19.4, 50, 5, 5, 2, 8.8, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 4900, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 490, 50, 5, 5, 2, 820, 50, 5, 5, 2, 2500, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 43, 50, 5, 5, 2, 12.3, 50, 5, 5, 2, 3.5, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5000, 8, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 370, 50, 4, 4, 2, 1000, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 17.6, 50, 4, 4, 2, 8.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5100, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 490, 50, 5, 5, 2, 1480, 50, 5, 5, 2, 2500, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 48.2, 50, 5, 5, 2, 22.9, 50, 5, 5, 2, 12.2, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5200, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 310, 50, 5, 5, 2, 2200, 50, 5, 5, 2, 2900, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 32.5, 50, 5, 5, 2, 26.4, 50, 5, 5, 2, 17.5, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5300, 8, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 490, 50, 4, 4, 2, 1480, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 48.2, 50, 4, 4, 2, 22.9, 50, 4, 4, 2, 12.2, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5400, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 640, 50, 5, 5, 2, 2020, 50, 5, 5, 2, 2500, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 39.5, 50, 5, 5, 2, 28.1, 50, 5, 5, 2, 17.5, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5500, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 370, 50, 5, 5, 2, 1000, 50, 5, 5, 2, 2500, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 39.5, 50, 5, 5, 2, 17.6, 50, 5, 5, 2, 8.8, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5600, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 370, 50, 4, 4, 2, 700, 50, 4, 4, 2, 2200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 17.6, 50, 4, 4, 2, 8.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5700, 11, 7, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 250, 50, 4, 4, 2, 2320, 50, 4, 4, 2, 3200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 30.8, 50, 4, 4, 2, 26.4, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5800, 14, 9, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 250, 50, 4, 4, 2, 2100, 50, 4, 4, 2, 2700, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 30.8, 50, 4, 4, 2, 26.4, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 5900, 11, 7, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 250, 50, 4, 4, 2, 1600, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 30.8, 50, 4, 4, 2, 26.4, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6000, 11, 7, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 250, 50, 4, 4, 2, 1400, 50, 4, 4, 2, 2200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 30.8, 50, 4, 4, 2, 26.4, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6100, 14, 9, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 250, 50, 4, 4, 2, 1080, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 36, 50, 4, 4, 2, 7.1, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6200, 14, 9, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 250, 50, 4, 4, 2, 740, 50, 4, 4, 2, 2200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 36, 50, 4, 4, 2, 7.1, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6300, 8, 4, 1, 0, 0, 0, 0, 0, 0, 0, 505, 50, 0, 0, 2, 740, 50, 4, 4, 2, 1680, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 28.1, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6400, 8, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 380, 50, 4, 4, 2, 1840, 50, 4, 4, 2, 2200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 34.2, 50, 4, 4, 2, 24.6, 50, 4, 4, 2, 15.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6500, 6, 4, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 330, 50, 4, 4, 2, 960, 50, 4, 4, 2, 2200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 17.6, 50, 4, 4, 2, 8.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6600, 8, 4, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 540, 50, 4, 4, 2, 2040, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 28.1, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6700, 8, 4, 1, 0, 0, 0, 0, 0, 0, 0, 455, 50, 0, 0, 2, 640, 50, 4, 4, 2, 2040, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 28.1, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6800, 10, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 540, 50, 4, 4, 2, 1840, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 34.2, 50, 4, 4, 2, 24.6, 50, 4, 4, 2, 15.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 6900, 8, 4, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 380, 50, 4, 4, 2, 1480, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 28.1, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7000, 8, 4, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 370, 50, 4, 4, 2, 1280, 50, 4, 4, 2, 2200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 28.1, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7100, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 390, 50, 4, 4, 2, 940, 50, 4, 4, 2, 2200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 17.6, 50, 4, 4, 2, 8.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7200, 4, 4, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 490, 50, 4, 4, 2, 1480, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 48.2, 50, 4, 4, 2, 22.9, 50, 4, 4, 2, 12.2, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7300, 8, 4, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 630, 50, 4, 4, 2, 1900, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 300, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 44.8, 50, 4, 4, 2, 28.1, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7400, 8, 4, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 640, 50, 4, 4, 2, 1680, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 28.1, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7500, 16, 16, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 580, 50, 4, 4, 2, 1420, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 43, 50, 4, 4, 2, 22.9, 50, 4, 4, 2, 12.2, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7600, 16, 16, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 580, 50, 4, 4, 2, 1180, 50, 4, 4, 2, 2200, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 43, 50, 4, 4, 2, 22.9, 50, 4, 4, 2, 12.2, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7700, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 700, 50, 4, 4, 2, 1120, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 41.2, 50, 4, 4, 2, 21.1, 50, 4, 4, 2, 10.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7800, 16, 10, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 500, 50, 4, 4, 2, 760, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 43, 50, 4, 4, 2, 12.3, 50, 4, 4, 2, 3.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 7900, 10, 5, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 710, 50, 4, 4, 2, 1660, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 39.5, 50, 4, 4, 2, 28.1, 50, 4, 4, 2, 17.5, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 8000, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 800, 50, 5, 5, 2, 1520, 50, 5, 5, 2, 2200, 50, 5, 5, 2, 60, 50, 5, 5, 2, 90, 50, 5, 5, 2, 150, 50, 5, 5, 2, 0, 100, 5, 5, 2, 46.5, 50, 5, 5, 2, 19.4, 50, 5, 5, 2, 8.8, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 0, 50, 5, 5, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 8100, 15, 15, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 790, 50, 4, 4, 2, 1220, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 46.5, 50, 4, 4, 2, 19.4, 50, 4, 4, 2, 8.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 8200, 9, 6, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 610, 50, 4, 4, 2, 880, 50, 4, 4, 2, 2500, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 44.8, 50, 4, 4, 2, 12.3, 50, 4, 4, 2, 1.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 58, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_el + 8300, 10, 10, 1, 0, 0, 0, 0, 0, 0, 0, 270, 50, 0, 0, 2, 380, 50, 4, 4, 2, 700, 50, 4, 4, 2, 2300, 50, 4, 4, 2, 60, 50, 4, 4, 2, 90, 50, 4, 4, 2, 150, 50, 4, 4, 2, 0, 100, 4, 4, 2, 44.8, 50, 4, 4, 2, 12.3, 50, 4, 4, 2, 1.8, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 0, 50, 4, 4, 2, 62, 50, 0, 0, 2, 16, 50, 0, 0, 2, 0, 50, 0, 0, 2, 0, 50, 0, 0, 2);
+mem_set_values(kl_map + 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 57, 0, 0, 0, 0, 1, 45, 0, 0, 0, 0, 1, 73, 0, 0, 0, 0, 1, 79, 0, 0, 0, 0, 1, 81, 0, 0, 0, 0);
+mem_set_values(kl_map + 60, 1, 77, 0, 0, 0, 0, 1, 78, 0, 0, 0, 0, 1, 65, 0, 0, 0, 0, 1, 72, 0, 0, 0, 0, 1, 45, 0, 0, 0, 0, 1, 75, 0, 0, 0, 0, 1, 62, 0, 0, 0, 0, 2, 56, 50, 0, 0, 0, 1, 25, 0, 0, 0, 0, 1, 40, 0, 0, 0, 0);
+mem_set_values(kl_map + 120, 1, 50, 0, 0, 0, 0, 1, 45, 0, 0, 0, 0, 1, 41, 0, 0, 0, 0, 1, 25, 0, 0, 0, 0, 1, 38, 0, 0, 0, 0, 1, 41, 0, 0, 0, 0, 1, 42, 0, 0, 0, 0, 1, 21, 0, 0, 0, 0, 1, 22, 0, 0, 0, 0, 1, 23, 0, 0, 0, 0);
+mem_set_values(kl_map + 180, 1, 24, 0, 0, 0, 0, 1, 20, 0, 0, 0, 0, 1, 31, 0, 0, 0, 0, 1, 34, 0, 0, 0, 0, 1, 27, 0, 0, 0, 0, 1, 29, 0, 0, 0, 0, 1, 37, 0, 0, 0, 0, 1, 37, 0, 0, 0, 0, 1, 32, 0, 0, 0, 0, 1, 35, 0, 0, 0, 0);
+mem_set_values(kl_map + 240, 1, 28, 0, 0, 0, 0, 1, 30, 0, 0, 0, 0, 2, 8, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 11, 12, 13, 35, 35, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 43, 45, 0, 0, 0, 2, 47, 45, 0, 0, 0);
+mem_set_values(kl_map + 300, 2, 49, 45, 0, 0, 0, 2, 43, 50, 0, 0, 0, 2, 51, 50, 0, 0, 0, 1, 62, 0, 0, 0, 0, 3, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 11, 12, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+mem_set_values(kl_map + 360, 3, 17, 18, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 17, 18, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 2, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 8, 9, 10, 0, 0);
+mem_set_values(kl_map + 420, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 14, 15, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 14, 15, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 72, 38, 0, 0, 0, 2, 72, 21, 0, 0, 0);
+mem_set_values(kl_map + 480, 2, 72, 22, 0, 0, 0);
+KL_SR = 22050; KL_SPF = 220; KL_MAXE = 8192; KL_MAXF = 6200;
+tk_ph = alloc(RC_CAP); tk_st = alloc(RC_CAP);
+ke_i = alloc(KL_MAXE); ke_d = alloc(KL_MAXE);
+kf0 = alloc(KL_MAXF + 8); kfl = alloc(4096);
+kr = alloc(15*5);
+k_flt = alloc(18); k_ep = alloc(18);
+ks_v = alloc(18); ks_t = alloc(18); kn_v = alloc(18); kn_t = alloc(18);
+
+function kl_tokenize(m) local(x, s1, s2, y, f)
+(
+  x = 0; kn = 0; kl_bad = 0;
+  while (x < m - 1) (
+    s1 = rc_out[x]; s2 = rc_out[x + 1];
+    f = -1; y = 0;
+    while (f < 0 && y < 81) ( (t_sig1[y] == s1 && t_sig2[y] != 42 && t_sig2[y] == s2) ? (f = y); y += 1; );
+    f >= 0 ? (
+      tk_ph[kn] = f; tk_st[kn] = 0; kn += 1; x += 2;
+    ) : (
+      y = 0;
+      while (f < 0 && y < 81) ( (t_sig2[y] == 42 && t_sig1[y] == s1) ? (f = y); y += 1; );
+      f >= 0 ? (
+        tk_ph[kn] = f; tk_st[kn] = 0; kn += 1;
+      ) : (s1 >= 49 && s1 <= 56 && kn > 0) ? (
+        tk_st[kn - 1] = s1 - 48;
+      ) : (kl_bad = 1);
+      x += 1;
+    );
+  );
+);
+
+function kl_add(el, st) local(du, ud)
+(
+  kl_ne_n < KL_MAXE && kl_tt < KL_MAXF - 64 ? (
+    du = kl_el[el*100]; ud = kl_el[el*100+1];
+    ke_i[kl_ne_n] = el;
+    ke_d[kl_ne_n] = floor((ud + (((du - ud)*st/3)|0))*kl_spd);
+    kl_tt += ke_d[kl_ne_n]; kl_ne_n += 1;
+  );
+);
+
+function kl_decline(F0, fv, t)
+(
+  kl_nfl < 4090 ? ( kfl[kl_nfl] = t; kl_nfl += 1; );
+  fv -= 0.12*t;
+  fv < 0.7*F0 ? (fv = 0.7*F0);
+  kl_nfl < 4090 ? ( kfl[kl_nfl] = fv; kl_nfl += 1; );
+  fv;
+);
+
+function kl_lin(a, b, t, d) ( t <= 0 ? a : t >= d ? b : a + (b - a)*t/d; );
+
+function kl_build(F0, mono, spd) local(i, ph, st, k, c, fv, f0t, p, tf0, ntf0, f0s, f0e, t)
+(
+  kl_ne_n = 0; kl_tt = 0; kl_spd = spd;
+  fv = F0*1.1; kfl[0] = fv; kl_nfl = 1; f0t = 0;
+  i = 0;
+  loop(kn,
+    ph = tk_ph[i];
+    ph == 1 || ph == 2 ? (
+      kl_add(kl_eq, 0); kl_add(kl_eq, 0); kl_add(kl_eq, 0);
+    ) : ph == 3 ? (
+      kl_add(kl_eq, 0); kl_add(kl_eq, 0);
+    ) : ph == 4 ? (
+      kl_add(kl_eq, 0);
+    ) : ph > 4 ? (
+      st = 0;
+      (t_fl[ph] & 128) && tk_st[i] ? (
+        st = tk_st[i] <= 5 ? 3 : tk_st[i] == 6 ? 2 : 1;
+        fv = kl_decline(F0, fv, kl_tt - f0t);
+        f0t = kl_tt;
+        kl_nfl < 4090 ? ( kfl[kl_nfl] = 0; kfl[kl_nfl + 1] = fv + F0*st*0.02; kl_nfl += 2; );
+      );
+      c = kl_map[ph*6]; k = 0;
+      loop(c, kl_add(kl_map[ph*6 + 1 + k], st); k += 1; );
+    );
+    i += 1;
+  );
+  kl_add(kl_eq, 0); kl_add(kl_eq, 0); kl_add(0, 0);
+  kl_decline(F0, fv, kl_tt - f0t);
+  (mono || kl_nfl < 3) ? (
+    kfl[0] = F0; kfl[1] = kl_tt; kfl[2] = F0; kl_nfl = 3;
+  );
+  p = 1; f0e = f0s = kfl[0]; tf0 = 0; ntf0 = 0;
+  t = 0;
+  loop(min(kl_tt + 8, KL_MAXF),
+    while (tf0 == ntf0 && p + 1 < kl_nfl) ( tf0 = 0; f0s = f0e; ntf0 = kfl[p]; f0e = kfl[p + 1]; p += 2; );
+    kf0[t] = kl_lin(f0s, f0e, tf0, ntf0);
+    tf0 += 1; t += 1;
+  );
+);
+
+function kl_interp(sv, st, ev, et, mid, t, d) local(steady, f)
+(
+  steady = d - (st + et);
+  steady >= 0 ? (
+    t < st ? kl_lin(sv, mid, t, st) : (
+      t -= st;
+      t <= steady ? mid : kl_lin(mid, ev, t - steady, et);
+    );
+  ) : (
+    f = 1 - t/d;
+    f*kl_lin(sv, mid, t, st) + (1 - f)*kl_lin(ev, mid, d - t, et);
+  );
+);
+
+function kl_trans(vv, tt, j, a, b, ext) local(pa, pb)
+(
+  pa = kl_el + a*100 + 10 + j*5; pb = kl_el + b*100 + 10 + j*5;
+  tt[j] = floor((ext ? pa[2] : pa[3])*kl_spd);
+  vv[j] = tt[j] ? pa[0]*(1 - pa[1]*0.01) + pa[1]*0.01*pb[0] : pb[0];
+);
+
+function kl_advance() local(ce, ne, j)
+(
+  while (kl_i < kl_ne_n && ke_d[kl_i] == 0) ( kl_le = ke_i[kl_i]; kl_i += 1; );
+  kl_i < kl_ne_n ? (
+    ce = ke_i[kl_i]; ne = kl_i + 1 < kl_ne_n ? ke_i[kl_i + 1] : 0;
+    kl_ce = ce; kl_t = 0; kl_d = ke_d[kl_i];
+    j = 0;
+    loop(18,
+      kl_el[ce*100 + 14 + j*5] > kl_el[kl_le*100 + 14 + j*5] ? kl_trans(ks_v, ks_t, j, ce, kl_le, 0) : kl_trans(ks_v, ks_t, j, kl_le, ce, 1);
+      kl_el[ne*100 + 14 + j*5] > kl_el[ce*100 + 14 + j*5] ? kl_trans(kn_v, kn_t, j, ne, ce, 1) : kl_trans(kn_v, kn_t, j, ce, ne, 0);
+      j += 1;
+    );
+    1;
+  ) : 0;
+);
+
+function kl_dblin(db) ( db > 0 ? 32768*10^((db - 87)/20 - 3) : 0; );
+
+function kl_pole(r, f, bw, casc) local(rr, low)
+(
+  r = kr + r*5;
+  2*f - bw <= KL_SR ? (
+    2*(f + bw) > KL_SR ? ( low = f - bw; f = (KL_SR/2 + low)/2; bw = f - low; );
+    rr = exp(-$pi/KL_SR*bw);
+    r[2] = -rr*rr;
+    r[1] = rr*cos(2*$pi/KL_SR*f)*2;
+    r[0] = 1 - r[1] - r[2];
+  ) : ( r[0] = casc; r[1] = 0; r[2] = 0; );
+);
+
+function kl_zero(r, f, bw) local(p)
+(
+  kl_pole(r, f, bw, 1);
+  p = kr + r*5;
+  p[0] = 1/p[0]; p[1] *= -p[0]; p[2] *= -p[0];
+);
+
+function kl_res(r, x) local(y) ( r = kr + r*5; y = r[0]*x + r[1]*r[3] + r[2]*r[4]; r[4] = r[3]; r[3] = y; y; );
+function kl_anti(r, x) local(y) ( r = kr + r*5; y = r[0]*x + r[1]*r[3] + r[2]*r[4]; r[4] = r[3]; r[3] = x; y; );
+
+function kl_cascade()
+(
+  kl_pole(2, 270, 500, 1);
+  kl_zero(1, k_ep[0], 500);
+  kl_pole(4, 3500, 1800, 1);
+  kl_pole(3, 4700, 150, 1);
+  kl_pole(5, 3900, 400, 1);
+  kl_pole(6, k_ep[3], k_ep[6], 1);
+  kl_pole(7, k_ep[2], k_ep[5], 1);
+  kl_pole(8, k_ep[1], k_ep[4], 1);
+);
+
+function kl_sync()
+(
+  k_ep[14] > 0 || k_ep[15] > 0 ? (
+    kl_T0 = floor(4*KL_SR/kl_F0);
+    kl_av = kl_dblin(k_ep[14]); kl_avc = kl_dblin(k_ep[15]); kl_turb = kl_avc*0.1;
+    kl_nopen = floor(kl_T0/3);
+  ) : (
+    kl_T0 = 4; kl_nopen = 4; kl_av = 0; kl_avc = 0;
+  );
+  kl_T0 != 4 || kl_ns == 0 ? (
+    kl_pole(0, 0, floor(2*kl_F0), 1);
+    kl_cascade();
+  );
+);
+
+function kl_noise() local(n, s)
+(
+  n = 0;
+  loop(16,
+    kl_seed = kl_seed*1664525 + 1;
+    kl_seed -= floor(kl_seed/4294967296)*4294967296;
+    s = kl_seed >= 2147483648 ? kl_seed - 4294967296 : kl_seed;
+    n += floor(s/262144);
+  );
+  n/2;
+);
+
+function kl_begin() local(j)
+(
+  memset(kr, 0, 15*5);
+  kl_nper = 0; kl_T0 = 0; kl_nopen = 0; kl_ns = 0; kl_av = kl_avc = kl_turb = 0; kl_seed = 5;
+  kl_le = 0; kl_i = 0; kl_fn = 0; kl_wp = 0;
+  j = 0; loop(18, k_flt[j] = kl_el[10 + j*5]; j += 1; );
+  kl_advance();
+);
+
+function kl_frame() local(j, v, noise, voice, lpv, alpha, out)
+(
+  kl_i < kl_ne_n ? (
+    j = 0;
+    loop(18,
+      v = kl_interp(ks_v[j], ks_t[j], kn_v[j], kn_t[j], kl_el[kl_ce*100 + 10 + j*5], kl_t, kl_d);
+      k_flt[j] = 0.5*v + 0.5*k_flt[j];
+      k_ep[j] = k_flt[j];
+      j += 1;
+    );
+    kl_F0 = kf0[min(kl_fn, KL_MAXF)];
+    kl_pole(13, k_ep[2], k_ep[5], 0); kr[13*5] *= kl_dblin(k_ep[8]);
+    kl_pole(12, k_ep[3], k_ep[6], 0); kr[12*5] *= kl_dblin(k_ep[9]);
+    kl_pole(11, 3900, 500, 0); kr[11*5] *= kl_dblin(k_ep[10]);
+    kl_pole(10, 4700, 600, 0); kr[10*5] *= kl_dblin(k_ep[11]);
+    kl_pole(9, 4900, 800, 0); kr[9*5] *= kl_dblin(k_ep[12]);
+    kl_byp = kl_dblin(k_ep[13]); kl_asp = kl_dblin(k_ep[16]); kl_af = kl_dblin(k_ep[17]);
+    kl_pole(14, 0, KL_SR/2, 1); kr[14*5] *= kl_dblin(54);
+    loop(KL_SPF,
+      noise = kl_noise();
+      loop(3, kl_nper >= kl_T0 ? (kl_nper = 0; kl_sync();); kl_nper += 1; );
+      kl_nper >= kl_T0 ? (kl_nper = 0; kl_sync(););
+      alpha = kl_nper/kl_T0;
+      voice = alpha <= 1/3 ? 3*4096*alpha : 4096*((9*alpha - 12)*alpha + 3);
+      kl_nper += 1;
+      lpv = kl_res(0, voice);
+      kl_nper < kl_nopen ? (voice += kl_turb*noise);
+      kl_nper < kl_nopen ? (noise *= 0.5);
+      voice *= kl_av;
+      voice += kl_asp*noise;
+      voice += kl_avc*lpv;
+      noise *= kl_af;
+      voice = kl_res(2, voice); voice = kl_anti(1, voice);
+      voice = kl_res(8, voice); voice = kl_res(7, voice); voice = kl_res(6, voice);
+      voice = kl_res(5, voice); voice = kl_res(4, voice); voice = kl_res(3, voice);
+      voice = kl_res(13, noise) - voice;
+      voice = kl_res(12, noise) - voice;
+      voice = kl_res(11, noise) - voice;
+      voice = kl_res(10, noise) - voice;
+      voice = kl_res(9, noise) - voice;
+      voice = kl_byp*noise - voice;
+      out = kl_res(14, voice);
+      out = max(-32767, min(32767, out|0));
+      kl_wp < s_cap ? (s_dst[kl_wp] = 128 + out*(128/32768); kl_wp += 1;);
+      kl_ns += 1;
+    );
+    kl_fn += 1;
+    kl_t += 1;
+    kl_t >= kl_d ? ( kl_le = kl_ce; kl_i += 1; kl_advance(); );
+    kl_wp < s_cap;
+  ) : 0;
+);
+
+function kl_prepare(n, F0, mono) local(m)
+(
+  s_err = 0;
+  m = s_phon ? sam_phon(n) : sam_reciter(n);
+  m > 0 ? (
+    kl_tokenize(m); kl_bad ? (s_err = 1);
+    kl_build(F0, mono, s_speed/72);
+    kl_begin();
+  ) : ( s_err = 1; kl_ne_n = 0; kl_i = 0; );
+);
+
+SLOT_N = 22050*60;
+sam_pb = alloc(RC_CAP + 16); sam_sv = alloc(512); sam_busy = 0; sam_work = 0; gen_active = 0; pr_run = 0;
+sl_buf0 = alloc(SLOT_N); sl_buf1 = alloc(SLOT_N);
+sl_on = alloc(2); sl_len = alloc(2); sl_pos = alloc(2); sl_env = alloc(2); sl_rel = alloc(2); sl_dly = alloc(2);
+sl_ratio = alloc(2); sl_gain = alloc(2); sl_note = alloc(2); sl_word = alloc(2);
+sl_key = alloc(2); sl_seg = alloc(2); sl_pit = alloc(2); sl_ver = alloc(2);
+g_ls = alloc(400); g_ln = alloc(400);
+g_fb = alloc(512); g_ft = alloc(384);
+u_i = 0; loop(512, g_fb[u_i] = str_getchar("0000000044444040:::00000::O:O::04>D>5>409E:4:EB08DD8EB=04440000024888420842224800A:O:A00044O440000000<<8000O000000000<<011248@@04:AAA:404<D444O0>A168@O0O1261A>026:BO220O@FI1A>068@FIA>0O1224880>AA>AA>0>AC=12<00<<00<<00<<00<<81248421000O0O00084212480>A244040>ACEF@>04:AAOAA0N99>99N0>A@@@A>0N99999N0O@@N@@O0O@@N@@@0>A@@CA>0AAAOAAA0>44444>072222B<0ABDHDBA0@@@@@@O0AAKEAAA0AAIECAA0>AAAAA>0NAAN@@@0>AAAAE>1NAANDBA0>A@>1A>0O4444440AAAAAA>0AAA:::40AAAEEKA0AA:4:AA0AA:44440O1248@O0>88888>0@@842110>22222>04:A000000000000O", u_i) - 48; u_i += 1;);
+u_i = 0; loop(384, g_ft[u_i] = str_getchar("000000444040::0000:?:?:04><2>48248204:4:50440000244442844448:4>4:044>44000004800>0000000402248804:>:404<44>04:24>0>242<0::>220>8<2<068<:40>248806:4:<04:62<00400400400482484200>0>00842480<240406::8604:>::0<:<:<04:8:40<:::<0>8<8>0>8<88068::60::>::0>444>0222:40::<::08888>0:>>::02:>:804:::40<:<8804:::42<:<::06842<0>44440::::>0:::>40::>>:0::4::0::4440>248>0644460884220<444<04:000000000>", u_i) - 48; u_i += 1;);
+MB = alloc(4096);
+NK = 28; NREL = 11;
+K_EMPH = 0;
+K_accent = 1;
+K_break = 2;
+K_dur_factor = 3;
+K_emph_sil = 4;
+K_end = 5;
+K_endtone = 6;
+K_f0 = 7;
+K_file_pos = 8;
+K_line_number = 9;
+K_lisp_syl_yn_question = 10;
+K_local_duration_stretch = 11;
+K_local_f0_range = 12;
+K_local_f0_shift = 13;
+K_name = 14;
+K_nsw = 15;
+K_pbreak = 16;
+K_phones = 17;
+K_pos = 18;
+K_pos_in_syl = 19;
+K_prepunctuation = 20;
+K_punc = 21;
+K_seg_coda_fric = 22;
+K_seg_onset_stop = 23;
+K_ssml_alias = 24;
+K_ssml_comment = 25;
+K_stress = 26;
+K_whitespace = 27;
+R_Token = 0;
+R_Word = 1;
+R_Phrase = 2;
+R_Syllable = 3;
+R_SylStructure = 4;
+R_Segment = 5;
+R_IntEvent = 6;
+R_Intonation = 7;
+R_Target = 8;
+R_Unit = 9;
+R_Transition = 10;
+
+LXD = alloc(410530);
+LTM = alloc(153040);
+LTI = alloc(32);
+LXP = alloc(64);
+EH_O = alloc(256);
+EH_N = alloc(256);
+PH_O = alloc(256);
+PH_N = alloc(256);
+TPN = alloc(80);
+TPA = alloc(80);
+TPB = alloc(80);
+AD_KO = alloc(64);
+AD_KN = alloc(64);
+AD_PO = alloc(64);
+AD_PN = alloc(64);
+EH_C = alloc(1024);
+PH_C = alloc(1024);
+AD_KC = alloc(256);
+AD_PC = alloc(256);
+LXW = alloc(1100);
+LXU = alloc(80);
+LTB = alloc(1100);
+LTSV = alloc(16);
+LTR = alloc(2200);
+LXQ = alloc(1100);
+LPH = alloc(2200);
+SP_H = alloc(32771);
+SP_H0 = alloc(32771);
+SP_O = alloc(16384);
+SP_L = alloc(16384);
+SP_B = alloc(262144);
+SP_T = alloc(4096);
+IT_C = alloc(20000);
+IT_R = alloc(20000);
+IT_N = alloc(20000);
+IT_P = alloc(20000);
+IT_U = alloc(20000);
+IT_D = alloc(20000);
+CT_R = alloc(72000);
+CF_T = alloc(384000);
+CF_V = alloc(384000);
+RL_H = alloc(16);
+RL_T = alloc(16);
+RL_X = alloc(16);
+DSTK = alloc(20000);
+TS_CC = alloc(256);
+TS_IN = alloc(4096);
+TS_WS = alloc(4096);
+TS_PRE = alloc(4096);
+TS_TOK = alloc(4096);
+TS_POST = alloc(4096);
+PA_N = alloc(512);
+PA_OP = alloc(8192);
+PA_AR = alloc(8192);
+PA_FIN = alloc(512);
+CT_BASE = alloc(16);
+ND_P = alloc(2048);
+ND_OP = alloc(2048);
+ND_NO = alloc(2048);
+ND_T = alloc(2048);
+ND_V = alloc(2048);
+HSN = alloc(32);
+PS_ROW = alloc(16384);
+PSF = alloc(512);
+GPOS = alloc(16384);
+DS_OK = alloc(16384);
+DS_M = alloc(16384);
+DS_S = alloc(16384);
+LR_P = alloc(128);
+LR_NEW = alloc(128);
+LR_S = alloc(128);
+LR_M = alloc(128);
+LR_E = alloc(128);
+LR_T = alloc(128);
+RXP = alloc(8192);
+RX_O = alloc(64);
+RXS_T = alloc(4096);
+RXS_N = alloc(4096);
+RXS_I = alloc(4096);
+RXS_C = alloc(4096);
+RXS_M = alloc(4096);
+RXS_X = alloc(4096);
+LV_S = alloc(8192);
+LV_B = alloc(8192);
+LV_N = alloc(8192);
+TN_B = alloc(4096);
+TN_B2 = alloc(4096);
+TN_C = alloc(64);
+TN_L = alloc(256);
+TN_SEG = alloc(256);
+TN_DIG = alloc(10);
+TN_TEEN = alloc(10);
+TN_ENTY = alloc(10);
+TN_ORDN = alloc(10);
+TN_ORDT = alloc(10);
+TN_ORDE = alloc(10);
+TN_EED = alloc(16384);
+TN_REX1 = alloc(16384);
+TN_REX2 = alloc(16384);
+TN_SECT = alloc(16384);
+TN_MONTH = alloc(16384);
+TN_DAYS = alloc(16384);
+TN_WMA = alloc(32);
+TN_WMB = alloc(32);
+TN_STK = alloc(128);
+TN_STA = alloc(128);
+TN_STN = alloc(128);
+TN_STW = alloc(512);
+FSMT = alloc(1024);
+PH_S = alloc(64);
+PH_VOW = alloc(64);
+PH_VOWS = alloc(16384);
+ONS2 = alloc(4096);
+ONS3 = alloc(262144);
+KLPC = alloc(189501);
+KRSZ = alloc(18951);
+KDEC = alloc(1630560);
+KDOFF = alloc(18952);
+DST = alloc(1623);
+DPB = alloc(1623);
+DEN = alloc(1623);
+DKEY = alloc(8192);
+GQ_P2 = alloc(16);
+G_DQLN = alloc(16);
+G_WI = alloc(16);
+G_FI = alloc(16);
+G_A = alloc(2);
+G_B = alloc(6);
+G_PK = alloc(2);
+G_DQ = alloc(6);
+G_SR = alloc(2);
+GUNP = alloc(1024);
+U2S = alloc(256);
+LCO = alloc(16);
+OBUF = alloc(16);
+SID2PH = alloc(16384);
+seg_ph = alloc(4096);
+seg_end = alloc(4096);
+seg_cl = alloc(4096);
+tg_pos = alloc(4096);
+tg_f0 = alloc(4096);
+u_te = alloc(8192);
+u_st = alloc(8192);
+u_en = alloc(8192);
+pm_t = alloc(32768);
+pm_f = alloc(32768);
+pm_s = alloc(32768);
+RESB = alloc(480000);
+HAL_SCV = alloc(1024);
+HAL_AB = alloc(256);
+HAL_TMP = alloc(8192);
+HAL_AB[0] = LXD; HAL_AB[1] = LTM; HAL_AB[2] = LTI; HAL_AB[3] = LXP; HAL_AB[4] = EH_O; HAL_AB[5] = EH_N; HAL_AB[6] = PH_O; HAL_AB[7] = PH_N; HAL_AB[8] = TPN; HAL_AB[9] = TPA; HAL_AB[10] = TPB; HAL_AB[11] = AD_KO; HAL_AB[12] = AD_KN; HAL_AB[13] = AD_PO; HAL_AB[14] = AD_PN; HAL_AB[15] = EH_C; HAL_AB[16] = PH_C; HAL_AB[17] = AD_KC; HAL_AB[18] = AD_PC; HAL_AB[19] = SP_H; HAL_AB[20] = SP_O; HAL_AB[21] = SP_L; HAL_AB[22] = SP_B; HAL_AB[23] = PA_N; HAL_AB[24] = PA_OP; HAL_AB[25] = PA_AR; HAL_AB[26] = PA_FIN; HAL_AB[27] = CT_BASE; HAL_AB[28] = ND_P; HAL_AB[29] = ND_OP; HAL_AB[30] = ND_NO; HAL_AB[31] = ND_T; HAL_AB[32] = ND_V; HAL_AB[33] = HSN; HAL_AB[34] = PS_ROW; HAL_AB[35] = PSF; HAL_AB[36] = GPOS; HAL_AB[37] = DS_OK; HAL_AB[38] = DS_M; HAL_AB[39] = DS_S; HAL_AB[40] = LR_P; HAL_AB[41] = LR_NEW; HAL_AB[42] = LR_S; HAL_AB[43] = LR_M; HAL_AB[44] = LR_E; HAL_AB[45] = LR_T; HAL_AB[46] = RXP; HAL_AB[47] = RX_O; HAL_AB[48] = TN_DIG; HAL_AB[49] = TN_TEEN; HAL_AB[50] = TN_ENTY; HAL_AB[51] = TN_ORDN; HAL_AB[52] = TN_ORDT; HAL_AB[53] = TN_ORDE; HAL_AB[54] = TN_EED; HAL_AB[55] = TN_REX1; HAL_AB[56] = TN_REX2; HAL_AB[57] = TN_SECT; HAL_AB[58] = TN_MONTH; HAL_AB[59] = TN_DAYS; HAL_AB[60] = TN_WMA; HAL_AB[61] = TN_WMB; HAL_AB[62] = TN_STK; HAL_AB[63] = TN_STA; HAL_AB[64] = TN_STN; HAL_AB[65] = TN_STW; HAL_AB[66] = FSMT; HAL_AB[67] = PH_S; HAL_AB[68] = PH_VOW; HAL_AB[69] = PH_VOWS; HAL_AB[70] = ONS2; HAL_AB[71] = ONS3; HAL_AB[72] = KLPC; HAL_AB[73] = KRSZ; HAL_AB[74] = KDEC; HAL_AB[75] = DST; HAL_AB[76] = DPB; HAL_AB[77] = DEN; HAL_AB[78] = DKEY; HAL_AB[79] = GQ_P2; HAL_AB[80] = G_DQLN; HAL_AB[81] = G_WI; HAL_AB[82] = G_FI; HAL_AB[83] = U2S; HAL_AB[84] = SID2PH; 
+SP_HN = 32771;
+
+
+function sp_hash(buf, n) local(h, i)
+(
+  h = 5381; i = 0;
+  loop(n, h = (h*33 + buf[i]) % 1048573; i += 1;);
+  h % SP_HN;
+);
+
+function sp_intern(buf, n) local(h, id, go, i, eq)
+(
+  h = sp_hash(buf, n); go = 1; id = -1;
+  while (go) (
+    SP_H[h] < 0 ? (
+      id = SP_N; SP_O[id] = SP_TOP; SP_L[id] = n;
+      i = 0; loop(n, SP_B[SP_TOP + i] = buf[i]; i += 1;);
+      SP_TOP += n; SP_N += 1; SP_H[h] = id; go = 0;
+    ) : (
+      SP_L[SP_H[h]] == n ? (
+        eq = 1; i = 0;
+        while (eq && i < n) ( SP_B[SP_O[SP_H[h]] + i] != buf[i] ? (eq = 0); i += 1; );
+        eq ? (id = SP_H[h]; go = 0) : (h = (h + 1) % SP_HN);
+      ) : (h = (h + 1) % SP_HN);
+    );
+  );
+  id;
+);
+
+function sp_lit(s) local(n, i)
+(
+  n = strlen(s); i = 0;
+  loop(n, SP_T[i] = str_getchar(s, i, 'cu'); i += 1;);
+  sp_intern(SP_T, n);
+);
+
+function sp_ch(id, i) ( i < SP_L[id] ? SP_B[SP_O[id] + i] : 0; );
+
+function ct_new() local(c, k)
+(
+  c = NCT; NCT += 1;
+  k = 0; loop(NK, CF_T[c*NK + k] = -1; k += 1;);
+  k = 0; loop(NREL, CT_R[c*NREL + k] = -1; k += 1;);
+  c;
+);
+
+function it_new(r, i) local(ni, c)
+(
+  ni = NIT; NIT += 1;
+  IT_N[ni] = IT_P[ni] = IT_U[ni] = IT_D[ni] = -1;
+  IT_R[ni] = r;
+  c = i < 0 ? ct_new() : IT_C[i];
+  IT_C[ni] = c;
+  CT_R[c*NREL + r] = ni;
+  ni;
+);
+
+function utt_relation_create(r) local(i)
+(
+  i = 0;
+  loop(NIT, IT_R[i] == r && IT_C[i] >= 0 ? (CT_R[IT_C[i]*NREL + r] == i ? CT_R[IT_C[i]*NREL + r] = -1; IT_C[i] = -1;); i += 1;);
+  RL_H[r] = RL_T[r] = -1; RL_X[r] = 1;
+);
+
+function relation_append(r, i) local(ni)
+(
+  ni = it_new(r, i);
+  RL_H[r] < 0 ? (RL_H[r] = ni);
+  IT_P[ni] = RL_T[r];
+  RL_T[r] >= 0 ? (IT_N[RL_T[r]] = ni);
+  RL_T[r] = ni;
+  ni;
+);
+
+function item_append(cur, i) local(rni, r)
+(
+  r = IT_R[cur];
+  rni = it_new(r, i);
+  IT_N[rni] = IT_N[cur];
+  IT_N[cur] >= 0 ? (IT_P[IT_N[cur]] = rni);
+  IT_P[rni] = cur;
+  IT_N[cur] = rni;
+  RL_T[r] == cur ? (RL_T[r] = rni);
+  rni;
+);
+
+function item_prepend(cur, i) local(rni, r)
+(
+  r = IT_R[cur];
+  rni = it_new(r, i);
+  IT_P[rni] = IT_P[cur];
+  IT_P[cur] >= 0 ? (IT_N[IT_P[cur]] = rni);
+  IT_N[rni] = cur;
+  IT_P[cur] = rni;
+  IT_U[cur] >= 0 ? (IT_D[IT_U[cur]] = rni; IT_U[rni] = IT_U[cur]; IT_U[cur] = -1;);
+  RL_H[r] == cur ? (RL_H[r] = rni);
+  rni;
+);
+
+function item_next(i) ( i < 0 ? -1 : IT_N[i]; );
+function item_prev(i) ( i < 0 ? -1 : IT_P[i]; );
+function item_daughter(i) ( i < 0 ? -1 : IT_D[i]; );
+function item_parent(i) local(n)
+(
+  i < 0 ? -1 : (
+    n = i; while (IT_P[n] >= 0) ( n = IT_P[n]; );
+    IT_U[n];
+  );
+);
+function item_last_daughter(i) local(p)
+(
+  p = item_daughter(i);
+  p >= 0 ? (while (IT_N[p] >= 0) ( p = IT_N[p]; ););
+  p;
+);
+function item_first(i) ( i < 0 ? -1 : (while (IT_P[i] >= 0) ( i = IT_P[i]; ); i;); );
+function item_last(i) ( i < 0 ? -1 : (while (IT_N[i] >= 0) ( i = IT_N[i]; ); i;); );
+function item_as(i, r) ( i < 0 ? -1 : CT_R[IT_C[i]*NREL + r]; );
+
+function item_add_daughter(i, nd) local(p, rnd)
+(
+  p = item_last_daughter(i);
+  p >= 0 ? (rnd = item_append(p, nd)) : (
+    rnd = it_new(IT_R[i], nd);
+    IT_U[rnd] = i;
+    IT_D[i] = rnd;
+  );
+  rnd;
+);
+
+function delete_item(i) local(r, sp, x, y)
+(
+  IT_N[i] >= 0 ? (IT_P[IT_N[i]] = IT_P[i]; IT_U[IT_N[i]] = IT_U[i];);
+  IT_P[i] >= 0 ? (IT_N[IT_P[i]] = IT_N[i]);
+  IT_U[i] >= 0 ? (IT_D[IT_U[i]] = IT_N[i]);
+  r = IT_R[i];
+  RL_H[r] == i ? (RL_H[r] = IT_N[i]);
+  RL_T[r] == i ? (RL_T[r] = IT_P[i]);
+  sp = 0; DSTK[0] = i; sp = 1;
+  while (sp > 0) (
+    sp -= 1; x = DSTK[sp];
+    y = IT_D[x]; while (y >= 0) ( DSTK[sp] = y; sp += 1; y = IT_N[y]; );
+    CT_R[IT_C[x]*NREL + r] == x ? (CT_R[IT_C[x]*NREL + r] = -1);
+    IT_C[x] = -1;
+  );
+);
+
+function it_ft(i, k) ( i < 0 ? -1 : CF_T[IT_C[i]*NK + k]; );
+function it_fv(i, k) ( CF_V[IT_C[i]*NK + k]; );
+function it_present(i, k) ( it_ft(i, k) >= 0; );
+function it_set(i, k, t, v) ( CF_T[IT_C[i]*NK + k] = t; CF_V[IT_C[i]*NK + k] = v; );
+function it_set_s(i, k, sid) ( it_set(i, k, 2, sid); );
+function it_set_i(i, k, v) ( it_set(i, k, 0, v); );
+function it_set_f(i, k, v) ( it_set(i, k, 1, v); );
+function it_del(i, k) ( CF_T[IT_C[i]*NK + k] = -1; );
+
+function utt_reset() local(i)
+(
+  NIT = 0; NCT = 0;
+  i = 0; loop(NREL, RL_H[i] = RL_T[i] = -1; RL_X[i] = 0; i += 1;);
+);
+
+function lx_uncompress(dbuf, p) local(i, j, c, n, k, go)
+(
+  i = p; j = 0; go = 1;
+  while (go && LXD[i]) (
+    c = LXD[i]; n = EH_N[c];
+    j + n + 1 < 64 ? (
+      k = 0; loop(n, dbuf[j + k] = EH_C[EH_O[c] + k]; k += 1;);
+      j += n; i += 1;
+    ) : (go = 0);
+  );
+  dbuf[j] = 0;
+  j;
+);
+
+function lx_cmp(a, b, st) local(i, ca, cb, r, go)
+(
+  i = st; r = 0; go = 1;
+  while (go) (
+    ca = a[i]; cb = b[i];
+    ca != cb ? (r = ca < cb ? -1 : 1; go = 0) : ca == 0 ? (go = 0) : (i += 1);
+  );
+  r;
+);
+
+function lx_next(p, en) local(go)
+(
+  p += 1; go = 1;
+  while (go && p < en) ( LXD[p - 1] == 255 ? (go = 0) : (p += 1); );
+  p;
+);
+
+function lx_prev(p, st) local(go)
+(
+  p -= 1; go = 1;
+  while (go && p > st) ( LXD[p - 1] == 255 ? (go = 0) : (p -= 1); );
+  p;
+);
+
+function lx_closest(p, st, en) local(d, r, go)
+(
+  d = 0; go = 1; r = -1;
+  while (go && p - d > st && p + d < en) (
+    LXD[p + d - 1] == 255 ? (r = p + d; go = 0)
+    : LXD[p - d - 1] == 255 ? (r = p - d; go = 0)
+    : (d += 1);
+  );
+  r < 0 ? p - d : r;
+);
+
+function lx_full(i, wp) local(w, match, go, hit)
+(
+  match = i; w = i; go = 1; hit = 0;
+  while (go && w > 0) (
+    lx_uncompress(LXU, w);
+    lx_cmp(wp, LXU, 1) != 0 ? (go = 0) : lx_cmp(wp, LXU, 0) == 0 ? (match = w; hit = 1; go = 0) : (
+      match = w;
+      w = lx_prev(w, 0);
+    );
+  );
+  !hit ? (
+    w = i; go = 1;
+    while (go && w < LX_NB) (
+      lx_uncompress(LXU, w);
+      lx_cmp(wp, LXU, 1) != 0 ? (go = 0) : lx_cmp(wp, LXU, 0) == 0 ? (match = w; go = 0) : (
+        w = lx_next(w, LX_NB);
+      );
+    );
+  );
+  match;
+);
+
+function lx_bsearch(wp) local(st, mid, en, c, r, go)
+(
+  st = 0; en = LX_NB; r = -1; go = 1;
+  while (go && st < en) (
+    mid = floor((st + en)/2);
+    mid = lx_closest(mid, st, en);
+    lx_uncompress(LXU, mid);
+    c = lx_cmp(LXU, wp, 1);
+    c == 0 ? (r = lx_full(mid, wp); go = 0)
+    : c > 0 ? (en = mid)
+    : (st = lx_next(mid + 1, en));
+  );
+  r;
+);
+
+function lts_model(st) local(f, v, a, go)
+(
+  a = st*6; go = 1;
+  while (LTM[a] != 255) (
+    f = LTM[a]; v = LTM[a + 1];
+    a = (LTSV[f] == v ? LTM[a + 2] + 256*LTM[a + 3] : LTM[a + 4] + 256*LTM[a + 5])*6;
+  );
+  LTM[a + 1];
+);
+
+function lts_apply(w, n, out) local(pos, k, fb, ph, np, i, c)
+(
+  i = 0; loop(3, LTB[i] = 48; i += 1;);
+  LTB[3] = 35;
+  i = 0; loop(n, LTB[4 + i] = w[i]; i += 1;);
+  LTB[4 + n] = 35;
+  i = 0; loop(3, LTB[5 + n + i] = 48; i += 1;);
+  np = 0;
+  pos = 4 + n - 1;
+  while (LTB[pos] != 35) (
+    k = 0; loop(4, LTSV[k] = LTB[pos - 4 + k]; LTSV[4 + k] = LTB[pos + 1 + k]; k += 1;);
+    LTSV[8] = 0;
+    c = LTB[pos];
+    c >= 97 && c <= 122 ? (
+      ph = lts_model(LTI[(c - 97) % 26]);
+      TPN[ph] == 1 ? (LTR[np] = TPA[ph]; np += 1)
+      : TPN[ph] == 2 ? (LTR[np] = TPB[ph]; LTR[np + 1] = TPA[ph]; np += 2);
+    );
+    pos -= 1;
+  );
+  i = 0; loop(np, out[i] = LTR[np - 1 - i]; i += 1;);
+  np;
+);
+
+function lex_lookup(w, n, posc, out) local(i, j, a, ok, np, idx, p, q, c)
+(
+  LXW[0] = posc;
+  i = 0; loop(n, LXW[1 + i] = w[i]; i += 1;);
+  LXW[1 + n] = 0;
+  np = -1;
+  a = 0;
+  while (np < 0 && a < NAD) (
+    ok = posc == 48 || posc == AD_KC[AD_KO[a]] || AD_KC[AD_KO[a]] == 48;
+    ok ? (
+      AD_KN[a] - 1 != n ? (ok = 0) : (
+        i = 0; loop(n, AD_KC[AD_KO[a] + 1 + i] != w[i] ? (ok = 0); i += 1;);
+      );
+    );
+    ok ? (
+      np = AD_PN[a];
+      i = 0; loop(np, out[i] = AD_PC[AD_PO[a] + i]; i += 1;);
+    );
+    a += 1;
+  );
+  np < 0 ? (
+    idx = lx_bsearch(LXW);
+    idx >= 0 ? (
+      np = 0;
+      p = idx - 2;
+      while (LXD[p]) (
+        c = LXD[p];
+        q = 0; loop(PH_N[c], out[np] = LXP[PH_C[PH_O[c] + q]]; np += 1; q += 1;);
+        p -= 1;
+      );
+    ) : (
+      np = lts_apply(w, n, out);
+    );
+  );
+  np;
+);
+
+function rx_next(p) local(o)
+(
+  o = RXP[p + 1]*256 + RXP[p + 2];
+  o == 0 ? -1 : RXP[p] == 7 ? p - o : p + o;
+);
+
+function rx_inset(op, c) local(r, go)
+(
+  r = 0; go = 1;
+  while (go) ( RXP[op] == c ? (r = 1; go = 0) : RXP[op] == 0 ? (go = 0) : (op += 1); );
+  r;
+);
+
+function rx_alnum(c) ( (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122); );
+
+function rx_repeat(p, sid, inp) local(cnt, op, c)
+(
+  cnt = 0; op = p + 3;
+  RXP[p] == 3 ? (cnt = SP_L[sid] - inp)
+  : RXP[p] == 8 ? (while (RXP[op] == sp_ch(sid, inp + cnt)) ( cnt += 1; ))
+  : RXP[p] == 4 ? (while ((c = sp_ch(sid, inp + cnt)) != 0 && rx_inset(op, c)) ( cnt += 1; ))
+  : RXP[p] == 5 ? (while ((c = sp_ch(sid, inp + cnt)) != 0 && !rx_inset(op, c)) ( cnt += 1; ));
+  cnt;
+);
+
+function rx_match(rx, sid) local(scan, inp, sp, op, nxt, res, fail, c, len, k, no, mn, nch, save, tp, go)
+(
+  scan = RX_O[rx] + 1; inp = 0; sp = 0; res = -1;
+  while (res < 0) (
+    fail = 0;
+    scan < 0 ? (fail = 1) : (
+      op = RXP[scan]; nxt = rx_next(scan); c = sp_ch(sid, inp);
+      op == 0 ? (res = 1)
+      : op == 1 ? (inp != 0 ? fail = 1; scan = nxt;)
+      : op == 2 ? (c != 0 ? fail = 1; scan = nxt;)
+      : op == 12 ? (
+          (!rx_alnum(c) && c != 95) || (inp > 0 && (rx_alnum(sp_ch(sid, inp - 1)) || sp_ch(sid, inp - 1) == 95)) ? fail = 1;
+          scan = nxt;
+        )
+      : op == 13 ? ((rx_alnum(c) || c == 95) ? fail = 1; scan = nxt;)
+      : op == 3 ? (c == 0 ? fail = 1 : (inp += 1; scan = nxt;))
+      : op == 8 ? (
+          RXP[scan + 3] != c ? fail = 1 : (
+            len = 0; while (RXP[scan + 3 + len]) ( len += 1; );
+            k = 1; while (!fail && k < len) ( RXP[scan + 3 + k] != sp_ch(sid, inp + k) ? fail = 1; k += 1; );
+            !fail ? (inp += len; scan = nxt;);
+          );
+        )
+      : op == 4 ? ((c == 0 || !rx_inset(scan + 3, c)) ? fail = 1 : (inp += 1; scan = nxt;))
+      : op == 5 ? ((c == 0 || rx_inset(scan + 3, c)) ? fail = 1 : (inp += 1; scan = nxt;))
+      : (op == 9 || op == 7 || (op > 20 && op < 30) || (op > 30 && op < 40)) ? (scan = nxt)
+      : op == 6 ? (
+          RXP[nxt] != 6 ? (scan = scan + 3) : (
+            RXS_T[sp] = 1; RXS_N[sp] = nxt; RXS_I[sp] = inp; sp += 1;
+            scan = scan + 3;
+          );
+        )
+      : (op == 10 || op == 11) ? (
+          nch = RXP[nxt] == 8 ? RXP[nxt + 3] : 0;
+          mn = op == 10 ? 0 : 1;
+          save = inp;
+          no = rx_repeat(scan + 3, sid, inp);
+          inp = save + no; go = 1;
+          while (go && no >= mn) (
+            (nch == 0 || sp_ch(sid, inp) == nch) ? (
+              RXS_T[sp] = 2; RXS_N[sp] = nxt; RXS_I[sp] = save; RXS_C[sp] = no - 1; RXS_M[sp] = mn; RXS_X[sp] = nch; sp += 1;
+              scan = nxt; go = 0;
+            ) : (no -= 1; inp = save + no;);
+          );
+          go ? fail = 1;
+        )
+      : (fail = 1);
+    );
+    while (fail && res < 0) (
+      sp == 0 ? (res = 0) : (
+        sp -= 1; tp = RXS_T[sp];
+        tp == 1 ? (
+          scan = RXS_N[sp]; inp = RXS_I[sp];
+          scan >= 0 && RXP[scan] == 6 ? (
+            RXS_T[sp] = 1; RXS_N[sp] = rx_next(scan); RXS_I[sp] = inp; sp += 1;
+            scan = scan + 3; fail = 0;
+          );
+        ) : (
+          no = RXS_C[sp]; save = RXS_I[sp]; mn = RXS_M[sp]; nch = RXS_X[sp]; nxt = RXS_N[sp];
+          go = 1;
+          while (go && no >= mn) (
+            inp = save + no;
+            (nch == 0 || sp_ch(sid, inp) == nch) ? (
+              RXS_T[sp] = 2; RXS_N[sp] = nxt; RXS_I[sp] = save; RXS_C[sp] = no - 1; RXS_M[sp] = mn; RXS_X[sp] = nch; sp += 1;
+              scan = nxt; go = 0; fail = 0;
+            ) : (no -= 1);
+          );
+        );
+      );
+    );
+  );
+  res;
+);
+
+function f32(x) local(a, e, q, r, fl, d)
+(
+  x == 0 ? 0 : (
+    a = abs(x);
+    e = floor(log(a)/log(2));
+    2^e > a ? (e -= 1);
+    2^(e + 1) <= a ? (e += 1);
+    q = 2^(e - 23);
+    r = a/q; fl = floor(r); d = r - fl;
+    d > 0.5 ? (fl += 1) : d == 0.5 ? ((fl & 1) ? (fl += 1));
+    x < 0 ? -fl*q : fl*q;
+  );
+);
+
+
+
+function lv_new(s, nx) local(n) ( n = NLV; NLV += 1; LV_S[n] = s; LV_B[n] = 0; LV_N[n] = nx; n; );
+function lv_append(a, b) local(p) ( a < 0 ? b : (p = a; while (LV_N[p] >= 0) ( p = LV_N[p]; ); LV_N[p] = b; a;); );
+function lv_reverse(a) local(p, nx, pv) ( pv = -1; p = a; while (p >= 0) ( nx = LV_N[p]; LV_N[p] = pv; pv = p; p = nx; ); pv; );
+function lv_len(a) local(c) ( c = 0; while (a >= 0) ( c += 1; a = LV_N[a]; ); c; );
+function add_break(l) local(p) ( l >= 0 ? (p = l; while (LV_N[p] >= 0) ( p = LV_N[p]; ); LV_B[p] = 1;); l; );
+
+function sp_sub(id, a, n) local(i)
+(
+  n = max(0, min(n, SP_L[id] - a));
+  i = 0; loop(n, TN_B[i] = SP_B[SP_O[id] + a + i]; i += 1;);
+  sp_intern(TN_B, n);
+);
+function sp_tail(id, a) ( sp_sub(id, a, SP_L[id] - a); );
+function sp_lower(id) local(i, c)
+(
+  i = 0; loop(SP_L[id], c = SP_B[SP_O[id] + i]; TN_B[i] = c >= 65 && c <= 90 ? c + 32 : c; i += 1;);
+  sp_intern(TN_B, SP_L[id]);
+);
+function sp_chr(id, c) local(i, r)
+(
+  r = -1; i = 0;
+  while (r < 0 && i < SP_L[id]) ( SP_B[SP_O[id] + i] == c ? (r = i); i += 1; );
+  r;
+);
+function sp_rchr(id, c) local(i, r)
+(
+  r = -1; i = SP_L[id] - 1;
+  while (r < 0 && i >= 0) ( SP_B[SP_O[id] + i] == c ? (r = i); i -= 1; );
+  r;
+);
+function sp_strip(id, c) local(i, j, x)
+(
+  i = 0; j = 0;
+  loop(SP_L[id], x = SP_B[SP_O[id] + i]; x != c ? (TN_B[j] = x; j += 1;); i += 1;);
+  sp_intern(TN_B, j);
+);
+function sp_atoi(id) local(i, n, s, v, c)
+(
+  i = 0; n = SP_L[id]; s = 1; v = 0;
+  while (i < n && (sp_ch(id, i) == 32 || (sp_ch(id, i) >= 9 && sp_ch(id, i) <= 13))) ( i += 1; );
+  sp_ch(id, i) == 45 ? (s = -1; i += 1) : sp_ch(id, i) == 43 ? (i += 1);
+  while (i < n && (c = sp_ch(id, i)) >= 48 && c <= 57) ( v = v*10 + c - 48; i += 1; );
+  v = s*v;
+  v > 9223372036854775807 ? (v = 9223372036854775807) : v < -9223372036854775808 ? (v = -9223372036854775808);
+  v = v - floor((v + 2147483648)/4294967296)*4294967296;
+  v;
+);
+function sp_ichar(c) ( TN_B[0] = c; sp_intern(TN_B, 1); );
+function sp_fromint(v) local(n, neg, d, i, t)
+(
+  n = 0; neg = v < 0; v = abs(v);
+  v == 0 ? (TN_C[0] = 48; n = 1) : (while (v > 0) ( TN_C[n] = 48 + (v % 10); v = floor(v/10); n += 1; ));
+  i = 0; neg ? (TN_B[0] = 45; i = 1;);
+  t = 0; loop(n, TN_B[i + t] = TN_C[n - 1 - t]; t += 1;);
+  sp_intern(TN_B, i + n);
+);
+function in_set(c, s) local(i, r) ( r = c == 0; i = 0; loop(strlen(s), str_getchar(s, i, 'cu') == c ? (r = 1); i += 1;); r; );
+
+function exp_digits(s) local(r, i, c)
+(
+  r = -1; i = SP_L[s] - 1;
+  while (i >= 0) ( c = sp_ch(s, i); r = lv_new(c >= 48 && c <= 57 ? TN_DIG[c - 48] : W_umpty, r); i -= 1; );
+  r;
+);
+function exp_letters(s) local(r, i, c, w)
+(
+  r = -1; i = SP_L[s] - 1;
+  while (i >= 0) (
+    c = sp_ch(s, i); c >= 65 && c <= 90 ? (c += 32);
+    w = c >= 48 && c <= 57 ? TN_DIG[c - 48] : c == 97 ? W_Ua : sp_ichar(c);
+    r = lv_new(w, r); i -= 1;
+  );
+  r;
+);
+function exp_roman(s) local(i, v, c)
+(
+  v = 0; i = 0;
+  while (i < SP_L[s]) (
+    c = sp_ch(s, i);
+    c == 88 ? (v += 10) : c == 86 ? (v += 5) : c == 73 ? (
+      sp_ch(s, i + 1) == 86 ? (v += 4; i += 1) : sp_ch(s, i + 1) == 88 ? (v += 9; i += 1) : (v += 1);
+    );
+    i += 1;
+  );
+  v;
+);
+function aswd_tr(o, v, st, sym) local(i, r)
+(
+  r = -1; i = st;
+  while (r < 0 && FSMT[o + i]) ( (FSMT[o + i] % v) == sym ? (r = floor(FSMT[o + i]/v)); i += 1; );
+  r;
+);
+function aswd_sym(c) ( c == 110 || c == 109 ? 78 : (c == 97 || c == 101 || c == 105 || c == 111 || c == 117 || c == 121) ? 86 : c; );
+function us_aswd(w) local(dc, st, i, sym, pre, suf, go, n)
+(
+  dc = sp_lower(w); n = SP_L[dc];
+  st = aswd_tr(FSM_P_O, FSM_P_V, 0, 35); pre = 0; go = 1; i = 0;
+  while (go && i < n) (
+    sym = aswd_sym(sp_ch(dc, i));
+    st = aswd_tr(FSM_P_O, FSM_P_V, st, sym);
+    st == -1 ? (go = 0) : sym == 86 ? (pre = 1; go = 0);
+    i += 1;
+  );
+  pre ? (
+    st = aswd_tr(FSM_P_O, FSM_P_V, 0, 35); suf = 0; go = 1; i = n - 1;
+    while (go && i >= 0) (
+      sym = aswd_sym(sp_ch(dc, i));
+      st = aswd_tr(FSM_S_O, FSM_S_V, st, sym);
+      st == -1 ? (go = 0) : sym == 86 ? (suf = 1; go = 0);
+      i -= 1;
+    );
+    suf;
+  ) : 0;
+);
+function in_lex_word(w) local(a, ok, i, n, r)
+(
+  n = SP_L[w]; r = 0; a = 0;
+  while (!r && a < NAD) (
+    AD_KN[a] - 1 == n ? (
+      ok = 1; i = 0; loop(n, AD_KC[AD_KO[a] + 1 + i] != sp_ch(w, i) ? (ok = 0); i += 1;);
+      ok ? (r = 1);
+    );
+    a += 1;
+  );
+  !r ? (
+    LXW[0] = 48; i = 0; loop(n, LXW[1 + i] = sp_ch(w, i); i += 1;); LXW[1 + n] = 0;
+    lx_bsearch(LXW) >= 0 ? (r = 1);
+  );
+  r;
+);
+
+function exp_num10(s) ( -1; );
+<?
+k = 9;
+loop(10,
+  printf("function exp_num%d(s) local(n, c0, c1, p, part, rest)\n", k);
+  printf("(\n");
+  printf("  n = SP_L[s];\n");
+  printf("  n == 0 ? -1\n");
+  printf("  : n == 1 ? exp_digits(s)\n");
+  printf("  : n == 2 ? (\n");
+  printf("    c0 = sp_ch(s, 0); c1 = sp_ch(s, 1);\n");
+  printf("    c0 == 48 ? (c1 == 48 ? -1 : lv_new(TN_DIG[c1 - 48], -1))\n");
+  printf("    : c1 == 48 ? lv_new(TN_ENTY[c0 - 48], -1)\n");
+  printf("    : c0 == 49 ? lv_new(TN_TEEN[c1 - 48], -1)\n");
+  printf("    : lv_new(TN_ENTY[c0 - 48], exp_digits(sp_tail(s, 1)));\n");
+  printf("  )\n");
+  printf("  : n == 3 ? (\n");
+  printf("    sp_ch(s, 0) == 48 ? exp_num%d(sp_tail(s, 1)) : lv_new(TN_DIG[sp_ch(s, 0) - 48], lv_new(W_hundred, exp_num%d(sp_tail(s, 1))));\n", k + 1, k + 1);
+  printf("  )\n");
+  printf("  : n < 13 ? (\n");
+  printf("    c0 = n < 7 ? 3 : n < 10 ? 6 : 9;\n");
+  printf("    part = sp_sub(s, 0, n - c0); rest = sp_tail(s, n - c0);\n");
+  printf("    p = exp_num%d(part);\n", k + 1);
+  printf("    p < 0 ? exp_num%d(rest) : lv_append(p, lv_new(n < 7 ? W_thousand : n < 10 ? W_million : W_billion, exp_num%d(rest)));\n", k + 1, k + 1);
+  printf("  )\n");
+  printf("  : exp_digits(s);\n");
+  printf(");\n");
+  k -= 1;
+);
+?>
+function exp_id40(s) ( -1; );
+<?
+k = 39;
+loop(40,
+  printf("function exp_id%d(s) local(n)\n", k);
+  printf("(\n");
+  printf("  n = SP_L[s];\n");
+  printf("  n == 4 && sp_ch(s, 2) == 48 && sp_ch(s, 3) == 48 ? (\n");
+  printf("    sp_ch(s, 1) == 48 ? exp_num0(s) : lv_append(exp_num0(sp_sub(s, 0, 2)), lv_new(W_hundred, -1));\n");
+  printf("  )\n");
+  printf("  : n == 3 && sp_ch(s, 0) != 48 && sp_ch(s, 1) == 48 && sp_ch(s, 2) == 48 ? lv_new(TN_DIG[sp_ch(s, 0) - 48], lv_new(W_hundred, -1))\n");
+  printf("  : n == 2 && sp_ch(s, 0) == 48 && sp_ch(s, 1) == 48 ? lv_new(W_zero, lv_new(W_zero, -1))\n");
+  printf("  : n == 2 && sp_ch(s, 0) == 48 ? lv_new(W_oh, exp_digits(sp_tail(s, 1)))\n");
+  printf("  : (n == 4 && sp_ch(s, 1) == 48 && sp_ch(s, 2) == 48) || n < 3 ? exp_num0(s)\n");
+  printf("  : n %% 2 == 1 ? lv_new(TN_DIG[sp_ch(s, 0) - 48], exp_id%d(sp_tail(s, 1)))\n", k + 1);
+  printf("  : lv_append(exp_num0(sp_sub(s, 0, 2)), exp_id%d(sp_tail(s, 2)));\n", k + 1);
+  printf(");\n");
+  k -= 1;
+);
+?>
+function exp_real8(s) ( -1; );
+<?
+k = 7;
+loop(8,
+  printf("function exp_real%d(s) local(p, r)\n", k);
+  printf("(\n");
+  printf("  sp_ch(s, 0) == 45 ? lv_new(W_minus, exp_real%d(sp_tail(s, 1)))\n", k + 1);
+  printf("  : sp_ch(s, 0) == 43 ? lv_new(W_plus, exp_real%d(sp_tail(s, 1)))\n", k + 1);
+  printf("  : ((p = sp_chr(s, 101)) >= 0 || (p = sp_chr(s, 69)) >= 0) ? (\n");
+  printf("    r = exp_real%d(sp_tail(s, p + 1));\n", k + 1);
+  printf("    lv_append(exp_real%d(sp_sub(s, 0, p)), lv_new(W_e, r));\n", k + 1);
+  printf("  )\n");
+  printf("  : (p = sp_chr(s, 46)) >= 0 ? lv_append(exp_num0(sp_sub(s, 0, p)), lv_new(W_point, exp_digits(sp_tail(s, p + 1))))\n");
+  printf("  : exp_num0(s);\n");
+  printf(");\n");
+  k -= 1;
+);
+?>
+
+function exp_ordinal(s) local(card, l, ord, i, o, t)
+(
+  card = lv_reverse(exp_num0(sp_strip(s, 44)));
+  card < 0 ? (card = lv_new(W_zero, -1));
+  l = LV_S[card]; ord = -1;
+  i = 0; loop(10, l == TN_DIG[i] ? (ord = TN_ORDN[i]); i += 1;);
+  ord < 0 ? (i = 0; loop(10, l == TN_TEEN[i] ? (ord = TN_ORDT[i]); i += 1;););
+  ord < 0 ? (i = 0; loop(10, l == TN_ENTY[i] ? (ord = TN_ORDE[i]); i += 1;););
+  l == W_hundred ? (ord = W_hundredth);
+  l == W_thousand ? (ord = W_thousandth);
+  l == W_billion ? (ord = W_billtionth);
+  ord < 0 ? card : (
+    o = lv_new(ord, -1);
+    t = LV_N[card]; while (t >= 0) ( o = lv_new(LV_S[t], o); t = LV_N[t]; );
+    o;
+  );
+);
+
+function sp_atof(id) local(i, n, c, sg, v, fr, ex, es, go)
+(
+  n = SP_L[id]; i = 0; v = 0; sg = 1;
+  while (i < n && (sp_ch(id, i) == 32 || (sp_ch(id, i) >= 9 && sp_ch(id, i) <= 13))) ( i += 1; );
+  sp_ch(id, i) == 45 ? (sg = -1; i += 1) : sp_ch(id, i) == 43 ? (i += 1);
+  while (i < n && sp_ch(id, i) >= 48 && sp_ch(id, i) <= 57) ( v = v*10 + sp_ch(id, i) - 48; i += 1; );
+  sp_ch(id, i) == 46 ? (
+    i += 1; fr = 0.1;
+    while (i < n && sp_ch(id, i) >= 48 && sp_ch(id, i) <= 57) ( v += (sp_ch(id, i) - 48)*fr; fr *= 0.1; i += 1; );
+  );
+  (sp_ch(id, i) == 101 || sp_ch(id, i) == 69) ? (
+    i += 1; es = 1; ex = 0;
+    sp_ch(id, i) == 45 ? (es = -1; i += 1) : sp_ch(id, i) == 43 ? (i += 1);
+    while (i < n && sp_ch(id, i) >= 48 && sp_ch(id, i) <= 57) ( ex = ex*10 + sp_ch(id, i) - 48; i += 1; );
+    v *= 10^(es*ex);
+  );
+  sg*v;
+);
+
+function val_float(t, v) ( t == 0 ? v : t == 1 ? v : t == 2 ? f32(sp_atof(v)) : 0; );
+function vstr_n(c) ( HSN[c < 0 ? 0 : c < 25 ? c : 24]; );
+function ret_s(sid) ( FT = 2; FV = sid; );
+
+function path_walk(item, pid, nops) local(j, op)
+(
+  j = 0;
+  while (item >= 0 && j < nops) (
+    op = PA_OP[pid*16 + j];
+    op == 1 ? (item = item_next(item))
+    : op == 2 ? (item = item_prev(item))
+    : op == 3 ? (item = item_prev(item) >= 0 ? item_prev(item_prev(item)) : -1)
+    : op == 4 ? (item = item_next(item) >= 0 ? item_next(item_next(item)) : -1)
+    : op == 5 ? (item = item_parent(item))
+    : op == 6 ? (item = item_daughter(item))
+    : op == 7 ? (item = item_last_daughter(item))
+    : op == 8 ? (item = item_first(item))
+    : op == 9 ? (item = item_last(item))
+    : op == 10 ? (item = item_as(item, PA_AR[pid*16 + j]));
+    j += 1;
+  );
+  item;
+);
+
+function path_to_item(item, pid) ( path_walk(item, pid, PA_N[pid]); );
+
+function stress_s(p) ( it_ft(p, K_stress) == 2 ? it_fv(p, K_stress) : S_ZERO; );
+
+function ph_feat(sid, f) ( PSF[PS_ROW[sid]*8 + f]; );
+
+function f_word_break(word) local(ww, pp, nm)
+(
+  ww = item_as(word, R_Phrase);
+  (ww < 0 || item_next(ww) >= 0) ? ret_s(S_ONE) : (
+    pp = item_parent(ww);
+    nm = it_ft(pp, K_name) == 2 ? it_fv(pp, K_name) : -1;
+    nm == S_BB ? ret_s(S_FOUR) : nm == S_B ? ret_s(S_THREE) : ret_s(S_ONE);
+  );
+);
+
+function f_syl_break(syl) local(ss)
+(
+  ss = item_as(syl, R_SylStructure);
+  ss < 0 ? ret_s(S_ONE) : item_next(ss) >= 0 ? ret_s(S_ZERO) : item_parent(ss) < 0 ? ret_s(S_ONE) : f_word_break(item_parent(ss));
+);
+
+function f_accented(syl) ( (it_present(syl, K_accent) || it_present(syl, K_endtone)) ? S_ONE : S_ZERO; );
+
+function same_ct(a, b) ( a >= 0 && b >= 0 ? IT_C[a] == IT_C[b] : a == b; );
+
+function f_ssyl_in(syl) local(ss, p, fs, c)
+(
+  ss = item_as(syl, R_Syllable);
+  fs = path_to_item(syl, PTH_PHR_FIRSTSYL);
+  same_ct(ss, fs) ? ret_s(HSN[0]) : (
+    c = 0; p = item_prev(ss);
+    while (p >= 0 && !same_ct(p, fs) && c < 19) ( stress_s(p) == S_ONE ? (c += 1); p = item_prev(p); );
+    ret_s(vstr_n(c));
+  );
+);
+
+function f_ssyl_out(syl) local(ss, p, fs, c, go)
+(
+  ss = item_as(syl, R_Syllable);
+  fs = path_to_item(syl, PTH_PHR_LASTSYL);
+  same_ct(ss, fs) ? ret_s(HSN[0]) : (
+    c = 0; p = item_next(ss); go = 1;
+    while (go && p >= 0 && c < 19) (
+      stress_s(p) == S_ONE ? (c += 1);
+      same_ct(p, fs) ? (go = 0) : (p = item_next(p));
+    );
+    ret_s(vstr_n(c));
+  );
+);
+
+function f_syl_in(syl) local(p, fs, c, go)
+(
+  fs = path_to_item(syl, PTH_PHR_FIRSTSYL);
+  c = 0; p = item_as(syl, R_Syllable); go = 1;
+  while (go && p >= 0 && c < 19) ( same_ct(p, fs) ? (go = 0) : (p = item_prev(p); c += 1); );
+  ret_s(vstr_n(c));
+);
+
+function f_syl_out(syl) local(p, fs, c, go)
+(
+  fs = path_to_item(syl, PTH_PHR_LASTSYL);
+  c = 0; p = item_as(syl, R_Syllable); go = 1;
+  while (go && p >= 0 && c < 19) ( same_ct(p, fs) ? (go = 0) : (p = item_next(p); c += 1); );
+  ret_s(vstr_n(c));
+);
+
+function f_asyl_in(syl) local(ss, p, fs, c, go)
+(
+  ss = item_as(syl, R_Syllable);
+  fs = path_to_item(syl, PTH_PHR_FIRSTSYL);
+  same_ct(ss, fs) ? ret_s(HSN[0]) : (
+    c = 0; p = item_prev(ss); go = 1;
+    while (go && p >= 0 && c < 19) (
+      f_accented(p) == S_ONE ? (c += 1);
+      same_ct(p, fs) ? (go = 0) : (p = item_prev(p));
+    );
+    ret_s(vstr_n(c));
+  );
+);
+
+function f_asyl_out(syl) local(ss, p, fs, c, go)
+(
+  ss = item_as(syl, R_Syllable);
+  fs = path_to_item(syl, PTH_PHR_LASTSYL);
+  same_ct(ss, fs) ? ret_s(HSN[0]) : (
+    c = 0; p = item_next(ss); go = 1;
+    while (go && p >= 0 && c < 19) (
+      f_accented(p) == S_ONE ? (c += 1);
+      same_ct(p, fs) ? (go = 0) : (p = item_next(p));
+    );
+    ret_s(vstr_n(c));
+  );
+);
+
+function f_sub_phrases(syl) local(s, c)
+(
+  c = 0; s = path_to_item(syl, PTH_PHR_PREV);
+  while (s >= 0 && c < 19) ( s = item_prev(s); c += 1; );
+  ret_s(vstr_n(c));
+);
+
+function f_last_accent(syl) local(s, c, go)
+(
+  c = 0; s = item_as(syl, R_Syllable); go = 1;
+  while (go && s >= 0 && c < 19) ( f_accented(s) == S_ONE ? (go = 0) : (s = item_prev(s); c += 1); );
+  ret_s(vstr_n(c));
+);
+
+function f_next_accent(syl) local(s, c, go)
+(
+  s = item_as(syl, R_Syllable);
+  s < 0 ? ret_s(HSN[0]) : (
+    s = item_next(s); c = 0; go = 1;
+    while (go && s >= 0 && c < 19) ( f_accented(s) == S_ONE ? (go = 0) : (s = item_next(s); c += 1); );
+    ret_s(vstr_n(c));
+  );
+);
+
+function f_syl_codasize(syl) local(d, c, go)
+(
+  c = 1; d = item_last_daughter(item_as(syl, R_SylStructure)); go = 1;
+  while (go && d >= 0) ( ph_feat(it_fv(d, K_name), 0) == S_PLUS ? (go = 0) : (d = item_prev(d); c += 1); );
+  ret_s(vstr_n(c));
+);
+
+function f_syl_onsetsize(syl) local(d, c, go)
+(
+  c = 0; d = item_daughter(item_as(syl, R_SylStructure)); go = 1;
+  while (go && d >= 0) ( ph_feat(it_fv(d, K_name), 0) == S_PLUS ? (go = 0) : (d = item_next(d); c += 1); );
+  ret_s(vstr_n(c));
+);
+
+function f_seg_onsetcoda(seg) local(s, r)
+(
+  r = S_CODA;
+  s = item_next(item_as(seg, R_SylStructure));
+  while (s >= 0 && r == S_CODA) ( ph_feat(it_fv(s, K_name), 0) == S_PLUS ? (r = S_ONSET) : (s = item_next(s)); );
+  ret_s(r);
+);
+
+function f_pos_in_syl(seg) local(s, c)
+(
+  c = -1; s = item_as(seg, R_SylStructure);
+  while (s >= 0) ( s = item_prev(s); c += 1; );
+  ret_s(vstr_n(c));
+);
+
+function f_position_type(syl) local(s)
+(
+  s = item_as(syl, R_SylStructure);
+  s < 0 ? ret_s(S_SINGLE)
+  : item_next(s) < 0 ? (item_prev(s) < 0 ? ret_s(S_SINGLE) : ret_s(S_FINAL))
+  : item_prev(s) < 0 ? ret_s(S_INITIAL) : ret_s(S_MID);
+);
+
+function f_word_numsyls(word) local(d, c)
+(
+  c = 0; d = item_daughter(item_as(word, R_SylStructure));
+  while (d >= 0) ( d = item_next(d); c += 1; );
+  FT = 0; FV = c < 25 ? c : 24;
+);
+
+function f_word_punc(word) local(ww)
+(
+  ww = item_as(word, R_Token);
+  ww >= 0 && item_next(ww) >= 0 ? ret_s(S_EMPTY) : (
+    ww = item_parent(ww);
+    it_ft(ww, K_punc) >= 0 ? (FT = it_ft(ww, K_punc); FV = it_fv(ww, K_punc)) : ret_s(S_ZERO);
+  );
+);
+
+function f_gpos(word) local(nm, r)
+(
+  nm = it_ft(word, K_name) == 2 ? it_fv(word, K_name) : -1;
+  r = nm >= 0 ? GPOS[nm] : 0;
+  ret_s(r > 0 ? r : S_CONTENT);
+);
+
+function f_syl_edge(seg, first) local(s)
+(
+  s = item_as(seg, R_SylStructure);
+  ret_s((s < 0 || (first ? item_prev(s) : item_next(s)) < 0) ? S_ONE : S_ZERO);
+);
+
+function ff_call(f, p)
+(
+  f == FF_gpos ? f_gpos(p)
+  : f == FF_ssyl_in ? f_ssyl_in(p)
+  : f == FF_ssyl_out ? f_ssyl_out(p)
+  : f == FF_syl_in ? f_syl_in(p)
+  : f == FF_syl_out ? f_syl_out(p)
+  : f == FF_syl_break || f == FF_old_syl_break ? f_syl_break(p)
+  : f == FF_word_break ? f_word_break(p)
+  : f == FF_sub_phrases ? f_sub_phrases(p)
+  : f == FF_accented ? ret_s(f_accented(p))
+  : f == FF_asyl_in ? f_asyl_in(p)
+  : f == FF_asyl_out ? f_asyl_out(p)
+  : f == FF_last_accent ? f_last_accent(p)
+  : f == FF_next_accent ? f_next_accent(p)
+  : f == FF_syl_codasize ? f_syl_codasize(p)
+  : f == FF_syl_onsetsize ? f_syl_onsetsize(p)
+  : f == FF_seg_onsetcoda ? f_seg_onsetcoda(p)
+  : f == FF_pos_in_syl ? f_pos_in_syl(p)
+  : f == FF_position_type ? f_position_type(p)
+  : f == FF_word_numsyls ? f_word_numsyls(p)
+  : f == FF_word_punc ? f_word_punc(p)
+  : f == FF_syl_final ? f_syl_edge(p, 0)
+  : f == FF_syl_initial ? f_syl_edge(p, 1)
+  : f == FF_ph_vc ? ret_s(ph_feat(it_fv(p, K_name), 0))
+  : f == FF_ph_vlng ? ret_s(ph_feat(it_fv(p, K_name), 1))
+  : f == FF_ph_vheight ? ret_s(ph_feat(it_fv(p, K_name), 2))
+  : f == FF_ph_vfront ? ret_s(ph_feat(it_fv(p, K_name), 3))
+  : f == FF_ph_vrnd ? ret_s(ph_feat(it_fv(p, K_name), 4))
+  : f == FF_ph_ctype ? ret_s(ph_feat(it_fv(p, K_name), 5))
+  : f == FF_ph_cplace ? ret_s(ph_feat(it_fv(p, K_name), 6))
+  : f == FF_ph_cvox ? ret_s(ph_feat(it_fv(p, K_name), 7))
+  : f == FF_num_digits ? (FT = 0; FV = min(SP_L[it_fv(p, K_name)], 24))
+  : f == FF_month_range ? (FV = sp_atoi(it_fv(p, K_name)); ret_s(FV > 0 && FV < 32 ? S_ONE : S_ZERO))
+  : f == FF_token_pos_guess ? (
+    FV = sp_lower(it_fv(p, K_name));
+    rx_match(RX_cst_rx_digits, FV) ? ret_s(W_numeric)
+    : rx_match(RX_cst_rx_double, FV) ? ret_s(W_number)
+    : TN_MONTH[FV] ? ret_s(W_month)
+    : TN_DAYS[FV] ? ret_s(W_day)
+    : FV == W_a ? ret_s(W_a)
+    : FV == W_flight ? ret_s(W_flight)
+    : FV == W_to ? ret_s(W_to)
+    : ret_s(W_UotherU);
+  )
+  : (printf("ffunction %d not ported\n", f); FT = 2; FV = S_ZERO;);
+);
+
+function ffeat(item, pid) local(p, f)
+(
+  p = path_walk(item, pid, PA_N[pid] - 1);
+  f = PA_FIN[pid];
+  p >= 0 && f >= 1000 ? (
+    FT = -1; ff_call(f - 1000, p);
+    FT < 0 ? (FT = 2; FV = S_ZERO);
+  ) : (
+    f >= 0 && it_ft(p, f) >= 0 ? (FT = it_ft(p, f); FV = it_fv(p, f)) : (FT = 2; FV = S_ZERO);
+  );
+);
+
+function ffeat_s(item, pid) ( ffeat(item, pid); FT == 2 ? FV : -1; );
+
+function cart_interpret(item, tree) local(n, r, t, v)
+(
+  n = CT_BASE[tree];
+  while (ND_OP[n] != 255) (
+    ffeat(item, ND_P[n]); t = FT; v = FV;
+    r = ND_OP[n] == 0 ? (t == ND_T[n] && v == ND_V[n])
+      : ND_OP[n] == 2 ? (f32(val_float(t, v)) < ND_V[n])
+      : ND_OP[n] == 3 ? (f32(val_float(t, v)) > ND_V[n])
+      : (printf("cart op %d not ported\n", ND_OP[n]); 0);
+    n = r ? n + 1 : CT_BASE[tree] + ND_NO[n];
+  );
+  n;
+);
+
+function ts_cls(c, m) ( (TS_CC[c & 255] & m) != 0; );
+
+function ts_getc() local(c)
+(
+  c = TS_IN[TS_POS];
+  c == 0 ? (TS_EOF = 1; TS_CUR = 0) : (TS_CUR = c);
+  !TS_EOF ? (TS_POS += 1);
+  TS_CUR == 10 ? (TS_LINE += 1);
+  TS_CUR;
+);
+
+function ts_sub(cls, buf) local(p)
+(
+  p = 0;
+  while (!TS_EOF && ts_cls(TS_CUR, cls) && !ts_cls(TS_CUR, 2)) ( buf[p] = TS_CUR; p += 1; ts_getc(); );
+  buf[p] = 0;
+  p;
+);
+
+function ts_get() local(p, t)
+(
+  TS_WSN = ts_sub(1, TS_WS);
+  !TS_EOF && ts_cls(TS_CUR, 4) ? (TS_PREN = ts_sub(4, TS_PRE)) : (TS_PRE[0] = 0; TS_PREN = 0);
+  !TS_EOF && ts_cls(TS_CUR, 2) ? (
+    TS_TOK[0] = TS_CUR; TS_TOK[1] = 0; TS_TOKN = 1; ts_getc();
+  ) : (
+    p = 0;
+    while (!TS_EOF && !ts_cls(TS_CUR, 1) && !ts_cls(TS_CUR, 2)) ( TS_TOK[p] = TS_CUR; p += 1; ts_getc(); );
+    TS_TOK[p] = 0; TS_TOKN = p;
+  );
+  TS_POST[0] = 0; TS_POSTN = 0;
+  t = TS_TOKN; p = t;
+  while (p > 0 && (TS_TOK[p] == 0 || ts_cls(TS_TOK[p], 8))) ( p -= 1; );
+  t != p ? (
+    TS_POSTN = t - p - 1;
+    memcpy(TS_POST, TS_TOK + p + 1, t - p);
+    TS_TOK[p + 1] = 0; TS_TOKN = p + 1;
+  );
+);
+
+function tokenization(n) local(t, i)
+(
+  utt_relation_create(R_Token);
+  memset(TS_CC, 0, 256);
+  TS_CC[32] |= 1; TS_CC[9] |= 1; TS_CC[10] |= 1; TS_CC[13] |= 1;
+  i = 0; loop(strlen(TS_PRESYM), TS_CC[str_getchar(TS_PRESYM, i, 'cu')] |= 4; i += 1;);
+  i = 0; loop(strlen(TS_POSTSYM), TS_CC[str_getchar(TS_POSTSYM, i, 'cu')] |= 8; i += 1;);
+  TS_IN[n] = 0; TS_POS = 0; TS_LINE = 0; TS_EOF = 0;
+  ts_getc();
+  while (!TS_EOF) (
+    ts_get();
+    TS_TOKN > 0 ? (
+      t = relation_append(R_Token, -1);
+      it_set_s(t, K_name, sp_intern(TS_TOK, TS_TOKN));
+      it_set_s(t, K_whitespace, sp_intern(TS_WS, TS_WSN));
+      it_set_s(t, K_prepunctuation, sp_intern(TS_PRE, TS_PREN));
+      it_set_s(t, K_punc, sp_intern(TS_POST, TS_POSTN));
+      it_set_i(t, K_file_pos, TS_POS);
+      it_set_i(t, K_line_number, TS_LINE);
+    );
+  );
+);
+function pos_tagger() local(w, n)
+(
+  w = RL_H[R_Word];
+  while (w >= 0) (
+    n = cart_interpret(w, TR_pos);
+    it_set_s(w, K_pos, ND_V[n]);
+    w = item_next(w);
+  );
+);
+
+function phrasing() local(w, p, lp, n)
+(
+  utt_relation_create(R_Phrase);
+  p = -1; lp = -1;
+  w = RL_H[R_Word];
+  while (w >= 0) (
+    p < 0 ? (
+      p = relation_append(R_Phrase, -1);
+      lp = p;
+      it_set_s(p, K_name, S_B);
+    );
+    item_add_daughter(p, w);
+    n = cart_interpret(w, TR_phrasing);
+    ND_V[n] == S_BB ? (p = -1);
+    w = item_next(w);
+  );
+  lp >= 0 && item_prev(lp) >= 0 ? it_set_s(lp, K_name, S_BB);
+);
+function ph_isvowel(base) ( PH_VOW[base]; );
+
+function syl_boundary_mo(i, j, np) local(k, any, n, d2v, r0, r1, r2)
+(
+  j >= np ? 1 : (
+    r0 = LPH[j] % 64;
+    r0 == PH_PAU ? 1 : (
+      any = 0; k = j; while (!any && k < np) ( ph_isvowel(LPH[k] % 64) ? (any = 1); k += 1; );
+      !any ? 0 : (
+        any = 0; n = i; while (!any && n >= 0) ( PH_VOWS[it_fv(n, K_name)] ? (any = 1); n = item_prev(n); );
+        !any ? 0 : ph_isvowel(r0) ? 1 : r0 == PH_NG ? 0 : (
+          d2v = 0; k = j; while (!ph_isvowel(LPH[k] % 64)) ( d2v += 1; k += 1; );
+          r1 = LPH[j + 1] % 64; r2 = LPH[j + 2] % 64;
+          d2v < 2 ? 1 : d2v > 3 ? 0 : d2v == 2 ? ONS2[r0*64 + r1] : ONS3[(r0*64 + r1)*64 + r2];
+        );
+      );
+    );
+  );
+);
+
+function lexical_insertion() local(word, ssword, posc, pv, np, j, sylitem, sssyl, segitem, seg_in_syl, stress, tk, nm, n, b, st)
+(
+  utt_relation_create(R_Syllable);
+  utt_relation_create(R_SylStructure);
+  utt_relation_create(R_Segment);
+  word = RL_H[R_Word];
+  while (word >= 0) (
+    ssword = relation_append(R_SylStructure, word);
+    pv = it_ft(word, K_pos) == 2 ? it_fv(word, K_pos) : S_ZERO;
+    posc = sp_ch(pv, 0);
+    nm = it_fv(word, K_name); n = SP_L[nm];
+    j = 0; loop(n, LXQ[j] = SP_B[SP_O[nm] + j]; j += 1;);
+    np = lex_lookup(LXQ, n, posc, LPH);
+    sssyl = -1; sylitem = -1; stress = S_ZERO;
+    j = 0;
+    loop(np,
+      sylitem < 0 ? (
+        sylitem = relation_append(R_Syllable, -1);
+        sssyl = item_add_daughter(ssword, sylitem);
+        stress = S_ZERO;
+      );
+      segitem = relation_append(R_Segment, -1);
+      b = LPH[j] % 64; st = floor(LPH[j]/64);
+      st == 2 ? (stress = S_ONE) : st == 1 ? (stress = S_ZERO);
+      it_set_s(segitem, K_name, PH_S[b]);
+      seg_in_syl = item_add_daughter(sssyl, segitem);
+      syl_boundary_mo(seg_in_syl, j + 1, np) ? (
+        sylitem = -1;
+        sssyl >= 0 ? it_set_s(sssyl, K_stress, stress);
+      );
+      j += 1;
+    );
+    word = item_next(word);
+  );
+);
+function pause_insertion() local(s, p, w, done)
+(
+  s = RL_H[R_Segment];
+  s < 0 ? (s = relation_append(R_Segment, -1)) : (s = item_prepend(s, -1));
+  it_set_s(s, K_name, S_SILENCE);
+  p = RL_H[R_Phrase];
+  while (p >= 0) (
+    w = item_last_daughter(p); done = 0;
+    while (!done && w >= 0) (
+      s = path_to_item(w, PTH_LASTSEG);
+      s >= 0 ? (
+        s = item_append(s, -1);
+        it_set_s(s, K_name, S_SILENCE);
+        done = 1;
+      ) : (w = item_prev(w));
+    );
+    p = item_next(p);
+  );
+);
+
+function cart_intonation() local(s, n)
+(
+  s = RL_H[R_Syllable];
+  while (s >= 0) (
+    n = cart_interpret(s, TR_accent);
+    ND_V[n] != S_NONE ? it_set_s(s, K_accent, ND_V[n]);
+    n = cart_interpret(s, TR_tone);
+    ND_V[n] != S_NONE ? it_set_s(s, K_endtone, ND_V[n]);
+    s = item_next(s);
+  );
+);
+
+function pl_first(sid) ( SP_L[sid] > 0 ? SP_B[SP_O[sid]] : 0; );
+
+function cmu_postlex() local(s, word, pname, ct, cp, schwa, i)
+(
+  s = item_next(RL_H[R_Segment]);
+  while (s >= 0) (
+    ffeat(s, PTH_SEG_WORD); word = FV;
+    word == S_APS ? (
+      pname = it_fv(item_prev(s), K_name);
+      ct = pl_first(ph_feat(pname, 5)); cp = pl_first(ph_feat(pname, 6));
+      (ct == 102 || ct == 97) && !(cp == 100 || cp == 98 || cp == 103) ? (
+        schwa = item_prepend(s, -1);
+        it_set_s(schwa, K_name, S_AX);
+        item_prepend(item_as(s, R_SylStructure), schwa);
+      ) : ph_feat(pname, 7) == S_MINUS ? (
+        it_set_s(s, K_name, S_S);
+      );
+    ) : (word == S_APVE || word == S_APLL || word == S_APD) ? (
+      ffeat(s, PTH_P_PHVC);
+      FV == S_MINUS ? (
+        schwa = item_prepend(s, -1);
+        it_set_s(schwa, K_name, S_AX);
+        item_prepend(item_as(s, R_SylStructure), schwa);
+      );
+    );
+    s = item_next(s);
+  );
+  i = RL_H[R_Segment];
+  while (i >= 0) (
+    it_fv(i, K_name) == S_AX ? (
+      ffeat(i, PTH_SEG_WORD); word = FV;
+      ffeat(i, PTH_N_PHVC);
+      word == S_THE && FV == S_PLUS ? it_set_s(i, K_name, S_IY);
+    );
+    i = item_next(i);
+  );
+  s = RL_H[R_Segment];
+  while (s >= 0) ( it_fv(s, K_name) == S_AH ? it_set_s(s, K_name, S_AA); s = item_next(s); );
+);
+
+function cart_duration() local(s, n, zdur, dmean, dsdev, lds, dur, en, nm, stretch)
+(
+  en = 0;
+  stretch = f32(DUR_STRETCH);
+  s = RL_H[R_Segment];
+  while (s >= 0) (
+    n = cart_interpret(s, TR_dur);
+    zdur = f32(val_float(ND_T[n], ND_V[n]));
+    nm = it_fv(s, K_name);
+    DS_OK[nm] ? (dmean = DS_M[nm]; dsdev = DS_S[nm]) : (dmean = DS_M0; dsdev = DS_S0);
+    ffeat(s, PTH_LDS); lds = f32(val_float(FT, FV));
+    lds != 0 ? (lds = f32(lds*stretch)) : (lds = stretch);
+    dur = f32(lds*f32(f32(zdur*dsdev) + dmean));
+    en = f32(en + dur);
+    it_set_f(s, K_end, en);
+    s = item_next(s);
+  );
+);
+
+function f0_map(v, m, sd) ( (((v - 170)/34)*sd) + m; );
+
+function f0_target(pos, f0) local(t)
+(
+  t = relation_append(R_Target, -1);
+  it_set_f(t, K_pos, f32(pos));
+  f0 = f32(f0);
+  f0 > 500 ? it_set_f(t, K_f0, 500) : f0 < 50 ? it_set_f(t, K_f0, 50) : it_set_f(t, K_f0, f0);
+);
+
+function f0_vowel_mid(syl) local(s, ts, r, go)
+(
+  ts = item_daughter(item_as(syl, R_SylStructure));
+  s = ts; go = 1; r = 0;
+  while (go && s >= 0) (
+    ph_feat(it_fv(s, K_name), 0) == S_PLUS ? (
+      ffeat(s, PTH_SEG_PEND);
+      r = f32(f32(it_fv(s, K_end) + f32(val_float(FT, FV)))/2); go = 0;
+    ) : (s = item_next(s));
+  );
+  go ? (
+    ts < 0 ? (r = 0) : (
+      ffeat(ts, PTH_SEG_PEND);
+      r = f32(f32(it_fv(ts, K_end) + f32(val_float(FT, FV)))/2);
+    );
+  );
+  r;
+);
+
+function us_f0_model() local(syl, t, nt, mean, sdev, lmean, lsd, st, md, en, lend, segend, i, fval, vt, vv, post, pre)
+(
+  utt_relation_create(R_Target);
+  mean = f32(f32(F0_MEAN)*f32(F0_SHIFT)); sdev = f32(F0_STD);
+  lend = 0;
+  syl = RL_H[R_Syllable];
+  while (syl >= 0) (
+    item_daughter(item_as(syl, R_SylStructure)) >= 0 ? (
+      ffeat(syl, PTH_LF0SHIFT); lmean = f32(val_float(FT, FV));
+      lmean != 0 ? (lmean = f32(lmean*mean)) : (lmean = mean);
+      ffeat(syl, PTH_LF0RANGE); lsd = f32(val_float(FT, FV));
+      lsd == 0 ? (lsd = sdev);
+      st = LR_S[0]; md = LR_M[0]; en = LR_E[0];
+      i = 1;
+      loop(NLR - 1,
+        LR_NEW[i] ? (ffeat(syl, LR_P[i]); vt = FT; vv = FV;);
+        LR_T[i] >= 0 ? (fval = (vt == 2 && vv == LR_T[i]) ? 1 : 0) : (fval = f32(val_float(vt, vv)));
+        st = f32(st + f32(fval*LR_S[i])); md = f32(md + f32(fval*LR_M[i])); en = f32(en + f32(fval*LR_E[i]));
+        i += 1;
+      );
+      ffeat(syl, PTH_SYL_FSEG_PNAME);
+      post = item_prev(syl) < 0 || (FT == 2 && FV == S_PAU);
+      post ? (lend = f32(f0_map(st, lmean, lsd)));
+      ffeat(syl, PTH_SYL_FSEG_PEND);
+      f0_target(val_float(FT, FV), f0_map(f32(st + lend)/2, lmean, lsd));
+      f0_target(f0_vowel_mid(syl), f0_map(md, lmean, lsd));
+      lend = f32(f0_map(en, lmean, lsd));
+      ffeat(syl, PTH_SYL_LSEG_NNAME);
+      pre = item_next(syl) < 0 || (FT == 2 && FV == S_PAU);
+      pre ? (ffeat(syl, PTH_SYL_LSEG_END); f0_target(val_float(FT, FV), f0_map(en, lmean, lsd)));
+    );
+    syl = item_next(syl);
+  );
+  t = RL_H[R_Target];
+  t < 0 ? f0_target(0, mean) : it_fv(t, K_pos) > 0 ? (
+    nt = item_prepend(t, -1);
+    it_set_f(nt, K_pos, 0);
+    it_set_f(nt, K_f0, it_fv(t, K_f0));
+  );
+  t = RL_T[R_Target];
+  segend = it_fv(RL_T[R_Segment], K_end);
+  it_fv(t, K_pos) < segend ? f0_target(segend, it_fv(t, K_f0));
+);
+function utt_to_kal() local(s, i, t)
+(
+  i = 0; s = RL_H[R_Segment];
+  while (s >= 0) (
+    seg_ph[i] = SID2PH[it_fv(s, K_name)];
+    seg_end[i] = it_fv(s, K_end);
+    ffeat(s, PTH_SS_N_PHVC);
+    seg_cl[i] = ph_feat(it_fv(s, K_name), 0) == S_MINUS && FT == 2 && FV == S_MINUS;
+    i += 1; s = item_next(s);
+  );
+  nseg = i;
+  i = 0; t = RL_H[R_Target];
+  while (t >= 0) ( tg_pos[i] = it_fv(t, K_pos); tg_f0[i] = it_fv(t, K_f0); i += 1; t = item_next(t); );
+  ntg = i;
+);
+
+function sar(a, n) ( floor(a/2^n); );
+
+function w32(x) ( x - floor((x + 2147483648)/4294967296)*4294967296; );
+function s16(x) ( x = x|0; x = x & 65535; x >= 32768 ? x - 65536 : x; );
+function idiv(a, b) ( (a/b)|0; );
+
+function u2s(u) local(e, m, v)
+(
+  u = 255 - (u & 255);
+  e = (sar(u, 4)) & 7; m = u & 15;
+  v = (e == 0 ? 0 : e == 1 ? 132 : e == 2 ? 396 : e == 3 ? 924 : e == 4 ? 1980 : e == 5 ? 4092 : e == 6 ? 8316 : 16764) + (m << (e + 3));
+  (u & 0x80) ? -v : v;
+);
+
+function s2u(smp) local(sg, ex, ma, b, t)
+(
+  smp = s16(smp);
+  sg = (sar(smp, 8)) & 0x80;
+  sg != 0 ? (smp = s16(-smp));
+  smp > 32635 ? (smp = 32635);
+  smp = s16(smp + 0x84);
+  t = (sar(smp, 7)) & 0xFF;
+  ex = t < 2 ? 0 : t < 4 ? 1 : t < 8 ? 2 : t < 16 ? 3 : t < 32 ? 4 : t < 64 ? 5 : t < 128 ? 6 : 7;
+  ma = (sar(smp, (ex + 3))) & 0x0F;
+  b = 255 - ((sg | (ex << 4) | ma) & 255);
+  b == 0 ? 2 : b;
+);
+
+function nearest_pm(st, en, ui) local(i, isz, nsz, rv, go)
+(
+  isz = 0; i = st; rv = en - 1; go = 1;
+  while (go && i < en) (
+    nsz = isz + KRSZ[i];
+    abs(f32(ui - isz)) < abs(f32(ui - nsz)) ? (rv = i; go = 0) : (isz = nsz; i += 1);
+  );
+  rv;
+);
+
+function kal_units() local(i, k, e, e0, e1)
+(
+  nunit = 0;
+  i = 0;
+  loop(nseg - 1,
+    e = -1;
+    seg_cl[i] ? (k = 4096 + seg_ph[i]*64 + seg_ph[i + 1]; e = DKEY[k];);
+    e < 0 ? (k = seg_ph[i]*64 + seg_ph[i + 1]; e = DKEY[k];);
+    e < 0 ? (e = 0);
+    e0 = seg_end[i]; e1 = seg_end[i + 1];
+    u_te[nunit] = floor(f32(e0*8000));
+    u_st[nunit] = DST[e]; u_en[nunit] = DST[e] + DPB[e];
+    nunit += 1;
+    u_te[nunit] = floor(f32(e0 + e1)/2*8000);
+    u_st[nunit] = DST[e] + DPB[e]; u_en[nunit] = DST[e] + DPB[e] + DEN[e];
+    nunit += 1;
+    i += 1;
+  );
+);
+
+function kal_pms() local(t, pos, lpos, f0, lf0, m, tm)
+(
+  lpos = 0; lf0 = 120; npm = 0; tm = 0;
+  t = 0;
+  loop(ntg,
+    pos = tg_pos[t]; f0 = tg_f0[t];
+    tm != pos ? (
+      m = f32(f32(f0 - lf0)/f32(pos - lpos));
+      while (tm < pos) (
+        tm += 1/(lf0 + ((tm - lpos)*m));
+        pm_t[npm] = (8000*tm)|0;
+        npm += 1;
+      );
+    );
+    lf0 = f0; lpos = pos;
+    t += 1;
+  );
+);
+
+
+function tok_s(tok, pid) ( ffeat(tok, pid); FT == 2 ? FV : S_ZERO; );
+function tw14(tok, name) ( -1; );
+<?
+k = 13;
+loop(14,
+  printf("function tw%d(tok, name) local(r, nsw, tname, p, aaa, bbb, ccc, i, j, n, c, tv, rname, pn, nn, street, saint, segs, nsg, t, ok)\n", k);
+  printf("(\n");
+  printf("  r = -1;\n");
+  printf("  n = SP_L[name];\n");
+  printf("  it_present(tok, K_phones) ? lv_new(name, -1) : (\n");
+  printf("  nsw = it_present(tok, K_nsw) ? it_fv(tok, K_nsw) : W_EMPTY;\n");
+  printf("  tname = it_fv(tok, K_name);\n");
+  printf("  it_present(tok, K_ssml_alias) && tname != name ? (\n");
+  printf("    it_fv(tok, K_ssml_alias) == tok_s(tok, PTH_T_PSSML) ? -1 : lv_new(it_fv(tok, K_ssml_alias), -1);\n");
+  printf("  ) : (\n");
+  printf("  it_present(tok, K_ssml_comment) && it_fv(tok, K_ssml_comment) == W_1 ? (r = -1)\n");
+  printf("  : (name == W_a || name == W_9a) && (item_next(tok) < 0 || name != tname || tok_s(tok, PTH_PUNC) != W_EMPTY) ? (r = lv_new(W_Ua, -1))\n");
+  printf("  : n == 0 ? (r = -1)\n");
+  printf("  : rx_match(RX_dottedabbrevs, name) ? (r = exp_letters(sp_strip(name, 46)))\n");
+  printf("  : rx_match(RX_cst_rx_commaint, name) ? (r = exp_real0(sp_strip(name, 44)))\n");
+  printf("  : rx_match(RX_sevenphonenumber, name) ? (\n");
+  printf("    p = sp_chr(name, 45);\n");
+  printf("    bbb = exp_digits(sp_tail(name, p + 1));\n");
+  printf("    r = lv_append(add_break(exp_digits(sp_sub(name, 0, p))), bbb);\n");
+  printf("  )\n");
+  printf("  : (rx_match(RX_threedigits, name) &&\n");
+  printf("      ((!rx_match(RX_cst_rx_digits, tok_s(tok, PTH_T_PNAME)) && rx_match(RX_threedigits, tok_s(tok, PTH_T_NNAME)) && rx_match(RX_fourdigits, tok_s(tok, PTH_T_NNNAME))) ||\n");
+  printf("       rx_match(RX_sevenphonenumber, tok_s(tok, PTH_T_NNAME)) ||\n");
+  printf("       (!rx_match(RX_cst_rx_digits, tok_s(tok, PTH_T_PPNAME)) && rx_match(RX_threedigits, tok_s(tok, PTH_T_PNAME)) && rx_match(RX_fourdigits, tok_s(tok, PTH_T_NNAME))))) ||\n");
+  printf("    (rx_match(RX_fourdigits, name) &&\n");
+  printf("      (!rx_match(RX_cst_rx_digits, tok_s(tok, PTH_T_NNAME)) && rx_match(RX_threedigits, tok_s(tok, PTH_T_PNAME)) && rx_match(RX_threedigits, tok_s(tok, PTH_T_PPNAME)))) ? (\n");
+  printf("    tok_s(tok, PTH_PUNC) == W_EMPTY ? it_set_s(tok, K_punc, W_COMMA);\n");
+  printf("    r = add_break(exp_digits(name));\n");
+  printf("  )\n");
+  printf("  : rx_match(RX_numbertime, name) ? (\n");
+  printf("    p = sp_chr(name, 58);\n");
+  printf("    bbb = sp_tail(name, p + 1);\n");
+  printf("    r = exp_num0(sp_sub(name, 0, p));\n");
+  printf("    bbb != W_00 ? (r = lv_append(r, exp_id0(bbb)));\n");
+  printf("  )\n");
+  printf("  : rx_match(RX_numbertimexm, name) ? (\n");
+  printf("    p = sp_chr(name, 58); p < 0 ? (p = sp_chr(name, 46));\n");
+  printf("    bbb = sp_sub(name, p + 1, 2); ccc = sp_tail(name, p + 3);\n");
+  printf("    r = exp_num0(sp_sub(name, 0, p));\n");
+  printf("    bbb != W_00 ? (r = lv_append(r, exp_id0(bbb)));\n");
+  printf("    r = lv_append(r, exp_letters(ccc));\n");
+  printf("  )\n");
+  printf("  : rx_match(RX_digits2dash, name) ? (\n");
+  printf("    nsg = 0; j = 0; i = 0;\n");
+  printf("    while (i < n) (\n");
+  printf("      sp_ch(name, i) == 45 ? (\n");
+  printf("        TN_SEG[nsg] = sp_sub(name, j, i - j); nsg += 1;\n");
+  printf("        while (i < n && sp_ch(name, i) == 45) ( i += 1; );\n");
+  printf("        j = i;\n");
+  printf("      ) : (i += 1);\n");
+  printf("    );\n");
+  printf("    TN_SEG[nsg] = sp_tail(name, j); nsg += 1;\n");
+  printf("    nsg == 2 && sp_atoi(TN_SEG[0]) < sp_atoi(TN_SEG[1]) && abs(SP_L[TN_SEG[0]] - SP_L[TN_SEG[1]]) < 2 ? (\n");
+  printf("      aaa = TN_SEG[0]; bbb = TN_SEG[1];\n");
+  printf("      ccc = lv_new(W_to, tw%d(tok, bbb));\n", k + 1);
+  printf("      r = lv_append(tw%d(tok, aaa), ccc);\n", k + 1);
+  printf("    ) : (\n");
+  printf("      r = -1; i = nsg - 1;\n");
+  printf("      while (i >= 0) ( r = lv_append(add_break(exp_digits(TN_SEG[i])), r); i -= 1; );\n");
+  printf("    );\n");
+  printf("  )\n");
+  printf("  : rx_match(RX_leadingzerodigits, name) ? (r = exp_digits(name))\n");
+  printf("  : rx_match(RX_cst_rx_digits, name) ? (\n");
+  printf("    nsw == W_nide ? (r = exp_id0(name)) : (\n");
+  printf("      rname = it_fv(tok, K_name);\n");
+  printf("      name == rname ? (tv = cart_interpret(tok, TR_nums)) : (\n");
+  printf("        it_set_s(tok, K_name, name); tv = cart_interpret(tok, TR_nums); it_set_s(tok, K_name, rname);\n");
+  printf("      );\n");
+  printf("      tv = ND_V[tv];\n");
+  printf("      r = tv == W_ordinal ? exp_ordinal(name) : tv == W_digits ? exp_digits(name) : tv == W_year ? exp_id0(name) : exp_num0(name);\n");
+  printf("    );\n");
+  printf("  )\n");
+  printf("  : rx_match(RX_romannums, name) ? (\n");
+  printf("    tok_s(tok, PTH_T_PPUNC) == W_EMPTY ? (\n");
+  printf("      aaa = sp_fromint(exp_roman(name));\n");
+  printf("      pn = sp_lower(tok_s(tok, PTH_T_PNAME)); nn = sp_lower(tok_s(tok, PTH_T_PPNAME));\n");
+  printf("      TN_REX1[pn] || TN_REX2[nn] ? (r = lv_new(W_the, exp_ordinal(aaa)))\n");
+  printf("      : TN_SECT[pn] ? (r = exp_num0(aaa))\n");
+  printf("      : (r = exp_letters(name));\n");
+  printf("    ) : (r = exp_letters(name));\n");
+  printf("  )\n");
+  printf("  : rx_match(RX_drst, name) ? (\n");
+  printf("    c = sp_ch(name, 0);\n");
+  printf("    c == 115 || c == 83 ? (street = W_street; saint = W_saint) : (street = W_drive; saint = W_doctor);\n");
+  printf("    item_next(tok) < 0 || sp_chr(it_fv(tok, K_punc), 44) >= 0 ? (r = lv_new(street, -1))\n");
+  printf("    : sp_chr(tok_s(tok, PTH_PUNC), 44) >= 0 ? (r = lv_new(saint, -1))\n");
+  printf("    : (\n");
+  printf("      pn = tok_s(tok, PTH_T_PNAME); nn = tok_s(tok, PTH_T_NNAME);\n");
+  printf("      c = sp_ch(pn, 0); t = sp_ch(nn, 0);\n");
+  printf("      c >= 65 && c <= 90 && t >= 97 && t <= 122 ? (r = lv_new(street, -1))\n");
+  printf("      : c >= 48 && c <= 57 && t >= 97 && t <= 122 ? (r = lv_new(street, -1))\n");
+  printf("      : c >= 97 && c <= 122 && t >= 65 && t <= 90 ? (r = lv_new(saint, -1))\n");
+  printf("      : tok_s(tok, PTH_T_NWS) == W_SPACE ? (r = lv_new(saint, -1))\n");
+  printf("      : (r = lv_new(street, -1));\n");
+  printf("    );\n");
+  printf("    it_fv(tok, K_punc) == W_DOT ? it_set_s(tok, K_punc, W_EMPTY);\n");
+  printf("  )\n");
+  printf("  : name == W_9mr ? (it_set_s(tok, K_punc, W_EMPTY); r = lv_new(W_mister, -1))\n");
+  printf("  : name == W_9mrs ? (it_set_s(tok, K_punc, W_EMPTY); r = lv_new(W_missus, -1))\n");
+  printf("  : name == W_read || name == W_lead ? (\n");
+  printf("    TN_EED[tok_s(tok, PTH_T_PNAME)] ? (r = lv_new(sp_ch(name, 0) == 114 ? W_reed : W_leed, -1))\n");
+  printf("    : (r = lv_new(sp_ch(name, 0) == 114 ? W_red : W_led, -1));\n");
+  printf("  )\n");
+  printf("  : name == W_am || name == W_9a9m ? (\n");
+  printf("    name != tname ? (r = exp_letters(name))\n");
+  printf("    : item_prev(tok) >= 0 && (rx_match(RX_numbertime, tok_s(tok, PTH_T_PNAME)) || rx_match(RX_cst_rx_digits, tok_s(tok, PTH_T_PNAME))) ? (r = exp_letters(name))\n");
+  printf("    : (r = lv_new(name, -1));\n");
+  printf("  )\n");
+  printf("  : n == 1 && sp_ch(name, 0) >= 65 && sp_ch(name, 0) <= 90 && tok_s(tok, PTH_T_NWS) == W_SPACE &&\n");
+  printf("    sp_ch(tok_s(tok, PTH_T_NNAME), 0) >= 65 && sp_ch(tok_s(tok, PTH_T_NNAME), 0) <= 90 ? (\n");
+  printf("    it_set_s(tok, K_punc, W_EMPTY);\n");
+  printf("    aaa = sp_lower(name);\n");
+  printf("    r = lv_new(aaa == W_a ? W_Ua : aaa, -1);\n");
+  printf("  )\n");
+  printf("  : rx_match(RX_cst_rx_double, name) ? (r = exp_real0(name))\n");
+  printf("  : rx_match(RX_ordinal_number, name) ? (r = exp_ordinal(sp_sub(name, 0, n - 2)))\n");
+  printf("  : rx_match(RX_illion, name) && rx_match(RX_usmoney, tok_s(tok, PTH_T_PNAME)) ? (r = lv_new(name, lv_new(W_dollars, -1)))\n");
+  printf("  : rx_match(RX_usmoney, name) ? (\n");
+  printf("    p = sp_chr(name, 46);\n");
+  printf("    rx_match(RX_illion, tok_s(tok, PTH_T_NNAME)) ? (r = exp_real0(sp_tail(name, 1)))\n");
+  printf("    : p < 0 ? (\n");
+  printf("      aaa = sp_tail(name, 1);\n");
+  printf("      r = lv_new(aaa == W_1 ? W_dollar : W_dollars, -1);\n");
+  printf("      r = lv_append(tw%d(tok, aaa), r);\n", k + 1);
+  printf("    )\n");
+  printf("    : (n - p == 1 || n - p > 3) ? (r = lv_append(exp_real0(sp_tail(name, 1)), lv_new(W_dollars, -1)))\n");
+  printf("    : (\n");
+  printf("      aaa = sp_strip(sp_sub(name, 0, p), 44);\n");
+  printf("      bbb = sp_tail(name, p + 1);\n");
+  printf("      r = bbb == W_00 ? -1 : bbb == W_01 ? lv_append(exp_num0(bbb), lv_new(W_cent, -1)) : lv_append(exp_num0(bbb), lv_new(W_cents, -1));\n");
+  printf("      r = lv_new(sp_tail(aaa, 1) == W_1 ? W_dollar : W_dollars, r);\n");
+  printf("      r = lv_append(exp_num0(sp_tail(aaa, 1)), r);\n");
+  printf("    );\n");
+  printf("  )\n");
+  printf("  : sp_ch(name, n - 1) == 37 ? (\n");
+  printf("    ccc = lv_new(W_per, lv_new(W_cent, -1));\n");
+  printf("    r = lv_append(tw%d(tok, sp_sub(name, 0, n - 1)), ccc);\n", k + 1);
+  printf("  )\n");
+  printf("  : rx_match(RX_numess, name) ? (\n");
+  printf("    ccc = lv_new(W_Qs, -1);\n");
+  printf("    r = lv_append(tw%d(tok, sp_sub(name, 0, n - 1)), ccc);\n", k + 1);
+  printf("  )\n");
+  printf("  : (TN_UQ = 0; i = 0; while (i + 2 < n + 1) ( sp_ch(name, i) == 226 && sp_ch(name, i + 1) == 128 && sp_ch(name, i + 2) == 153 ? (TN_UQ = 1); i += 1; ); TN_UQ) ? (\n");
+  printf("    j = 0; i = 0;\n");
+  printf("    while (i < n) (\n");
+  printf("      sp_ch(name, i) == 226 && sp_ch(name, i + 1) == 128 && sp_ch(name, i + 2) == 153 ? (TN_B2[j] = 39; i += 3) : (TN_B2[j] = sp_ch(name, i); i += 1);\n");
+  printf("      j += 1;\n");
+  printf("    );\n");
+  printf("    r = tw%d(tok, sp_intern(TN_B2, j));\n", k + 1);
+  printf("  )\n");
+  printf("  : (p = sp_rchr(name, 39)) >= 0 ? (\n");
+  printf("    bbb = sp_lower(sp_tail(name, p));\n");
+  printf("    bbb == W_Qs || bbb == W_Qll || bbb == W_Qve || bbb == W_Qd ? (\n");
+  printf("      ccc = lv_new(bbb, -1);\n");
+  printf("      r = lv_append(tw%d(tok, sp_sub(name, 0, p)), ccc);\n", k + 1);
+  printf("    ) : sp_tail(name, p) == W_Qtve ? (\n");
+  printf("      ccc = lv_new(W_Qve, -1);\n");
+  printf("      r = lv_append(tw%d(tok, sp_sub(name, 0, p + 2)), ccc);\n", k + 1);
+  printf("    ) : (\n");
+  printf("      i = 0; loop(p, TN_B2[i] = sp_ch(name, i); i += 1;);\n");
+  printf("      i = p; loop(n - p - 1, TN_B2[i] = sp_ch(name, i + 1); i += 1;);\n");
+  printf("      r = tw%d(tok, sp_intern(TN_B2, n - 1));\n", k + 1);
+  printf("    );\n");
+  printf("  )\n");
+  printf("  : rx_match(RX_digitsslashdigits, name) && name == tname ? (\n");
+  printf("    p = sp_chr(name, 47);\n");
+  printf("    aaa = sp_sub(name, 0, p); bbb = sp_tail(name, p + 1);\n");
+  printf("    aaa == W_1 && bbb == W_2 ? (r = lv_new(W_a, lv_new(W_half, -1)))\n");
+  printf("    : sp_atoi(aaa) < sp_atoi(bbb) ? (\n");
+  printf("      r = lv_append(exp_num0(aaa), exp_ordinal(bbb));\n");
+  printf("      sp_atoi(aaa) > 1 ? (r = lv_append(r, lv_new(W_Qs, -1)));\n");
+  printf("    ) : (r = lv_append(exp_num0(aaa), lv_new(W_slash, exp_num0(bbb))));\n");
+  printf("    rx_match(RX_cst_rx_digits, tok_s(tok, PTH_T_PNAME)) && item_prev(tok) >= 0 ? (r = lv_new(W_and, r));\n");
+  printf("  )\n");
+  printf("  : (p = sp_chr(name, 45)) >= 0 ? (\n");
+  printf("    aaa = sp_sub(name, 0, p); bbb = sp_tail(name, p + 1);\n");
+  printf("    rx_match(RX_cst_rx_digits, aaa) && rx_match(RX_cst_rx_digits, bbb) ? (\n");
+  printf("      ccc = name;\n");
+  printf("      it_set_s(tok, K_name, bbb);\n");
+  printf("      r = tw%d(tok, bbb);\n", k + 1);
+  printf("      it_set_s(tok, K_name, aaa);\n");
+  printf("      t = lv_new(W_to, r);\n");
+  printf("      r = lv_append(tw%d(tok, aaa), t);\n", k + 1);
+  printf("      it_set_s(tok, K_name, ccc);\n");
+  printf("    ) : (\n");
+  printf("      t = tw%d(tok, bbb);\n", k + 1);
+  printf("      r = lv_append(tw%d(tok, aaa), t);\n", k + 1);
+  printf("    );\n");
+  printf("  )\n");
+  printf("  : rx_match(RX_wandm, name) ? (\n");
+  printf("    j = n - 1; ok = 1;\n");
+  printf("    while (ok && j > 0) ( (sp_ch(name, j) >= 48 && sp_ch(name, j) <= 57) ? (ok = 0) : (j -= 1); );\n");
+  printf("    j += 1;\n");
+  printf("    bbb = sp_tail(name, j);\n");
+  printf("    i = 0; ok = -1; while (ok < 0 && i < TN_NWM) ( TN_WMA[i] == bbb ? (ok = i); i += 1; );\n");
+  printf("    i = 0; loop(n + 1, TN_B2[i] = i < n ? sp_ch(name, i) : 0; i += 1;); TN_B2[j] = 0;\n");
+  printf("    c = 0; t = 0;\n");
+  printf("    while (TN_B2[t]) ( TN_B2[t] == 44 ? (t += 1); TN_B2[c] = TN_B2[t]; c += 1; t += 1; );\n");
+  printf("    TN_B2[c] = 0;\n");
+  printf("    aaa = sp_intern(TN_B2, c);\n");
+  printf("    ok < 0 ? (\n");
+  printf("      ccc = tw%d(tok, bbb);\n", k + 1);
+  printf("      r = lv_append(exp_num0(aaa), ccc);\n");
+  printf("    ) : (r = lv_append(exp_num0(aaa), lv_new(TN_WMB[ok], -1)));\n");
+  printf("  )\n");
+  printf("  : n > 1 && !rx_match(RX_cst_rx_alpha, name) ? (\n");
+  printf("    i = 0; ok = 1;\n");
+  printf("    while (ok && i < n) (\n");
+  printf("      c = sp_ch(name, i); t = sp_ch(name, i + 1);\n");
+  printf("      ((in_set(c, \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\") && in_set(t, \"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\")) ||\n");
+  printf("       (in_set(c, \"0123456789\") && in_set(t, \"0123456789\"))) ? (i += 1) : (ok = 0);\n");
+  printf("    );\n");
+  printf("    aaa = sp_sub(name, 0, i + 1); bbb = sp_tail(name, i + 1);\n");
+  printf("    it_set_s(tok, K_nsw, W_nide);\n");
+  printf("    t = tw%d(tok, bbb);\n", k + 1);
+  printf("    r = lv_append(tw%d(tok, aaa), t);\n", k + 1);
+  printf("  )\n");
+  printf("  : (\n");
+  printf("    ok = -1; i = 0;\n");
+  printf("    while (ok < 0 && i < TN_NST) (\n");
+  printf("      TN_STK[i] == name ? (\n");
+  printf("        TN_STA[i] ? (\n");
+  printf("          pn = tok_s(tok, PTH_T_PNAME); nn = tok_s(tok, PTH_T_NNAME);\n");
+  printf("          c = sp_ch(pn, 0); t = sp_ch(nn, 0);\n");
+  printf("          ((c >= 65 && c <= 90) && SP_L[pn] > 2 && rx_match(RX_cst_rx_alpha, pn)) &&\n");
+  printf("          ((t == 0 || (t >= 97 && t <= 122)) || item_next(tok) < 0 || it_fv(tok, K_punc) == W_DOT ||\n");
+  printf("           ((SP_L[nn] == 5 || SP_L[nn] == 10) && rx_match(RX_cst_rx_digits, nn))) ? (ok = i) : (ok = -2);\n");
+  printf("        ) : (ok = i);\n");
+  printf("      );\n");
+  printf("      i += 1;\n");
+  printf("    );\n");
+  printf("    ok >= 0 ? (\n");
+  printf("      r = -1; j = TN_STN[ok] - 1; while (j >= 0) ( r = lv_new(TN_STW[ok*4 + j], r); j -= 1; );\n");
+  printf("    ) : n > 1 && rx_match(RX_cst_rx_alpha, name) && !in_lex_word(name) && !us_aswd(name) ? (\n");
+  printf("      r = exp_letters(name);\n");
+  printf("    ) : (\n");
+  printf("      r = lv_new(sp_lower(name), -1);\n");
+  printf("    );\n");
+  printf("  );\n");
+  printf("  r;\n");
+  printf("  );\n");
+  printf("  );\n");
+  printf(");\n");
+  k -= 1;
+);
+?>
+function textanalysis() local(t, w, l, word)
+(
+  utt_relation_create(R_Word);
+  t = RL_H[R_Token];
+  while (t >= 0) (
+    NLV = 0;
+    l = tw0(t, it_fv(t, K_name));
+    while (l >= 0) (
+      word = item_add_daughter(t, -1);
+      it_set_s(word, K_name, LV_S[l]);
+      LV_B[l] ? it_set_s(word, K_break, W_1);
+      relation_append(R_Word, word);
+      l = LV_N[l];
+    );
+    t = item_next(t);
+  );
+);
+
+function hal_sp_reset() ( SP_N = SP_N0; SP_TOP = SP_TOP0; memcpy(SP_H, SP_H0, SP_HN); );
+
+function add_res_dec(targ_size, targ, uunit, dec)
+(
+  uunit < targ_size ? memcpy(targ + idiv(targ_size - uunit, 2), dec, uunit) : memcpy(targ, dec + idiv(uunit - targ_size, 2), targ_size);
+);
+
+function hal_unit_setup() local(k)
+(
+  hk_ust = u_st[hk_u]; hk_uen = u_en[hk_u];
+  hk_usz = 0; k = hk_ust; loop(hk_uen - hk_ust, hk_usz += KRSZ[k]; k += 1;);
+  hk_te = u_te[hk_u];
+  hk_ui = 0;
+  hk_m = f32(hk_usz/(hk_te - hk_ts));
+  hk_unew = 0;
+);
+
+function hal_prepare(n, shift, mono, stretch) local(t)
+(
+  hal_sp_reset(); utt_reset(); NLV = 0;
+  F0_SHIFT = shift; DUR_STRETCH = stretch;
+  tokenization(n); textanalysis(); pos_tagger(); phrasing(); lexical_insertion(); pause_insertion();
+  cart_intonation(); cmu_postlex(); cart_duration(); us_f0_model();
+  mono > 0 ? (t = RL_H[R_Target]; while (t >= 0) ( it_set_f(t, K_f0, f32(mono)); t = item_next(t); ););
+  utt_to_kal(); kal_units(); kal_pms();
+  npm > 0 ? (
+    nsmp = pm_t[npm - 1];
+    memset(RESB, 255, nsmp);
+    hk_u = 0; hk_pi = 0; hk_ts = 0; hk_rpos = 0; hk_unew = 1;
+    hk_ilmin = (f32(-4.226584)*32768)|0;
+    hk_ilrng = (f32(8.130784)*2048)|0;
+    memset(OBUF, 0, 11); hk_r = 0; hk_o = 10;
+    1;
+  ) : 0;
+);
+
+function hal_pm(wbuf, cap, wp) local(np, fb, k, j, v, cr, ci)
+(
+  np = nearest_pm(hk_ust, hk_uen, hk_ui);
+  pm_f[hk_pi] = np;
+  pm_s[hk_pi] = pm_t[hk_pi] - (hk_pi > 0 ? pm_t[hk_pi - 1] : 0);
+  add_res_dec(pm_s[hk_pi], RESB + hk_rpos, KRSZ[np], KDEC + KDOFF[np]);
+  hk_rpos += pm_s[hk_pi];
+  hk_ui = f32(hk_ui + f32(pm_s[hk_pi]*hk_m));
+  fb = KLPC + np*10;
+  k = 0;
+  loop(10, LCO[k] = idiv(idiv(idiv(fb[k], 2)*hk_ilrng, 2048) + hk_ilmin, 2); k += 1;);
+  j = 0;
+  loop(pm_s[hk_pi],
+    v = U2S[RESB[hk_r]]*16384;
+    cr = hk_o == 0 ? 10 : hk_o - 1;
+    ci = 0;
+    loop(10, v = w32(v + w32(LCO[ci]*OBUF[cr])); cr = cr == 0 ? 10 : cr - 1; ci += 1;);
+    v = idiv(v, 16384);
+    OBUF[hk_o] = v;
+    wp < cap ? (wbuf[wp] = 128 + s16(v)*(128/32768); wp += 1;);
+    hk_o = hk_o == 10 ? 0 : hk_o + 1;
+    hk_r += 1;
+  );
+  hk_pi += 1;
+  wp;
+);
+
+function hal_step(maxpm, wbuf, cap, wp) local(c, go)
+(
+  c = 0; go = 1;
+  while (go && c < maxpm) (
+    hk_u >= nunit || hk_pi >= npm ? (go = 0; hk_done = 1;) : (
+      hk_unew ? hal_unit_setup();
+      pm_t[hk_pi] <= hk_te ? (
+        wp = hal_pm(wbuf, cap, wp); c += 1;
+      ) : (
+        hk_ts = hk_te; hk_u += 1; hk_unew = 1;
+      );
+    );
+  );
+  hk_wp = wp;
+  go;
+);
+
+function hal_rd() local(v) ( file_var(HAL_FH, v); v*16777216; );
+
+function hal_load(fn) local(nch, sr, i, n, a, ty, cnt, k, j, v, base, ok)
+(
+  ok = 0;
+  HAL_FH = file_open(fn);
+  HAL_FH >= 0 ? (
+    nch = 0; sr = 0;
+    file_riff(HAL_FH, nch, sr);
+    nch == 1 && file_avail(HAL_FH) > 4 && hal_rd() == 7341 ? (
+      hal_rd(); n = hal_rd(); cnt = hal_rd();
+      file_mem(HAL_FH, HAL_SCV, n);
+      i = 0; loop(n, HAL_SCV[i] *= 16777216; i += 1;);
+      ok = 1;
+      loop(cnt,
+        a = hal_rd(); ty = hal_rd(); n = hal_rd();
+        base = HAL_AB[a];
+        ty == 0 ? (
+          file_mem(HAL_FH, base, n) != n ? (ok = 0);
+          i = 0; loop(n, base[i] *= 16777216; i += 1;);
+        ) : ty == 1 ? (
+          i = 0;
+          while (i < n) (
+            k = min(4096, ceil((n - i)/3));
+            file_mem(HAL_FH, HAL_TMP, k);
+            j = 0;
+            loop(k,
+              v = HAL_TMP[j]*16777216 + 8388608;
+              i < n ? (base[i] = v & 255; i += 1;);
+              i < n ? (base[i] = floor(v/256) & 255; i += 1;);
+              i < n ? (base[i] = floor(v/65536) & 255; i += 1;);
+              j += 1;
+            );
+          );
+        ) : (
+          i = 0;
+          while (i < n) (
+            k = min(2048, n - i);
+            file_mem(HAL_FH, HAL_TMP, k*2);
+            j = 0; loop(k, base[HAL_TMP[j*2]*16777216] = HAL_TMP[j*2 + 1]*16777216; j += 1;);
+            i += k;
+          );
+        );
+      );
+    );
+    file_close(HAL_FH);
+  );
+  ok;
+);
+function hal_unpack() local(i, o) (
+  DS_M0 = HAL_SCV[0];
+  DS_S0 = HAL_SCV[1];
+  FF_accented = HAL_SCV[2];
+  FF_asyl_in = HAL_SCV[3];
+  FF_asyl_out = HAL_SCV[4];
+  FF_content_words_in = HAL_SCV[5];
+  FF_content_words_out = HAL_SCV[6];
+  FF_gpos = HAL_SCV[7];
+  FF_last_accent = HAL_SCV[8];
+  FF_lisp_cg_break = HAL_SCV[9];
+  FF_lisp_cg_content_words_in_phrase = HAL_SCV[10];
+  FF_lisp_cg_duration = HAL_SCV[11];
+  FF_lisp_cg_find_phrase_number = HAL_SCV[12];
+  FF_lisp_cg_phone_index = HAL_SCV[13];
+  FF_lisp_cg_phone_place = HAL_SCV[14];
+  FF_lisp_cg_phone_rindex = HAL_SCV[15];
+  FF_lisp_cg_phrase_ratio = HAL_SCV[16];
+  FF_lisp_cg_position_in_phrase = HAL_SCV[17];
+  FF_lisp_cg_position_in_phrasep = HAL_SCV[18];
+  FF_lisp_cg_position_in_sentence = HAL_SCV[19];
+  FF_lisp_cg_state_index = HAL_SCV[20];
+  FF_lisp_cg_state_place = HAL_SCV[21];
+  FF_lisp_cg_state_pos = HAL_SCV[22];
+  FF_lisp_cg_state_rindex = HAL_SCV[23];
+  FF_lisp_cg_syl_ratio = HAL_SCV[24];
+  FF_lisp_cg_syls_in_phrase = HAL_SCV[25];
+  FF_lisp_coda_fric = HAL_SCV[26];
+  FF_lisp_coda_glide = HAL_SCV[27];
+  FF_lisp_coda_nasal = HAL_SCV[28];
+  FF_lisp_coda_stop = HAL_SCV[29];
+  FF_lisp_is_pau = HAL_SCV[30];
+  FF_lisp_onset_fric = HAL_SCV[31];
+  FF_lisp_onset_glide = HAL_SCV[32];
+  FF_lisp_onset_nasal = HAL_SCV[33];
+  FF_lisp_onset_stop = HAL_SCV[34];
+  FF_month_range = HAL_SCV[35];
+  FF_next_accent = HAL_SCV[36];
+  FF_num_digits = HAL_SCV[37];
+  FF_old_syl_break = HAL_SCV[38];
+  FF_ph_cplace = HAL_SCV[39];
+  FF_ph_ctype = HAL_SCV[40];
+  FF_ph_cvox = HAL_SCV[41];
+  FF_ph_vc = HAL_SCV[42];
+  FF_ph_vfront = HAL_SCV[43];
+  FF_ph_vheight = HAL_SCV[44];
+  FF_ph_vlng = HAL_SCV[45];
+  FF_ph_vrnd = HAL_SCV[46];
+  FF_pos_in_phrase = HAL_SCV[47];
+  FF_pos_in_syl = HAL_SCV[48];
+  FF_pos_in_word = HAL_SCV[49];
+  FF_position_type = HAL_SCV[50];
+  FF_seg_onsetcoda = HAL_SCV[51];
+  FF_segment_duration = HAL_SCV[52];
+  FF_ssyl_in = HAL_SCV[53];
+  FF_ssyl_out = HAL_SCV[54];
+  FF_sub_phrases = HAL_SCV[55];
+  FF_syl_break = HAL_SCV[56];
+  FF_syl_codasize = HAL_SCV[57];
+  FF_syl_final = HAL_SCV[58];
+  FF_syl_in = HAL_SCV[59];
+  FF_syl_initial = HAL_SCV[60];
+  FF_syl_numphones = HAL_SCV[61];
+  FF_syl_onsetsize = HAL_SCV[62];
+  FF_syl_out = HAL_SCV[63];
+  FF_syl_vowel = HAL_SCV[64];
+  FF_syllable_duration = HAL_SCV[65];
+  FF_token_pos_guess = HAL_SCV[66];
+  FF_word_break = HAL_SCV[67];
+  FF_word_numsyls = HAL_SCV[68];
+  FF_word_punc = HAL_SCV[69];
+  FSM_P_O = HAL_SCV[70];
+  FSM_P_V = HAL_SCV[71];
+  FSM_S_O = HAL_SCV[72];
+  FSM_S_V = HAL_SCV[73];
+  LX_NB = HAL_SCV[74];
+  NAD = HAL_SCV[75];
+  NLR = HAL_SCV[76];
+  PH_NG = HAL_SCV[77];
+  PH_PAU = HAL_SCV[78];
+  PTH_LASTSEG = HAL_SCV[79];
+  PTH_LDS = HAL_SCV[80];
+  PTH_LF0RANGE = HAL_SCV[81];
+  PTH_LF0SHIFT = HAL_SCV[82];
+  PTH_N_PHVC = HAL_SCV[83];
+  PTH_PHR_FIRSTSYL = HAL_SCV[84];
+  PTH_PHR_LASTSYL = HAL_SCV[85];
+  PTH_PHR_PREV = HAL_SCV[86];
+  PTH_POS = HAL_SCV[87];
+  PTH_PUNC = HAL_SCV[88];
+  PTH_P_PHVC = HAL_SCV[89];
+  PTH_SEG_PEND = HAL_SCV[90];
+  PTH_SEG_WORD = HAL_SCV[91];
+  PTH_SS_N_PHVC = HAL_SCV[92];
+  PTH_STRESS = HAL_SCV[93];
+  PTH_SYL_FSEG_PEND = HAL_SCV[94];
+  PTH_SYL_FSEG_PNAME = HAL_SCV[95];
+  PTH_SYL_LSEG_END = HAL_SCV[96];
+  PTH_SYL_LSEG_NNAME = HAL_SCV[97];
+  PTH_T_NNAME = HAL_SCV[98];
+  PTH_T_NNNAME = HAL_SCV[99];
+  PTH_T_NWS = HAL_SCV[100];
+  PTH_T_PNAME = HAL_SCV[101];
+  PTH_T_PPNAME = HAL_SCV[102];
+  PTH_T_PPUNC = HAL_SCV[103];
+  PTH_T_PSSML = HAL_SCV[104];
+  RX_cst_rx_alpha = HAL_SCV[105];
+  RX_cst_rx_alphanum = HAL_SCV[106];
+  RX_cst_rx_commaint = HAL_SCV[107];
+  RX_cst_rx_digits = HAL_SCV[108];
+  RX_cst_rx_dotted_abbrev = HAL_SCV[109];
+  RX_cst_rx_double = HAL_SCV[110];
+  RX_cst_rx_identifier = HAL_SCV[111];
+  RX_cst_rx_int = HAL_SCV[112];
+  RX_cst_rx_lowercase = HAL_SCV[113];
+  RX_cst_rx_uppercase = HAL_SCV[114];
+  RX_cst_rx_white = HAL_SCV[115];
+  RX_digits2dash = HAL_SCV[116];
+  RX_digitsslashdigits = HAL_SCV[117];
+  RX_dottedabbrevs = HAL_SCV[118];
+  RX_drst = HAL_SCV[119];
+  RX_fourdigits = HAL_SCV[120];
+  RX_hasvowel = HAL_SCV[121];
+  RX_illion = HAL_SCV[122];
+  RX_leadingzerodigits = HAL_SCV[123];
+  RX_numbertime = HAL_SCV[124];
+  RX_numbertimexm = HAL_SCV[125];
+  RX_numess = HAL_SCV[126];
+  RX_ordinal_number = HAL_SCV[127];
+  RX_romannums = HAL_SCV[128];
+  RX_sevenphonenumber = HAL_SCV[129];
+  RX_threedigits = HAL_SCV[130];
+  RX_usmoney = HAL_SCV[131];
+  RX_wandm = HAL_SCV[132];
+  SP_N = HAL_SCV[133];
+  SP_TOP = HAL_SCV[134];
+  S_AA = HAL_SCV[135];
+  S_AH = HAL_SCV[136];
+  S_APD = HAL_SCV[137];
+  S_APLL = HAL_SCV[138];
+  S_APS = HAL_SCV[139];
+  S_APVE = HAL_SCV[140];
+  S_AX = HAL_SCV[141];
+  S_B = HAL_SCV[142];
+  S_BB = HAL_SCV[143];
+  S_CODA = HAL_SCV[144];
+  S_CONTENT = HAL_SCV[145];
+  S_EMPTY = HAL_SCV[146];
+  S_FINAL = HAL_SCV[147];
+  S_FOUR = HAL_SCV[148];
+  S_INITIAL = HAL_SCV[149];
+  S_IY = HAL_SCV[150];
+  S_MID = HAL_SCV[151];
+  S_MINUS = HAL_SCV[152];
+  S_NONE = HAL_SCV[153];
+  S_ONE = HAL_SCV[154];
+  S_ONSET = HAL_SCV[155];
+  S_PAU = HAL_SCV[156];
+  S_PLUS = HAL_SCV[157];
+  S_S = HAL_SCV[158];
+  S_SILENCE = HAL_SCV[159];
+  S_SINGLE = HAL_SCV[160];
+  S_THE = HAL_SCV[161];
+  S_THREE = HAL_SCV[162];
+  S_ZERO = HAL_SCV[163];
+  TN_NST = HAL_SCV[164];
+  TN_NWM = HAL_SCV[165];
+  TR_accent = HAL_SCV[166];
+  TR_dur = HAL_SCV[167];
+  TR_nums = HAL_SCV[168];
+  TR_phrasing = HAL_SCV[169];
+  TR_pos = HAL_SCV[170];
+  TR_tone = HAL_SCV[171];
+  W_00 = HAL_SCV[172];
+  W_01 = HAL_SCV[173];
+  W_1 = HAL_SCV[174];
+  W_2 = HAL_SCV[175];
+  W_9a = HAL_SCV[176];
+  W_9a9m = HAL_SCV[177];
+  W_9mr = HAL_SCV[178];
+  W_9mrs = HAL_SCV[179];
+  W_COMMA = HAL_SCV[180];
+  W_DOT = HAL_SCV[181];
+  W_EMPTY = HAL_SCV[182];
+  W_Qd = HAL_SCV[183];
+  W_Qll = HAL_SCV[184];
+  W_Qs = HAL_SCV[185];
+  W_Qtve = HAL_SCV[186];
+  W_Qve = HAL_SCV[187];
+  W_SPACE = HAL_SCV[188];
+  W_Ua = HAL_SCV[189];
+  W_UotherU = HAL_SCV[190];
+  W_a = HAL_SCV[191];
+  W_am = HAL_SCV[192];
+  W_and = HAL_SCV[193];
+  W_billion = HAL_SCV[194];
+  W_billtionth = HAL_SCV[195];
+  W_cent = HAL_SCV[196];
+  W_cents = HAL_SCV[197];
+  W_day = HAL_SCV[198];
+  W_digits = HAL_SCV[199];
+  W_doctor = HAL_SCV[200];
+  W_dollar = HAL_SCV[201];
+  W_dollars = HAL_SCV[202];
+  W_drive = HAL_SCV[203];
+  W_e = HAL_SCV[204];
+  W_flight = HAL_SCV[205];
+  W_half = HAL_SCV[206];
+  W_hundred = HAL_SCV[207];
+  W_hundredth = HAL_SCV[208];
+  W_lead = HAL_SCV[209];
+  W_led = HAL_SCV[210];
+  W_leed = HAL_SCV[211];
+  W_million = HAL_SCV[212];
+  W_minus = HAL_SCV[213];
+  W_missus = HAL_SCV[214];
+  W_mister = HAL_SCV[215];
+  W_month = HAL_SCV[216];
+  W_nide = HAL_SCV[217];
+  W_number = HAL_SCV[218];
+  W_numeric = HAL_SCV[219];
+  W_oh = HAL_SCV[220];
+  W_ordinal = HAL_SCV[221];
+  W_per = HAL_SCV[222];
+  W_plus = HAL_SCV[223];
+  W_point = HAL_SCV[224];
+  W_read = HAL_SCV[225];
+  W_red = HAL_SCV[226];
+  W_reed = HAL_SCV[227];
+  W_saint = HAL_SCV[228];
+  W_slash = HAL_SCV[229];
+  W_street = HAL_SCV[230];
+  W_the = HAL_SCV[231];
+  W_thousand = HAL_SCV[232];
+  W_thousandth = HAL_SCV[233];
+  W_to = HAL_SCV[234];
+  W_umpty = HAL_SCV[235];
+  W_year = HAL_SCV[236];
+  W_zero = HAL_SCV[237];
+  i = 0; o = 0; loop(18950, KDOFF[i] = o; o += KRSZ[i]; i += 1;);
+  SP_N0 = SP_N; SP_TOP0 = SP_TOP; memcpy(SP_H0, SP_H, SP_HN);
+  F0_MEAN = 95; F0_STD = 11; F0_SHIFT = 1; DUR_STRETCH = 1.1;
+  TS_PRESYM = "\"'`({["; TS_POSTSYM = "\"'`.,:;!?(){}[]";
+);
+
+function hal_phstr(dest) local(sg, nm, j, k, n, c)
+(
+  n = 0; sg = RL_H[R_Segment];
+  while (sg >= 0 && n < 900) (
+    nm = it_fv(sg, K_name);
+    nm == S_PAU ? (
+      n > 0 && item_next(sg) >= 0 ? (TN_B2[n] = 47; TN_B2[n + 1] = 32; n += 2;);
+    ) : (
+      k = 0; loop(SP_L[nm], c = SP_B[SP_O[nm] + k]; TN_B2[n] = c >= 97 && c <= 122 ? c - 32 : c; n += 1; k += 1;);
+      TN_B2[n] = 32; n += 1;
+    );
+    sg = item_next(sg);
+  );
+  strcpy(dest, ""); str_setlen(dest, n);
+  j = 0; loop(n, str_setchar(dest, j, TN_B2[j]); j += 1;);
+);
+
+hal_ok = hal_load("DaisyBell/DaisyBell-HAL.wav") || hal_load("Dependencies/DaisyBell/DaisyBell-HAL.wav");
+hal_ok ? hal_unpack();
+SQ_BEAT = 0.3;
+sq_n = alloc(20); sq_d = alloc(20);
+#sq_dat = "673643603553571591601572601556623673643603571591601622641626";
+function sq_dig(p, n) local(v) ( v = 0; loop(n, v = v*10 + str_getchar(#sq_dat, p) - 48; p += 1;); v; );
+u_i = 0;
+loop(20,
+  sq_n[u_i] = sq_dig(u_i*3, 2);
+  sq_d[u_i] = sq_dig(u_i*3 + 2, 1);
+  u_i += 1;
+);
+sl_key[0] = sl_key[1] = -1;
+
+blk_ver = 0;
+cur = 0; bend = 0;
+
+function slot_buf(s) ( s ? sl_buf1 : sl_buf0; );
+
+function set_rate() ( gain_k = 1 - exp(-1/(0.01*srate)); rel_step = 1/(0.006*srate); att_step = 1/(0.002*srate); dc_r = exp(-2*$pi*20/srate); rate_base = 22050/srate; );
+
+function fill_text(src, st, n) local(i)
+(
+  n = max(0, min(n, TXT_MAX - 2));
+  i = 0; loop(n, rc_in[i] = str_getchar(src, st + i, 'cu'); i += 1; );
+  rc_in[n] = 32;
+  n + 1;
+);
+
+function make_preview() local(n, m, i, k)
+(
+  n = fill_text(#mtext, 0, strlen(#mtext));
+  s_bad = -1; ph_err = 0;
+  phonetic ? (
+    m = sam_phon(n);
+    sam_busy ? (memcpy(sam_sv, ph_idx, 256); memcpy(sam_sv + 256, ph_str, 256););
+    !sam_chunks(m) ? (ph_err = 1; ph_bad = s_bad;);
+    sam_busy ? (memcpy(ph_idx, sam_sv, 256); memcpy(ph_str, sam_sv + 256, 256););
+  ) : (
+    m = sam_reciter(n);
+    m <= 0 ? (ph_err = 2; m = 1;);
+  );
+  k = min(m - 1, 900);
+  strcpy(#phon, "");
+  str_setlen(#phon, max(k, 0));
+  i = 0; loop(k, str_setchar(#phon, i, rc_out[i]); i += 1; );
+  ph_ver += 1;
+);
+
+function voice_key() ( speed + 256*(mouth + 256*(throat + 256*(sing + 2*phonetic + 4*engine))); );
+
+function start_voice(src, st, n, seg, note, vel, ofs) local(p, pr, pc, s, key, i)
+(
+  keytrack && note >= 0 ? (
+    pr = 6805.56 / (440*2^((note - 69)/12));
+    pc = sing ? 0 : 7;
+    p = max(10, min(255, floor(pr + pc + 0.5)));
+  ) : (
+    pr = p = pitch; pc = 0;
+  );
+  engine ? (
+    p = keytrack && note >= 0 ? 440*2^((note - 69)/12) : engine == 2 ? 6080/pitch : 6805.56/pitch;
+    pr = p; pc = 0;
+  );
+  key = voice_key();
+  s = 1 - cur;
+  kl_busy && kl_slot == s ? (kl_busy = 0);
+  hal_busy && hal_slot == s ? (hal_busy = 0);
+  sam_busy = 0;
+  !(seg != -2 && sl_key[s] == key && sl_seg[s] == seg && sl_pit[s] == p && sl_ver[s] == blk_ver) ? (
+    s_pitch = p; s_speed = speed; s_mouth = mouth; s_throat = throat; s_sing = sing; s_phon = phonetic;
+    sl_on[s] = 0;
+    engine == 2 ? (
+      n = min(n, 4000);
+      i = 0; loop(n, TS_IN[i] = str_getchar(src, st + i, 'cu'); i += 1;);
+      memset(slot_buf(s), 128, 8);
+      hal_slot = s; hal_key = key;
+      hal_busy = hal_ok && hal_prepare(n, p/95, sing ? p : 0, f32(1.1)*speed/72);
+      hal_ok ? hal_phstr(hal_demo_flag ? #halph_demo : #halph);
+      hal_busy ? (hal_busy = hal_step(2, slot_buf(s), SLOT_N, 0); sl_len[s] = hk_wp;) : (sl_len[s] = 0);
+      sl_key[s] = hal_busy ? -1 : key;
+    ) : engine ? (
+      s_dst = slot_buf(s); s_cap = SLOT_N; memset(s_dst, 128, 8);
+      kl_prepare(fill_text(src, st, n), p, sing);
+      kl_busy = 1; kl_slot = s; kl_key = key;
+      loop(2, kl_busy ? (kl_busy = kl_frame()); );
+      sl_len[s] = kl_wp;
+      sl_key[s] = kl_busy ? -1 : key;
+    ) : (
+      sam_busy = sam_begin(slot_buf(s), SLOT_N, fill_text(src, st, n));
+      sam_slot = s; sam_key = key;
+      sl_len[s] = 0;
+      sl_key[s] = sam_busy ? -1 : key;
+    );
+    sl_seg[s] = seg; sl_pit[s] = p; sl_ver[s] = blk_ver;
+    s_err ? (spk_err = 1);
+  );
+  sl_on[cur] ? (sl_rel[cur] = 1);
+  sl_on[s] = sl_len[s] > 8 || (kl_busy && kl_slot == s) || (sam_busy && sam_slot == s) || (hal_busy && hal_slot == s); sl_pos[s] = 0; sl_env[s] = 0; sl_rel[s] = 0; sl_dly[s] = ofs;
+  sl_ratio[s] = engine == 2 ? 8000/22050 : (p - pc)/pr; sl_gain[s] = vel/127*(engine == 1 ? 3.4 : 1); sl_note[s] = note; sl_word[s] = seg;
+  cur = s;
+);
+
+function sq_syl(i)
+(
+  i == 0 || i == 2 ? "DEY6" : i == 1 || i == 3 || i == 13 ? "ZIY" : i == 4 ? "GIH6V" : i == 5 ? "MIY" : i == 6 ? "YOH6R" : i == 7 ? "AE6N" : i == 8 ? "SER" : i == 9 ? "DUW6"
+  : i == 10 ? "AY6M" : i == 11 ? "/HAE6LF" : i == 12 ? "KREY6" : i == 14 ? "AO6L" : i == 15 ? "FOHR" : i == 16 ? "DHAX" : i == 17 ? "LAH6V" : i == 18 ? "AHV" : "YUW6";
+);
+
+function sq_note(ofs) local(v_sing, v_kt, v_ph, syl)
+(
+  v_sing = sing; v_kt = keytrack; v_ph = phonetic;
+  sing = keytrack = phonetic = 1;
+  syl = sq_syl(sq_i);
+  start_voice(syl, 0, strlen(syl), -2, sq_n[sq_i], engine ? 55 : 110, ofs);
+  sing = v_sing; keytrack = v_kt; phonetic = v_ph;
+);
+
+function release_all() ( sl_on[0] ? (sl_rel[0] = 1); sl_on[1] ? (sl_rel[1] = 1); );
+
+function note_on(n, v, ofs)
+(
+  have_lyric ? (
+    start_voice(#lyric, 0, strlen(#lyric), -2, n, v, ofs); have_lyric = 0;
+  );
+);
+
+function text_event(len, ofs) local(t, st, i, c)
+(
+  t = MB[1]; st = 2;
+  len > 3 && MB[2] == len - 3 ? (st = 3);
+  (t >= 1 && t <= 7 && (text_type == 1 || t == text_type - 1) && len > st) ? (
+    mt_type = t;
+    strcpy(#mtext, ""); str_setlen(#mtext, min(len - st, TXT_MAX - 2));
+    i = 0; loop(min(len - st, TXT_MAX - 2), c = MB[st + i]; str_setchar(#mtext, i, c < 32 ? 32 : c); i += 1; );
+    mt_ver += 1;
+    make_preview();
+    textmode == 0 ? (
+      start_voice(#mtext, 0, strlen(#mtext), -2, -1, 100, ofs);
+    ) : (
+      strcpy(#lyric, #mtext); have_lyric = 1;
+    );
+  );
+);
+
+set_rate();
+
+@slider
+last_srate != srate ? (
+  last_srate = srate;
+  set_rate();
+);
+
+@block
+gain = 10^(vol_db/20)*0.5;
+pv_key != phonetic ? (pv_key = phonetic; strlen(#mtext) > 0 ? make_preview(););
+
+(play_state & 1) && !(last_ps & 1) ? (have_lyric = 0;);
+!(play_state & 1) && (last_ps & 1) ? (release_all(); have_lyric = 0; sq_on = 0;);
+last_ps = play_state;
+
+while ((mlen = midirecv_buf(mofs, MB, 4096)) > 0) (
+  mst = MB[0];
+  mst == 0xFF ? (
+    text_type > 0 ? text_event(mlen, mofs);
+  ) : mst >= 0x80 && mst < 0xF0 && (midi_ch == 0 || (mst & 15) == midi_ch - 1) ? (
+    mty = mst & 0xF0; m2 = MB[1] & 127; m3 = mlen > 2 ? MB[2] & 127 : 0;
+    mty == 0x90 && m3 > 0 ? (
+      note_on(m2, m3, mofs);
+    ) : mty == 0x80 || mty == 0x90 ? (
+      noteoff == 1 ? (
+        sl_on[0] && sl_note[0] == m2 ? (sl_rel[0] = 1);
+        sl_on[1] && sl_note[1] == m2 ? (sl_rel[1] = 1);
+      );
+    ) : mty == 0xE0 ? (
+      bend = ((m3*128 + m2) - 8192)/8192*2;
+    ) : mty == 0xB0 && (m2 == 120 || m2 == 123) ? (
+      release_all(); have_lyric = 0; sq_on = 0;
+    );
+  );
+);
+
+engine != last_engine ? (
+  engine == 2 && sq_on ? (sq_on = 0; release_all(););
+  last_engine = engine;
+);
+
+hal_demo_req ? (
+  hal_demo_req = 0; hal_demo_i = hal_demo_n % 2; hal_demo_n += 1;
+  hal_demo_flag = 1;
+  hal_demo_i == 0 ? start_voice("Just what do you think you're doing Dave?", 0, 42, -2, -1, 100, 0)
+  : start_voice("I'm sorry Dave. I'm afraid I can't do that.", 0, 44, -2, -1, 100, 0);
+  hal_demo_flag = 0;
+  hal_demo_on = 1; hal_demo_slot = cur;
+);
+hal_demo_on && (cur != hal_demo_slot || !sl_on[hal_demo_slot]) ? (hal_demo_on = 0);
+
+sq_req ? (
+  sq_req = 0;
+  sq_on ? (sq_on = 0; release_all();) : (sq_on = 1; sq_i = 0; sq_t = 0; sq_next = 0;);
+);
+sq_on ? (
+  while (sq_i < 20 && sq_next < sq_t + samplesblock) (
+    sq_note(max(0, floor(sq_next - sq_t)));
+    sq_next += sq_d[sq_i]*SQ_BEAT*srate; sq_i += 1;
+  );
+  sq_t += samplesblock;
+  sq_i >= 20 && sq_t > sq_next ? (sq_on = 0);
+);
+
+kl_busy ? (
+  !sl_on[kl_slot] ? (kl_busy = 0) : (
+    kl_n = 0; kl_cap = 2 + ceil(4*samplesblock*rate_base/KL_SPF);
+    while (kl_busy && kl_n < kl_cap && kl_wp < sl_pos[kl_slot] + 0.3*KL_SR) ( kl_busy = kl_frame(); kl_n += 1; );
+    sl_len[kl_slot] = kl_wp;
+    !kl_busy ? (sl_key[kl_slot] = kl_key);
+  );
+);
+
+sam_busy ? (
+  !sl_on[sam_slot] ? (sam_busy = 0) : (
+    sl_len[sam_slot] < sl_pos[sam_slot] + 0.3*22050 ? (
+      sam_busy = sam_step();
+      sl_len[sam_slot] = min((s_bp/50)|0, SLOT_N);
+      !sam_busy ? (sl_key[sam_slot] = sam_key);
+    );
+  );
+);
+
+hal_busy ? (
+  !sl_on[hal_slot] ? (hal_busy = 0) : (
+    sl_len[hal_slot] < sl_pos[hal_slot] + 0.3*8000 ? (
+      hal_tgt = sl_len[hal_slot] + 2*samplesblock*8000/srate + 8;
+      while (hal_busy && sl_len[hal_slot] < hal_tgt) (
+        hal_busy = hal_step(1, slot_buf(hal_slot), SLOT_N, sl_len[hal_slot]);
+        sl_len[hal_slot] = hk_wp;
+      );
+      !hal_busy ? (sl_key[hal_slot] = hal_key);
+    );
+  );
+);
+
+bendf = 2^(bend/12);
+playing = sl_on[0] || sl_on[1];
+
+@sample
+outv = 0;
+s = 0;
+loop(2,
+  sl_on[s] ? (
+    sl_dly[s] > 0 ? (sl_dly[s] -= 1) : (
+      sb = slot_buf(s); sp = sl_pos[s]; si = sp|0; sf = sp - si; sn = sl_len[s];
+      ym1 = si > 0 ? sb[si-1] : 128; y0 = sb[si]; y1 = si+1 < sn ? sb[si+1] : 128; y2 = si+2 < sn ? sb[si+2] : 128;
+      hc1 = 0.5*(y1 - ym1); hc2 = ym1 - 2.5*y0 + 2*y1 - 0.5*y2; hc3 = 0.5*(y2 - ym1) + 1.5*(y0 - y1);
+      sv = ((((hc3*sf + hc2)*sf + hc1)*sf + y0) - 128)/128;
+      sl_rel[s] ? (
+        sl_env[s] -= rel_step;
+        sl_env[s] <= 0 ? (sl_env[s] = 0; sl_on[s] = 0;);
+      ) : (sl_env[s] = min(1, sl_env[s] + att_step));
+      outv += sv*sl_env[s]*sl_gain[s]*min(1, (sn - sp)*0.015);
+      (kl_busy && kl_slot == s) || (sam_busy && sam_slot == s) || (hal_busy && hal_slot == s) ? (
+        sp + 4 < sn ? (sl_pos[s] = sp + rate_base*sl_ratio[s]*bendf);
+      ) : (
+        sl_pos[s] = sp + rate_base*sl_ratio[s]*bendf;
+        sl_pos[s] >= sn - 1 ? (sl_on[s] = 0);
+      );
+    );
+  );
+  s += 1;
+);
+dcy = outv - dcx + dc_r*dcy; dcx = outv;
+gain_s += (gain - gain_s)*gain_k;
+spl0 = spl1 = dcy*gain_s;
+abs(spl0) > vu ? (vu = abs(spl0));
+
+@gfx 800 400
+!g_init ? (
+  g_init = 1;
+  lay_ver = -1;
+  gfx_setimgdim(7, 400, 200);
+);
+
+gfx_dest = -1;
+gfx_mode = 0;
+u_sc = min(gfx_w/400, gfx_h/200);
+u_sc = u_sc >= 1 ? floor(u_sc) : max(0.25, u_sc);
+u_ox = floor((gfx_w - 400*u_sc)*0.5); u_oy = floor((gfx_h - 200*u_sc)*0.5);
+wheel = mouse_wheel; mouse_wheel = 0;
+wheel_once = 0;
+mouse_down = mouse_cap & 1;
+mouse_just_down = mouse_down && !last_down;
+last_down = mouse_down;
+u_mx = (mouse_x - u_ox)/u_sc; u_my = (mouse_y - u_oy)/u_sc;
+gt = time_precise();
+
+function hit(x, y, w, h) ( u_mx >= x && u_mx < x + w && u_my >= y && u_my < y + h; );
+function hit_circle(cx, cy, rad) ( sqr(u_mx - cx) + sqr(u_my - cy) <= sqr(rad); );
+function taper_pos(val, minv, maxv) ( (val - minv)/(maxv - minv); );
+function taper_val(pos, minv, maxv) ( minv + pos*(maxv - minv); );
+function ink() ( gfx_set(0.16, 0.13, 0.11, 1); );
+function ink_dim() ( gfx_set(0.36, 0.31, 0.26, 1); );
+function scr(b)
+(
+  engine == 2 ? (
+    b == 0 ? gfx_set(0.09, 0.02, 0.02, 1) : b == 1 ? gfx_set(0.62, 0.16, 0.12, 1) : b == 2 ? gfx_set(0.86, 0.28, 0.20, 1) : gfx_set(1, 0.50, 0.38, 1);
+  ) : engine ? (
+    b == 0 ? gfx_set(0.03, 0.08, 0.04, 1) : b == 1 ? gfx_set(0.22, 0.55, 0.27, 1) : b == 2 ? gfx_set(0.32, 0.80, 0.38, 1) : gfx_set(0.50, 1, 0.55, 1);
+  ) : (
+    b == 0 ? gfx_set(0.20, 0.17, 0.56, 1) : b == 1 ? gfx_set(0.43, 0.41, 0.85, 1) : b == 2 ? gfx_set(0.56, 0.54, 0.96, 1) : gfx_set(0.72, 0.71, 1, 1);
+  );
+);
+
+function px_w(str, tiny) local(n, i, c, w)
+(
+  n = strlen(str); i = 0; w = 0;
+  loop(n, c = str_getchar(str, i, 'cu'); !(c >= 0x80 && c < 0xC0) ? (w += tiny ? 4 : 6); i += 1; );
+  w;
+);
+
+function px_str(str, x, y, tiny, sc) local(n, i, c, gp, rr, bits, xx, run, ny, gw, adv)
+(
+  n = strlen(str); i = 0;
+  ny = tiny ? 6 : 8; gw = tiny ? 4 : 5; adv = tiny ? 4 : 6;
+  loop(n,
+    c = str_getchar(str, i, 'cu');
+    !(c >= 0x80 && c < 0xC0) ? (
+      c >= 97 && c <= 122 ? (c -= 32);
+      (c < 32 || c > 95) ? (c = 63);
+      gp = (tiny ? g_ft : g_fb) + (c - 32)*ny;
+      rr = 0;
+      loop(ny,
+        bits = gp[rr];
+        bits ? (
+          run = -1; xx = 0;
+          loop(gw + 1,
+            xx < gw && (bits >> (gw - 1 - xx)) & 1 ? (
+              run < 0 ? (run = xx);
+            ) : run >= 0 ? (
+              gfx_rect(x + run*sc, y + rr*sc, (xx - run)*sc, sc);
+              run = -1;
+            );
+            xx += 1;
+          );
+        );
+        rr += 1;
+      );
+      x += adv*sc;
+    );
+    i += 1;
+  );
+  x;
+);
+
+function px_strc(str, cx, y, tiny) ( px_str(str, cx - floor(px_w(str, tiny)*0.5), y, tiny, 1); );
+
+function bevel(x, y, w, h, up)
+(
+  up ? gfx_set(1, 1, 1, 0.45) : gfx_set(0, 0, 0, 0.30);
+  gfx_rect(x, y, w, 1); gfx_rect(x, y, 1, h);
+  up ? gfx_set(0, 0, 0, 0.30) : gfx_set(1, 1, 1, 0.45);
+  gfx_rect(x, y + h - 1, w, 1); gfx_rect(x + w - 1, y, 1, h);
+);
+
+function btn(x, y, w, h, str, on, hot, dis) local(p)
+(
+  ink();
+  gfx_rect(x - 1, y - 1, w + 2, h + 2);
+  dis ? gfx_set(0.55, 0.52, 0.47, 1)
+  : on ? gfx_set(0.96, 0.62, 0.18, 1)
+  : hot ? gfx_set(0.40, 0.36, 0.33, 1) : gfx_set(0.31, 0.28, 0.26, 1);
+  gfx_rect(x, y, w, h);
+  bevel(x, y, w, h, !on);
+  p = on ? 1 : 0;
+  dis ? gfx_set(0.68, 0.65, 0.60, 1) : on ? ink() : gfx_set(0.96, 0.93, 0.85, 1);
+  px_str(str, x + floor((w - px_w(str, 0))*0.5) + p, y + floor((h - 7)*0.5) + p, 0, 1);
+);
+
+function draw_knob(cx, cy, rad, pos, cr, cg, cb, valtext, minlabel, maxlabel, name, dis) local(ang0, ang1, ang, i)
+(
+  ang0 = -2.35619;
+  ang1 =  2.35619;
+
+  ink();
+  gfx_circle(cx, cy, rad + 1, 1, 0);
+  gfx_set(cr*0.55, cg*0.55, cb*0.55, 1);
+  gfx_circle(cx, cy, rad, 1, 0);
+  gfx_set(cr, cg, cb, 1);
+  gfx_circle(cx, cy, floor(rad*0.72), 1, 0);
+  gfx_set(1, 1, 1, 0.35);
+  gfx_circle(cx - 3, cy - 3, 3, 1, 0);
+
+  i = 0;
+  loop(9,
+    ang = ang0 + (ang1 - ang0) * (i / 8);
+    gfx_set(0.96, 0.93, 0.85, 1);
+    gfx_line(cx + sin(ang)*rad*0.80, cy - cos(ang)*rad*0.80, cx + sin(ang)*rad*0.98, cy - cos(ang)*rad*0.98, 0);
+    i += 1;
+  );
+
+  ang = ang0 + (ang1 - ang0) * pos;
+  gfx_set(0.08, 0.06, 0.05, 1);
+  gfx_line(cx, cy, cx + sin(ang)*rad*0.85, cy - cos(ang)*rad*0.85, 0);
+  gfx_line(cx + 1, cy, cx + 1 + sin(ang)*rad*0.85, cy - cos(ang)*rad*0.85, 0);
+
+  dis ? ink_dim() : ink();
+  dis ? px_strc(valtext, cx, cy - rad - 9, 1) : px_strc(valtext, cx, cy - rad - 11, 0);
+  ink_dim();
+  px_str(minlabel, cx - 2 - px_w(minlabel, 1), cy + rad + 3, 1, 1);
+  px_str(maxlabel, cx + 3, cy + rad + 3, 1, 1);
+  ink();
+  px_strc(name, cx, cy + rad + 10, 0);
+);
+
+function knob(id, cx, val, minv, maxv, defv, fmt, name, cr, cg, cb, minlabel, maxlabel) local(newpos, cy, rad)
+(
+  cy = 134; rad = 12;
+  k_dis ? (cr = cg = cb = 0.62;);
+  !k_dis && mouse_just_down && hit_circle(cx, cy, rad + 4) ? (
+    gt - k_click < 0.3 && k_last == id ? (
+      val = defv; drag_target = 0;
+    ) : (
+      drag_target = id; drag_start_y = mouse_y; drag_start_pos = taper_pos(val, minv, maxv);
+    );
+    k_click = gt; k_last = id;
+  );
+  !k_dis && wheel != 0 && hit_circle(cx, cy, rad + 4) ? (
+    drag_target = id; drag_start_y = mouse_y;
+    drag_start_pos = max(0, min(1, taper_pos(val, minv, maxv) + wheel/120*0.02)); wheel_once = 1;
+  );
+  drag_target == id && (mouse_down || wheel_once) ? (
+    mouse_down ? (mouse_cap |= 65536);
+    newpos = max(0, min(1, drag_start_pos + (drag_start_y - mouse_y)/(80*u_sc)));
+    val = taper_val(newpos, minv, maxv);
+    fmt != 1 ? (val = floor(val + 0.5)) : (val = floor(val*10 + 0.5)/10);
+  );
+  draw_knob(cx, cy, rad, taper_pos(val, minv, maxv), cr, cg, cb, k_dis ? "SAM ONLY" : fmt == 0 ? sprintf(#kv, "%d", val) : fmt == 2 ? sprintf(#kv, "%d HZ", 6805.56/val + 0.5) : fmt == 4 ? sprintf(#kv, "%d HZ", 6080/val + 0.5) : fmt == 3 ? sprintf(#kv, "%d%%", 7200/val + 0.5) : sprintf(#kv, "%+.1fDB", val), minlabel, maxlabel, name, k_dis);
+  val;
+);
+
+function layout(maxc) local(n, s, e, j)
+(
+  n = strlen(#mtext); nl = 0; s = 0;
+  while (
+    n - s <= maxc ? (e = n) : (
+      e = s + maxc; j = e;
+      while (j > s && str_getchar(#mtext, j) != 32) ( j -= 1; );
+      j > s ? (e = j + 1);
+    );
+    g_ls[nl] = s; g_ln[nl] = e - s; nl += 1; s = e;
+    s < n && nl < 390;
+  );
+);
+
+function draw_lips(cx, cy, hw, op, ka, kb, lift) local(xx, t, e, ty, by, pt, pb)
+(
+  xx = -hw;
+  loop(2*hw + 1,
+    t = xx/hw; e = sqrt(max(0, 1 - t*t));
+    ty = cy - floor(e*op*ka + 0.5) - floor((1 - e)*lift*max(0, 1 - op*4) + 0.5);
+    by = cy + floor(e*op*kb + 0.5) - floor((1 - e)*lift*max(0, 1 - op*4) + 0.5);
+    xx > -hw ? (
+      gfx_line(cx + xx - 1, pt, cx + xx, ty, 0);
+      gfx_line(cx + xx - 1, pb, cx + xx, by, 0);
+    );
+    pt = ty; pb = by;
+    xx += 1;
+  );
+);
+
+function draw_hal(cx, cy, op) local(gx, gy, d, t, b, k)
+(
+  b = 0.5 + 0.5*min(1, op*1.4);
+  gy = -22;
+  loop(22,
+    gx = -22;
+    loop(22,
+      d = sqrt(sqr(gx + 1) + sqr(gy + 1));
+      d <= 21 ? (
+        d > 18 ? (
+          k = gx + gy;
+          k < -10 ? gfx_set(0.88, 0.89, 0.93, 1) : k < 8 ? gfx_set(0.60, 0.62, 0.67, 1) : gfx_set(0.33, 0.34, 0.38, 1);
+        ) : d > 16 ? (
+          gfx_set(0.04, 0.04, 0.05, 1);
+        ) : (
+          t = d/16;
+          t < 0.14 ? gfx_set(b, b*0.92, b*0.55, 1)
+          : t < 0.3 ? gfx_set(b, b*0.50, b*0.12, 1)
+          : t < 0.55 ? gfx_set(b*0.86, b*0.10, b*0.06, 1)
+          : t < 0.8 ? gfx_set(b*0.46, b*0.03, b*0.03, 1)
+          : gfx_set(0.16, 0.01, 0.01, 1);
+        );
+        gfx_rect(cx + gx, cy + gy, 2, 2);
+      );
+      gx += 2;
+    );
+    gy += 2;
+  );
+  gfx_set(1, 1, 1, 0.55);
+  gfx_rect(cx - 10, cy - 10, 4, 2); gfx_rect(cx - 12, cy - 8, 2, 4);
+  gfx_set(1, 1, 1, 0.3);
+  gfx_rect(cx + 8, cy + 8, 2, 2);
+);
+
+function draw_kbot(cx, cy, op, blink) local(lit, k)
+(
+  scr(op > 0.15 ? 3 : 1);
+  gfx_rect(cx - 13, cy - 25, 3, 3); gfx_rect(cx + 11, cy - 25, 3, 3);
+  scr(3);
+  gfx_line(cx - 7, cy - 15, cx - 11, cy - 22, 0); gfx_line(cx + 7, cy - 15, cx + 11, cy - 22, 0);
+  gfx_roundrect(cx - 14, cy - 16, 29, 30, 11, 0);
+  gfx_rect(cx - 16, cy - 2, 2, 4); gfx_rect(cx + 15, cy - 2, 2, 4);
+  gfx_roundrect(cx - 11, cy - 10, 23, 8, 3, 0);
+  blink ? (
+    gfx_rect(cx - 7, cy - 6, 5, 1); gfx_rect(cx + 3, cy - 6, 5, 1);
+  ) : (
+    gfx_circle(cx - 5, cy - 6, 2, 1, 0); gfx_circle(cx + 5, cy - 6, 2, 1, 0);
+  );
+  gfx_rect(cx - 7, cy + 3, 15, 1); gfx_rect(cx - 7, cy + 11, 15, 1);
+  gfx_rect(cx - 7, cy + 3, 1, 9); gfx_rect(cx + 7, cy + 3, 1, 9);
+  lit = op > 0.6 ? 3 : op > 0.3 ? 2 : op > 0.06 ? 1 : 0;
+  k = 0;
+  loop(3,
+    scr(k < lit ? 3 : 1);
+    gfx_rect(cx - 5, cy + 9 - k*2, 11, 1);
+    k += 1;
+  );
+  scr(3);
+  gfx_rect(cx - 4, cy + 14, 1, 3); gfx_rect(cx + 4, cy + 14, 1, 3);
+);
+
+function draw_bot(cx, cy, op, blink)
+(
+  scr(op > 0.15 ? 3 : 1);
+  gfx_rect(cx - 1, cy - 25, 3, 3);
+  scr(3);
+  gfx_rect(cx, cy - 22, 1, 4);
+  gfx_rect(cx - 13, cy - 18, 27, 1); gfx_rect(cx - 13, cy + 14, 27, 1);
+  gfx_rect(cx - 15, cy - 16, 1, 29); gfx_rect(cx + 15, cy - 16, 1, 29);
+  gfx_rect(cx - 14, cy - 17, 1, 1); gfx_rect(cx + 14, cy - 17, 1, 1);
+  gfx_rect(cx - 14, cy + 13, 1, 1); gfx_rect(cx + 14, cy + 13, 1, 1);
+  gfx_rect(cx - 18, cy - 6, 2, 9); gfx_rect(cx + 17, cy - 6, 2, 9);
+  blink ? (
+    gfx_rect(cx - 9, cy - 6, 5, 1); gfx_rect(cx + 5, cy - 6, 5, 1);
+  ) : (
+    gfx_rect(cx - 9, cy - 9, 5, 5); gfx_rect(cx + 5, cy - 9, 5, 5);
+    scr(0); gfx_rect(cx - 8, cy - 8, 2, 2); gfx_rect(cx + 6, cy - 8, 2, 2);
+  );
+  scr(1);
+  gfx_rect(cx - 12, cy + 1, 3, 1); gfx_rect(cx + 10, cy + 1, 3, 1);
+  scr(3);
+  draw_lips(cx, cy + 5, 7, op, 3, 5, 2);
+);
+
+function preset_get(n)
+(
+  n == 1 ? (u_ps = 72; u_pp = 64; u_pt = 128; u_pm = 128;)
+  : n == 2 ? (u_ps = 72; u_pp = 64; u_pt = 110; u_pm = 160;)
+  : n == 3 ? (u_ps = 92; u_pp = 60; u_pt = 190; u_pm = 190;)
+  : n == 4 ? (u_ps = 82; u_pp = 72; u_pt = 110; u_pm = 105;)
+  : n == 5 ? (u_ps = 82; u_pp = 32; u_pt = 145; u_pm = 145;)
+  : (u_ps = 100; u_pp = 64; u_pt = 150; u_pm = 200;);
+);
+
+function menu_item(id, i)
+(
+  id == 1 ? (
+    #u_mi = i == 0 ? "SAM" : i == 1 ? "ELF" : i == 2 ? "LITTLE ROBOT" : i == 3 ? "STUFFY GUY" : i == 4 ? "LITTLE OLD LADY" : "EXTRA-TERRESTRIAL";
+  ) : id == 2 ? (
+    #u_mi = i == 0 ? "OFF" : i == 1 ? "ANY TYPE" : i == 2 ? "TEXT" : i == 3 ? "COPYRIGHT" : i == 4 ? "TRACK NAME" : i == 5 ? "INSTRUMENT" : i == 6 ? "LYRIC" : i == 7 ? "MARKER" : "CUE POINT";
+  ) : (
+    i == 0 ? strcpy(#u_mi, "OMNI") : sprintf(#u_mi, "%d", i);
+  );
+  #u_mi;
+);
+
+function menu_geo(id) local(ax, ay, aw, ah)
+(
+  id == 1 ? (u_mn = 6; u_mc = 1; u_mw = 116; ax = 312; ay = 4; aw = 78; ah = 15; u_msel = u_pre - 1;)
+  : id == 2 ? (u_mn = 9; u_mc = 1; u_mw = 76; ax = u_bx0; ay = 142; aw = u_bw; ah = u_bh; u_msel = text_type;)
+  : (u_mn = 17; u_mc = 4; u_mw = 34; ax = u_bx1; ay = 142; aw = u_bw; ah = u_bh; u_msel = midi_ch;);
+  u_mrw = u_mc*u_mw + 4; u_mrh = ceil(u_mn/u_mc)*11 + 4;
+  u_mx0 = min(ax, 398 - u_mrw);
+  u_my0 = ay + ah + 2 + u_mrh <= 198 ? ay + ah + 2 : ay - u_mrh - 2;
+);
+
+function menu_hit() local(c, r, i)
+(
+  i = -1;
+  hit(u_mx0 + 2, u_my0 + 2, u_mc*u_mw, u_mrh - 4) ? (
+    c = floor((u_mx - u_mx0 - 2)/u_mw); r = floor((u_my - u_my0 - 2)/11);
+    i = r*u_mc + c;
+    i >= u_mn ? (i = -1);
+  );
+  i;
+);
+
+function draw_menu(id) local(i, hv, ix, iy)
+(
+  menu_geo(id);
+  gfx_set(0, 0, 0, 0.35);
+  gfx_rect(u_mx0 + 2, u_my0 + 2, u_mrw, u_mrh);
+  ink();
+  gfx_rect(u_mx0 - 1, u_my0 - 1, u_mrw + 2, u_mrh + 2);
+  gfx_set(0.79, 0.75, 0.65, 1);
+  gfx_rect(u_mx0, u_my0, u_mrw, u_mrh);
+  bevel(u_mx0, u_my0, u_mrw, u_mrh, 1);
+  hv = menu_hit();
+  i = 0;
+  loop(u_mn,
+    ix = u_mx0 + 2 + (i % u_mc)*u_mw; iy = u_my0 + 2 + floor(i/u_mc)*11;
+    i == hv ? (gfx_set(0.96, 0.62, 0.18, 1); gfx_rect(ix, iy, u_mw, 11););
+    ink();
+    i == u_msel ? gfx_rect(ix + 3, iy + 4, 3, 3);
+    px_str(menu_item(id, i), ix + 9, iy + 2, 0, 1);
+    i += 1;
+  );
+);
+
+u_pre = 0; u_i = 1;
+loop(6, preset_get(u_i); speed == u_ps && pitch == u_pp && throat == u_pt && mouth == u_pm ? (u_pre = u_i); u_i += 1;);
+engine && g_menu == 1 ? (g_menu = 0);
+g_menu ? (
+  while ((u_key = gfx_getchar()) > 0) ( u_key == 27 ? (g_menu = 0); );
+  wheel = 0;
+);
+g_menu && mouse_just_down ? (
+  menu_geo(g_menu);
+  u_i = menu_hit();
+  u_i >= 0 ? (
+    g_menu == 1 ? (
+      preset_get(u_i + 1);
+      speed = u_ps; pitch = u_pp; throat = u_pt; mouth = u_pm;
+      slider_automate(speed); slider_automate(pitch); slider_automate(throat); slider_automate(mouth);
+    ) : g_menu == 2 ? (
+      text_type = u_i; slider_automate(text_type);
+    ) : (
+      midi_ch = u_i; slider_automate(midi_ch);
+    );
+  );
+  g_menu = 0;
+  mouse_just_down = 0;
+);
+
+!mouse_down ? (drag_target = 0;);
+u_maxc = 51;
+(lay_ver != mt_ver || lay_c != u_maxc) ? (lay_ver = mt_ver; lay_c = u_maxc; layout(u_maxc););
+u_lv = vu; vu = 0;
+u_op = max(min(1, sqrt(u_lv*3)), u_op*0.7);
+spk_err ? (u_errt = gt; spk_err = 0;);
+
+gfx_dest = 7;
+gfx_set(0.79, 0.75, 0.65, 1);
+gfx_rect(0, 0, 400, 200);
+
+gfx_set(0.95, 0.92, 0.84, 1);
+px_str("DAISY BELL", 11, 5, 0, 2);
+ink();
+px_str("DAISY BELL", 10, 4, 0, 2);
+ink_dim();
+px_str("BY CHMAHA", 136, 11, 0, 1);
+u_i = 0;
+loop(16,
+  u_j = floor((15 - u_i)/3);
+  gfx_set(0.86, 0.22, 0.18, 1); gfx_rect(196 + u_j, 4 + u_i, 4, 1);
+  gfx_set(0.96, 0.55, 0.15, 1); gfx_rect(200 + u_j, 4 + u_i, 4, 1);
+  gfx_set(0.98, 0.82, 0.25, 1); gfx_rect(204 + u_j, 4 + u_i, 4, 1);
+  gfx_set(0.30, 0.68, 0.30, 1); gfx_rect(208 + u_j, 4 + u_i, 4, 1);
+  gfx_set(0.25, 0.45, 0.85, 1); gfx_rect(212 + u_j, 4 + u_i, 4, 1);
+  u_i += 1;
+);
+btn(228, 4, 78, 15, engine == 2 ? "ENGINE:HAL" : engine ? "ENGINE:KLATT" : "ENGINE:SAM", 0, hit(228, 4, 78, 15), 0);
+btn(312, 4, 78, 15, u_pre == 0 || engine ? "PRESETS" : u_pre == 1 ? "SAM" : u_pre == 2 ? "ELF" : u_pre == 3 ? "ROBOT" : u_pre == 4 ? "STUFFY GUY" : u_pre == 5 ? "OLD LADY" : "E.T.", g_menu == 1, !engine && hit(312, 4, 78, 15), engine);
+
+gfx_set(0.20, 0.19, 0.18, 1);
+gfx_rect(10, 24, 380, 80);
+bevel(10, 24, 380, 80, 1);
+bevel(15, 29, 370, 70, 0);
+scr(0);
+gfx_rect(16, 30, 368, 68);
+gfx_set(0.20, 0.19, 0.18, 1);
+gfx_rect(16, 30, 2, 1); gfx_rect(16, 30, 1, 2);
+gfx_rect(382, 30, 2, 1); gfx_rect(383, 30, 1, 2);
+gfx_rect(16, 97, 2, 1); gfx_rect(16, 96, 1, 2);
+gfx_rect(382, 97, 2, 1); gfx_rect(383, 96, 1, 2);
+
+scr(2);
+u_demo = engine == 2 ? (hal_demo_on ? 2 : 0) : (sq_on ? 1 : 0);
+px_str(u_demo == 1 ? "SINGING DAISY BELL..." : "READY.", 22, 34, 0, 1);
+u_demo ? (
+  scr(1);
+  strcpy(#u_hd, u_demo == 1 ? "DAISY BELL" : "HAL DEMO");
+  px_str(#u_hd, 328 - px_w(#u_hd, 0), 34, 0, 1);
+) : strlen(#mtext) > 0 ? (
+  scr(1);
+  #u_ty = mt_type == 1 ? "TEXT" : mt_type == 2 ? "COPYRIGHT" : mt_type == 3 ? "TRACK NAME" : mt_type == 4 ? "INSTRUMENT" : mt_type == 5 ? "LYRIC" : mt_type == 6 ? "MARKER" : "CUE POINT";
+  sprintf(#u_hd, "LAST MIDI %s", #u_ty);
+  px_str(#u_hd, 328 - px_w(#u_hd, 0), 34, 0, 1);
+);
+
+u_cx = 22; u_cy = 44;
+u_demo ? (
+  scr(3);
+  u_demo == 1 ? (
+    px_str("DAISY, DAISY, GIVE ME YOUR ANSWER DO.", 22, 44, 0, 1);
+    u_cx = px_str("I'M HALF CRAZY, ALL FOR THE LOVE OF YOU.", 22, 54, 0, 1); u_cy = 54;
+  ) : (
+    u_cx = px_str(hal_demo_i == 0 ?  "JUST WHAT DO YOU THINK YOU'RE DOING, DAVE?" : hal_demo_i == 1 ?  "I'M SORRY, DAVE. I'M AFRAID I CAN'T DO THAT.", 22, 44, 0, 1);
+  );
+) : strlen(#mtext) == 0 ? (
+  scr(2);
+  u_cx = px_str("WAITING FOR MIDI TEXT EVENTS...", 22, 44, 0, 1);
+);
+u_l = 0;
+!u_demo ? loop(2,
+  u_l < nl && strlen(#mtext) > 0 ? (
+    strcpy_substr(#ln, #mtext, g_ls[u_l], g_ln[u_l]);
+    u_l == 1 && nl > 2 ? (
+      str_setlen(#ln, max(0, min(strlen(#ln), u_maxc - 3)));
+      strcat(#ln, "...");
+    );
+    scr(3);
+    u_cx = px_str(#ln, 22, 44 + u_l*10, 0, 1); u_cy = 44 + u_l*10;
+  );
+  u_l += 1;
+);
+(u_demo || nl <= 2) && u_cx < 328 && (gt*2.5|0) % 2 == 0 ? (scr(3); gfx_rect(u_cx + 1, u_cy, 5, 7););
+
+u_hal = engine == 2;
+ph_err && !u_hal && !u_demo ? (
+  ph_err == 1 ? sprintf(#u_pe, "?UNKNOWN PHONEME NEAR CHAR %d", ph_bad + 1) : strcpy(#u_pe, "?CONVERSION ERROR");
+  scr(3); gfx_rect(21, 63, px_w(#u_pe, 0) + 1, 9);
+  scr(0); px_str(#u_pe, 22, 64, 0, 1);
+  phonetic ? (scr(1); px_str("USE SAM PHONEMES, E.G. /HEH3LOW WERLD", 22, 74, 0, 1););
+) : (
+  scr(1);
+  u_chk = phonetic && !u_hal && !u_demo;
+  px_str(u_chk ? "CHK>" : "PH>", 22, 64, 0, 1);
+  u_phs = u_demo == 1 ? "DEY6 ZIY DEY6 ZIY GIH6V MIY YOH6R AE6N SER DUW6 AY6M /HAE6LF KREY6 ZIY AO6L FOHR DHAX LAH6V AHV YUW6" : u_demo == 2 ? #halph_demo : u_hal ? #halph : #phon;
+  u_pn = strlen(u_phs); u_p0 = 0; u_l = 0;
+  loop(3,
+    u_w = u_l == 0 ? u_maxc - (u_chk ? 4 : 3) : u_maxc;
+    u_p0 < u_pn ? (
+      strcpy_substr(#pln, u_phs, u_p0, u_w);
+      u_l == 2 && u_pn > u_p0 + u_w ? (str_setlen(#pln, max(0, u_w - 3)); strcat(#pln, "..."););
+      scr(2);
+      px_str(#pln, u_l == 0 ? 22 + (u_chk ? 24 : 18) : 22, 64 + u_l*10, 0, 1);
+    );
+    u_p0 += u_w; u_l += 1;
+  );
+);
+
+engine == 2 ? draw_hal(357, 59, u_op) : engine == 1 ? draw_kbot(357, 62, u_op, (gt % 4) < 0.12) : draw_bot(357, 62, u_op, (gt % 4) < 0.12);
+scr(1);
+px_strc(engine == 2 ? "HAL 1000" : engine ? "KLATT" : "SAM", 357, 86, 0);
+
+gfx_set(0.72, 0.68, 0.58, 1);
+gfx_rect(10, 106, 230, 70);
+bevel(10, 106, 230, 70, 0);
+
+nv = knob(1, 33, speed, 200, 20, 72, 3, "SPEED", 0.25, 0.45, 0.85, "SLOW", "FAST"); nv != speed ? (speed = nv; slider_automate(speed););
+nv = knob(2, 79, pitch, 200, 10, 64, engine == 2 ? 4 : 2, "PITCH", 0.30, 0.68, 0.30, "LOW", "HIGH"); nv != pitch ? (pitch = nv; slider_automate(pitch););
+k_dis = engine >= 1;
+nv = knob(3, 125, mouth, 0, 255, 128, 0, "MOUTH", 0.86, 0.22, 0.18, "0", "255"); nv != mouth ? (mouth = nv; slider_automate(mouth););
+nv = knob(4, 171, throat, 0, 255, 128, 0, "THROAT", 0.96, 0.55, 0.15, "0", "255"); nv != throat ? (throat = nv; slider_automate(throat););
+k_dis = 0;
+nv = knob(5, 217, vol_db, -24, 12, 0, 1, "VOLUME", 0.60, 0.57, 0.53, "-24", "+12"); nv != vol_db ? (vol_db = nv; slider_automate(vol_db););
+
+u_bx0 = 248; u_bx1 = 320; u_bw = 70; u_bh = 14;
+btn(u_bx0, 108, u_bw, u_bh, phonetic && engine != 2 ? "IN:PHONEME" : "IN:ENGLISH", phonetic && engine != 2, engine != 2 && hit(u_bx0, 108, u_bw, u_bh), engine == 2);
+btn(u_bx1, 108, u_bw, u_bh, sing ? "SING:ON" : "SING:OFF", sing, hit(u_bx1, 108, u_bw, u_bh), 0);
+btn(u_bx0, 125, u_bw, u_bh, keytrack ? "PITCH:MIDI" : "PITCH:KNOB", keytrack, hit(u_bx0, 125, u_bw, u_bh), 0);
+btn(u_bx1, 125, u_bw, u_bh, noteoff ? "N.OFF:STOP" : "N.OFF:PLAY", noteoff, hit(u_bx1, 125, u_bw, u_bh), 0);
+#u_bl = text_type == 0 ? "TYPE:OFF" : text_type == 1 ? "TYPE:ANY" : text_type == 2 ? "TYPE:TEXT" : text_type == 3 ? "TYPE:COPYR" : text_type == 4 ? "TYPE:TRACK" : text_type == 5 ? "TYPE:INSTR" : text_type == 6 ? "TYPE:LYRIC" : text_type == 7 ? "TYPE:MARKR" : "TYPE:CUE";
+btn(u_bx0, 142, u_bw, u_bh, #u_bl, g_menu == 2, hit(u_bx0, 142, u_bw, u_bh), 0);
+midi_ch == 0 ? strcpy(#u_bl, "CH:OMNI") : sprintf(#u_bl, "CH:%d", midi_ch);
+btn(u_bx1, 142, u_bw, u_bh, #u_bl, g_menu == 3, hit(u_bx1, 142, u_bw, u_bh), 0);
+btn(u_bx0, 159, 142, u_bh, textmode ? "MIDI TEXT:NEXT NOTE" : "MIDI TEXT:SPEAK NOW", textmode == 1, hit(u_bx0, 159, 142, u_bh), 0);
+
+gfx_set(0.55, 0.51, 0.43, 1);
+gfx_rect(0, 179, 400, 1);
+gfx_set(0.70, 0.66, 0.56, 1);
+gfx_rect(0, 180, 400, 20);
+engine == 2 && !hal_ok ? (
+  gfx_set(0.70, 0.10, 0.08, 1); px_str("?HAL DATA NOT FOUND IN DEPENDENCIES/DAISYBELL", 10, 186, 0, 1);
+) : u_errt > 0 && gt - u_errt < 3 ? (
+  gfx_set(0.70, 0.10, 0.08, 1); px_str("?SPEAK ERROR - CHECK PHONEMES", 10, 186, 0, 1);
+) : (
+  ink(); px_str("MIDI TEXT IS SPOKEN, OR HELD AS THE NEXT NOTE'S LYRIC", 10, 186, 0, 1);
+);
+ink_dim();
+px_str("SPEECH", 352, 187, 1, 1);
+ink();
+gfx_rect(381, 185, 7, 7);
+playing ? gfx_set(1, 0.25, 0.18, 1) : gfx_set(0.38, 0.12, 0.10, 1);
+gfx_rect(382, 186, 5, 5);
+playing ? (gfx_set(1, 0.8, 0.7, 1); gfx_rect(383, 187, 1, 1););
+
+g_menu ? draw_menu(g_menu);
+
+gfx_dest = -1;
+gfx_set(0.79, 0.75, 0.65, 1);
+gfx_rect(0, 0, gfx_w, gfx_h);
+gfx_mode = 6; gfx_a = 1;
+gfx_blit(7, 1, 0, 0, 0, 400, 200, u_ox, u_oy, 400*u_sc, 200*u_sc);
+gfx_mode = 3; gfx_a = 0.14;
+gfx_blit(7, 1, 0, 16, 30, 368, 68, u_ox + 15*u_sc, u_oy + 29*u_sc, 370*u_sc, 70*u_sc);
+gfx_mode = 0;
+u_sc >= 2 ? (
+  gfx_set(0, 0, 0, 0.28);
+  u_j = 0; u_h = floor(u_sc*0.5);
+  loop(68, gfx_rect(u_ox + 16*u_sc, u_oy + (31 + u_j)*u_sc - u_h, 368*u_sc, u_h); u_j += 1;);
+);
+g_menu ? (
+  gfx_mode = 6; gfx_a = 1;
+  gfx_blit(7, 1, 0, u_mx0 - 1, u_my0 - 1, u_mrw + 4, u_mrh + 4, u_ox + (u_mx0 - 1)*u_sc, u_oy + (u_my0 - 1)*u_sc, (u_mrw + 4)*u_sc, (u_mrh + 4)*u_sc);
+  gfx_mode = 0;
+);
+
+mouse_just_down ? (
+  hit(228, 4, 78, 15) ? (engine = (engine + 1) % 3; slider_automate(engine);)
+  : hit(337, 34, 41, 46) ? (engine == 2 ? (hal_demo_req = 1) : (sq_req = 1);)
+  : !engine && hit(312, 4, 78, 15) ? (g_menu = 1;)
+  : hit(u_bx0, 108, u_bw, u_bh) ? (engine != 2 ? (phonetic = !phonetic; slider_automate(phonetic););)
+  : hit(u_bx1, 108, u_bw, u_bh) ? (sing = !sing; slider_automate(sing);)
+  : hit(u_bx0, 125, u_bw, u_bh) ? (keytrack = !keytrack; slider_automate(keytrack);)
+  : hit(u_bx1, 125, u_bw, u_bh) ? (noteoff = !noteoff; slider_automate(noteoff);)
+  : hit(u_bx0, 159, 142, u_bh) ? (textmode = !textmode; slider_automate(textmode);)
+  : hit(u_bx0, 142, u_bw, u_bh) ? (g_menu = 2;)
+  : hit(u_bx1, 142, u_bw, u_bh) ? (g_menu = 3;);
+);
