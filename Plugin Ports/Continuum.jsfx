@@ -1,0 +1,1695 @@
+Version: 1.0
+desc: Continuum Endless Roomtone by chmaha
+tags: roomtone room tone generator ambience noise convolution
+author: chmaha
+changelog:
+  Initial release.
+about:
+  Endless roomtone from a short recording of a quiet room. Two independent white-noise sources run through the
+  recording as a convolution impulse response, so the room's own colour and air continue for as long as you like
+  without loops or repeats. Three rooms are built in (Rosemary Hall, Ivory Chapel, Dutch Church), or drop any
+  recording onto the window. Five seconds of the recording are used: click and hold the waveform to see the
+  whole file (up to its first minute) and drag the window to choose which five. The output level matches the
+  loudness of that section, and Output Gain trims it from there; changing room or section hands over smoothly.
+  JSFX port of Continuum by chmaha (DSP: Christopher Hampson, GUI: Chloe Roux)
+  Title and labels drawn from the outlines of Audiowide, Barlow Condensed and Share Tech Mono (SIL Open Font
+  License 1.1, see Dependencies/Continuum/Continuum-LICENSE.txt)
+  Convolution engine ported from the x42 Convolver (zconvo.lv2) by Robin Gareus, with Fons Adriaensen's
+  partitioned convolution (GPL-3.0-or-later)
+  JSFX version released under GPL-3.0-or-later
+  Claude generated some of this code
+provides:
+  Dependencies/Continuum/Continuum-LICENSE.txt
+  Dependencies/Continuum/rosemary-hall.flac
+  Dependencies/Continuum/ivory-chapel.flac
+  Dependencies/Continuum/dutch-church.flac
+// Copyright (C) 2006-2018 Fons Adriaensen <fons@linuxaudio.org>
+// Copyright (C) 2018-2022 Robin Gareus <robin@gareus.org>
+// Copyright (C) 2026 chmaha
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// The convolution engine is translated from x42/zconvo.lv2 (shared with Brick by Brick).
+//
+// https://github.com/x42/zconvo.lv2
+
+slider1:gain_db=0<-12,12>-Output Gain (dB)
+slider2:mute=0<0,1,1{Off,On}>-Mute
+slider3:room=0<0,4,1{None,Rosemary Hall,Ivory Chapel,Dutch Church,File}>-Roomtone
+slider4:start_s=0<0,60,0.001>-Section Start (s)
+slider5:theme=0<0,1,1{Red,Silver}>-Theme
+
+in_pin:none
+out_pin:Left
+out_pin:Right
+
+options:no_meter
+options:maxmem=33554432
+
+@init
+ext_noinit = gfx_ext_retina = ext_nodenorm = 1;
+RSI = 65536; RSO = 131072; NWB = 160; MAXF = 1000000; STAGEMAX = 2000000; RTMAX = 16;
+BB0 = 256; FADE_MS = 40; GROW = 4; FIXQ = 1;
+NOISE_DB = -50; UNIFORM_RMS = 0.57735026; MAX_SEC = 5; SRC_SEC = 60; GMAX = 4;
+CINL = 4096; CINR = CINL + 2 * RSI; CINM = CINR + 2 * RSI;
+TMP = ceil((CINM + 2 * RSI) / 32768) * 32768;
+STAGE = TMP + 32768; PATHS = STAGE + STAGEMAX; RT = PATHS + 2 * MAXF;
+EMA = ceil((RT + RTMAX * 65536) / 65536) * 65536;
+ESZ = 148 * 65536;
+EMB = EMA + ESZ; SRCB = EMB + ESZ;
+GUIMEM = 393216;
+SRCMAX = 33554432 - GUIMEM - SRCB; GUIB = SRCB + SRCMAX;
+OVW = 1700; src_key = -1;
+strcpy(11, "Rosemary Hall"); strcpy(12, "Ivory Chapel"); strcpy(13, "Dutch Church");
+strcpy(21, "rosemary-hall"); strcpy(22, "ivory-chapel"); strcpy(23, "dutch-church");
+XTRA = 30; XTRA[1] = 0; XTRA[2] = 0; XTRA[3] = 10;
+function e_init(ebp, ez) instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age, lxtra, lsub, lacc, lsq, lemax, lmean, lrms_db, lgain, lcal, lratio, lfq, lbk, lwn, ecal, wn, edur, lfkey, lsms, ltot, ls0, etot, es0, ovn, efsr, CE, cen, ecnt, st) (
+  ebase = ebp; eend = ebp + ez;
+  LVT = ebp; OBL = ebp + 256; OBR = OBL + RSO; HD = OBR + RSO; WV = HD + 512; CE = WV + 4 * NWB; DYN = CE + 4096;
+  ready = 0; nlev = 0; lst = 0; act = 0;
+);
+
+function e_layout(nn, qb, lat, ni, np, md) instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age, lxtra, lsub, lacc, lsq, lemax, lmean, lrms_db, lgain, lcal, lratio, lfq, lbk, lwn, ecal, wn, edur, lfkey, lsms, ltot, ls0, etot, es0, ovn, efsr, CE, cen, ecnt, st) local(k, bb, oo, pp, pn, ptr, tb, nb) (
+  QB0 = qb; L = lat; nin = ni; npath = np; mode = md; irlen = nn; cin0 = md === 2 ? CINM : CINL;
+  oo = lat ? 0 : qb;
+  bb = qb; k = 0; ptr = DYN;
+  while (oo < nn && k < 15) (
+    tb = LVT + k * 16;
+    nb = min(16384, bb * GROW);
+    bb >= 16384 ? pp = ceil((nn - oo) / bb) : (
+      pn = max(1, ceil((2 * nb - qb - lat - oo) / bb));
+      pp = nn - oo <= (pn + 2) * bb ? ceil((nn - oo) / bb) : pn;
+    );
+    tb[0] = bb; tb[1] = pp; tb[2] = oo; tb[3] = bb / qb;
+    tb[10] = 2 * bb; tb[11] = pp * 2 * bb;
+    ptr = ceil(ptr / (2 * bb)) * 2 * bb;
+    tb[4] = ptr; ptr += ni * pp * 2 * bb;
+    tb[5] = ptr; ptr += pp * bb * 2 * np;
+    tb[13] = bb * 2 * np;
+    ptr = ceil(ptr / (2 * bb)) * 2 * bb;
+    tb[6] = ptr; ptr += 2 * bb;
+    tb[7] = ptr; ptr += 2 * bb;
+    tb[8] = pp - 1; tb[9] = 0;
+    tb[12] = oo + lat + 1 - bb - (bb / qb - 1) * qb;
+    oo += pp * bb;
+    bb = nb;
+    k += 1;
+  );
+  nlev = k; ncov = oo;
+  span = oo + lat + 2 * 16384 + 2 * qb;
+  ptr <= eend ? ( memset(DYN, 0, ptr - DYN); memset(OBL, 0, 2 * RSO); memset(HD, 0, 512); ph = 0; 1; ) : 0;
+);
+
+
+function e_reset() instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age, lxtra, lsub, lacc, lsq, lemax, lmean, lrms_db, lgain, lcal, lratio, lfq, lbk, lwn, ecal, wn, edur, lfkey, lsms, ltot, ls0, etot, es0, ovn, efsr, CE, cen, ecnt, st) local(k, tb) (
+  k = 0;
+  loop(nlev,
+    tb = LVT + k * 16;
+    memset(tb[4], 0, nin * tb[1] * tb[10]);
+    memset(tb[6], 0, tb[10]); memset(tb[7], 0, tb[10]);
+    tb[8] = tb[1] - 1; tb[9] = 0;
+    k += 1;
+  );
+  memset(OBL, 0, RSO); memset(OBR, 0, RSO);
+  ph = 0; age = 0;
+);
+
+function mac_ts(xx, xc, hq, hb, al, ar, pp, sq, n2, q0, q1) local(b, xp, hp, lr, li, rr, ri, xa, xb, xe, xf, xc1, na) (
+  xc1 = xc + 1; na = sq + 1; b = q0;
+  b === 0 ? (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * 0; hp = hq + 0 * 8;
+      loop(na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] + xe * hp[4]; li += xb * hp[1] + xf * hp[5];
+          rr += xa * hp[2] + xe * hp[6]; ri += xb * hp[3] + xf * hp[7];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * 0;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] + xe * hp[4]; li += xb * hp[1] + xf * hp[5];
+          rr += xa * hp[2] + xe * hp[6]; ri += xb * hp[3] + xf * hp[7];
+          xp -= n2; hp += hb;
+      );
+      al[2 * 0] = lr; al[2 * 0 + 1] = li; ar[2 * 0] = rr; ar[2 * 0 + 1] = ri;
+      b = 1;
+  );
+  while (b < q1) (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * b; hp = hq + b * 8;
+      loop(na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] - xb * hp[1] + xe * hp[4] - xf * hp[5];
+          li += xa * hp[1] + xb * hp[0] + xe * hp[5] + xf * hp[4];
+          rr += xa * hp[2] - xb * hp[3] + xe * hp[6] - xf * hp[7];
+          ri += xa * hp[3] + xb * hp[2] + xe * hp[7] + xf * hp[6];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * b;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] - xb * hp[1] + xe * hp[4] - xf * hp[5];
+          li += xa * hp[1] + xb * hp[0] + xe * hp[5] + xf * hp[4];
+          rr += xa * hp[2] - xb * hp[3] + xe * hp[6] - xf * hp[7];
+          ri += xa * hp[3] + xb * hp[2] + xe * hp[7] + xf * hp[6];
+          xp -= n2; hp += hb;
+      );
+      al[2 * b] = lr; al[2 * b + 1] = li; ar[2 * b] = rr; ar[2 * b + 1] = ri;
+      b += 1;
+  );
+);
+
+function mac_st(xx, xc, hq, hb, al, ar, pp, sq, n2, q0, q1) local(b, xp, hp, lr, li, rr, ri, xa, xb, xe, xf, xc1, na) (
+  xc1 = xc + 1; na = sq + 1; b = q0;
+  b === 0 ? (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * 0; hp = hq + 0 * 4;
+      loop(na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0]; li += xb * hp[1]; rr += xe * hp[2]; ri += xf * hp[3];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * 0;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0]; li += xb * hp[1]; rr += xe * hp[2]; ri += xf * hp[3];
+          xp -= n2; hp += hb;
+      );
+      al[2 * 0] = lr; al[2 * 0 + 1] = li; ar[2 * 0] = rr; ar[2 * 0 + 1] = ri;
+      b = 1;
+  );
+  while (b < q1) (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * b; hp = hq + b * 4;
+      loop(na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] - xb * hp[1]; li += xa * hp[1] + xb * hp[0];
+          rr += xe * hp[2] - xf * hp[3]; ri += xe * hp[3] + xf * hp[2];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * b;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] - xb * hp[1]; li += xa * hp[1] + xb * hp[0];
+          rr += xe * hp[2] - xf * hp[3]; ri += xe * hp[3] + xf * hp[2];
+          xp -= n2; hp += hb;
+      );
+      al[2 * b] = lr; al[2 * b + 1] = li; ar[2 * b] = rr; ar[2 * b + 1] = ri;
+      b += 1;
+  );
+);
+
+function mac_ms(xx, hq, hb, al, ar, pp, sq, n2, q0, q1) local(b, xp, hp, lr, li, rr, ri, xa, xb, xe, xf, xc1, na) (
+  xc1 = 0; na = sq + 1; b = q0;
+  b === 0 ? (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * 0; hp = hq + 0 * 4;
+      loop(na,
+        xa = xp[0]; xb = xp[1];
+          lr += xa * hp[0]; li += xb * hp[1]; rr += xa * hp[2]; ri += xb * hp[3];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * 0;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1];
+          lr += xa * hp[0]; li += xb * hp[1]; rr += xa * hp[2]; ri += xb * hp[3];
+          xp -= n2; hp += hb;
+      );
+      al[2 * 0] = lr; al[2 * 0 + 1] = li; ar[2 * 0] = rr; ar[2 * 0 + 1] = ri;
+      b = 1;
+  );
+  while (b < q1) (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * b; hp = hq + b * 4;
+      loop(na,
+        xa = xp[0]; xb = xp[1];
+          lr += xa * hp[0] - xb * hp[1]; li += xa * hp[1] + xb * hp[0];
+          rr += xa * hp[2] - xb * hp[3]; ri += xa * hp[3] + xb * hp[2];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * b;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1];
+          lr += xa * hp[0] - xb * hp[1]; li += xa * hp[1] + xb * hp[0];
+          rr += xa * hp[2] - xb * hp[3]; ri += xa * hp[3] + xb * hp[2];
+          xp -= n2; hp += hb;
+      );
+      al[2 * b] = lr; al[2 * b + 1] = li; ar[2 * b] = rr; ar[2 * b + 1] = ri;
+      b += 1;
+  );
+);
+
+
+function e_tick() instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age, lxtra, lsub, lacc, lsq, lemax, lmean, lrms_db, lgain, lcal, lratio, lfq, lbk, lwn, ecal, wn, edur, lfkey, lsms, ltot, ls0, etot, es0, ovn, efsr, CE, cen, ecnt, st) local(k, tb, bb, pp, tt, tcn, n2, xx, xc, al, ar, sq, q0, q1, os, n1, src, dst) (
+  k = 0;
+  loop(nlev,
+    tb = LVT + k * 16;
+    bb = tb[0]; pp = tb[1]; tt = tb[3]; n2 = tb[10]; tcn = tb[9]; xx = tb[4]; xc = tb[11];
+    al = tb[6]; ar = tb[7];
+    tcn === 0 ? (
+      sq = tb[8] + 1; sq >= pp ? sq = 0; tb[8] = sq;
+      memcpy(xx + sq * n2, cin0 + wi + 1 - n2 + RSI, n2);
+      age < n2 ? memset(xx + sq * n2, 0, n2 - age);
+      fft_real(xx + sq * n2, n2);
+      nin > 1 ? (
+        memcpy(xx + xc + sq * n2, CINR + wi + 1 - n2 + RSI, n2);
+        age < n2 ? memset(xx + xc + sq * n2, 0, n2 - age);
+        fft_real(xx + xc + sq * n2, n2);
+      );
+    ) : sq = tb[8];
+    q0 = floor(tcn * bb / tt); q1 = floor((tcn + 1) * bb / tt);
+    q1 > q0 ? (
+      mode === 0 ? mac_ts(xx, xc, tb[5], tb[13], al, ar, pp, sq, n2, q0, q1) :
+      mode === 1 ? mac_st(xx, xc, tb[5], tb[13], al, ar, pp, sq, n2, q0, q1) :
+      mac_ms(xx, tb[5], tb[13], al, ar, pp, sq, n2, q0, q1);
+    );
+    tcn === tt - 1 ? (
+      ifft_real(al, n2); ifft_real(ar, n2);
+      os = opos + tb[12]; os >= RSO ? os -= RSO;
+      n1 = min(bb, RSO - os);
+      src = al + bb; dst = OBL + os; loop(n1, dst[] += src[]; dst += 1; src += 1;);
+      dst = OBL; loop(bb - n1, dst[] += src[]; dst += 1; src += 1;);
+      src = ar + bb; dst = OBR + os; loop(n1, dst[] += src[]; dst += 1; src += 1;);
+      dst = OBR; loop(bb - n1, dst[] += src[]; dst += 1; src += 1;);
+      tb[9] = 0;
+    ) : tb[9] = tcn + 1;
+    k += 1;
+  );
+);
+
+function e_sample() instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age, lxtra, lsub, lacc, lsq, lemax, lmean, lrms_db, lgain, lcal, lratio, lfq, lbk, lwn, ecal, wn, edur, lfkey, lsms, ltot, ls0, etot, es0, ovn, efsr, CE, cen, ecnt, st) local(xl, xr, hp, a0, a1, v0, v1) (
+  quiet > span ? (
+    ywl = ywr = 0;
+    ph += 1; ph >= QB0 ? ph = 0;
+  ) : (
+    age < 65536 ? age += 1;
+    ph += 1; ph >= QB0 ? ( ph = 0; this.e_tick(); );
+    ywl = OBL[opos]; ywr = OBR[opos]; OBL[opos] = 0; OBR[opos] = 0;
+    L === 0 ? (
+      mode === 0 ? (
+      xl = CINL + wi + RSI; xr = CINR + wi + RSI; hp = HD; a0 = a1 = 0;
+      loop(min(QB0, age), v0 = xl[]; v1 = xr[]; a0 += v0 * hp[0] + v1 * hp[2]; a1 += v0 * hp[1] + v1 * hp[3]; xl -= 1; xr -= 1; hp += 4;);
+      ywl += a0; ywr += a1;
+      ) : mode === 1 ? (
+      xl = CINL + wi + RSI; xr = CINR + wi + RSI; hp = HD; a0 = a1 = 0;
+      loop(min(QB0, age), a0 += xl[] * hp[0]; a1 += xr[] * hp[1]; xl -= 1; xr -= 1; hp += 2;);
+      ywl += a0; ywr += a1;
+      ) : (
+      xl = cin0 + wi + RSI; hp = HD; a0 = a1 = 0;
+      loop(min(QB0, age), v0 = xl[]; a0 += v0 * hp[0]; a1 += v0 * hp[1]; xl -= 1; hp += 2;);
+      ywl += a0; ywr += a1;
+      );
+    );
+  );
+);
+
+function e_pow() instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age, lxtra, lsub, lacc, lsq, lemax, lmean, lrms_db, lgain, lcal, lratio, lfq, lbk, lwn, ecal, wn, edur, lfkey, lsms, ltot, ls0, etot, es0, ovn, efsr, CE, cen, ecnt, st) local(a, j) (
+  a = ecnt - L;
+  a <= 0 ? 0 : ( j = floor(a / 256); j >= cen ? 1 : CE[j]; );
+);
+
+function e_load_begin(xadd, fkey, sms) instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age, lxtra, lsub, lacc, lsq, lemax, lmean, lrms_db, lgain, lcal, lratio, lfq, lbk, lwn, ecal, wn, edur, lfkey, lsms, ltot, ls0, etot, es0, ovn, efsr, CE, cen, ecnt, st) (
+  ready = 0; lst = 0; lerr = 0;
+  lxtra = xadd; lfkey = fkey; lsms = sms; lsr = srate;
+  lh >= 0 && lopen ? file_close(lh);
+  lopen = 0;
+  src_key === fkey ? ( lpos = 0; lst = 5; ) : (
+    lh = file_open(#ldpath);
+    lh < 0 ? ( lerr = 1; lst = -1; ) : (
+      lopen = 1;
+      lnch = 0; lfsr = 0;
+      file_riff(lh, lnch, lfsr);
+      (lnch < 1 || lfsr < 1000) ? ( file_close(lh); lopen = 0; lerr = 2; lst = -1; ) : (
+        ltot = floor(file_avail(lh) / lnch);
+        lnc = min(lnch, 2);
+        ltot = min(ltot, min(floor(lfsr * SRC_SEC), floor(SRCMAX / lnc)));
+        ltot < 1 ? ( file_close(lh); lopen = 0; lerr = 4; lst = -1; ) :
+        lnch > RTMAX ? ( file_close(lh); lopen = 0; lerr = 5; lst = -1; ) : (
+          src_key = -1; lpos = 0; lst = 1;
+        );
+      );
+    );
+  );
+  lst;
+);
+
+function e_load_cancel() instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age, lxtra, lsub, lacc, lsq, lemax, lmean, lrms_db, lgain, lcal, lratio, lfq, lbk, lwn, ecal, wn, edur, lfkey, lsms, ltot, ls0, etot, es0, ovn, efsr, CE, cen, ecnt, st) (
+  lopen ? file_close(lh); lopen = 0; lst = 0; ready = 0;
+);
+
+function e_load_step(budget) instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age, lxtra, lsub, lacc, lsq, lemax, lmean, lrms_db, lgain, lcal, lratio, lfq, lbk, lwn, ecal, wn, edur, lfkey, lsms, ltot, ls0, etot, es0, ovn, efsr, CE, cen, ecnt, st) local(work, n, got, m1, tb, bb, n2, oo, cnt, sp, dp, sc, hp, hs, src, j, pk, v, s0, s1, ix, fr, pos, fl, gg, i, b) (
+  work = 0;
+  while (work < budget && lst > 0 && lst < 6) (
+    lst === 1 ? (
+      n = min(65536, ltot - lpos);
+      got = n > 0 ? file_mem(lh, RT, n * lnch) : 0;
+      sp = RT; dp = SRCB + lpos * lnc;
+      lnc === 1 ? ( loop(n, dp[] = sp[]; dp += 1; sp += lnch;); ) :
+      ( loop(n, dp[0] = sp[0]; dp[1] = sp[1]; dp += 2; sp += lnch;); );
+      lpos += n; work += n * lnch;
+      (lpos >= ltot || got < n * lnch) ? (
+        file_close(lh); lopen = 0;
+        ltot = lpos;
+        src_key = lfkey; src_fsr = lfsr; src_tot = ltot; src_nc = lnc;
+        lbk = max(1, ceil(ltot / NWB)); OVCNT = ceil(ltot / lbk);
+        b = 0;
+        loop(OVCNT,
+          sp = SRCB + b * lbk * lnc; pk = 0;
+          loop(min(lbk, ltot - b * lbk), v = abs(sp[]); v > pk ? pk = v; sp += lnc;);
+          OVW[b] = pk;
+          b += 1;
+        );
+        work += ltot;
+        lpos = 0; lst = 5;
+      );
+    ) : lst === 5 ? (
+      lfsr = src_fsr; lnch = src_nc; lnc = src_nc;
+      lfr = min(src_tot, min(floor(lfsr * MAX_SEC), floor(STAGEMAX / lnc)));
+      ls0 = max(0, min(src_tot - lfr, floor(lsms / 1000 * lfsr + 0.5)));
+      memcpy(STAGE, SRCB + ls0 * lnc, lfr * lnc);
+      work += lfr * lnc;
+      etot = src_tot; es0 = ls0; ovn = OVCNT;
+      j = 0; loop(OVCNT, WV[NWB + j] = OVW[j]; j += 1;);
+      lc = 0; lpos = 0; lsub = 0; lacc = 0; lsq = 0; lemax = 0; lst = 2;
+    ) : lst === 2 ? (
+      m1 = min(lfr, lpos + 65536);
+      sp = STAGE + lpos * lnch + lc;
+      lsub === 0 ? (
+        loop(m1 - lpos, lacc += sp[]; sp += lnch;);
+      ) : lsub === 1 ? (
+        loop(m1 - lpos, sp[] -= lmean; sp += lnch;);
+      ) : (
+        loop(m1 - lpos, v = sp[]; lacc += v * v; sp += lnch;);
+      );
+      work += m1 - lpos;
+      lpos = m1;
+      lpos >= lfr ? (
+        lpos = 0;
+        lsub === 0 ? ( lmean = lacc / lfr; lacc = 0; lsub = 1; ) :
+        lsub === 1 ? (
+          fl = min(floor(lfsr * 0.005), floor(lfr / 2));
+          i = 0;
+          loop(fl,
+            v = 0.5 - 0.5 * cos($pi * (i / fl));
+            STAGE[i * lnch + lc] *= v;
+            STAGE[(lfr - 1 - i) * lnch + lc] *= v;
+            i += 1;
+          );
+          lsub = 2; lacc = 0;
+        ) : (
+          lsq += lacc; lemax = max(lemax, lacc); lacc = 0;
+          lsub = 0; lc += 1;
+          lc >= lnc ? (
+            v = sqrt(lsq / (lfr * lnc));
+            lrms_db = 20 * log10(max(v, 0.000000000001));
+            lgain = lemax > 0 ? 1 / sqrt(lemax) : 1;
+            lcal = lrms_db - NOISE_DB + lxtra;
+            lrs = lfsr !== floor(lsr);
+            lratio = floor(lsr) / lfsr;
+            lrn = lrs ? floor(lfr * lratio + 0.5) : lfr;
+            lfq = FIXQ && lrs ? sqrt(lfsr / floor(lsr)) : 1;
+            lbk = max(1, ceil(lfr / NWB)); lwn = ceil(lfr / lbk);
+            b = 0;
+            loop(lwn,
+              sp = STAGE + b * lbk * lnch; pk = 0;
+              loop(min(lbk, lfr - b * lbk), v = abs(sp[]); v > pk ? pk = v; sp += lnch;);
+              WV[b] = pk * lgain;
+              b += 1;
+            );
+            work += lfr;
+            lrn > MAXF ? ( lerr = 3; lst = -1; ) : ( lc = 0; lpos = 0; lst = 3; );
+          );
+        );
+      );
+    ) : lst === 3 ? (
+      m1 = min(lrn, lpos + 32768);
+      dp = PATHS + lc * MAXF + lpos;
+      gg = lgain * lfq;
+      lrs ? (
+        i = lpos;
+        loop(m1 - lpos,
+          pos = i / lratio; ix = floor(pos); fr = pos - ix;
+          s0 = STAGE[min(ix, lfr - 1) * lnch + lc]; s1 = STAGE[min(ix + 1, lfr - 1) * lnch + lc];
+          dp[] = (s0 + (s1 - s0) * fr) * gg;
+          dp += 1; i += 1;
+        );
+        work += 4 * (m1 - lpos);
+      ) : (
+        sp = STAGE + lpos * lnch + lc;
+        loop(m1 - lpos, dp[] = sp[] * gg; dp += 1; sp += lnch;);
+        work += m1 - lpos;
+      );
+      lpos = m1;
+      lpos >= lrn ? (
+        lpos = 0; lc += 1;
+        lc >= lnc ? (
+          lpm0 = 0; lpm1 = lnc >= 2 ? 1 : 0;
+          this.e_layout(lrn, BB0, BB0, 2, 2, 1) ? ( lc = 0; lk = 0; lp = 0; lst = 4; ) : ( lerr = 3; lst = -1; );
+        );
+      );
+    ) : lst === 4 ? (
+      tb = LVT + lk * 16;
+      bb = tb[0]; n2 = tb[10]; oo = tb[2] + lp * bb;
+      src = PATHS + (lc === 0 ? lpm0 : lpm1) * MAXF;
+      memset(TMP, 0, n2);
+      cnt = max(0, min(bb, lrn - oo));
+      sc = 1 / (4 * n2);
+      sp = src + oo; dp = TMP;
+      loop(cnt, dp[] = sp[] * sc; dp += 1; sp += 1;);
+      fft_real(TMP, n2);
+      hs = 2 * npath;
+      hp = tb[5] + lp * tb[13] + 2 * lc; sp = TMP;
+      loop(bb, hp[0] = sp[0]; hp[1] = sp[1]; hp += hs; sp += 2;);
+      work += 6 * n2;
+      lp += 1;
+      lp >= tb[1] ? (
+        lp = 0; lk += 1;
+        lk >= nlev ? (
+          lk = 0; lc += 1;
+          lc >= npath ? (
+            ecal = 10 ^ (lcal / 20); wn = lwn; edur = lfr / lfsr; efsr = lfsr;
+            v = 0; j = 0; cen = ceil(lrn / 256);
+            loop(cen,
+              sp = PATHS + j * 256; dp = PATHS + MAXF * lpm1 + j * 256;
+              loop(min(256, lrn - j * 256), v += sp[] * sp[] + (lpm1 ? dp[] * dp[] : sp[] * sp[]); sp += 1; dp += 1;);
+              CE[j] = v; j += 1;
+            );
+            j = 0; loop(cen, CE[j] = v > 0 ? CE[j] / v : 1; j += 1;);
+            wver += 1; lst = 6; ready = 1;
+          );
+        );
+      );
+    );
+  );
+  work;
+);
+
+
+function e_ready(e) ( e === 1 ? ea.ready : e === 2 ? eb.ready : 0; );
+
+function want_key() (
+  wroom = max(0, min(4, floor(room + 0.5)));
+  wroom === 4 && !irpath_ok ? wroom = 0;
+  wfkey = wroom === 4 ? 1000000 + cpv : wroom;
+  wsms = max(0, floor(start_s * 1000 + 0.5));
+  wroom === 0 ? 0 : wfkey + wsms * 8388608;
+);
+
+function set_path(k) (
+  wroom === 4 ? strcpy(#ldpath, #irpath) : (
+    strcpy(#ldpath, k ? "Dependencies/Continuum/" : "Continuum/");
+    strcat(#ldpath, 20 + wroom); strcat(#ldpath, ".flac");
+  );
+);
+
+function base_name(dst, src) local(n, i, c, k) (
+  n = strlen(src); k = 0; i = 0;
+  loop(n, c = str_getchar(src, i); (c === 47 || c === 92) ? k = i + 1; i += 1;);
+  strcpy_substr(dst, src, k, n - k);
+);
+
+function start_load(tgt) local(r, x) (
+  x = wroom === 4 ? 0 : XTRA[wroom];
+  wroom === 4 ? base_name(#ld_name, #irpath) : strcpy(#ld_name, 10 + wroom);
+  set_path(0);
+  r = tgt === 1 ? ea.e_load_begin(x, wfkey, wsms) : eb.e_load_begin(x, wfkey, wsms);
+  r < 0 && wroom !== 4 ? ( set_path(1); r = tgt === 1 ? ea.e_load_begin(x, wfkey, wsms) : eb.e_load_begin(x, wfkey, wsms); );
+  r < 0 ? ( fail_key = lkey; ld_e = 0; load_err = tgt === 1 ? ea.lerr : eb.lerr; ) : ( ld_e = tgt; load_err = 0; );
+);
+
+function nz_reset() ( nlh = 9541; nll = 62609; nrh = 40503; nrl = 31161; );
+
+function e_free(e) ( e === 1 ? ( ea.act = 0; ea.ready = 0; ea.st = 0; ) : e === 2 ? ( eb.act = 0; eb.ready = 0; eb.st = 0; ); );
+
+function activate(tgt) (
+  old ? ( kill = old; kpos = 0; kg0 = old === 1 ? ea.gsc : eb.gsc; old === 1 ? ea.st = 3 : eb.st = 3; );
+  old = cur;
+  old === 1 ? ea.st = 2 : old === 2 ? eb.st = 2;
+  cur = tgt; akey = lkey; comp = 0;
+  nz_reset();
+  tgt === 1 ? ( ea.act = 1; ea.age = 0; ea.ecnt = 0; ea.st = 1; ea.gsc = 1; ) : ( eb.act = 1; eb.age = 0; eb.ecnt = 0; eb.st = 1; eb.gsc = 1; );
+  ld_e = 0;
+  strcpy(#cur_name, #ld_name);
+  shown = lkey; shown_err = 0;
+);
+
+function kill_old() (
+  old ? ( kill = old; kpos = 0; kg0 = old === 1 ? ea.gsc : eb.gsc; old === 1 ? ea.st = 3 : eb.st = 3; old = 0; comp = 1; );
+);
+
+function deactivate() (
+  kill_old();
+  cur ? ( kill2 = cur; kpos2 = 0; kg2 = cur === 1 ? ea.gsc : eb.gsc; cur === 1 ? ea.st = 3 : eb.st = 3; cur = 0; );
+  akey = 0; shown = 0; shown_err = 0;
+);
+
+function control(sync) local(k, tgt, w) (
+  k = want_key();
+  k === 0 ? (
+    ld_e === 1 ? ea.e_load_cancel() : ld_e === 2 ? eb.e_load_cancel();
+    ld_e = 0; lkey = 0; load_err = 0; shown_err = 0;
+    akey !== 0 && !kill && !kill2 ? deactivate();
+  ) : k !== akey && k !== fail_key ? (
+    old && !kill ? kill_old();
+    !old && !kill && !kill2 && (ld_e === 0 || k !== lkey) ? (
+      ld_e === 1 ? ea.e_load_cancel() : ld_e === 2 ? eb.e_load_cancel();
+      lkey = k;
+      tgt = cur === 1 ? 2 : 1;
+      start_load(tgt);
+    );
+  );
+  ld_e ? (
+    (sync || !cur) ? (
+      w = 0; while (ld_e && (ld_e === 1 ? ea.lst : eb.lst) > 0 && (ld_e === 1 ? ea.lst : eb.lst) < 6 && w < 1000000000) (
+        w += ld_e === 1 ? ea.e_load_step(10000000) : eb.e_load_step(10000000);
+      );
+    ) : (
+      ld_e === 1 ? ea.e_load_step(LBUDGET * samplesblock) : eb.e_load_step(LBUDGET * samplesblock);
+    );
+    e_ready(ld_e) && !kill ? activate(ld_e) : (ld_e === 1 ? ea.lst : eb.lst) < 0 ? (
+      fail_key = lkey; load_err = ld_e === 1 ? ea.lerr : eb.lerr; ld_e = 0; shown_err = load_err;
+    );
+  );
+  load_err ? shown_err = load_err;
+);
+
+LBUDGET = 400;
+ea.e_init(EMA, ESZ); eb.e_init(EMB, ESZ);
+ea.lh = eb.lh = -1;
+cur = old = kill = kill2 = ld_e = comp = 0; akey = lkey = 0; fail_key = -1; cpv = 0; irpath_ok = 0; load_err = 0; shown = 0; shown_err = 0;
+wi = opos = quiet = 0;
+nz_reset();
+last_srate = 0;
+sm_tgt = sm_cur = 1; sm_n = 0; sm_k = 1; p_gdb = -1000; G_SETS = -1;
+function gsx(x) ( G_OX + x * G_SC; );
+function gsy(y) ( y * G_SC; );
+function gclamp(x, a, b) ( min(b, max(a, x)); );
+
+function grspan(qx0, qy0, qx1, qy1, qrad, yc) local(dy, ins) (
+  dy = yc < qy0 + qrad ? qy0 + qrad - yc : yc > qy1 - qrad ? yc - (qy1 - qrad) : 0;
+  G_RC = max(0, min(1, qrad - dy + 0.5));
+  dy = min(qrad, dy);
+  ins = qrad - sqrt(max(0, qrad * qrad - dy * dy));
+  G_RL = qx0 + ins; G_RR = qx1 - ins;
+);
+
+function gspan(lx, rx, j, a) local(lc, rc) (
+  lc = ceil(lx); rc = floor(rx);
+  rc >= lc ? (
+    gfx_a = a; rc > lc ? gfx_rect(lc, j, rc - lc, 1);
+    lc - lx > 0 ? ( gfx_a = a * (lc - lx); gfx_rect(lc - 1, j, 1, 1); );
+    rx - rc > 0 ? ( gfx_a = a * (rx - rc); gfx_rect(rc, j, 1, 1); );
+  ) : rx > lx ? ( gfx_a = a * (rx - lx); gfx_rect(floor(lx), j, 1, 1); );
+);
+
+function gfrr(qx0, qy0, qx1, qy1, qrad, cr, cg, cb, a0) local(j) (
+  qx0 = floor(qx0 + 0.5); qy0 = floor(qy0 + 0.5); qx1 = floor(qx1 + 0.5); qy1 = floor(qy1 + 0.5);
+  qrad = max(0, min(qrad, min(qy1 - qy0, qx1 - qx0) * 0.5));
+  gfx_set(cr, cg, cb, a0);
+  j = qy0;
+  loop(qy1 - qy0,
+    grspan(qx0, qy0, qx1, qy1, qrad, j + 0.5);
+    G_RC > 0 ? gspan(G_RL, G_RR, j, a0 * G_RC);
+    j += 1;
+  );
+  gfx_a = 1;
+);
+
+function gbord(qx0, qy0, qx1, qy1, qrad, t, cr, cg, cb, a0) local(j, ol, orr, oc, il, ir, ic) (
+  qx0 = floor(qx0 + 0.5); qy0 = floor(qy0 + 0.5); qx1 = floor(qx1 + 0.5); qy1 = floor(qy1 + 0.5);
+  qrad = max(0, min(qrad, min(qy1 - qy0, qx1 - qx0) * 0.5));
+  gfx_set(cr, cg, cb, a0);
+  j = qy0;
+  loop(qy1 - qy0,
+    grspan(qx0, qy0, qx1, qy1, qrad, j + 0.5); ol = G_RL; orr = G_RR; oc = G_RC;
+    (j + 0.5 > qy0 + t && j + 0.5 < qy1 - t) ? (
+      grspan(qx0 + t, qy0 + t, qx1 - t, qy1 - t, max(0, qrad - t), j + 0.5); il = G_RL; ir = G_RR; ic = G_RC;
+    ) : ( ic = 0; );
+    oc > 0 ? (
+      ic <= 0 ? gspan(ol, orr, j, a0 * oc) : (
+        gspan(ol, il, j, a0 * oc);
+        gspan(ir, orr, j, a0 * oc);
+        oc - ic > 0.004 ? gspan(il, ir, j, a0 * (oc - ic));
+      );
+    );
+    j += 1;
+  );
+  gfx_a = 1;
+);
+
+function gcard(x, y, w, h, r, a0, ba) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = max(2, floor(r * G_SC));
+  gfrr(xx, yy, xx + ww, yy + hh, rr, 0.165, 0.17, 0.18, a0);
+  gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), 0.62, 0.66, 0.70, ba);
+);
+
+function gtext(x, y, s, fnt, r, g, b, a, ctr) local(tw, th) (
+  gfx_setfont(fnt);
+  gfx_set(r, g, b, a);
+  gfx_measurestr(s, tw, th);
+  gfx_x = ctr === 1 ? gsx(x) - tw * 0.5 : ctr === 2 ? gsx(x) - tw : gsx(x);
+  gfx_y = gsy(y) - th * 0.5;
+  gfx_drawstr(s);
+);
+
+function gann(cx, cy, ri, ro, aa, ab, cr, cg, cb, al) local(py, px, dy, dx, hwo, hwi, d, cv, th, ca, x0, x1, x2, x3) (
+  py = floor(cy - ro - 1);
+  loop(ceil(2 * ro + 3),
+    dy = py + 0.5 - cy;
+    hwo = sqrt(max(0, (ro + 0.5) * (ro + 0.5) - dy * dy));
+    hwo > 0 ? (
+      hwi = ri > 0.5 ? sqrt(max(0, (ri - 0.5) * (ri - 0.5) - dy * dy)) : 0;
+      x0 = floor(cx - hwo); x1 = ceil(cx - hwi); x2 = floor(cx + hwi); x3 = ceil(cx + hwo);
+      hwi <= 0 ? x1 = x3 + 1;
+      px = x0;
+      while (px <= x3) (
+        dx = px + 0.5 - cx;
+        d = sqrt(dx * dx + dy * dy);
+        cv = min(1, min(ro - d + 0.5, d - ri + 0.5));
+        cv > 0 ? (
+          th = atan2(dx, -dy);
+          ca = min(1, min((th - aa) * d + 0.5, (ab - th) * d + 0.5));
+          ca > 0 ? (
+            gfx_set(cr, cg, cb, al * cv * ca);
+            gfx_rect(px, py, 1, 1);
+          );
+        );
+        px += 1;
+        (px > x1 && px < x2) ? px = x2;
+      );
+    );
+    py += 1;
+  );
+  gfx_a = 1;
+);
+
+function gbar(x0, y0, x1, y1, w) local(dx, dy, ll, hw, bx0, by0, bx1, by1, px, py, qx, qy, t, ex, ey, d, cv, cr, cg, cb, ca) (
+  cr = gfx_r; cg = gfx_g; cb = gfx_b; ca = gfx_a;
+  dx = x1 - x0; dy = y1 - y0; ll = max(0.000001, dx * dx + dy * dy);
+  hw = w * 0.5;
+  bx0 = floor(min(x0, x1) - hw - 1); bx1 = ceil(max(x0, x1) + hw + 1);
+  by0 = floor(min(y0, y1) - hw - 1); by1 = ceil(max(y0, y1) + hw + 1);
+  py = by0;
+  while (py <= by1) (
+    px = bx0;
+    while (px <= bx1) (
+      qx = px + 0.5; qy = py + 0.5;
+      t = max(0, min(1, ((qx - x0) * dx + (qy - y0) * dy) / ll));
+      ex = qx - (x0 + t * dx); ey = qy - (y0 + t * dy);
+      d = sqrt(ex * ex + ey * ey);
+      cv = min(1, hw - d + 0.5);
+      cv > 0 ? ( gfx_set(cr, cg, cb, ca * cv); gfx_rect(px, py, 1, 1); );
+      px += 1;
+    );
+    py += 1;
+  );
+  gfx_set(cr, cg, cb, ca);
+);
+
+function gknob(kx, ky, kr, v, ctr, hov, nm, vs, dim) local(cx, cy, r, a0, a1, sa, ca, px0, py0, al) (
+  cx = gsx(kx); cy = gsy(ky); r = kr * G_SC;
+  al = dim ? 0.66 : 1;
+  a0 = -$pi * 0.75; a1 = $pi * 0.75;
+  gfx_set(0.02, 0.02, 0.03, 0.5 * al);
+  gfx_circle(cx, cy, r + 3 * G_SC, 1, 1);
+  gfx_set(G_KRR, G_KRG, G_KRB, 1);
+  gfx_circle(cx, cy, r - 5 * G_SC, 1, 1);
+  gfx_set(G_KFR, G_KFG, G_KFB, 1);
+  gfx_circle(cx, cy, r - 7 * G_SC, 1, 1);
+  gfx_set(G_KIR, G_KIG, G_KIB, 1);
+  gfx_circle(cx, cy + 1.2 * G_SC, r - 9 * G_SC, 1, 1);
+  gann(cx, cy, r - 1.2 * G_SC, r + 1.2 * G_SC, a0, a1, G_KTR, G_KTG, G_KTB, 0.6 * al);
+  sa = a0 + (a1 - a0) * v;
+  ca = a0 + (a1 - a0) * ctr;
+  abs(sa - ca) > 0.001 ? (
+    gann(cx, cy, r - 3.5 * G_SC, r + 3.5 * G_SC, min(ca, sa), max(ca, sa), G_ACR, G_ACG, G_ACB, 0.18 * al);
+    gann(cx, cy, r - 1.5 * G_SC, r + 1.5 * G_SC, min(ca, sa), max(ca, sa), G_ACR, G_ACG, G_ACB, al);
+  );
+  px0 = cx + sin(sa) * (r - 8 * G_SC);
+  py0 = cy - cos(sa) * (r - 8 * G_SC);
+  gfx_set(G_KPR, G_KPG, G_KPB, (hov ? 1 : 0.86) * al);
+  gbar(cx + sin(sa) * (r * 0.22), cy - cos(sa) * (r * 0.22), px0, py0, max(1.5, 2.4 * G_SC));
+  gtext(kx, ky - kr - 13, nm, 1, G_T1R, G_T1G, G_T1B, 0.95 * al, 1);
+  gtext(kx, ky + kr + 13, vs, 2, G_ACR, G_ACG, G_ACB, 0.95 * al, 1);
+);
+function gbtn(x, y, w, h, lb, on, hov) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = floor(h * 0.5 * G_SC);
+  on ? (
+    gfrr(xx, yy, xx + ww, yy + hh, rr, G_ACR, G_ACG, G_ACB, hov ? 1 : 0.9);
+    gtext(x + w * 0.5, y + h * 0.5, lb, 3, G_DKR, G_DKG, G_DKB, 1, 1);
+  ) : (
+    gfrr(xx, yy, xx + ww, yy + hh, rr, G_BFR, G_BFG, G_BFB, hov ? 0.95 : 0.8);
+    gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), G_BDR, G_BDG, G_BDB, hov ? 0.7 : 0.4);
+    gtext(x + w * 0.5, y + h * 0.5, lb, 3, G_T2R, G_T2G, G_T2B, hov ? 1 : 0.8, 1);
+  );
+);
+
+function gauto(s, e) (
+<?
+max_sliders > 5 ? printf("slider_automate(2^(s-1), e);") : (
+  printf("s == 1 ? slider_automate(gain_db, e) :\n");
+  printf("s == 2 ? slider_automate(mute, e) :\n");
+  printf("s == 3 ? slider_automate(room, e) :\n");
+  printf("s == 4 ? slider_automate(start_s, e) :\n");
+  printf("s == 5 ? slider_automate(theme, e) : 0;");
+);
+?>
+);
+
+FASC = GUIB; FDSC = GUIB + 4; FGAP = GUIB + 8; KRN = GUIB + 16; GADV = GUIB + 128; CMAP = GUIB + 512;
+GEO = GUIB + 1536; GEN = GUIB + 1856; GLG = GUIB + 2176; GLX = GUIB + 2432; SPO = GUIB + 2688; SPC = GUIB + 2752;
+TX = GUIB + 2816; TD = GUIB + 3840; TC = GUIB + 4864; GE = GUIB + 8192; TE = GUIB + 73728; SPD = GUIB + 106496;
+DYO0 = SPD + 180000; G_OYS = 0; PVW = GUIB + 7000; G_PVON = 0; G_ZOOM = 0;
+CMW = 320;
+function gfont_data() (
+  FASC[0] = 2027; FDSC[0] = -584; FGAP[0] = 0;
+  strcpy(400, "`FOKT{OKT-OSS5OoRAPCQYQ-Q,R1PzRkPvSPPv[@Q#]3Q>^+Qn^zRY_bS]`4T;`AT{`E`F`E`F]OT{]OTM]HT,]4Ss[nSl[>SlSPSsS$T-R^TNRHT{RA`FRA"); GADV[0] = 1530; CMAP[67] = 1;
+  strcpy(401, "bpUtbeTObBS6agR)`zQ,_}P?^pOd]WOB[5O7W=O7UvOBT]OdSOP?RRQ,QfR)Q/S6PgTOP[UtP[XxPgZ@Q/[YQf]gRR^dSO_PT]`,Uv`NW=`Y[5`Y]W`N^p`,_}_P`z^dag]gbB[YbeZ@bpXx _zXx_tYg_bZO_C[/^v[`^E]-]f]K]#]^[5]dW=]dVN]^Uh]KU,]-TU[`T-[/SjZOSWYgSQXxSQUtSWU*SjTAT-SbTUS1U,RdUhREVNR3W=R-[3R-[}R3]dRE^DRd^vS1_CSb_bTA_tU*_zUt"); GADV[1] = 1762; CMAP[79] = 2;
+  strcpy(402, "b'PaaxP,a[O^a1OA`XO7`'O@_VO^T$Z`T$OKQ.OKQ._0Q4_VQE_zQ_`;R$`ORI`XRq`WS:`JSY`2_1T1_1`Eb'`E"); GADV[2] = 1735; CMAP[78] = 3;
+  strcpy(403, "`R]OY1]OY1OKV;OKV;]OOt]OOt`E`R`E"); GADV[3] = 1487; CMAP[84] = 4;
+  strcpy(404, "T&OKQ0OKQ0`ET&`E"); GADV[4] = 566; CMAP[73] = 5;
+  strcpy(405, "afPua[P@a?Or`pOU`<OKXiOKWpOOVuO^U{OuU)P;T6PfSHQ@RaR%R'RpQSSlQ/TrPtV*PlWHPl`ESb`ESbWHSjV=T%UBTHTVTtSxUJSIV&S'W7RVX5REXURBXiRA^pRA^p`Eaf`E"); GADV[5] = 1707; CMAP[85] = 6;
+  strcpy(406, "d`OKahOKahXx[]Ow[-OGZEO7Y`OGY1OwT$XxT$OKQ.OKQ._0Q5_[QI`&Qh`CR4`UR_`YS-`OSP`;Sl_uZESMaz_ub:`;b``Pc.`YcY`Ud%`CdD`&dX_[d`_0"); GADV[6] = 1971; CMAP[77] = 7;
+  strcpy(407, ""); GADV[7] = 666; CMAP[32] = 8;
+  NKRN = 0;
+  FASC[1] = 1000; FDSC[1] = -200; FGAP[1] = 0;
+  strcpy(408, ""); GADV[8] = 200; CMAP[352] = 9;
+  strcpy(409, "PIR5P=W+PAW3PIW7QKW7QSW3QWW+QLR5QIR-Q@R)PUR)PMR-PIR5 P1P:P6PVPEPnP]P|PyQ&Q:P|QQPnQ`PVQeP:Q`OyQPObQ9ORPyOMP]ORPEObP6OyP1P:"); GADV[9] = 269; CMAP[353] = 10;
+  strcpy(410, "OhTsO^W(OaW1OiW4PfW4PnW1PqW(PgTsPcTjPYTgOuTgOlTjOhTs QSTsQIW(QLW1QTW4RQW4RYW1R]W(RRTsRNTjRETgQaTgQWTjQSTs"); GADV[10] = 306; CMAP[354] = 11;
+  strcpy(411, "UXT&TvT&TpS|T_R^TcRXU6RXU?RUUBRLUBQ[U?QSU6QOTSQOTMQJT8OnT4OfT+OcS)OdR{OgRyOqS3QJS/QOQ{QOQuQJQ`OnQ[OfQROcPPOdPGOgPEOqPZQJPVQOP'QOOzQSOvQ[OvRLOzRUP'RXPfRXPlR^P}S|PyT&PIT&PAT)P=T2P=U$PAU-PIU0Q-U0Q3U5QHVmQLVuQUVxRWVwRaVtRcVjRMU5RQU0SaU0SgU5S|VmT%VuT.VxU0VwU9VtU;VjU&U5U*U0UXU0UbU-UeU$UeT2UbT)UXT& SDR^SUS|SQT&RBT&R<S|R+R^R/RXS>RXSDR^"); GADV[11] = 606; CMAP[355] = 12;
+  strcpy(412, "RGOHRBOBRCNaR?NWR7NTQRNTQINWQFNaQGOBQCOHPvOUPTOjP8P+P#PLOrPtOnQDOnQ_OrQhOzQkP{QkQ)QhQ,Q_Q,QJQ1Q'Q?PfQVPSQsPMR4PSRKPdRZQ$R`QER]Q^RTQsRGR+R5R<QvRQQORnP}S5PYSSP=SsP%T=OqThOlU>OpUlO|V8P6VZPRVvPtW/QAW;QFWAQEX)QIX1QQX5R5X5R=X1RAX)R?W@RCW:RkW-S1VsSMVUScV2SoUeSsU7SsTzSpTrSgTnRgTnR^TrRZTzRZU9RUU]RGUxR0V/QnV5QRV0Q<UzQ.UaQ)U>Q.TxQ=T[QPTHQkT1R4SqRjSGS6S'SQRdSgRBStQxSxQKStPxSgPOSQP+S6OjRoOURGOH"); GADV[12] = 434; CMAP[356] = 13;
+  strcpy(413, "P'U]P,V)P;VNPSVnPrW+Q<W;QdW@R0W;RSW+RsVnS0VNS?V)SDU]S?U4S0TjRtTJRTT1R0S}QdSxQ<S}PrT1PSTJP;TjP,U4P'U] Q9OYU=W/ULW7V,W7V5W3V4W)R0OSQ|OKQAOKQ8OOQ9OY R_U]RXV$REVAR)VUQdV]QBVUQ&VBPnV%PhU]PnU9Q&TvQBTcQdT[R*TcRETvRXU9R_U] T,Q'T1QOT@QtTWR8TwRQU@RaUhRfV4RaVXRQVxR8W4QtWCQOWHQ'WCPYW4P4VxOpVXOWV4OGUhOBU@OGTwOWTWOpT@P4T1PYT,Q' VdQ'V^QJVJQhV.Q|UhR'UFQ|U*QhTrQJTlQ'TrP_U*PAUFP-UhP&V.P-VJPAV^P_VdQ'"); GADV[13] = 772; CMAP[357] = 14;
+  strcpy(414, "UMORUKOMUCOKT:OKT+ORSiOzSbO{S/O[RROHQqOBQ;OGPiOVPCOoP'P6OrPaOlQ:OtQxP/RQPSS$Q'SNQ(SUPgT$PQTEPDT^P9U$P6UHP;UzPKVHPfVlQ-W*QVW:R,W?R]W:S-W)SQVkSmVGT#UxT)UGS|ThSdT7S>SfRiS;RhS4RnS,R{RuS3RZShQnSlQlSoQnTBR`TIRgTSReU=R=UCR5UAR-TzQJTUPqTTPjTiPPU)P-UJOZUMOR QPUDQWTwQeT_Q}T:R)T8RDTQRYTkRfU*RjUFRfUbRYUxRFV+R/V0QsV+Q`UxQTUaQPUD S#PtS$P{RYQPQoRPQhRQQFR/Q2QhQ+QCQ0Q#Q@PdQYPRQ|PLR?PPR_P^S#Pt"); GADV[14] = 581; CMAP[358] = 15;
+  strcpy(415, "OhTvO^W*OaW3OiW6PlW6PtW3PwW*PlTvPhTnP_TjOuTjOlTnOhTv"); GADV[15] = 152; CMAP[359] = 16;
+  strcpy(416, "PWNMP-OGOhPPORQgOKS-ORTOOhUhO}VRP;W5PXWlPgWtQgWtQpWpQqWfQNVhQ2U^PzTIPtS-PzQnQ1PZQMOQQqNSQrNNQoNGQgNEPfNEPWNM"); GADV[16] = 279; CMAP[360] = 17;
+  strcpy(417, "QHWlQfW5R$VSR9UjRNTRRUS2RNQkR9PRR#OhQeO)QGNMQ9NEP9NEP0NIP0NSPRORPnP^Q&QqQ,S1Q&TLPnU_PRVhP0WfP/WlP1WrP9WtQ:WtQHWl"); GADV[17] = 279; CMAP[361] = 18;
+  strcpy(418, "Q*S{Q*U%Q(U)Q$U(P-TRP'TPOxTWOcU$OaU*OgU4PbUgPdUkPbUnOgVDObVKOcVTOxW#P$W)P.W(Q$VQQ(VPQ*VTQ*WYQ-WbQ6WfQcWfQlWbQoWYQnVTQpVPQtVQRjW(RpW*R{W#S5VTS7VNS1VDR7UnR5UkR7UgS1U4S7U-S6U$R{TURtTORjTQQtU(QpU)QnU%QoS{QlSrQcSoQ6SoQ-SrQ*S{"); GADV[18] = 361; CMAP[362] = 19;
+  strcpy(419, "T&S=T&RWT#ROSuRKRJRKRERFREPwRAPnR9PkQSPkQKPnQGPwQGRFQBRKOsRKOjROOgRWOgS=OjSEOsSIQBSIQGSNQGTyQKU'QSU*R9U*RAU'RETyRESNRJSISuSIT#SET&S="); GADV[19] = 439; CMAP[363] = 20;
+  strcpy(420, "OmNWP,Q)P/Q1P8Q4Q.Q4Q7Q1Q8Q'PbNUP^NMPTNJOyNJOpNMOmNW"); GADV[20] = 199; CMAP[364] = 21;
+  strcpy(421, "OgRDOgS6OjS?OsSBR[SBRdS?RhS6RhRDRdR;R[R8OsR8OjR;OgRD"); GADV[21] = 325; CMAP[365] = 22;
+  strcpy(422, "OoP6OtPRP(PjP?PyP[Q#PxPyQ3PjQBPRQGP6QBOuQ3O^PxONP[OIP?ONP(O^OtOuOoP6"); GADV[22] = 211; CMAP[366] = 23;
+  strcpy(423, "OaOYQzW-R$W5R,W7S.W7S7W3S8W)PzOUPuOMPmOKOkOKObOOOaOY"); GADV[23] = 386; CMAP[367] = 24;
+  strcpy(424, "OrQNOrU4OxUkP.V?PJVhPqW*QCW<QxWBRRW<S%W*SKVhSiV?SzUkT%U4T%QNSzPsSiPCSKOvS%OXRROFQxO@QCOFPqOXPJOvP.PCOxPsOrQN RfQGRfU;RaU_RQUzR;V1QxV7QZV1QDUzQ6U_Q1U;Q1QGQ6Q$QDPdQZPQQxPKR;PQRQPdRaQ$RfQG"); GADV[24] = 450; CMAP[368] = 25;
+  strcpy(425, "PlW7QrW7QzW3R#W+R#OWQzOOQrOKPpOKPhOOPdOWPdUpPbUtP_UuOgUeOdUeO[UhOXUpOUVXO^VgP]W4PlW7"); GADV[25] = 274; CMAP[369] = 26;
+  strcpy(426, "QDPUSlPUStPQSxPISxOWStOOSlOKOwOKOnOOOkOWOkPMOpP]P<Q7Q/RGQQR{QoSNR4T0RHTfRNU9RJU^R=UyR(V/QiV5QNV/Q:UzQ-U_Q*U=Q*TqQ'ThPyTeOuTeOlThOiTqOiUAOqUtP(VDPEViPjW)Q;W:QnW?RDW9RpW(S9VfSSV@SeUmSjU8SfTaSXT/SBSVR}R{RbRPRAQ}R,QaQxQKQnQ=QSPuQAP[Q@PWQDPU"); GADV[26] = 425; CMAP[370] = 27;
+  strcpy(427, "SgQrSeQCS`PxSKP;S)OiRdOSR<OGQjOCQ9OGPkOUPGOlP,P0OuPUOlQ&OjQAOhQgOkQpOtQsPvQsQ$QpQ'QgQ)QHQ+Q3Q3PsQ@P^QRPQQjPMR%PQR7P^RDPpRLQ/RPQQRQR#RORRRJRyRBS5R5SFR$SQQjSTQ[SRQNSKQESGQ=SKPiS|PeT*PhT2R0V(R1V,R,V.O}V.OtV1OqV:OqW+OtW3O}W7SXW7SbW3SeW+SeV6S`V'RGT?RET:RIT8RpT,S5SlSNSES^RqSeRFSgQr"); GADV[27] = 426; CMAP[371] = 28;
+  strcpy(428, "TDRPTDQYTAQQT8QMSuQMSpQHSpOWSlOOSdOKRbOKRYOORUOWRUQHRPQMOiQMO`QQO]QYO]R@O_ROQ5W-Q:W5QBW7RLW7RUW3RVW)Q0RcQ4R]RPR]RURbRUT%RYT-RbT1SdT1SlT-SpT%SpRbSuR]T8R]TARYTDRP"); GADV[28] = 459; CMAP[372] = 29;
+  strcpy(429, "StQpSsQISpQ)ShPUSVP/S;OlRsOURIOGQsOCQDOGPwOTPTOjP9P-P'PSOwQ'OtQCOwQLP%QOQ'QOQ0QLQ4QCQ6Q1QBPjQVPTQsPMR/PQRAP^RMPqRUQ0RXQMRYQqRWR9RSRVRKRnR?S%R-S/QsS3QVS.QARzQ4R`Q/RWQ'RTP$RTOvRWOsRaOsW+OvW3P$W7S]W7SfW3SiW+SiV9SfV1S]V-Q7V-Q2V(Q2StQ4SpQ8SrQbT3Q|T;R;T>RaT:S'T-SASrS`SCSnR`SrR=StQp"); GADV[29] = 428; CMAP[373] = 30;
+  strcpy(430, "SuQpStQSSsQ.SkPYSXP2S=OnRuOURKOHQuOCQFOGPyOTPVOjP;P-P)PSOzQ'OvQDOtQgOsUCOxUvP.VFPIVjPoW*Q?W:QsW?RHW:RrW*S:VjSUVESfUvSkUCSkU*ShT|S_TyR]TyRST|RPU*RPU=RLU]R?UvR-V,QsV2QYV-QEUwQ7U^Q3U=Q3T0Q5T,Q9T-QYTAR'THRRTCRxT4S=SwSVSUSgS.SpR[SuQp RYQxRXR<RTReRHS*R4S>QtSDQ^S@QKS5Q?R|Q7RbQ3QxQ4QXQ6Q4Q>PsQKP^Q]PPQtPLR0PQRAP_RNPuRVQ7RYQx"); GADV[30] = 429; CMAP[374] = 31;
+  strcpy(431, "PKOXR<V'R8V-PfV-PaV(PaU_P^UUPTUROhURO`UUO[U_O]W+O`W3OiW7SSW7S[W3S`W+S`V4S^V&QkOUQfOMQ]OKPUOKPLONPKOX"); GADV[31] = 392; CMAP[375] = 32;
+  strcpy(432, "S(SOSES7SZRpSkR=SpQ`SlQ-S`P]SEP,R|ObRLOKQpOCQ9OKPfObP@P+P&P[OvQ-OrQ`OvR<P)RkP>S3P_SNP_STPASnP+T4OwTbOrU:OwUpP+VAPDViPjW+Q;W=QpWCRHW=RvW+S?VjSYVBSjUpSpU:SkTdS[T6SESpS(SVS%SRS(SO Q6U_Q1UIQ/U0Q1TnQ9TQQBT>QNT0Q^T'QpT$R(T'R9T1RET@RNTTRVU0RSUORLUhRCU{R7V-R'V6QpV9Q_V6QOV/Q;Um RVQfRTR.RMRLRERbR9RrR(R}QpS%Q]R|QKRrQ?RaQ7RIQ/QhQ5Q.Q=PpQIP^Q[PQQpPMR*PQR<P^RIPqRQQ0RVQf"); GADV[32] = 434; CMAP[376] = 33;
+  strcpy(433, "SdQ?S_PhSMP<S1OtRhOXR;OHQdOCQ3OHPeOXPAOtP&P=OqPhOlQ?OlQXOpQbOxQePzQeQ'QbQ+QXQ+QEQ/Q&Q;PhQNPVQdPPQ}PUR7PgRDQ%RHQERHRQRFRURBRTQ|RAQTR:Q)R?P_RNP>RgP%S-OpSTOgT'ObTnOeUTOlV)P#VPP=VpPbW-Q1W:QcW?R6W;R^W.S%VtS@VUSRV/S^U[ScTw RHTfREUNR9UtR%V/QdV6QLV1Q:V$Q-UiQ%UKQ#U/Q#TfQ(SyQ0S`Q=SMQNSBQdS>QzSBR1SMR=SbRDS|RHTf"); GADV[33] = 423; CMAP[377] = 34;
+  strcpy(434, "P*SxP/T9P>TPPUT`PrTeQ3T`QITPQXT9Q^SxQXS[QISDQ3S5PrS0PUS5P>SDP/S[P*Sx P*P:P/PVP>PnPUP}PrQ'Q3P}QIPnQXPVQ^P:QXOyQIObQ3ORPrOMPUORP>ObP/OyP*P:"); GADV[34] = 252; CMAP[378] = 35;
+  strcpy(435, "OoSwOuT9P+TQPCTcP_TiPzTcQ7TQQHT9QNSwQISXQ9S?P|S.P_S(PAS.P)S?OtSXOoSw OtNYP,Q&P0Q.P8Q1Q/Q1Q8Q.Q9Q$PiNWPeNOP[NLP%NLOvNOOtNY"); GADV[35] = 218; CMAP[379] = 36;
+  strcpy(436, "SsP,OpQ}OiR(OgR0OgS'OiS/OpS5SsU,SyU.T$U+T&U#T&T(T$S{SxSuQ(R]Q%RYQ(RVSxQ>T$Q9T&Q0T&P5S}P+SsP,"); GADV[36] = 439; CMAP[380] = 37;
+  strcpy(437, "OgSdOgTIOjTQOsTUSuTUT#TQT&TIT&SdT#S[SuSWOsSWOjS[OgSd OgQXOgR>OjRGOsRJSuRJT#RGT&R>T&QXT#QOSuQLOsQLOjQOOgQX"); GADV[37] = 439; CMAP[381] = 38;
+  strcpy(438, "OoP*OiP-OgP5OgQ0OiQ9OpQ>ReRVRhRYReR]OpSuOiS{OgT(OgU#OkU-OuU,SxS5T$S/T&S'T&R0T$R(SxQ}OuP,OoP*"); GADV[38] = 439; CMAP[382] = 39;
+  strcpy(439, "PyQzPyRHQ#RtQ1S;QISYQjS{R+T<R?TURKTpROU5RKUXR=UtR(V+QhV1QIV+Q3UtQ%UVP{U2P{TxPxTpPoTmOmTqOdTuOaU#OaU2OgUiOyV=P;VfPbW)Q5W;QkWARCW;RpW*S9VhSTVASfUoSkU9ShTjS_TGSQT*SASnS-SXRpS@RWS)RERpR;RZR8RAR8QzR5QrR,QnQ*QnP|QrPyQz PmP7PrPSQ%PjQ<PyQXQ#QuPyR1PjR@PSREP7R@OvR1O_QuOOQXOJQ<OOQ%O_PrOvPmP7"); GADV[39] = 413; CMAP[383] = 40;
+  strcpy(440, "WMSCWJRkW=R.W(QVVeQ-V?PiUpPVU@PPTtPTTRPcT8PyT1PxS{PfSgPYSPPQS:PORgPWRCPnR-Q5R&QaR'QvR+R7R/RXR2RuR7S>RESqR^T9S&TOSRTVSnTQT.TAT3T?T5TCT5TET9TMTBTPT{TPU)TMU+TCTnR?TmR-TqQjT}QSU5QEULQAUdQEUxQQV/QfVCR6VORmVRS=VKS}V6TXUoU*UAUKTfU`T'UgSRUcS%UURTUAQuToQET3Q#SFPlRPPiQ}PpQ8Q,PYQOP*Q|OdRTOOS0OHSaOMT3O[T^OsTfOvToOpU.OEU0O=U+O4T_NxT1NgSXN[R}NWRHN[QsNhQFN|PhONP;P/P'P`OvQ:OrQuOvRUP(S>P?S}P_T[Q+U4QYU`R3V(RlVBSLVQT/VVThVRUAVFUrV2VSUbW'U'W<TSWIS{WMSC StQlSwR&SxR0T'S)T)S:T)SNS|S_SpSjS_SmSLSjS=S_S2SNS,S:S)S%S%RaS#RQRvQlRxQVS$QES0Q;SAQ8SSQ;SbQFSnQVStQl"); GADV[40] = 759; CMAP[384] = 41;
+  strcpy(441, "S(OVRpPfRjPkQ1PkQ+PfPsOVPoONPfOKOeOKOZONOYOXQ9W,Q=W4QFW7RVW7R`W4RdW,TCOXTCOTT@OMT8OKS5OKS,ONS(OV QBQlRWQlR]QqQ}UDQzUGQwUDQ=QqQBQl"); GADV[41] = 456; CMAP[385] = 42;
+  strcpy(442, "R/OKP3OKP+OOP'OWP'W+P+W3P3W7QxW7RXW2S/V}SXVbSwV<T.UhT4U/T/TYS}T1SfSkSESPSCSJSgS-T&RbT7R3T<QWT6PyT$PISbP#S9ObRfOQR/OK QAV(QAS}QFSxQzSxRCT#R`T6RqTTRwU#RqUMR`UnRCV'QzV-QFV-QAV( R}QhRwR;RfR`RJRvR&R}QFR}QARxQAP[QFPVR&PVRJP^RfPsRwQ:R}Qh"); GADV[42] = 462; CMAP[386] = 43;
+  strcpy(443, "OvQKOvU8O|UnP2VAPOVhPvW)QHW9R#W?RYW9S-W)SSVhSqVAT'UnT-U8T-U,T)U#S|TzRyTvRpTyRmU'RmU@RhUaRXUzRAV/R#V5QaV/QIUzQ:UaQ5U@Q5QBQ:P}QIPdQaPSR#PMRAPSRXPdRhP}RmQBRmQ[RpQdRyQhS|QdT)Q`T-QWT-QKT'PqSqPCSSOxS-OZRYOIR#OCQHOIPvOZPOOxP2PCO|PqOvQK"); GADV[43] = 457; CMAP[387] = 44;
+  strcpy(444, "P'OWP'W+P+W3P3W7R*W7R`W1S3V{SYV^SwV6T-UcT3U,T3QVT-P{SwPLSYP%S3OcR`OQR*OKP3OKP+OOP'OW QFPUR(PVRFP^R^PrRnQ5RtQ^RtU%RoUMR`UnRFV&R'V-QFV-QAV(QAPZQFPU"); GADV[44] = 472; CMAP[388] = 45;
+  strcpy(445, "SkV-QFV-QAV(QASzQFSuRmSuRvSrRySiRyRvRvRnRmRjQFRjQAReQAPZQFPUSkPUStPQSwPISwOWStOOSkOKP3OKP+OOP'OWP'W+P+W3P3W7SkW7StW3SwW+SwV9StV1SkV-"); GADV[45] = 435; CMAP[389] = 46;
+  strcpy(446, "SjV-QFV-QAV(QASzQFSuRlSuRtSrRxSiRxRvRtRnRlRjQFRjQAReQAOWQ=OOQ5OKP3OKP+OOP'OWP'W+P+W3P3W7SjW7SrW3SvW+SvV9SrV1SjV-"); GADV[46] = 415; CMAP[390] = 47;
+  strcpy(447, "OvQDOvU>O|UrP2VCPOVhPvW)QHW9R#W?RXW:S,W)SSVhSqVCT'UrT-U=T-TqT)ThS|TeRzTeRrThRnTqRnU?RiU`RYUzRAV/R#V5Q`V/QHUzQ9U`Q4U?Q4QCQ9Q#QHPdQ`PSR#PMRAPSRYPdRiQ#RnQCRnRIRiRNR+RNR#RQQzRZQzSIR#SQR+SUS|SUT)SQT-SIT-QDT'PlSqP?SSOvS,OYRXOIR#OCQHOHPvOYPOOvP2P?O|PlOvQD"); GADV[47] = 462; CMAP[391] = 48;
+  strcpy(448, "R}W7T$W7T-W3T0W+T0OWT-OOT$OKR}OKRtOORqOWRqReRlRjQFRjQAReQAOWQ=OOQ5OKP3OKP+OOP'OWP'W+P+W3P3W7Q5W7Q=W3QAW+QASzQFSuRlSuRqSzRqW+RtW3R}W7"); GADV[48] = 477; CMAP[392] = 49;
+  strcpy(449, "P'OWP'W+P+W3P3W7Q5W7Q=W3QAW+QAOWQ=OOQ5OKP3OKP+OOP'OW"); GADV[49] = 224; CMAP[393] = 50;
+  strcpy(450, "O]QDO]R4O`R=OiR@PkR@PtR=PwR4PwQBP|P}Q/PdQEPSQbPMR#PSR9PdRHP}RMQBRMW+RQW3RYW7S[W7SdW3ShW+ShQDSbPlSPP?S3OvRiOYR;OIQbOCQ-OHP[OYP5OvOtP?OcPlO]QD"); GADV[50] = 443; CMAP[394] = 51;
+  strcpy(451, "P'OWP'W+P+W3P3W7Q5W7Q=W3QAW+QAT%QCS|QGT#S)W.S/W5S8W7TAW7TJW3TIW)RhSyRgSsTTOYTUOSTSOMTKOKSBOKS9OMS4OTQsRhQpRjQlRhQCR$QAQyQAOWQ=OOQ5OKP3OKP+OOP'OW"); GADV[51] = 477; CMAP[395] = 52;
+  strcpy(452, "P'OWP'W+P+W3P3W7Q5W7Q=W3QAW+QAPZQFPUSkPUStPQSwPISwOWStOOSkOKP3OKP+OOP'OW"); GADV[52] = 415; CMAP[396] = 53;
+  strcpy(453, "ScW7TeW7TnW3TqW+TqOWTnOOTeOKScOKSYOOSVOWSVTnSTTrSPToRSS*RJR}RAS*QDToQ@TrQ>TnQ>OWQ;OOQ2OKP0OKP'OOP$OWP$W+P'W3P0W7Q2W7QAW/RHU8RNU8SSW/ScW7"); GADV[53] = 538; CMAP[397] = 54;
+  strcpy(454, "SAW7TBW7TKW3TNW+TNOWTKOOTBOKS3OKS+OMS&OUQET;QAT=Q?T:Q@OWQ=OOQ4OKP3OKP+OOP'OWP'W+P+W3P3W7Q@W7QHW5QMW-S/RJS3RGS5RKS5W+S9W3SAW7"); GADV[54] = 507; CMAP[398] = 55;
+  strcpy(455, "OvQMOvU5O|UlP2V?POVfPwW(QJW9R&W?R]W9S0W(SWVfSuV?T,UlT2U5T2QMT,PrSuPCSWOxS0OZR]OIR&OCQJOIPwOZPOOxP2PCO|PrOvQM RsQHRsU:RnU]R^UxREV/R&V5QbV/QIUxQ:U]Q5U:Q5QHQ:Q&QIPfQbPSR&PMREPSR^PfRnQ&RsQH"); GADV[55] = 467; CMAP[399] = 56;
+  strcpy(456, "T9TyT4T@T$SkSdSAS@R}RrRkR@ReQEReQ@R`Q@OWQ=OOQ4OKP2OKP)OOP&OWP&W,P)W5P2W8R:W8RmW1S=VySbVYT#V/T3UWT9Ty RzTvRtUHRdUlRHV'R'V.QEV.Q@V)Q@SkQESfR'SfRHSmRdT'RtTIRzTv"); GADV[56] = 457; CMAP[400] = 57;
+  strcpy(457, "T&U0T&QRS}Q&SrPYS`P5S8OgR_OLRZOGRZNIRWNARNN=QLN=QCNAQ@NIQ@OGQ<OLPdOhP<P6P*PYOzQ&OvQROvU0O|UgP2V;PNVdPuW'QFW9Q{W?RTW9S'W'SMVdSjV;S{UgT&U0 RgU<RbU^RSUyR<V/Q{V5Q_V/QHUyQ:U^Q5U<Q5QFQ:Q%QHPeQ_PSQ{PMR<PSRSPeRbQ%RgQF"); GADV[57] = 455; CMAP[401] = 58;
+  strcpy(458, "R|OUR&RgQ|RkQFRkQARfQAOWQ=OOQ5OKP3OKP+OOP'OWP'W+P+W3P3W7R;W7RnW1S?VxSdVYT#V/T4UXT:TzT4T?S}SiS`SAS9S$S6RyT>OYT?OTT<OMT4OKS.OKS&OMR|OU QAV(QASpQFSkR)SkRJSrRdT,RuTMR{TyRuUIRdUlRJV&R)V-QFV-QAV("); GADV[58] = 461; CMAP[402] = 59;
+  strcpy(459, "OnQDOnQ_OrQhOzQkP{QkQ)QhQ,Q_Q,QJQ1Q'Q?PfQVPSQsPMR4PSRKPdRZQ$R`QER]Q^RTQsRGR+R5R<QvRQQORnP}S5PYSSP=SsP%T=OqThOlU>OrUsP'VDPCViPiW)Q:W:QnW?RGW9RtW(S?VfS[V?SmUmSsU7SsTzSpTrSgTnRgTnR^TrRZTzRZU9RUU]RGUxR0V/QnV5QRV0Q<UzQ.UaQ)U>Q.TxQ=T[QPTHQkT1R4SqRjSGS6S'SQRdSgRBStQxSxQKSrPqSaPCSDOxRyOZRLOIQsOCQ>OIPmOYPFOvP*P@OtPlOnQD"); GADV[59] = 434; CMAP[403] = 60;
+  strcpy(460, "T2W+T2V9T/V1T&V-R[V-RVV(RVOWRSOORJOKQHOKQ?OOQ<OWQ<V(Q7V-OtV-OlV1OhV9OhW+OlW3OtW7T&W7T/W3T2W+"); GADV[60] = 452; CMAP[404] = 61;
+  strcpy(461, "P#QYP#W+P'W3P/W7Q1W7Q9W3Q=W+Q=QMQBQ)QQPgQiPSR,PMRJPSRbPgRqQ)RvQMRvW+RzW3S'W7T)W7T1W3T5W+T5QYT/P{SyPIS[O|S5O]RbOIR,OCQQOIQ#O]PWO|P:PIP)P{P#QY"); GADV[61] = 478; CMAP[405] = 62;
+  strcpy(462, "QBOVOhW*OgW.OjW5OrW7P}W7Q+W4Q/W,R(QhR+QeR.QhS%W,S)W4S2W7T:W7TCW4TDW*RiOVReONR[OKQOOKQFONQBOV"); GADV[62] = 471; CMAP[406] = 63;
+  strcpy(463, "Q4OVOdW*OcW.OfW5OnW7PtW7P}W4Q&W,QmRMQpRJQsRMRWW,R[W4ReW7SZW7SdW4ShW,TQRMTTRJTWRMU<W,U@W4UIW7VLW7VUW4VWW*U2OVU.ONU%OKT*OKS|ONSxOVS4T=S1TAS.T=RJOVRFONR=OKQAOKQ8ONQ4OV"); GADV[63] = 665; CMAP[407] = 64;
+  strcpy(464, "OkOYQ?S>Q?SDOkW)OjW/OlW5OtW7PyW7Q&W5Q+W-Q|TcR$T`R'TcRwW-R|W5S)W7T-W7T6W3T6W)RbSDRbS>T6OYT7OST5OMT-OKS*OKR|OMRwOUR'QzR$Q}Q|QzQ+OUQ&OMPxOKOtOKOkOOOkOY"); GADV[64] = 460; CMAP[408] = 65;
+  strcpy(465, "QAOXQAR[Q@RbOjW)OiW.OlW5OtW7PzW7Q(W5Q-W-QyT:Q|T7R$T:RpW-RuW5S#W7T)W7T2W3T3W)R]RbR[R[R[OXRWOOROOLQMOLQEOOQAOX"); GADV[65] = 456; CMAP[409] = 66;
+  strcpy(466, "OeOWOePMOhP]R9V'R9V+R6V-OqV-OhV1OeV9OeW+OhW3OqW7SPW7SYW3S]W+S]V5SYV&Q-P[Q-PWQ0PUSPPUSYPQS]PIS]OWSYOOSPOKOqOKOhOOOeOW"); GADV[66] = 406; CMAP[410] = 67;
+  strcpy(467, "OgN'OgX,OjX5OsX8QyX8R'X5R*X,R*W:R'W1QyW.Q+W.Q&W)Q&O+Q+O&QyO&R'O#R*NuR*N'R'MzQyMvOsMvOjMzOgN'"); GADV[67] = 330; CMAP[411] = 68;
+  strcpy(468, "SROUSOOMSGOKREOKR=OMR8OUOzW)OyW-O|W5P)W7Q+W7Q3W5Q8W-SQOY"); GADV[68] = 386; CMAP[412] = 69;
+  strcpy(469, "R`MvPZMvPQMzPNN'PNNuPQO#PZO&QLO&QQO+QQW)QLW.PZW.PQW1PNW:PNX,PQX5PZX8R`X8RhX5RlX,RlN'RhMzR`Mv"); GADV[69] = 330; CMAP[413] = 70;
+  strcpy(470, "OkRyQ1W-Q6W5Q>W7R2W7R:W5R?W-SbRyScRtS`RmSWRkRhRkR`RnRZRuQjUfQgUjQdUfPrRuPmRnPeRkOuRkOlRnOkRy"); GADV[70] = 413; CMAP[414] = 71;
+  strcpy(471, "O]OWO]P>O`PGOiPJS[PJSdPGShP>ShOWSdOOS[OKOiOKO`OOO]OW"); GADV[71] = 405; CMAP[415] = 72;
+  strcpy(472, "QNUwQKUqQCUoPdUoPUUwOgW(OdW/OgW5OoW7P]W7PlW/QLU}"); GADV[72] = 206; CMAP[416] = 73;
+  strcpy(473, "SqSCSqOWSnOOSeOKRcOKRYOORVOWRVOkRTOoRPOmR5OUQnOHQDOCPzOGPXOQP9OdO|P%OnPMOiQ&OoQ]P%R-PCRLPkRbQ?RoQxRsRQRsRVRxRVS7RQSWRDSrR0T'QrT,Q_T)QNSzQCSjQ=STQ9SKQ0SHP)SHO{SKOySTP&T$P8TIPSThPxU$QEU1QtU6RJU1RvT}S?TcSZT@SlSsSqSC RVQ7RVQqRQQvQxQvQXQqQ@QdQ0QLQ+Q-Q/PmQ;PYQMPMQePIR&PNR?P]RPPtRVQ7"); GADV[73] = 434; CMAP[417] = 74;
+  strcpy(474, "SsSHSsQ1SoP^ScP6SMOpS1OWRiOHR?OCQxOGQYOSQ?OgQ;OhQ9OdQ9OWQ5OOQ-OKP+OKP#OOOzOWOzW+P#W3P+W7Q-W7Q5W3Q9W+Q9TpQ;TlQATpQUU$QlU.R?U6RiU1S0U#SMTfSbTESoSxSsSH QvT,Q`T(QMSxQ@SeQ9SMQ9Q,Q@PpQMP^Q`PQQvPMR4PRRHPbRUPxRYQ:RYS?RUS]RHStR4T'QvT,"); GADV[74] = 437; CMAP[418] = 75;
+  strcpy(475, "OrQ2OrSHOwSwP,TCPGTdPkT}Q;U1QoU6RGU1RsU#S<TfSWTEShS{SmSPSmSBSjS9SaS6R_S2RUS5RRS>RRSHRNS`RAStR-T'QoT,QUT'QBSsQ5S[Q1S?Q1Q:Q5PyQBPbQUPRQoPMR-PRRAP`RNPuRRQ2RRQ<RUQER_QHSaQGSjQCSmQ;SmQ)ShPXSWP3S<OnRsOVRGOHQoOCQ;OHPkOWPGOpP,P6OwP^OrQ2"); GADV[75] = 422; CMAP[419] = 76;
+  strcpy(476, "R]W7S_W7ShW3SkW+SkOWShOOS_OKR]OKRSOORPOWRPOdRNOhRJOgR0OSQmOGQJOCP|OHPXOWP<OpP'P6OvP^OrQ1OrSHOvSxP(TEP=TfPYU#P|U1QJU6QbU4QzU-R6T}RJTmRNTlRPTpRPW+RSW3R]W7 RPQ,RPSMRISeR<SxR*T(QoT,QUT'QAStQ4S]Q0S?Q0Q:Q4PxQAPbQUPRQoPMR*PQR<P^RIPpRPQ,"); GADV[76] = 437; CMAP[420] = 77;
+  strcpy(477, "S`QmQ6QmQ1QhQ1Q:Q5PyQBPbQUPRQoPMR)PQR;P[RIPmRQQ'RVQ/R_Q1S^Q-SfQ)SiP{S`POSNP+S5OjRoOTREOGQoOCQ;OHPkOVPGOpP,P5OwP^OrQ1OrSHOwSwP,TCPGTdPkT}Q;U1QoU6RGU1RsT}S;TdSVTCSgSvSlSHSlQyShQpS`Qm Q1S?Q1RmQ6RhRMRhRRRmRRS?RNS]RAStR-T'QoT,QUT'QBSsQ5S[Q1S?"); GADV[77] = 426; CMAP[421] = 78;
+  strcpy(478, "RFT}RFTARCT9R:T5QVT5QQT0QQOWQMOOQEOKPDOKP;OOP8OWP8T0P3T5OnT5OfT9ObTAObT}OfU+OnU.P3U.P8U3P8ULP=V(PJVRPbVrQ(W+QSW7R0W;R8W;RAW7RDW/RBVER?V=R6V9R1V9QrV4Q`V%QUUiQQUGQQU3QVU.R:U.RCU+RFT}"); GADV[78] = 291; CMAP[422] = 79;
+  strcpy(479, "R]U.S_U.ShU+SkT}SkO_SfNvSTN>S9MlRwMRROM@QyM5Q>M1Q+M1PxM2PoM6PlM?PlN2PoN;PyN=QPN@QvNKR5N^RENxRMO?RPOjRPOuRNOxRJOvR1O^QmOOQFOJPxOOPUO^P:OvP'P<OvPdOrQ8OrSHOvSyP'TEP;TfPVU#PxU1QFU6QmU1R1U#RJTfRNTdRPTgRPT}RSU+R]U. RPQ@RPS?RLS]R?StR,T'QoT,QUT'QBSsQ5S[Q1S?Q1Q@Q5Q$QBPhQUPYQoPTR,PYR?PhRLQ$RPQ@"); GADV[79] = 431; CMAP[423] = 80;
+  strcpy(480, "SqSCSqOWSnOOSeOKRcOKRYOORVOWRVS:RRSZRGSsR5T'QwT,Q]T'QISrQ=SXQ9S7Q9OWQ5OOQ-OKP+OKP#OOOzOWOzW+P#W3P+W7Q-W7Q5W3Q9W+Q9TiQ;TfQATiQ[U$Q{U2RFU6RoU1S5U#SOTfSbTCSmSuSqSC"); GADV[80] = 439; CMAP[424] = 81;
+  strcpy(481, "OpVbOuW#P)W:P@WIP]WNPyWIQ5W:QCW#QHVbQCVEQ4V.PxUzP]UuP@UzP)V.OuVEOpVb P#OWP#T}P'U+P/U.Q1U.Q9U+Q=T}Q=OWQ9OOQ1OKP/OKP'OOP#OW"); GADV[81] = 215; CMAP[425] = 82;
+  strcpy(482, "OmVbOrW#P&W:P=WIPYWNPvWIQ1W:Q@W#QEVbQ@VEQ1V.PvUzPYUuP=UzP&V.OrVEOmVb NwM>NwN/NzN8O(N;ONNAOhNSOuNpOzO;OzT}P#U+P+U.Q-U.Q5U+Q9T}Q9O;Q6NYQ,N+PrMbPNMGP-M;O]M4O(M2NzM5NwM>"); GADV[82] = 211; CMAP[426] = 83;
+  strcpy(483, "OzOWOzW+P#W3P+W7Q-W7Q5W3Q9W+Q9S/Q;S+Q?S.RRU&RaU.SgU.SpU)SnTzR`S6R_S/S}OYT#OTS{OMSsOKRnOKRfOMRaOUQqR)QnR-QkR*Q;Q>Q9Q8Q9OWQ5OOQ-OKP+OKP#OOOzOW"); GADV[83] = 433; CMAP[427] = 84;
+  strcpy(484, "OvOWOvW+OzW3P'W7Q)W7Q1W3Q5W+Q5OWQ1OOQ)OKP'OKOzOOOvOW"); GADV[84] = 199; CMAP[428] = 85;
+  strcpy(485, "VDS>VDOWVAOOV8OKU7OKU/OOU+OWU+S6U'SXTwSrTeT'TMT,T4T'S|SrSpSXSlS7SlOWShOOS`OKR_OKRUOORROWRRS6RNSXRCSrR1T'QuT,Q[T'QHSrQ<SXQ8S7Q8OWQ5OOQ,OKP+OKP#OOOzOWOzT}P#U+P+U.Q,U.Q5U+Q8T}Q8TmQ:TiQ>TkQST|QlU-R*U4RBU6RpU/S9TuSUTQSYTPS_TTSvTpT7U(TUU3TuU6UBU1UdT}V#TdV5T@V@SqVDS>"); GADV[85] = 665; CMAP[429] = 86;
+  strcpy(486, "SqSCSqOWSnOOSeOKRcOKRYOORVOWRVS:RRSZRGSsR5T'QwT,Q]T'QISrQ=SXQ9S7Q9OWQ5OOQ-OKP+OKP#OOOzOWOzT}P#U+P+U.Q-U.Q5U+Q9T}Q9TiQ;TfQATiQ[U$Q{U2RFU6RoU1S5U#SOTfSbTCSmSuSqSC"); GADV[86] = 439; CMAP[430] = 87;
+  strcpy(487, "OrQ2OrSGOwSvP,TCPGTdPlT}Q<U1QpU6RHU1RuT}S>TdSYTCSjSvSoSGSoQ2SjP^SYP6S?OpRvOWRIOHQpOCQ<OHPkOWPGOpP,P6OwP^OrQ2 RTQ;RTS?RPS[RCSsR.T'QpT,QVT'QBStQ5S]Q1S?Q1Q;Q5PyQBPbQVPSQpPNR.PSRCPbRPPyRTQ;"); GADV[87] = 432; CMAP[431] = 88;
+  strcpy(488, "SwSHSwQ2SsP]SgP4SQOoS5OVRmOHRCOCR,OEQoOKQWOWQCOhQ?OiQ=OeQ=MNQ9MEQ1MBP/MBP'MEP#MNP#T}P'U+P/U.Q1U.Q9U+Q=T}Q=TqQ?TnQETqQnU.RCU6RmU1S5U#SQTfSgTDSsSxSwSH QzT-QbT(QMStQAS]Q=S?Q=Q:QAPxQMPbQbPRQzPMR8PRRLPbRYPxR^Q:R^S?RYS]RLStR8T(QzT-"); GADV[88] = 441; CMAP[432] = 89;
+  strcpy(489, "R]U.S_U.ShU+SkT}SkMNShMES_MBR]MBRSMERPMNRPOeRNOiRJOhR6OWQzOKQbOEQJOCP|OHPYOVP=OpP(P5OvP^OrQ2OrSHOvSxP'TDP<TfPXU#P|U1QJU6QmU2R0U&RJTnRNTmRPTqRPT}RSU+R]U. RPQ,RPSMRISfR<SxR*T)QoT-QUT(QAStQ4S]Q0S?Q0Q:Q4PxQAPbQUPRQoPMR*PQR<P^RIPpRPQ,"); GADV[89] = 441; CMAP[433] = 90;
+  strcpy(490, "RgU*RlU$RmTvR]SsRXSkRNSlR4SpQySmQ`ScQKSMQ=S.Q9RfQ9OXQ5OOQ-OLP+OLP#OOOzOXOzT}P#U+P+U.Q-U.Q5U+Q9T}Q9TNQ;TIQ>TMQTTrQrU-R<U4RTU1RgU*"); GADV[90] = 313; CMAP[434] = 91;
+  strcpy(491, "OjPyOjQ%OnQ-OvQ1PrQ1PzQ-Q#Q%Q#P{Q(PeQ5PRQJPFQdPBQ{PFR2PQR=PcRAPxR>Q/R4Q?QsQSQ^Q]Q<QkPcR)P9RHP$RcOsS*OoSSOtT$P(TIPAThPcT}Q0U0Q`U4R5U/R`T}S'TfS@TFSOS|STSOSQSGSHSCRNSCRESGRBSORBSUR>SlR1T#QzT/QcT3QKT/Q9T#Q-SkQ)SUQ,SCQ5S5QPR|QeRrR(ReRORSRpRCS/R/SGQnSWQKS]P}SWPRSGP/S-OmReOVR:OIQcOEQ1OIPbOVP>OlP$P-OoPPOjPy"); GADV[91] = 398; CMAP[435] = 92;
+  strcpy(492, "R5T6QQT6QLT1QLQ9QOPvQYPdQjPYR&PVR-PVR5PSR9PJR9OWR5OOR-OKQfOKQ;ONPtOVPYOePEO{P:P?P6PiP6T1P1T6OiT6O`T9O]TBO]T}O`U+OiU.P1U.P6U3P6VGP9VOPBVSQ@VSQIVOQLVGQLU3QQU.R5U.R=U+RAT}RATBR=T9R5T6"); GADV[92] = 282; CMAP[436] = 93;
+  strcpy(493, "R_U.SaU.SjU+SmT}SmOWSjOOSaOKR_OKRUOORROWRROnRPOrRLOpR5OWQqOIQIODQ#OHP]OTPAOjP,P+OzPQOvQ%OvT}OzU+P'U.Q)U.Q1U+Q5T}Q5Q>Q9PxQCPaQVPRQpPMR/PRRBPdRNP}RRQCRRT}RUU+R_U."); GADV[93] = 438; CMAP[437] = 94;
+  strcpy(494, "Q$OUO_T}O_U&ObU-OjU/PvU/Q$U,Q(U$QeQUQhQRQkQURKU$ROU,RXU/SeU-SoU*SpT{RPOURKOMRBOKQ2OKQ)OMQ$OU"); GADV[94] = 415; CMAP[438] = 95;
+  strcpy(495, "PpOVO_T}O_U&ObU-OjU/PhU/PqU,PuU$QNQUQQQRQTQUR1U$R5U,R>U/S2U/S;U,S?U$SxQTS{QQT#QTTXU$T]U,TfU/UcU-UlU*UmT{T[OVTWONTNOKSNOKSEONSAOVRgRmRdRpRaRmR,OVR(ONQzOKP}OKPtONPpOV"); GADV[95] = 592; CMAP[439] = 96;
+  strcpy(496, "O`OYPzR:PzR@O`T{O^U&OaU,OiU.PsU.P|U,Q&U%QeSQQhSNQkSQROU%RUU,R^U.ShU.SrU+SqT{RVR@RVR:SqOYSsOSSpOMShOKR^OKRUOMROOTQkQ+QhQ.QeQ*Q&OTP|OMPsOKOiOKO`OOO`OY"); GADV[96] = 417; CMAP[440] = 97;
+  strcpy(497, "OnMDOnN2OqN;OxN>P;NAPQNGPcNQPpNdPzO$Q&OHQ%ONO[T}O[U&O_U-OgU/PoU/PxU,P|U$Q_QAQbQ>QeQAREU$RIU,RRU/S[U-SfU*SgT{R:O/R-N_Q{N:QmMzQSM[Q1MGPoM?PJM:OyM8OtM8OpM;OnMD"); GADV[97] = 403; CMAP[441] = 98;
+  strcpy(498, "OdOWOdPROhPbQ`StQaSxQ]SzOtSzOlT#OhT+OhT}OlU+OtU.S,U.S5U+S8T}S8T'S4SsQ7PaQ6P[Q:PZS1PZS9PWS=PNS=OWS9OOS1OKOpOKOhOOOdOW"); GADV[98] = 368; CMAP[442] = 99;
+  strcpy(499, "PNO9PNQXPHR,P6RJOrRXOjR]OgReOgSOOjSXOrS]P6SkPHT-PNTZPNVuPUWNPlWtQ6X0QhX8RTX8R^X5RaX,RaW:R^W1RTW.R@W.R+W)QvVwQlVbQiVEQiTLQcSqQPSIQ3S0Q3S*QPRkQcRBQiQgQiOjQlOMQvO7R+O*R@O&RTO&R^O#RaNuRaN'R^MzRTMvQhMvQ6N#PlN9PUN`PNO9"); GADV[99] = 319; CMAP[443] = 100;
+  strcpy(500, "OgNbOgWhOjWpOsWtPuWtQ#WpQ&WhQ&NbQ#NYPuNUOsNUOjNYOgNb"); GADV[100] = 171; CMAP[444] = 101;
+  strcpy(501, "OsMvOjMzOgN'OgNuOjO#OsO&P,O&PAO*PQO7P]OMP`OjP`QgPfRBPwRkQ9S*Q;S-Q9S0PwSJPfSrP`TLP`VEP[VbPQVwPAW)P,W.OsW.OjW1OgW:OgX,OjX5OsX8PaX8Q7X0Q[WtQsWMQzVuQzTZR%T-R7SkRUS]R^SXRaSPRaReR^R]RURXR=ROR-R=Q}Q}QzQXQzO9QsNaQ[N:Q7N#PaMv"); GADV[101] = 319; CMAP[445] = 102;
+  strcpy(502, "R+R/QpR<Q_REQ?RLQ&RHPkR;PVR&POQ{PFQ}OpR@OjRGOjRPP$RxPBS<PhSPQ5SWQ^SPR*S=RCS.RVS%R|RxS2RzS@S'SYSASbSGSkSETDS$TJRxTIRoT0RISnR+SLQsS(QmRWQtR+R/"); GADV[102] = 480; CMAP[446] = 103;
+  strcpy(503, "OvSCO{T*P0TgPJUEPnUxQ>VHQrVlRQW*S4W:SwW?T_W:UAW*U|VlVTVHW%UxWIUEWdTgWtT*WySCWtR]WdQzWIQ?W%PgVTP;U|OsUAOXT_OHSwOCS4OHRQOXQrOsQ>P;PnPgPJQ?P0QzO{R]OvSC W4SCW0SxW#TOVhU#V:U_UXV1U*VFTRVSSwVWS@VSRiVFR:V1QXU_Q+U#PpTOPcSxP_SCPcRiPpR6Q*QbQWQ%R9PQRiP<S@P/SwP+TRP/U*P<UXPQV:Q%VhQbW#R6W0RiW4SC RtRLRtT3RzTXS3TvSPU-SxU3TDU-TdTvTwTXU#T3U#T2TzT)TrT%TKT#TBT&T?T/T?T8T=TDT5TNT+TUSxTWSkTUSaTNSYTDSWT8SWRGSYR:SaR1SkR*SxR(T+R*T6R1T=R:T?RGT?ROTCRWTKR[TrRYTzRUU#RMU#RLTwR'TdQeTDQQSxQKSPQQS3QeRzR'RtRL"); GADV[103] = 807; CMAP[489] = 104;
+  strcpy(504, "OgR3OgS%OjS-OsS1UYS1UbS-UfS%UfR3UbR+UYR'OsR'OjR+OgR3"); GADV[104] = 593; CMAP[471] = 105;
+  strcpy(505, "OqR[OvRxP*S4PASCP^SHPzSCQ5S4QDRxQIR[QDR?Q5R(PzQtP^QoPAQtP*R(OvR?OqR["); GADV[105] = 215; CMAP[503] = 106;
+  FASC[2] = 885; FDSC[2] = -242; FGAP[2] = 0;
+  strcpy(506, ""); GADV[106] = 540; CMAP[672] = 107;
+  strcpy(507, "RvW7RvQhQ{QhQ{W7 S#PUS#OKQtOKQtPU"); GADV[107] = 540; CMAP[673] = 108;
+  strcpy(508, "Q(V7Q(W7R-W7R-V7QtTNQ<TN RjV7RjW7SoW7SoV7SZTNS#TN"); GADV[108] = 540; CMAP[674] = 109;
+  strcpy(509, "RtOKRtQKR#QKR#OKQ-OKQ-QKPAQKPAR<Q-R<Q-TPPATPPAUAQ-UAQ-W7R#W7R#UARtUARtW7SjW7SjUATUUATUTPSjTPSjR<TUR<TUQKSjQKSjOK R#R<RtR<RtTPR#TP"); GADV[109] = 540; CMAP[675] = 110;
+  strcpy(510, "PlOKPlP=REP=RhPCS'PSS8PlS>Q.S>R(S:RCS/RYRvRgRZRlRFRlQsRqQKS$Q+S=PnS_P`T.PZTbPZU#PcUbPzV7QEVYQ{VnQ{X-RvX-RvVtT+VtT+V'RPV'R/U|QoUlQ^USQWU6QWTNQ]T2QlSvR(SfRESaRYSaS+S[SPSNSnS7T)RrT7RHT;QpT;QAT3P^SvP-SOOeRvOPRvN7Q{N7Q{OK"); GADV[110] = 540; CMAP[676] = 111;
+  strcpy(511, "Q>SxQ6SxPmS|PNT+P6T=OyTgOqUCOqUlOyVHP6VrPNW)PmW3Q6W7Q>W7QcW3R&W)R>VrRVVHR_UlR_UCRVTgR>T=R&T+QcS|Q>Sx Q>VUQ6VUPzVQPjVEP`V3P]UwP]U8P`T|PjTjPzT^Q6TYQ>TYQUT^QfTjQpT|QsU8QsUwQpV3QfVEQUVQQ>VU U>T)U>SEOWRVOWS: S]OKSTOKS0OORmOYRTOlR<P:R4PrR4Q?R<QwRTRERmRWS0RbSTRfS]RfT&RbTDRWT]RETuQwT}Q?T}PrTuP:T]OlTDOYT&OOS]OK S]R)STR)S=R%S-QtS#QbR{QJR{PgS#POS-P=S=P1STP-S]P-StP1T)P=T3POT6PgT6QJT3QbT)QtStR%S]R)"); GADV[111] = 540; CMAP[677] = 112;
+  strcpy(512, "PDQ5PDRYPKS3PbS]Q+S{PgT>PTTfPNU:PNUOPSV&PbVNPzVlQAW&QmW3RFW7SVW7SVVFR:VFQtVBQ^V5QOUzQKUXQKU0QPTmQaTUQxTFR:TATzTATzSPT*SPT*OKR:OKQ_OOQ2O]PmOrPVP5PHP^PDQ5 QARcQAQ+QEPeQSPMQkP@R1P<S3P<S3SPR0SPQmSKQUS=QFS&QARc"); GADV[112] = 540; CMAP[678] = 113;
+  strcpy(513, "QvV7QvW7R{W7R{V7RgTNR/TN"); GADV[113] = 540; CMAP[679] = 114;
+  strcpy(514, "RWXUSUXUS+W{RiWMRTW$RGVOR?UrR<U*R<QXR?PlRGP3RTO_RiO5S+NcSUN-RWN-R(NiQ`ORQNP-QDPmQAQZQAU(QDUqQNVUQ`W0R(WuRWXU"); GADV[114] = 540; CMAP[680] = 115;
+  strcpy(515, "R?N-QAN-QlNcR.O5RBO_ROP3RWPlRZQXRZU*RWUrROVORBW$R.WMQlW{QAXUR?XURoWuS7W0SHVUSRUqSUU(SUQZSRPmSHP-S7ORRoNiR?N-"); GADV[115] = 540; CMAP[681] = 116;
+  strcpy(516, "SHS7RJTlQIS7P^SmQoU2P7URPRVHR+UjQyWMRyWMRlUjTFVFT`UQS&U2T6Sl"); GADV[116] = 540; CMAP[682] = 117;
+  strcpy(517, "R#PhR#RPP@RPP@SAR#SAR#U+RtU+RtSATUSATURPRtRPRtPh"); GADV[117] = 540; CMAP[683] = 118;
+  strcpy(518, "R-OKR-PUS7PUS7OKRSMtQ`Mt"); GADV[118] = 540; CMAP[684] = 119;
+  strcpy(519, "T9SAT9RPP]RPP]SA"); GADV[119] = 540; CMAP[685] = 120;
+  strcpy(520, "S#PUS#OKQtOKQtPU"); GADV[120] = 540; CMAP[686] = 121;
+  strcpy(521, "SzXKTtXKPxN7P#N7"); GADV[121] = 540; CMAP[687] = 122;
+  strcpy(522, "RUOKRAOKQlOPQBO_P|OxPbP>PRPiPMQAPMUAPRUuPbVEP{VgQBW$QlW2RAW7RUW7S+W2STW$SwVgT5VETDUuTIUATIQATDPiT5P>SvOxSTO_S+OPRUOK RUVFRAVFQ{V@Q`V/QNUrQHUTQHRSSNUTSHUrS7V/RwV@RUVF RAP<RUP<RwPBS7PSSHPlSNQ.SNT.QHQ.QNPlQ`PSQ{PBRAP<"); GADV[122] = 540; CMAP[688] = 123;
+  strcpy(523, "R0P<R0VBPWUiPWV`R&W7S+W7S+P<T>P<T>OKPbOKPbP<"); GADV[123] = 540; CMAP[689] = 124;
+  strcpy(524, "RFRzRbSFRrSbS'T.S*TGS+TiS+UTS%UrRoV/RSV?R2VEPoVEPoW7R(W7R_W2S0W$SSVhSnVET#UvT(UAT(TrT&TDS|S{ShSCSVS&S<RZQ]P=T<P=T<OKPZOKPZPI"); GADV[124] = 540; CMAP[690] = 125;
+  strcpy(525, "R6OKPkOKPkP<R?P<RaP@RxPMS+PeS/Q+S/R8S*RVRvRnR_R|R@S&Q/S&Q/SrR6SrRSSwRkT+R{TBS%TaS%UXR|UzRnV5RWVBR6VFPkVFPkW7R*W7R_W3S/W&SQVlSjVNSxV&S}UOS}TkSwT;SeSoSESPSjS2T%RdT,R/T,Q5T(P^SuP5S_OrS>O]RmOOR6OK"); GADV[125] = 540; CMAP[691] = 126;
+  strcpy(526, "RcOKRcQ3PHQ3PHR/QYW7RPW7QDQ}RcQ}RcTRS^TRS^Q}TNQ}TNQ3S^Q3S^OK"); GADV[126] = 540; CMAP[692] = 127;
+  strcpy(527, "R7OKPiOKPiP<R@P<RbP@RyPMS+PeS0Q+S0RPS+RoRwS+R`S9RAS>PsS>PsW7SyW7SyVFQnVFQnT/R<T/RmT+S:SyS[SdStSET(RyT-RGT-Q5T)P^SvP5S`OrS?O]RnOOR7OK"); GADV[127] = 540; CMAP[693] = 128;
+  strcpy(528, "R`OKR<OKQlOPQFO`Q%OxPgP?PWPjPRQAPRUAPWUvPgVEQ%VhQHW$QvW2RPW7StW7StVERFVER%V?QeV/QSUrQMUTQMTARUTAS/T=SZT0S{SvT7SWTDS.TIRUTIQATDPjT5P?SwOxSUO`S0OPR`OK RAP<RZP<R{PAS9PRSIPlSNQ.SNRiSIS*S;S?S%SLR`SPQMSPQMQ.QRPlQcPRQ|PARAP<"); GADV[128] = 540; CMAP[694] = 129;
+  strcpy(529, "S=VFPYVFPYW7T6W7T6V0R:OKQ;OK"); GADV[129] = 540; CMAP[695] = 130;
+  strcpy(530, "RYOKR=OKQbOOQ5O]PpOrPYP5PKP^PGQ5PGR/PNRdPeS2Q.SPPlSnPYT:PSTkPSUOPXV&PgVMQ#VlQCW&QlW3RAW7RUW7S+W3SSW&StVlT0VMT>V&TCUOTCTkT=T:T+SnSiSPT2S2THRdTOR/TOQ5TKP^T=P5T'OrSbO]S5OORYOK QPUXQPTaQUTCQdT-QxSxR7SrRYSrRvSwS2T+SATBSFTaSFUXSBUzS5V5R{VBRYVFR5VFQsVAQ`V3QTUxQPUX RdS&R3S&QpR|QXRnQIRVQDR8QDQ+QHPfQTPNQjPAR,P<RcP<S)P@S@PMSMPeSRQ+SRR8SMRVS>RnS'R|RdS&"); GADV[130] = 540; CMAP[696] = 131;
+  strcpy(531, "R;W7R_W7S/W2STW#SvVfT4VCTCUtTHUATHQATCPhT4P=SvOvSRO_S%OPRJOKQ1OKQ1P=RTP=RvPCS6PSSGPlSMQ.SMRARERAQlREQ@RRP{RhPdS+PVSTPQT-PQUAPVUtPfVCQ$VfQEW#QkW2R;W7 RYVFR@VFQ{VAQbV0QQUrQLUTQLSuQQSXQ`SCQvS6R;S2SMS2SMUTSHUrS8V0RzVARYVF"); GADV[131] = 540; CMAP[697] = 132;
+  strcpy(532, "S#U#S#StQtStQtU# S#PUS#OKQtOKQtPU"); GADV[132] = 540; CMAP[698] = 133;
+  strcpy(533, "S7U#S7StR-StR-U# R-OKR-PUS7PUS7OKRSMtQ`Mt"); GADV[133] = 540; CMAP[699] = 134;
+  strcpy(534, "TUUdTUTbQ-S3TUQ_TUPZPARUPASe"); GADV[134] = 540; CMAP[700] = 135;
+  strcpy(535, "TUTKTUSZPASZPATK TUR7TUQFPAQFPAR7"); GADV[135] = 540; CMAP[701] = 136;
+  strcpy(536, "SpS3PATbPAUdTUSeTURUPAPZPAQ_"); GADV[136] = 540; CMAP[702] = 137;
+  strcpy(537, "S5SIRZRnRZQhQ`QhQ`S,R?SjRZT-RmTBRxTRS#TbS&TrS'U,S'U_S#UzRpV4RXVAR8VEPpVEPpW7R.W7RkW1S@VzSbV[SvV1S}UUS}U5S|TkSyTQSrT<SgT'SSSjS5SI RcPURcOKQXOKQXPU"); GADV[137] = 540; CMAP[703] = 138;
+  strcpy(538, "OiQ#OiUUOmV+OzVQP3VnPRW'P|W3QTW7SEW7SyW3TFW(TdVpTyVRU*V,U.UUU.QwU+QRU#Q6TpP}TPPkT$PeSaPiSGPtS7Q,S/QFRzQ8RiQ/RSQ)R8Q'QgQ-QHQAQ;QVQ4QuQ1R@Q1SwQ5TLQ@TpQSU/QpU?R=UGRrUJS`UJS`QkSbQXSfQKSpQCT#QAT3QCT<QJTAQXTBQpTBU`T=V&T0V?SsVMSOVRQJVRQ%VMPhV?PYV'PTU`PTPtP[PNPsP7Q=P0SBP0SBOKQ=OKPmOOPIOYP/OlOxP,OmPPOiQ# RvR;RvTlRgTlRBThR+T^QzTGQvS}QvR:QxR%R#QpR.QeRAQbRXQfRiQrRsR'RvR;"); GADV[138] = 540; CMAP[704] = 139;
+  strcpy(539, "QDQHPxOKOyOKQnW7S,W7TyOKSzOKSSQH SCR9RKVOQTR9"); GADV[139] = 540; CMAP[705] = 140;
+  strcpy(540, "RZOKPFOKPFW7RNW7S*W3SVW'SxVnT4VPTAV(TFUOTFTqT@TAT.SuSjSVT3S8TIRjTPR5TPQ5TLP[T>P3T)OpScO[S7OORZOK RZVFQCVFQCSxRZSxRxS}S4T1SDTHSITgSIUXSEUzS7V5R|VBRZVF ReS,QCS,QCP<RdP<S*P@SAPMSOPeSSQ+SSR>SNR]S?RtS(S'ReS,"); GADV[140] = 540; CMAP[706] = 141;
+  strcpy(541, "P_QAP_UAPdUvPtVEQ3VhQVW$R)W2R_W7T8W7T8VERTVER3V?QsV/QbUrQ[UTQ[Q.QbPlQsPSR3PCRTP=T8P=T8OKR_OKR)OPQVO_Q3OvPtP=PdPhP_QA"); GADV[141] = 540; CMAP[707] = 142;
+  strcpy(542, "R^OKPCOKPCW7RQW7S.W3S[W'T%VnT?VOTNV'TSUOTSQ5TOP[TAP3T+OpSfO[S:OOR^OK RhVFQ@VFQ@P<RgP<S-P@SDPMSQPeSVQ+SVUXSQUwSBV3S+VARhVF"); GADV[142] = 540; CMAP[708] = 143;
+  strcpy(543, "T>W7T>VHQUVHQUSrT%SrT%S(QUS(QUP:T>P:T>OKPXOKPXW7"); GADV[143] = 540; CMAP[709] = 144;
+  strcpy(544, "T(ShT(RyQXRyQXOKP[OKP[W7TAW7TAVHQXVHQXSh"); GADV[144] = 540; CMAP[710] = 145;
+  strcpy(545, "POQAPOUAPTUvPeVEQ#VhQGW$QtW2ROW7T(W7T(VEREVER#V?QdV/QRUrQLUTQLQ.QRPlQdPSR#PCREP=SMP=SMRcRPRcRPSSTFSSTFOKROOKQuOPQGO_Q#OvPeP=PTPhPOQA"); GADV[145] = 540; CMAP[711] = 146;
+  strcpy(546, "Q>S%Q>OKPAOKPAW7Q>W7Q>SpSXSpSXW7TUW7TUOKSXOKSXS%"); GADV[146] = 540; CMAP[712] = 147;
+  strcpy(547, "QzP:QzVHPzVHPzW7SwW7SwVHRwVHRwP:SwP:SwOKPzOKPzP:"); GADV[147] = 540; CMAP[713] = 148;
+  strcpy(548, "R#OKPoOKPoP=R-P=ROPCRjPSR{PlS&Q.S&VFQ9VFQ9W7T#W7T#QASyPhSiP=SOOvS+O_RYOPR#OK"); GADV[148] = 540; CMAP[714] = 149;
+  strcpy(549, "Q?R?Q?OKPBOKPBW7Q?W7Q?SrSIW7TNW7RASkTZOKSPOKQfRy"); GADV[149] = 540; CMAP[715] = 150;
+  strcpy(550, "QbW7QbP=T2P=T2OKPeOKPeW7"); GADV[150] = 540; CMAP[716] = 151;
+  strcpy(551, "RtR(Q{R(PsVIPsOKP&OKP&W7QWW7RMS9SDW7TrW7TrOKT#OKT#VI"); GADV[151] = 540; CMAP[717] = 152;
+  strcpy(552, "Q7OKP@OKP@W7QuW7S_P;S_W7TUW7TUOKR{OKQ7VG"); GADV[152] = 540; CMAP[718] = 153;
+  strcpy(553, "R`OKR7OKQ[OPQ/O_PfOvPLP=P<PhP7QAP7UAP<UvPLVEPfVhQ/W$Q[W2R7W7R`W7S;W2ShW$T1VhTJVETZUvT`UAT`QATZPhTJP=T1OvShO_S;OPR`OK RjVER-VEQfV?QKV/Q:UrQ4UTQ4Q.Q:PlQKPSQfPCR-P=RjP=S1PCSKPSS]PlScQ.ScUTS]UrSKV/S1V?RjVE"); GADV[153] = 540; CMAP[719] = 154;
+  strcpy(554, "RVRMQHRMQHOKPKOKPKW7RTW7S.W3SYW&S|VlT9VNTGV&TLUOTLT7TGSaT9S8S|RtSZR_S/RQRVRM RaVFQHVFQHS>RaS>S'SBS=SOSKSgSOT-SOUXSKUzS=V5S'VBRaVF"); GADV[154] = 540; CMAP[720] = 155;
+  strcpy(555, "R`OKR7OKQ[OPQ/O_PfOvPLP=P<PhP7QAP7UAP<UvPLVEPfVhQ/W$Q[W2R7W7R`W7S;W2ShW$T1VhTJVETZUvT`UAT`QATYPfTHP8U7OITXNkSfO^S9OOR`OK RjVER-VEQfV?QKV/Q:UrQ4UTQ4Q.Q:PlQKPSQfPCR-P=RjP=S1PCSKPSS]PlScQ.ScUTS]UrSKV/S1V?RjVE"); GADV[155] = 540; CMAP[721] = 156;
+  strcpy(556, "Q4R`Q4OKP7OKP7W7R?W7RtW3SDW&SfVlT$VNT2V&T7UOT7TIT1SqS|SGS_S)S7RqTiOKSdOKR<R` RKVFQ4VFQ4SPRKSPRmSTS)SbS6SyS:T?S:UXS6UzS)V5RmVBRKVF"); GADV[156] = 540; CMAP[722] = 157;
+  strcpy(557, "R@OKPgOKPgP=RJP=RlPCS,PSS=PlSCQ.SCR<S?RWS3RnR{R{R`S%RAS%QnS*QFS8Q&SQPiSsPZTBPUTvPUUAPZUvPkVEQ)VhQMW$QzW2RUW7T0W7T0VERKVER)V?QjV/QXUrQRUTQRTcQWTFQgT/R#SzR@SuR_SuS0SpSUScStSKT.S+T<R]T@R)T@QAT;PhT+P=SlOvSHO_RvOPR@OK"); GADV[157] = 540; CMAP[723] = 158;
+  strcpy(558, "QzOKQzVEP4VEP4W7TbW7TbVERwVERwOK"); GADV[158] = 540; CMAP[724] = 159;
+  strcpy(559, "RWOKR>OKQdOPQ6O_PnOvPSP=PCPhP>QAP>W7Q;W7Q;Q.QAPlQRPSQnPCR4P=RbP=S)PCSCPSSTPlSZQ.SZW7TWW7TWQATRPhTBP=T)OvS`O_S3OPRWOK"); GADV[159] = 540; CMAP[725] = 160;
+  strcpy(560, "P)W7Q'W7REPISmW7TiW7S%OKQcOK"); GADV[160] = 540; CMAP[726] = 161;
+  strcpy(561, "RIRYQeOKPFOKP$W7PoW7Q2P<R+SyRjSySeP<T)W7ToW7TLOKS(OK"); GADV[161] = 540; CMAP[727] = 162;
+  strcpy(562, "Q(OKP$OKQySMP4W7Q9W7RMTXSfW7TiW7R{SNTsOKSkOKRLRD"); GADV[162] = 540; CMAP[728] = 163;
+  strcpy(563, "QwOKQwS(OxW7Q#W7RMS}SxW7TyW7RwS(RwOK"); GADV[163] = 540; CMAP[729] = 164;
+  strcpy(564, "TBOKPHOKPHPISLVGP`VGP`W7TLW7TLV9QIP;TBP;"); GADV[164] = 540; CMAP[730] = 165;
+  strcpy(565, "SZXUSZWeR2WeR2NySZNySZN-Q<N-Q<XU"); GADV[165] = 540; CMAP[731] = 166;
+  strcpy(566, "TtN7SzN7P#XKPxXK"); GADV[166] = 540; CMAP[732] = 167;
+  strcpy(567, "ReNyReWeQ<WeQ<XUSZXUSZN-Q<N-Q<Ny"); GADV[167] = 540; CMAP[733] = 168;
+  strcpy(568, "Q6T-P8T-QoWtS,WtT^T-S]T-RNW7"); GADV[168] = 540; CMAP[734] = 169;
+  strcpy(569, "U9NFU9MUO^MUO^NF"); GADV[169] = 540; CMAP[735] = 170;
+  strcpy(570, "RHWFSVUtRZUtQ:WF"); GADV[170] = 540; CMAP[736] = 171;
+  strcpy(571, "SMOjS2OSRkOKQlOKQ=ONPsOYPWOjPCP)P8PKP4PyP4Q2P:QkPKR;PjRZQ7RnQmRtS4RtS4SKS/ShR|S|RdT.RCT2P]T2P]U#R9U#RoTzS?TmS`TWSxT9T*SkT/S7T/PUT2PHT;P?TJP9TbP7TbOKT*OKShOSSMOj S4PoS4R(QlR(QSR$Q@QrQ3Q_Q/QFQ/PoQ2PWQ;PHQKP?QbP<RaP<RzP?S,PJS4Po"); GADV[171] = 540; CMAP[737] = 172;
+  strcpy(572, "RXOKPHOKPHW7QCW7QCTjQfTyR4U#RXU#S3TzS_TmT%TWT<T9TISkTNS7TNQ7TIP_T<P5T%OrS_O]S3OORXOK QCSUQCP<RcP<S)P@S@PMSNPbSSQ#SSSKSNShS@S|S)T.RcT2R*T2QhT.QSS|QGSiQCSU"); GADV[172] = 540; CMAP[738] = 173;
+  strcpy(573, "PjQ7PjS7PoSkP|T9Q9TWQYTmR*TzR`U#T,U#T,T2RUT2R5T.QxS|QjShQeSKQeQ#QjPbQxPMR5P@RUP<T,P<T,OKR`OKR*OOQYO]Q8OrP|P5PoP_PjQ7"); GADV[173] = 540; CMAP[739] = 174;
+  strcpy(574, "ReOKR;OKQaOOQ5O]PoOrPWP5PJP_PEQ7PES7PJSkPWT9PpTWQ5TmQaTzR;U#SUU#SUW7TPW7TPOKSZOKSZOcS5OQReOK SUPtSUT2R1T2QlT.QSS|QEShQ@SKQ@Q#QEPbQSPMQlP@R1P<RoP<S1P@SEPMSQPaSUPt"); GADV[174] = 540; CMAP[740] = 175;
+  strcpy(575, "POQ7POS7PSSlP`T:PuTXQ8TnQbTzR;U#RkU#S;TzS`TlS|TUT6T7TBSlTFS<TFQoQJQoQJQ#QOPbQ^PMQvP@R;P<T&P<T&OKREOKQkOOQ?O]PyOrPbP5PTP_POQ7 SMSPSISiS<S|S)T.RlT2R1T2QmT.QYS|QNShQJSKQJR`SMR`"); GADV[175] = 540; CMAP[741] = 176;
+  strcpy(576, "RJV(RJU#T7U#T7T2RJT2RJP<SjP<SjOKPTOKPTP<QOP<QOT2PTT2PTU#QOU#QOV#QVVQQmVtR3W0R^W7TAW7TAVFRnVFR`VDRSV=RLV4RJV("); GADV[176] = 540; CMAP[742] = 177;
+  strcpy(577, "RjMUPMMUPMNFRtNFS9NISONTS^NeSbNySbO>S^OSSOOdS9OnRtOqP{OqP{QFP^Q]PIQ{P=RGP9RyP9S7P>SkPKT9PdTWQ)TmQTTzR/U#TMU#TMRyTHRJT;Q}T$Q^SaQES;Q7RlQ2QvQ2QvPbRjPbSCP^SnPRT3P?TJP%TWO^T]O4T]O(TXNYTJN7T3MxSnMeSCMYRjMU SRRbSRT2R%T2Q`T.QGS|Q9ShQ4SKQ4ReQ9RIQGR4Q`R'R%R#RlR#S,R(S@R7SMRKSRRb"); GADV[177] = 540; CMAP[743] = 178;
+  strcpy(578, "QCW7QCTjQfTyR4U#RcU#S9TzScTmT'TWT<T9TJSkTNS7TNOKSSOKSSSKSOSgSAS|S-T.RmT2R*T2QiT.QTS|QHSkQCSXQCOKPHOKPHW7"); GADV[178] = 540; CMAP[744] = 179;
+  strcpy(579, "R{W7R{V7QvV7QvW7 PAT2PAU#RvU#RvP<TUP<TUOKQ{OKQ{T2"); GADV[179] = 540; CMAP[745] = 180;
+  strcpy(580, "SvW7SvV7RqV7RqW7 RwNeRwT2Q=T2Q=U#SrU#SrNjSkN;STMtS3M]RdMUP{MUP{NFRSNFRbNHRnNORuNXRwNe"); GADV[180] = 540; CMAP[746] = 181;
+  strcpy(581, "QLQnQLOKPQOKPQW7QLW7QLS%S5U#TFU#RLRmTTOKSEOKQgR1"); GADV[181] = 540; CMAP[747] = 182;
+  strcpy(582, "QqPUQqVFP7VFP7W7RlW7RlPZRnPLRtPCS$P>S4P<T`P<T`OKRlOKRKOQR/OdQwP(QqPU"); GADV[182] = 540; CMAP[748] = 183;
+  strcpy(583, "PhU#PhTgQ)TxQKU#QQU#Q|TzRBTlRZTURsTlS5TzSWU#S^U#T8TvT^T_TnTDTxSzT{SJT{OKT*OKT*SKT(SoS|T*SoT6SUT:SOT:S6T5S%T%RxSkRtSRRtOKR#OKR#SKQ|SoQtT+QfT6QOT:QIT:Q/T6PzT)PqSqPmS[PmOKOwOKOwU#"); GADV[183] = 540; CMAP[749] = 184;
+  strcpy(584, "Q>U#Q>TfQbTxR4U#RcU#S9TzScTmT'TWT<T9TJSkTNS7TNOKSSOKSSSKSOSgSAS|S-T.RmT2R*T2QhT.QSS|QGSiQCSUQCOKPHOKPHU#"); GADV[184] = 540; CMAP[750] = 185;
+  strcpy(585, "R[OKR:OKQ`OOQ4O]PnOrPVP5PIP_PDQ7PDS7PISkPVT9PnTWQ4TmQ`TzR:U#R[U#S6TzSbTmT'TWT?T9TLSkTQS7TQQ7TLP_T?P5T'OrSbO]S6OOR[OK RfT2R0T2QjT.QRS|QDShQ?SKQ?Q#QDPbQRPMQjP@R0P<RfP<S+P@SCPMSQPbSVQ#SVSKSQShSCS|S+T.RfT2"); GADV[185] = 540; CMAP[751] = 186;
+  strcpy(586, "Q>U#Q>TfQbTxR4U#RXU#S3TzS_TmT%TWT<T9TISkTNS7TNQ7TIP_T<P5T%OrS_O]S3OORXOKQCOKQCMUPHMUPHU# QCSUQCP<RcP<S)P@S@PMSNPbSSQ#SSSKSNShS@S|S)T.RcT2R*T2QhT.QSS|QGSiQCSU"); GADV[186] = 540; CMAP[752] = 187;
+  strcpy(587, "ReOKR;OKQaOOQ5O]PoOrPWP5PJP_PEQ7PES7PJSkPWT9PpTWQ5TmQaTzR;U#TPU#TPMUSUMUSUO`S3OPReOK SUPtSUT2R1T2QlT.QSS|QEShQ@SKQ@Q#QEPbQSPMQlP@R1P<RoP<S1P@SEPMSQPaSUPt"); GADV[187] = 540; CMAP[753] = 188;
+  strcpy(588, "QDP<QDT2PUT2PUU#R:U#R:TcR`TwS0U#T=U#T=T-S&T-ReT(RPStRDS_R?SIR?P<SRP<SROKPUOKPUP<"); GADV[188] = 540; CMAP[754] = 189;
+  strcpy(589, "RMOKPmOKPmP<RWP<RpP?S&PGS1PVS4PjS4QDS/Q^R|QmRdQrR>QrQnQuQJR%Q/R5PwRNPlRoPhS<PhSYPlT(PyTHQ3T`QPTqQwT{RIU#SvU#SvT2R?T2R)T/QrT'QgSsQcS`QcS;QfS'QpRtR%RlR8RiRZRiS)ReSKRZSgRGSzR.T+QiT/QAT/PoT+PHSyP(SdOkSEOYR{ONRMOK"); GADV[189] = 540; CMAP[755] = 190;
+  strcpy(590, "QbPjQbT2P]T2P]U#QbU#QbVAR]VAR]U#T:U#T:T2R]T2R]PeR`PQRhPERvP>S/P<T:P<T:OKRqOKRQOOR7OZQ}OmQiP8QbPj"); GADV[190] = 540; CMAP[756] = 191;
+  strcpy(591, "R]OKR:OKQdOOQ:O]PvOrPaP5PRP_PNQ7PNU#QIU#QIQ#QMPcQ[PMQpP@R0P<RgP<S(P@S;PLSHP^SMPqSMU#THU#THOKSROKSROcS-OQR]OK"); GADV[191] = 540; CMAP[757] = 192;
+  strcpy(592, "P1U#Q3U#RNP6SgU#TfU#S/OKQiOK"); GADV[192] = 540; CMAP[758] = 193;
+  strcpy(593, "RMR8QrOKPoOKOoU#PjU#QHPXR0T#RrT#SSPXT2U#U(U#T)OKS#OK"); GADV[193] = 540; CMAP[759] = 194;
+  strcpy(594, "Q6OKP2OKQuR?P>U#QGU#RLS/SSU#TVU#RyRCTdOKSYOKRJQT"); GADV[194] = 540; CMAP[760] = 195;
+  strcpy(595, "R'NoR5OKQ|OKP0U#Q2U#RUPBSiU#TfU#S$NpRpNCR_N#RJMiR3M^QtMWQQMUP|MUP|NFQKNFQaNHQpNOQzN[R'No"); GADV[195] = 540; CMAP[761] = 196;
+  strcpy(596, "T1OKP[OKP[PAS7T3PpT3PpU#T;U#T;T$QbP;T1P;"); GADV[196] = 540; CMAP[762] = 197;
+  strcpy(597, "QrT_QrW5QuW^Q}X#R0X9RDXIRaXRS*XUSlXUSlWjS8WjS#WhRpWbRiWVRfWDRfT_R`T1RMSgR1SMQkS@R1S5RMRwR`RQRfR$RfO>RiO,RpN|S#NvS8NtSlNtSlN-S*N-RaN0RDN9R0NIQ}N`QuO%QrOMQrR$QnRDQbRWQLRbQ*ReQ*SyQLS|QbT+QnT>QrT_"); GADV[197] = 540; CMAP[763] = 198;
+  strcpy(598, "RtXKRtN7R#N7R#XK"); GADV[198] = 540; CMAP[764] = 199;
+  strcpy(599, "S$R$S$OMR|O%RtN`RfNIRQN9R5N0QlN-Q*N-Q*NtQ^NtQsNvR%N|R-O,R0O>R0R$R6RQRIRwReS5S+S@ReSMRISgR6T1R0T_R0WDR-WVR%WbQsWhQ^WjQ*WjQ*XUQlXUR5XRRQXIRfX9RtX#R|W^S$W5S$T_S(T>S3T+SIS|SlSySlReSIRbS3RWS(RDS$R$"); GADV[199] = 540; CMAP[765] = 200;
+  strcpy(600, "Q]SaQlSaQyS_R5SWRTSLRsSAS.S:S:S8SDS8SRS<SnSGT/STTAS]TARgT1R_SpRQSSRGSCRCS4RCS+RERuRKRYRTR4RbQuRiQgRlQ]RlQLRhQ-R]PiROPURGPUS=PhSEQ+SQQJS]Q]Sa"); GADV[200] = 540; CMAP[766] = 201;
+  strcpy(601, ""); GADV[201] = 540; CMAP[800] = 202;
+  strcpy(602, "QtStQtU#S#U#S#St Q|M7Q|RbRwRbRwM7"); GADV[202] = 540; CMAP[801] = 203;
+  strcpy(603, "PjQ6PjS6PnSfPyT1Q1TOQLTeQpTtRAT{RAV-S7V-S7T}T,T}T,T1RUT1R5T-QxS{QjSfQeSJQeP}QjPbQxPLR5P?RUP;T,P;T,OJS7OJS7N7RAN7RAOKQpOSQLObQ1OxPyP:PnPbPjQ6"); GADV[203] = 540; CMAP[802] = 204;
+  strcpy(604, "Q9UAQ>UvQNVEQhVhR1W$R^W2S9W7T@W7T@VES/VERhV?RMV/R<UrR6UTR6T&S]T&S]S7R6S7R6P:THP:THOKPMOKPMP:Q9P:Q9S7PMS7PMT&Q9T&"); GADV[204] = 540; CMAP[803] = 205;
+  strcpy(605, "P:R9P:SAP=SnPFT6OYU$P8U^P}TtQOU(R0U-RfU-SEU(StTsT_U^U=U$TNT5TXSnT[SAT[R9TXQjTOQFU=PXT_OzSvPcSGPRRfPMR0PMQaPOQ=PVP|PcP8OzOYPXPFQEP=QjP:R9 RpT<R&T<Q`T8QHT+Q:SrQ5SUQ5R%Q:QdQHQOQ`QBR&Q>RpQ>S5QBSMQOS[QdSaR%SaSUS[SrSMT+S5T8RpT<"); GADV[205] = 540; CMAP[804] = 206;
+  strcpy(606, "QxOKQxPePOPePOQUQxQUQxRFPORFPOS7QuS7P(W7Q.W7RNT4SnW7ToW7RzS7TES7TERFRxRFRxQUTEQUTEPeRxPeRxOK"); GADV[206] = 540; CMAP[805] = 207;
+  strcpy(607, "RtXKRtTKR#TKR#XK RtR7RtN7R#N7R#R7"); GADV[207] = 540; CMAP[806] = 208;
+  strcpy(608, "Q4TWPyU#PqUUPqU`PuV1Q'VUQ<VpQYW(R%W3RRW7SuW7SuVFRHVFR2VCQ|V;QpV,QlUtQlUKQoU7QyU)R-T|RATyR_TyS5TsS]TbSxTDT.SvT3SAT3S<T.RmSzRHSbR+SnQxSxQdT%Q-T%Q#S|PQSoP-SYOnS<OZRqOORCOKP|OKP|P<RMP<RdP?RvPGS&PVS*PjS*Q7S%QPRqQ`RXQeR7QeQaQkQ9Q|PyR>PhRhPcSAPcSFPfSiPpT-Q#TEQ4TW Q^SZQ^S-QaRsQkRdQ|RXR8RURpRUS#RXS/RbS6RpS8S(S8SUS5SkS-S{RxT*R_T-R&T-QrT*QgS|Q`SnQ^SZ"); GADV[208] = 540; CMAP[807] = 209;
+  strcpy(609, "QlVyQlV(PqV(PqVy T%VyT%V(S*V(S*Vy"); GADV[209] = 540; CMAP[808] = 210;
+  strcpy(610, "SCOKQSOKQ#OPPUO_P5OwOxP=OjPiOeQAOeUAOjUuOxVEP5VgPUW$Q#W2QSW7SCW7StW2TAW$TbVgTzVEU-UuU2UAU2QAU-PiTzP=TbOwTAO_StOPSCOK SCVQQSVQQ-VKPkV7PXUwPRUWPRQ*PXPfPkPIQ-P6QSP0SCP0SjP6T,PIT>PfTDQ*TDUWT>UwT+V7SjVKSCVQ QFR8QFTJQMTtQcU7R*UHRXUNSIUNSITvRSTvR@TsR1TjR(T[R%TKR%R7R(R'R1QtR@QkRSQhSHQhSHQ4RXQ4R*Q:QcQKQMQjQFR8"); GADV[210] = 540; CMAP[809] = 211;
+  strcpy(611, "S,S;RtS,R[S'R'S'QPS-Q.S?PvS_PoT3PoTBPvTvQ/U?QRUUR(U]RsU]RsV(RpV<RfVIRUVQR=VTQ2VTQ2W7R6W7R_W4S$W*S=VvSNV_SYV?S]UtS]SsS_SiSfSbSqS^T'S]T'S'STS'S?S-S,S; RsT-RsT}R+T}QtTzQfTpQ[TbQXTOQXT/Q]StQiSgR#ScROScRcSfRmSmRsT- SrP<SrOKQ*OKQ*P<"); GADV[211] = 540; CMAP[810] = 212;
+  strcpy(612, "QaU)RHU)QdRiRHPMQaPMPbRi SLU)T4U)SORiT4PMSLPMRMRi"); GADV[212] = 540; CMAP[811] = 213;
+  strcpy(613, "P/RPP/SATgSATgP[SlP[SlRP"); GADV[213] = 540; CMAP[812] = 214;
+  strcpy(614, "T9SAT9RPP]RPP]SA"); GADV[214] = 540; CMAP[813] = 215;
+  strcpy(615, "SCOKQSOKQ#OPPUO_P5OwOxP=OjPiOeQAOeUAOjUuOxVEP5VgPUW$Q#W2QSW7SCW7StW2TAW$TbVgTzVEU-UuU2UAU2QAU-PiTzP=TbOwTAO_StOPSCOK SCVQQSVQQ-VKPkV7PXUwPRUWPRQ*PXPfPkPIQ-P6QSP0SCP0SjP6T,PIT>PfTDQ*TDUWT>UwT+V7SjVKSCVQ QyR{QyQ6Q@Q6Q@UNRQUNS%UISEU9SYTyS`TRS`SxSYSSSGS9S)S)S}Q6S?Q6RKR{ RQTzQyTzQySNRQSNRfSPRsSWRzSeR}SwR}TRRzTeRsTqRfTxRQTz"); GADV[215] = 540; CMAP[814] = 216;
+  strcpy(616, "SqVySqV2Q%V2Q%Vy"); GADV[216] = 540; CMAP[815] = 217;
+  strcpy(617, "RYSqR=SqQfSyQ<T5Q(TLPwTjPsU3PsUvPwV?Q(V]Q;VtQeW0R=W8RYW8S2W0S[VtSoV]S{V?T$UvT$U3S{TjSoTLSZT5S1SyRYSq RYVTR=VTR&VPQnVDQbV3Q^UyQ^U0QbTvQnTeR&TXR=TTRYTTRqTXS)TeS5TvS9U0S9UyS5V3S)VDRqVPRYVT"); GADV[217] = 540; CMAP[816] = 218;
+  strcpy(618, "R#Q&R#RPPARPPASAR#SAR#U+RtU+RtSATUSATURPRtRPRtQ& TUP<TUOKPAOKPAP<"); GADV[218] = 540; CMAP[817] = 219;
+  strcpy(619, "RCT8R_T`RnTyRtU5RvUVRvU{RoV;RZVLR8VQQ<VQQ<W7R1W7R_W4S(W*SCVvSUV_SaV@SeUuSeU^SdU9S`TzSQTSSDT?S.S|Q|RJSjRJSjQeQ-QeQ-RS"); GADV[219] = 540; CMAP[818] = 220;
+  strcpy(620, "R;QeQ5QeQ5RJR8RJRQRMRcRURnRfRqR}RqSYRmSpRbT%ROT/R9T3QLT3QLTtR1TtRGTwRYU'ReU7RiUMRiUxRfV6R[VERJVNR1VQQ5VQQ5W7R2W7RaW2S+W$SDVhSTVFSYUwSYUSSVU8SMT|S?TgS-TVSIT@SZS|SaSTSaS'S^R[SSR=SCR&S+QqReQhR;Qe"); GADV[220] = 540; CMAP[819] = 221;
+  strcpy(621, "S[WFR;UtQ?UtRMWF"); GADV[221] = 540; CMAP[820] = 222;
+  strcpy(622, "QSU#QSQ#QWPcQfPMQzP@R:P<R]P<RzP@S3PMS?PaSCPtSCU#T>U#T>OKSHOKSHOcS#OQRROKRDOKQvOMQSOUQSMUPXMUPXU#"); GADV[222] = 540; CMAP[821] = 223;
+  strcpy(623, "Q}SYQGS^PwSiPWS|PAT>P3TfP/U>P/UKP3V$PAVMPWVlPxW&QGW3Q}W7R|W7R|VKQrVKQQVFQ9V7Q+U|Q&U`Q&U*Q+TjQ9TTQQTGQrTCR|TCR|OKR(OKR(SY TNW7TNOKSXOKSXW7"); GADV[223] = 540; CMAP[822] = 224;
+  strcpy(624, "S#SKS#RAQtRAQtSK"); GADV[224] = 540; CMAP[823] = 225;
+  strcpy(625, "R7MxRIM{RTN+RXN<RVNJRONSRENWR5NYQ_NYQ_P#RJP#RJO6RsO2S3O%SBNfSGN<SDMuS<MZS-MIRlM<RIM7QNM7QNMx"); GADV[225] = 540; CMAP[824] = 226;
+  strcpy(626, "R2RJR2VNQ)V'Q)VlR*W7R}W7R}RJSmRJSmQeQ1QeQ1RJ"); GADV[226] = 540; CMAP[825] = 227;
+  strcpy(627, "RNS)RDS)QwS,QVS6Q=SEQ,S]P|S|PyTGPyUvP|VAQ,VaQ=VxQVW,QwW6RDW9RNW9RwW6S<W,STVxSfVaSqVAStUvStTGSqS|SfS]STSES<S6RwS,RNS) RQVVR@VVR(VSQrVIQgV:QcV&QcT<QgT(QrStR(SjR@SgRQSgRjSjR|StS+T(S/T<S/V&S+V:R|VIRjVSRQVV S|P<S|OKPvOKPvP<"); GADV[227] = 540; CMAP[826] = 228;
+  strcpy(628, "PbU)QIU)RHRiQIPMPbPMQFRi RMU)S5U)T4RiS5PMRMPMS2Ri"); GADV[228] = 540; CMAP[827] = 229;
+  strcpy(629, "SZXKTJXKQXN7PiN7 P>RJP>VKOVV$OVVlP@W7Q.W7Q.RJQPRJQPQeOiQeOiRJ T5OKT5PgS*PgS*QVSaTyTKTyShQLT1QLTLS'T|S'T|QLU?QLU?PgT|PgT|OK"); GADV[229] = 540; CMAP[828] = 230;
+  strcpy(630, "SPXKTNXKQ]N7PmN7 P>RJP>VKOVV$OVVlP@W7Q.W7Q.RJQPRJQPQeOiQeOiRJ TDR3TORYTQRrTRS=TRSlTMT'T@T4T)T8S`T8S`TyS}TyTMTvTnTnU)TaU7TKU?T0UASfUASDUARwU@RXU>RCU9R+U/QpTBP1UFP1UFOKSPOKSPP:"); GADV[230] = 540; CMAP[829] = 231;
+  strcpy(631, "STXKTDXKQRN7PcN7 P>QeOaQeOaRHP;RHPSRKPdRSPoRdPrR{PrS[PnSrPdT'PRT1P<T5OxT5OxTrP4TrPJTuP[U%PfU5PjUKPjUzPgV8P^VGPMVPP4VSOaVSOaW7P5W7P[W4P{W+Q8VvQIV`QSVAQVUwQVUSQSU8QJT|Q<TgQ*TVQFT@QWS|Q^STQ^S'QZRZQQR<QBR%Q,QqPgQhP>Qe T5OKT5PgS*PgS*QVSaTyTKTyShQLT1QLTLS'T|S'T|QLU?QLU?PgT|PgT|OK"); GADV[231] = 540; CMAP[830] = 232;
+  strcpy(632, "R4StR4U#S>U#S>St QbQ%R<Q[R<RbS7RbS7QBRWP`R<PBR*P-QzOwQtOhQqOWQpOBQpNkQtNOR'N:R>N-R_N)T'N)T'M7RiM7R,M=QVMOQ5MnP|N=PuNtPuO9PvO_PyOxQ%P2Q0PGQCP`QbQ%"); GADV[232] = 540; CMAP[831] = 233;
+  strcpy(633, "R:XkSHWQROWQQ%Xk QDQHPxOKOyOKQnW7S,W7TyOKSzOKSSQH SCR9RKVOQTR9"); GADV[233] = 540; CMAP[832] = 234;
+  strcpy(634, "SpXkREWQQLWQRZXk QDQHPxOKOyOKQnW7S,W7TyOKSzOKSSQH SCR9RKVOQLR9"); GADV[234] = 540; CMAP[833] = 235;
+  strcpy(635, "QiWUPcWUQwXoRyXoT3WUS,WURJX; QDQHPxOKOyOKQnW7S,W7TyOKSzOKSSQH SCR9RKVOQTR9"); GADV[235] = 540; CMAP[834] = 236;
+  strcpy(636, "QlXjQ{XjR8XdRYXUR|XFS5XAS?XASKXESaXPSvX^T(XfT(WxSwWqSbWeSLWYS>WVS/WVS(WXRtW_R]WhR>WuR(W|QvX$QlX$Q^W{QEWpQ-WcPyWZPyXHQ,XOQCX[Q[XfQlXj QDQHPxOKOyOKQnW7S,W7TyOKSzOKSSQH SCR9RKVOQTR9"); GADV[236] = 540; CMAP[835] = 237;
+  strcpy(637, "QqXPQqWZPvWZPvXP SzXPT*WZS/WZS/XP QDQHPxOKOyOKQnW7S,W7TyOKSzOKSSQH SCR9RKVOQTR9"); GADV[237] = 540; CMAP[836] = 238;
+  strcpy(638, "S2VyTyOKSzOKSSQHQDQHPxOKOyOKQhVxQQW9QJWaQJX#QPXHQdXdR%XtRIXyROXyRtXtS5XdSHXHSNX#SNWaSFW9S2Vy ROXJRIXJR9XGR/X?R'X$R'W`R/WCR9W<RIW9ROW9RbW=RlWJRpW`RpX$RlX9RbXFROXJ SCR9RKVOQTR9"); GADV[238] = 540; CMAP[837] = 239;
+  strcpy(639, "Q$QHPTOKOZOKQVW7T|W7T|VHS(VHS?SrTwSrTwS(SGS(SaP:U5P:U5OKRqOKRbQH R4VHQ6R9RXR9"); GADV[239] = 540; CMAP[838] = 240;
+  strcpy(640, "RmMxS$M{S/N+S3N<S1NJS+NSR{NWRkNYR9NYR9OMQiOVQEOhQ)P%PoPEPcPnP_QAP_UAPdUvPtVEQ3VhQVW$R)W2R_W7T8W7T8VERTVER3V?QsV/QbUrQ[UTQ[Q.QbPlQsPSR3PCRTP=T8P=T8OKS%OKS%O6SMO2ShO%SxNfS}N<SzMuSrMZSdMISFM<S$M7R)M7R)Mx"); GADV[240] = 540; CMAP[839] = 241;
+  strcpy(641, "R5XkSCWQRJWQP{Xk T>W7T>VHQUVHQUSrT%SrT%S(QUS(QUP:T>P:T>OKPXOKPXW7"); GADV[241] = 540; CMAP[840] = 242;
+  strcpy(642, "SqXkRFWQQMWQR[Xk T>W7T>VHQUVHQUSrT%SrT%S(QUS(QUP:T>P:T>OKPXOKPXW7"); GADV[242] = 540; CMAP[841] = 243;
+  strcpy(643, "QjWUPdWUQxXoRzXoT4WUS-WURKX; T>W7T>VHQUVHQUSrT%SrT%S(QUS(QUP:T>P:T>OKPXOKPXW7"); GADV[243] = 540; CMAP[842] = 244;
+  strcpy(644, "QlXPQlWZPqWZPqXP T%XPT%WZS*WZS*XP T>W7T>VHQUVHQUSrT%SrT%S(QUS(QUP:T>P:T>OKPXOKPXW7"); GADV[244] = 540; CMAP[843] = 245;
+  strcpy(645, "R4XkSBWQRIWQPzXk Q}P:Q}VHP}VHP}W7SzW7SzVHRzVHRzP:SzP:SzOKP}OKP}P:"); GADV[245] = 540; CMAP[844] = 246;
+  strcpy(646, "SlXkRAWQQHWQRVXk QzP:QzVHPzVHPzW7SwW7SwVHRwVHRwP:SwP:SwOKPzOKPzP:"); GADV[246] = 540; CMAP[845] = 247;
+  strcpy(647, "QjWUPdWUQxXoRzXoT4WUS-WURKX; Q{P:Q{VHP{VHP{W7SxW7SxVHRxVHRxP:SxP:SxOKP{OKP{P:"); GADV[247] = 540; CMAP[846] = 248;
+  strcpy(648, "QmXPQmWZPrWZPrXP T&XPT&WZS+WZS+XP QzP:QzVHPzVHPzW7SwW7SwVHRwVHRwP:SwP:SwOKPzOKPzP:"); GADV[248] = 540; CMAP[847] = 249;
+  strcpy(649, "RgOKPLOKPLS(OnS(OnStPLStPLW7RZW7S7W3SeW'T.VnTHVOTWV'T]UOT]Q5TXP[TJP3T5OpSoO[SCOORgOK RqVFQIVFQIStRdStRdS(QIS(QIP<RpP<S6P@SMPMS[PeS`Q+S`UXSZUwSKV3S4VARqVF"); GADV[249] = 540; CMAP[848] = 250;
+  strcpy(650, "QjXjQyXjR6XdRWXURzXFS3XAS=XASIXES_XPStX^T&XfT&WxSuWqS`WeSJWYS<WVS-WVS&WXRrW_RZWhR<WuR&W|QtX$QjX$Q[W{QCWpQ+WcPwWZPwXHQ*XOQAX[QYXfQjXj Q7OKP@OKP@W7QuW7S_P;S_W7TUW7TUOKR{OKQ7VG"); GADV[250] = 540; CMAP[849] = 251;
+  strcpy(651, "R4XkSBWQRIWQPzXk R`OKR7OKQ[OPQ/O_PfOvPLP=P<PhP7QAP7UAP<UvPLVEPfVhQ/W$Q[W2R7W7R`W7S;W2ShW$T1VhTJVETZUvT`UAT`QATZPhTJP=T1OvShO_S;OPR`OK RjVER-VEQfV?QKV/Q:UrQ4UTQ4Q.Q:PlQKPSQfPCR-P=RjP=S1PCSKPSS]PlScQ.ScUTS]UrSKV/S1V?RjVE"); GADV[251] = 540; CMAP[850] = 252;
+  strcpy(652, "SsXkRHWQQOWQR^Xk R`OKR7OKQ[OPQ/O_PfOvPLP=P<PhP7QAP7UAP<UvPLVEPfVhQ/W$Q[W2R7W7R`W7S;W2ShW$T1VhTJVETZUvT`UAT`QATZPhTJP=T1OvShO_S;OPR`OK RjVER-VEQfV?QKV/Q:UrQ4UTQ4Q.Q:PlQKPSQfPCR-P=RjP=S1PCSKPSS]PlScQ.ScUTS]UrSKV/S1V?RjVE"); GADV[252] = 540; CMAP[851] = 253;
+  strcpy(653, "QiWUPcWUQwXoRyXoT3WUS,WURJX; R`OKR7OKQ[OPQ/O_PfOvPLP=P<PhP7QAP7UAP<UvPLVEPfVhQ/W$Q[W2R7W7R`W7S;W2ShW$T1VhTJVETZUvT`UAT`QATZPhTJP=T1OvShO_S;OPR`OK RjVER-VEQfV?QKV/Q:UrQ4UTQ4Q.Q:PlQKPSQfPCR-P=RjP=S1PCSKPSS]PlScQ.ScUTS]UrSKV/S1V?RjVE"); GADV[253] = 540; CMAP[852] = 254;
+  strcpy(654, "QiXjQxXjR5XdRVXURzXFS2XAS<XASHXES^XPSsX^T%XfT%WxStWqS`WeSIWYS;WVS,WVS%WXRqW_RYWhR;WuR%W|QsX$QiX$QZW{QBWpQ*WcPvWZPvXHQ)XOQ@X[QXXfQiXj R`OKR7OKQ[OPQ/O_PfOvPLP=P<PhP7QAP7UAP<UvPLVEPfVhQ/W$Q[W2R7W7R`W7S;W2ShW$T1VhTJVETZUvT`UAT`QATZPhTJP=T1OvShO_S;OPR`OK RjVER-VEQfV?QKV/Q:UrQ4UTQ4Q.Q:PlQKPSQfPCR-P=RjP=S1PCSKPSS]PlScQ.ScUTS]UrSKV/S1V?RjVE"); GADV[254] = 540; CMAP[853] = 255;
+  strcpy(655, "QpXPQpWZPuWZPuXP T)XPT)WZS.WZS.XP R`OKR7OKQ[OPQ/O_PfOvPLP=P<PhP7QAP7UAP<UvPLVEPfVhQ/W$Q[W2R7W7R`W7S;W2ShW$T1VhTJVETZUvT`UAT`QATZPhTJP=T1OvShO_S;OPR`OK RjVER-VEQfV?QKV/Q:UrQ4UTQ4Q.Q:PlQKPSQfPCR-P=RjP=S1PCSKPSS]PlScQ.ScUTS]UrSKV/S1V?RjVE"); GADV[255] = 540; CMAP[854] = 256;
+  strcpy(656, "PRQXQmRtPRT4Q0TmRKSRSgTmTDT4S*RtTDQXSgP{RKR:Q0P{"); GADV[256] = 540; CMAP[855] = 257;
+  strcpy(657, "R`OKR7OKQ{OKQkOMQPNJP_NJQ$OdPWP,P?P^P7QAP7UAP<UvPLVEPfVhQ/W$Q[W2R7W7R`W7RpW7S*W5SDX8T6X8SqVzT6VbTMVATZUsT`UAT`QATZPhTJP=T1OvShO_S;OPR`OK Q=PfRpVER-VEQfV?QKV/Q:UrQ4UTQ4Q.Q6PvQ=Pf SWUzR$P=RjP=S1PCSKPSS]PlScQ.ScUTS`UhSWUz"); GADV[257] = 540; CMAP[856] = 258;
+  strcpy(658, "Q{XkS.WQR5WQPfXk RWOKR>OKQdOPQ6O_PnOvPSP=PCPhP>QAP>W7Q;W7Q;Q.QAPlQRPSQnPCR4P=RbP=S)PCSCPSSTPlSZQ.SZW7TWW7TWQATRPhTBP=T)OvS`O_S3OPRWOK"); GADV[258] = 540; CMAP[857] = 259;
+  strcpy(659, "T3XkRdWQQkWQRyXk RWOKR>OKQdOPQ6O_PnOvPSP=PCPhP>QAP>W7Q;W7Q;Q.QAPlQRPSQnPCR4P=RbP=S)PCSCPSSTPlSZQ.SZW7TWW7TWQATRPhTBP=T)OvS`O_S3OPRWOK"); GADV[259] = 540; CMAP[858] = 260;
+  strcpy(660, "QnWUPhWUQ|XoS#XoT8WUS1WUROX; RWOKR>OKQdOPQ6O_PnOvPSP=PCPhP>QAP>W7Q;W7Q;Q.QAPlQRPSQnPCR4P=RbP=S)PCSCPSSTPlSZQ.SZW7TWW7TWQATRPhTBP=T)OvS`O_S3OPRWOK"); GADV[260] = 540; CMAP[859] = 261;
+  strcpy(661, "QnXPQnWZPsWZPsXP T'XPT'WZS,WZS,XP RWOKR>OKQdOPQ6O_PnOvPSP=PCPhP>QAP>W7Q;W7Q;Q.QAPlQRPSQnPCR4P=RbP=S)PCSCPSSTPlSZQ.SZW7TWW7TWQATRPhTBP=T)OvS`O_S3OPRWOK"); GADV[261] = 540; CMAP[860] = 262;
+  strcpy(662, "SuXkRJWQQQWQR`Xk QwOKQwS(OxW7Q#W7RMS}SxW7TyW7RwS(RwOK"); GADV[262] = 540; CMAP[861] = 263;
+  strcpy(663, "RZQ%QLQ%QLOKPOOKPOW7QLW7QLUjRXUjS2UfS^UXT%UCT=U&TKTXTPT'TPRjTKR8T=QkT%QKS_Q6S3Q)RZQ% ReTyQLTyQLQqReQqS+QuSAR'SOR>SSR`SST0SOTQSAThS+TuReTy"); GADV[263] = 540; CMAP[862] = 264;
+  strcpy(664, "Q|W7RHW7S#W3SNW&SpVlT,VMT9V$T>UKT>T(SJT(S0T%RzSxRqSjRnSURnSFRqS2RzS$S,RwS>RtSpRlT;RSTSR-T[QUT[PoTWPKTKP-T8OnSxOZSUOOS+OKQpOKQpP<S1P<SKPAS[PPSaPjSaQUS^QiSUQxSGR%S2R(RmR,RPR7R9RIR&RbQwS%QsSGQsSQQwSyR'T<R:TQReTgSCTpSCU`S>U|S0V5RtVBRRVFQwVFQZVBQGV5Q=V#Q:UjQ:OKP?OKP?U`PDV0PRVSPkVoQ/W'QSW3Q|W7"); GADV[264] = 540; CMAP[863] = 265;
+  strcpy(665, "R+WFS9UtR=UtPxWF SMOjS2OSRkOKQlOKQ=ONPsOYPWOjPCP)P8PKP4PyP4Q2P:QkPKR;PjRZQ7RnQmRtS4RtS4SKS/ShR|S|RdT.RCT2P]T2P]U#R9U#RoTzS?TmS`TWSxT9T*SkT/S7T/PUT2PHT;P?TJP9TbP7TbOKT*OKShOSSMOj S4PoS4R(QlR(QSR$Q@QrQ3Q_Q/QFQ/PoQ2PWQ;PHQKP?QbP<RaP<RzP?S,PJS4Po"); GADV[265] = 540; CMAP[864] = 266;
+  strcpy(666, "T#WFR^UtQbUtRpWF SMOjS2OSRkOKQlOKQ=ONPsOYPWOjPCP)P8PKP4PyP4Q2P:QkPKR;PjRZQ7RnQmRtS4RtS4SKS/ShR|S|RdT.RCT2P]T2P]U#R9U#RoTzS?TmS`TWSxT9T*SkT/S7T/PUT2PHT;P?TJP9TbP7TbOKT*OKShOSSMOj S4PoS4R(QlR(QSR$Q@QrQ3Q_Q/QFQ/PoQ2PWQ;PHQKP?QbP<RaP<RzP?S,PJS4Po"); GADV[266] = 540; CMAP[865] = 267;
+  strcpy(667, "QYUtPSUtQjWFRhWFT$UtRxUtR;Ve SMOjS2OSRkOKQlOKQ=ONPsOYPWOjPCP)P8PKP4PyP4Q2P:QkPKR;PjRZQ7RnQmRtS4RtS4SKS/ShR|S|RdT.RCT2P]T2P]U#R9U#RoTzS?TmS`TWSxT9T*SkT/S7T/PUT2PHT;P?TJP9TbP7TbOKT*OKShOSSMOj S4PoS4R(QlR(QSR$Q@QrQ3Q_Q/QFQ/PoQ2PWQ;PHQKP?QbP<RaP<RzP?S,PJS4Po"); GADV[267] = 540; CMAP[866] = 268;
+  strcpy(668, "QNW7Q^W7QvW1R<W#R`VoRsVjR}VjS.VnSCVySXW+SfW3SfVESYV>SEV2S/V'R|V$RmV$RfV&RVV,R?V5Q|VBQfVIQXVLQNVLQ@VHQ(V=PkV0P[V(P[VqPjVxQ&W)Q>W3QNW7 SMOjS2OSRkOKQlOKQ=ONPsOYPWOjPCP)P8PKP4PyP4Q2P:QkPKR;PjRZQ7RnQmRtS4RtS4SKS/ShR|S|RdT.RCT2P]T2P]U#R9U#RoTzS?TmS`TWSxT9T*SkT/S7T/PUT2PHT;P?TJP9TbP7TbOKT*OKShOSSMOj S4PoS4R(QlR(QSR$Q@QrQ3Q_Q/QFQ/PoQ2PWQ;PHQKP?QbP<RaP<RzP?S,PJS4Po"); GADV[268] = 540; CMAP[867] = 269;
+  strcpy(669, "QVVyQVV(P[V(P[Vy SkVySkV(RpV(RpVy SMOjS2OSRkOKQlOKQ=ONPsOYPWOjPCP)P8PKP4PyP4Q2P:QkPKR;PjRZQ7RnQmRtS4RtS4SKS/ShR|S|RdT.RCT2P]T2P]U#R9U#RoTzS?TmS`TWSxT9T*SkT/S7T/PUT2PHT;P?TJP9TbP7TbOKT*OKShOSSMOj S4PoS4R(QlR(QSR$Q@QrQ3Q_Q/QFQ/PoQ2PWQ;PHQKP?QbP<RaP<RzP?S,PJS4Po"); GADV[269] = 540; CMAP[868] = 270;
+  strcpy(670, "R<USR6USQnUYQPUjQ=V*Q7VNQ7VlQ=W6QOWQQmWbR6WgR<WgRaWbS#WQS5W6S;VlS;VNS5V*R}UjR`UYR<US R<W8R6W8R'W5QwW-QoVmQoVMQwV1R'V*R6V'R<V'RNV+RXV8R]VMR]VmRXW'RNW4R<W8 SMOjS2OSRkOKQlOKQ=ONPsOYPWOjPCP)P8PKP4PyP4Q2P:QkPKR;PjRZQ7RnQmRtS4RtS4SKS/ShR|S|RdT.RCT2P]T2P]U#R9U#RoTzS?TmS`TWSxT9T*SkT/S7T/PUT2PHT;P?TJP9TbP7TbOKT*OKShOSSMOj S4PoS4R(QlR(QSR$Q@QrQ3Q_Q/QFQ/PoQ2PWQ;PHQKP?QbP<RaP<RzP?S,PJS4Po"); GADV[270] = 540; CMAP[869] = 271;
+  strcpy(671, "RNO{R?OiR*OYQiONQEOKQ7OKPiOOPFOYP,OlOtP*OiPMOePyOeQ*OiQYOtR&P,RDPGRZPlRhQ=RlR%RlR%SKQ|ShQpS|Q[T.Q<T2P-T2P-U#Q2U#QZT|QzTuR8TjRPTXRfTjRzTvS8T|SZU#SbU#T1TzTSTmTnTVU%T8U/SlU3S<U3Q}RyQ}RyPvS'PTS>PASeP:TnP:TnOKSoOKSBONRzOVRaOfRNO{ T<SRT9SkT/T#SyT0ScT4SZT4S=T0S+T$R|SkRySMRyRlT<Rl P^Q>P^PmPaPUPjPFPzP=Q5P:QOP:QiP=QwPHR#PXR%PmR%Q}Q:Q}Q#QyPlQlPbQWP^Q>"); GADV[271] = 540; CMAP[870] = 272;
+  strcpy(672, "RcMxRuM{S%N+S)N<S'NJR|NSRqNWRaNYR/NYR/ONQSO_Q-P#PwP?PmPePjQ7PjS7PoSkP|T9Q9TWQYTmR*TzR`U#T,U#T,T2RUT2R5T.QxS|QjShQeSKQeQ#QjPbQxPMR5P@RUP<T,P<T,OKRvOKRvO6SCO2S^O%SnNfSsN<SpMuShMZSYMIS<M<RuM7QzM7QzMx"); GADV[272] = 540; CMAP[871] = 273;
+  strcpy(673, "RBWFSPUtRTUtQ4WF POQ7POS7PSSlP`T:PuTXQ8TnQbTzR;U#RkU#S;TzS`TlS|TUT6T7TBSlTFS<TFQoQJQoQJQ#QOPbQ^PMQvP@R;P<T&P<T&OKREOKQkOOQ?O]PyOrPbP5PTP_POQ7 SMSPSISiS<S|S)T.RlT2R1T2QmT.QYS|QNShQJSKQJR`SMR`"); GADV[273] = 540; CMAP[872] = 274;
+  strcpy(674, "T3WFRnUtQrUtS%WF POQ7POS7PSSlP`T:PuTXQ8TnQbTzR;U#RkU#S;TzS`TlS|TUT6T7TBSlTFS<TFQoQJQoQJQ#QOPbQ^PMQvP@R;P<T&P<T&OKREOKQkOOQ?O]PyOrPbP5PTP_POQ7 SMSPSISiS<S|S)T.RlT2R1T2QmT.QYS|QNShQJSKQJR`SMR`"); GADV[274] = 540; CMAP[873] = 275;
+  strcpy(675, "QkUtPeUtQ{WFRyWFT5UtS.UtRLVe POQ7POS7PSSlP`T:PuTXQ8TnQbTzR;U#RkU#S;TzS`TlS|TUT6T7TBSlTFS<TFQoQJQoQJQ#QOPbQ^PMQvP@R;P<T&P<T&OKREOKQkOOQ?O]PyOrPbP5PTP_POQ7 SMSPSISiS<S|S)T.RlT2R1T2QmT.QYS|QNShQJSKQJR`SMR`"); GADV[275] = 540; CMAP[874] = 276;
+  strcpy(676, "QrVyQrV(PwV(PwVy T+VyT+V(S0V(S0Vy POQ7POS7PSSlP`T:PuTXQ8TnQbTzR;U#RkU#S;TzS`TlS|TUT6T7TBSlTFS<TFQoQJQoQJQ#QOPbQ^PMQvP@R;P<T&P<T&OKREOKQkOOQ?O]PyOrPbP5PTP_POQ7 SMSPSISiS<S|S)T.RlT2R1T2QmT.QYS|QNShQJSKQJR`SMR`"); GADV[276] = 540; CMAP[875] = 277;
+  strcpy(677, "R:WFSHUtRLUtQ,WF PAT2PAU#RvU#RvP<TUP<TUOKQ{OKQ{T2"); GADV[277] = 540; CMAP[876] = 278;
+  strcpy(678, "T&WFRaUtQeUtRsWF PAT2PAU#RvU#RvP<TUP<TUOKQ{OKQ{T2"); GADV[278] = 540; CMAP[877] = 279;
+  strcpy(679, "QmUtPgUtQ}WFR{WFT7UtS0UtRNVe PAT2PAU#RvU#RvP<TUP<TUOKQ{OKQ{T2"); GADV[279] = 540; CMAP[878] = 280;
+  strcpy(680, "QmVyQmV(PrV(PrVy T&VyT&V(S+V(S+Vy PAT2PAU#RvU#RvP<TUP<TUOKQ{OKQ{T2"); GADV[280] = 540; CMAP[879] = 281;
+  strcpy(681, "QwVGQ*VGQ*W7RGW7RfWjS^WjS9W-SgVrT,VOT@U|TFUATFQATAPjT2P?StOxSRO`S-OPR]OKR9OKQiOPQCO`P}OxPdP?PTPjPOQAPORjPTSBPbSlPyT/Q>TDQjTQRCTUSKTUSKUTSGUmS;V'S)V9RmVCRKUfQSUf QJR}QJQ.QOPlQ`PRQyPAR>P<RWP<RxPAS6PRSFPlSKQ.SKSeR9SeQtSaQ^SSQOS>QJR}"); GADV[281] = 540; CMAP[880] = 282;
+  strcpy(682, "QnW7Q}W7R:W1R[W#S#VoS7VjSAVjSMVnSbVySxW+T*W3T*VESyV>SdV2SNV'S@V$S1V$S*V&RvV,R_V5R@VBR*VIQxVLQnVLQ`VHQGV=Q/V0P{V(P{VqQ.VxQEW)Q^W3QnW7 Q>U#Q>TfQbTxR4U#RcU#S9TzScTmT'TWT<T9TJSkTNS7TNOKSSOKSSSKSOSgSAS|S-T.RmT2R*T2QhT.QSS|QGSiQCSUQCOKPHOKPHU#"); GADV[282] = 540; CMAP[881] = 283;
+  strcpy(683, "RBWFSPUtRTUtQ4WF RWOKR6OKQ[OOQ0O]PjOrPRP5PEP_P@Q7P@S7PESkPRT9PjTWQ0TmQ[TzR6U#RWU#S2TzS^TmT#TWT;T9THSkTMS7TMQ7THP_T;P5T#OrS^O]S2OORWOK RbT2R,T2QfT.QNS|Q@ShQ;SKQ;Q#Q@PbQNPMQfP@R,P<RbP<S'P@S?PMSMPbSRQ#SRSKSMShS?S|S'T.RbT2"); GADV[283] = 540; CMAP[882] = 284;
+  strcpy(684, "S]WFR<UtQ@UtRNWF R[OKR:OKQ`OOQ4O]PnOrPVP5PIP_PDQ7PDS7PISkPVT9PnTWQ4TmQ`TzR:U#R[U#S6TzSbTmT'TWT?T9TLSkTQS7TQQ7TLP_T?P5T'OrSbO]S6OOR[OK RfT2R0T2QjT.QRS|QDShQ?SKQ?Q#QDPbQRPMQjP@R0P<RfP<S+P@SCPMSQPbSVQ#SVSKSQShSCS|S+T.RfT2"); GADV[284] = 540; CMAP[883] = 285;
+  strcpy(685, "QjUtPdUtQzWFRxWFT4UtS-UtRKVe R[OKR:OKQ`OOQ4O]PnOrPVP5PIP_PDQ7PDS7PISkPVT9PnTWQ4TmQ`TzR:U#R[U#S6TzSbTmT'TWT?T9TLSkTQS7TQQ7TLP_T?P5T'OrSbO]S6OOR[OK RfT2R0T2QjT.QRS|QDShQ?SKQ?Q#QDPbQRPMQjP@R0P<RfP<S+P@SCPMSQPbSVQ#SVSKSQShSCS|S+T.RfT2"); GADV[285] = 540; CMAP[884] = 286;
+  strcpy(686, "QgW7QvW7R3W1RTW#RxVoS0VjS:VjSFVnS[VySqW+T#W3T#VESrV>S^V2SGV'S9V$S*V$S#V&RoV,RWV5R9VBR#VIQqVLQgVLQXVHQ@V=Q(V0PtV(PtVqQ'VxQ>W)QVW3QgW7 R[OKR:OKQ`OOQ4O]PnOrPVP5PIP_PDQ7PDS7PISkPVT9PnTWQ4TmQ`TzR:U#R[U#S6TzSbTmT'TWT?T9TLSkTQS7TQQ7TLP_T?P5T'OrSbO]S6OOR[OK RfT2R0T2QjT.QRS|QDShQ?SKQ?Q#QDPbQRPMQjP@R0P<RfP<S+P@SCPMSQPbSVQ#SVSKSQShSCS|S+T.RfT2"); GADV[286] = 540; CMAP[885] = 287;
+  strcpy(687, "QmVyQmV(PrV(PrVy T&VyT&V(S+V(S+Vy R[OKR:OKQ`OOQ4O]PnOrPVP5PIP_PDQ7PDS7PISkPVT9PnTWQ4TmQ`TzR:U#R[U#S6TzSbTmT'TWT?T9TLSkTQS7TQQ7TLP_T?P5T'OrSbO]S6OOR[OK RfT2R0T2QjT.QRS|QDShQ?SKQ?Q#QDPbQRPMQjP@R0P<RfP<S+P@SCPMSQPbSVQ#SVSKSQShSCS|S+T.RfT2"); GADV[287] = 540; CMAP[886] = 288;
+  strcpy(688, "S#U`S#TUQtTUQtU` TUSATURPPARPPASA S#Q<S#P2QtP2QtQ<"); GADV[288] = 540; CMAP[887] = 289;
+  strcpy(689, "R[OKR&OKQfNLPrNLQ6OZPpOqPWP5PIP^PDQ7PDS7PISkPVT9PnTWQ4TmQ`TzR:U#R[U#RpT}S1U}T$U}S_TnT&TWT>T9TLSlTQS7TQQ7TLP_T?P5T'OrSbO]S6OOR[OK QNPPRYT2R0T2QjT.QRS|QDShQ?SKQ?Q#QCPeQNPP SFSxR<P<RfP<S+P@SCPMSQPbSVQ#SVSKSRSeSFSx"); GADV[289] = 540; CMAP[888] = 290;
+  strcpy(690, "R,WFS:UtR>UtPyWF R]OKR:OKQdOOQ:O]PvOrPaP5PRP_PNQ7PNU#QIU#QIQ#QMPcQ[PMQpP@R0P<RgP<S(P@S;PLSHP^SMPqSMU#THU#THOKSROKSROcS-OQR]OK"); GADV[290] = 540; CMAP[889] = 291;
+  strcpy(691, "T2WFRmUtQqUtS$WF R]OKR:OKQdOOQ:O]PvOrPaP5PRP_PNQ7PNU#QIU#QIQ#QMPcQ[PMQpP@R0P<RgP<S(P@S;PLSHP^SMPqSMU#THU#THOKSROKSROcS-OQR]OK"); GADV[291] = 540; CMAP[890] = 292;
+  strcpy(692, "QiUtPcUtQyWFRwWFT3UtS,UtRJVe R]OKR:OKQdOOQ:O]PvOrPaP5PRP_PNQ7PNU#QIU#QIQ#QMPcQ[PMQpP@R0P<RgP<S(P@S;PLSHP^SMPqSMU#THU#THOKSROKSROcS-OQR]OK"); GADV[292] = 540; CMAP[891] = 293;
+  strcpy(693, "QjVyQjV(PoV(PoVy T#VyT#V(S(V(S(Vy R]OKR:OKQdOOQ:O]PvOrPaP5PRP_PNQ7PNU#QIU#QIQ#QMPcQ[PMQpP@R0P<RgP<S(P@S;PLSHP^SMPqSMU#THU#THOKSROKSROcS-OQR]OK"); GADV[293] = 540; CMAP[892] = 294;
+  strcpy(694, "SwWFRVUtQZUtRiWF R'NoR5OKQ|OKP0U#Q2U#RUPBSiU#TfU#S$NpRpNCR_N#RJMiR3M^QtMWQQMUP|MUP|NFQKNFQaNHQpNOQzN[R'No"); GADV[294] = 540; CMAP[893] = 295;
+  strcpy(695, "TNS7TNQ7TIP_T<P5T%OrS_O]S3OORXOKQMOKQMMUPRMUPRW7QMW7QMTjQpTyR>U#RXU#S3TzS_TmT%TWT<T9TISkTNS7 RcT2R4T2QrT.Q^S|QQSiQMSUQMP<RcP<S)P@S@PMSNPbSSQ#SSSKSNShS@S|S)T.RcT2"); GADV[295] = 540; CMAP[894] = 296;
+  strcpy(696, "QlVyQlV(PqV(PqVy T%VyT%V(S*V(S*Vy R'NoR5OKQ|OKP0U#Q2U#RUPBSiU#TfU#S$NpRpNCR_N#RJMiR3M^QtMWQQMUP|MUP|NFQKNFQaNHQpNOQzN[R'No"); GADV[296] = 540; CMAP[895] = 297;
+  NGLY = 297;
+);
+gfont_data();
+
+function gdec(c) ( c - 35 - (c > 92 ? 1 : 0); );
+
+function gdecode() local(g, s, n, i, k, c, px, py, fx, fy, np, e, a, b) (
+  e = 0; g = 0;
+  loop(NGLY,
+    s = 400 + g; n = strlen(s);
+    GEO[g] = e; i = 0; np = 0;
+    while (i <= n) (
+      c = i < n ? str_getchar(s, i, 'cu') : 32;
+      c === 32 ? (
+        np > 2 ? (
+          (fy !== py) ? ( GE[4 * e] = px; GE[4 * e + 1] = py; GE[4 * e + 2] = fx; GE[4 * e + 3] = fy; e += 1; );
+        );
+        np = 0; i += 1;
+      ) : (
+        a = (gdec(c) * 90 + gdec(str_getchar(s, i + 1, 'cu'))) - 4000;
+        b = (gdec(str_getchar(s, i + 2, 'cu')) * 90 + gdec(str_getchar(s, i + 3, 'cu'))) - 4000;
+        np === 0 ? ( fx = a; fy = b; ) : (
+          (b !== py) ? ( GE[4 * e] = px; GE[4 * e + 1] = py; GE[4 * e + 2] = a; GE[4 * e + 3] = b; e += 1; );
+        );
+        px = a; py = b; np += 1; i += 4;
+      );
+    );
+    GEN[g] = e - GEO[g];
+    g += 1;
+  );
+);
+gdecode();
+
+function gtl(f, s, size) local(n, i, c, cp, g, cur, upx, last) (
+  G_PX = floor(size + 0.5);
+  upx = G_PX / (FASC[f] - FDSC[f]);
+  G_ASC = floor(FASC[f] * size / (FASC[f] - FDSC[f]) * 32 + 0.5) / 32;
+  n = strlen(s); i = 0; GLN = 0; cur = 0; last = 0;
+  while (i < n) (
+    c = str_getchar(s, i, 'cu');
+    c < 128 ? ( cp = c; i += 1; ) :
+    c < 224 ? ( cp = ((c & 31) << 6) | (str_getchar(s, i + 1, 'cu') & 63); i += 2; ) :
+    c < 240 ? ( cp = ((c & 15) << 12) | ((str_getchar(s, i + 1, 'cu') & 63) << 6) | (str_getchar(s, i + 2, 'cu') & 63); i += 3; ) :
+    ( cp = 63; i += 4; );
+    cp === 8212 ? cp = 151;
+    g = cp < CMW ? CMAP[f * CMW + cp] : 0;
+    g === 0 ? g = CMAP[f * CMW + 63];
+    g > 0 && GLN < 250 ? (
+      g -= 1;
+      GLG[GLN] = g; GLX[GLN] = cur;
+      last = cur + GADV[g] * upx;
+      cur = floor(last + 0.5);
+      GLN += 1;
+    );
+  );
+  G_UPX = upx;
+  last;
+);
+
+function gras(o) local(py, py1, bx, w, k, ye, n, e, t, tdir, i, j, wd, wp, xa, a, bb, ia, ib, c, cnt, x0, run, rc)
+(
+  bx = floor(TBX0) - 1; w = ceil(TBX1) - bx + 2;
+  py = floor(TBY0); py1 = ceil(TBY1);
+  memset(TC, 0, w + 2);
+  cnt = 0;
+  while (py < py1) (
+    k = 0;
+    loop(8,
+      ye = py + (k + 0.5) / 8;
+      n = 0; e = TE;
+      loop(TEN,
+        (e[1] <= ye) !== (e[3] <= ye) ? (
+          t = e[0] + (ye - e[1]) * (e[2] - e[0]) / (e[3] - e[1]) - bx;
+          tdir = e[3] > e[1] ? 1 : -1;
+          i = n;
+          while (i > 0 && TX[i - 1] > t) ( TX[i] = TX[i - 1]; TD[i] = TD[i - 1]; i -= 1; );
+          TX[i] = t; TD[i] = tdir; n += 1;
+        );
+        e += 4;
+      );
+      wd = 0; j = 0;
+      loop(n,
+        wp = wd; wd += TD[j];
+        wp === 0 && wd !== 0 ? xa = TX[j];
+        wp !== 0 && wd === 0 ? (
+          a = max(0, xa); bb = min(w, TX[j]);
+          bb > a ? (
+            ia = floor(a); ib = floor(bb);
+            ia === ib ? TC[ia] += (bb - a) * 0.125 : (
+              TC[ia] += (ia + 1 - a) * 0.125;
+              i = ia + 1; loop(ib - ia - 1, TC[i] += 0.125; i += 1;);
+              TC[ib] += (bb - ib) * 0.125;
+            );
+          );
+        );
+        j += 1;
+      );
+      k += 1;
+    );
+    i = 0; run = -1;
+    loop(w + 1,
+      c = min(1, TC[i]);
+      c >= 0.996 ? (
+        run < 0 ? ( run = i; rc = 0; ); rc += 1;
+      ) : (
+        run >= 0 ? ( o[0] = bx + run; o[1] = py; o[2] = rc; o[3] = 1; o += 4; cnt += 1; run = -1; );
+        c > 0.004 ? ( o[0] = bx + i; o[1] = py; o[2] = 1; o[3] = c; o += 4; cnt += 1; );
+      );
+      TC[i] = 0;
+      i += 1;
+    );
+    run >= 0 ? ( o[0] = bx + run; o[1] = py; o[2] = rc; o[3] = 1; o += 4; cnt += 1; );
+    py += 1;
+  );
+  cnt;
+);
+
+function gedge(a, b, c, d) (
+  TE[4 * TEN] = a; TE[4 * TEN + 1] = b; TE[4 * TEN + 2] = c; TE[4 * TEN + 3] = d; TEN += 1;
+  TBX0 = min(TBX0, min(a, c)); TBX1 = max(TBX1, max(a, c)); TBY0 = min(TBY0, min(b, d)); TBY1 = max(TBY1, max(b, d));
+);
+
+function gpoly_begin() ( TEN = 0; TBX0 = TBY0 = 1000000; TBX1 = TBY1 = -1000000; );
+
+function gtx_make(id, f, s, size, x, ytop, align) local(w, left, i, g, ox, oy, sc, e, n, o, k)
+(
+  w = gtl(f, s, size);
+  left = align === 1 ? x - w * 0.5 : align === 2 ? x - w : x;
+  gpoly_begin();
+  oy = floor(G_SC * (ytop + G_ASC) - G_OYS + 0.5);
+  sc = G_SC * G_UPX;
+  i = 0;
+  loop(GLN,
+    g = GLG[i];
+    ox = floor(G_OX + G_SC * (left + GLX[i]) + 0.5);
+    e = GE + 4 * GEO[g];
+    loop(GEN[g],
+      TEN < 8000 ? gedge(ox + e[0] * sc, oy - e[1] * sc, ox + e[2] * sc, oy - e[3] * sc);
+      e += 4;
+    );
+    i += 1;
+  );
+  o = id >= 20 ? DYO0 + (id - 20) * 16384 : SPA;
+  n = TEN > 0 ? gras(o) : 0;
+  SPO[id] = o; SPC[id] = n;
+  id < 20 ? SPA = min(SPA + 4 * n, DYO0 - 16384);
+  G_TW = w;
+  w;
+);
+
+function gtx_draw(id, r, g, b, a) local(o) (
+  o = SPO[id];
+  loop(SPC[id], gfx_set(r, g, b, a * o[3]); gfx_rect(o[0], o[1], o[2], 1); o += 4;);
+  gfx_a = 1;
+);
+
+function gpoly_fill(r, g, b, a) local(o, n) (
+  o = DYO0 + 5 * 16384;
+  n = TEN > 0 ? gras(o) : 0;
+  loop(n, gfx_set(r, g, b, a * o[3]); gfx_rect(o[0], o[1], o[2], 1); o += 4;);
+  gfx_a = 1;
+);
+
+function gpt(x, y) ( G_PXS = G_OX + G_SC * x; G_PYS = G_SC * y; );
+
+function gpoly6(x0, y0, x1, y1, x2, y2, x3, y3, x4, y4, x5, y5, r, g, b, a) local(ax, ay, bx, by) (
+  gpoly_begin();
+  gpt(x0, y0); ax = G_PXS; ay = G_PYS; gpt(x1, y1); gedge(ax, ay, G_PXS, G_PYS); ax = G_PXS; ay = G_PYS;
+  gpt(x2, y2); gedge(ax, ay, G_PXS, G_PYS); ax = G_PXS; ay = G_PYS;
+  gpt(x3, y3); gedge(ax, ay, G_PXS, G_PYS); ax = G_PXS; ay = G_PYS;
+  gpt(x4, y4); gedge(ax, ay, G_PXS, G_PYS); ax = G_PXS; ay = G_PYS;
+  gpt(x5, y5); gedge(ax, ay, G_PXS, G_PYS); ax = G_PXS; ay = G_PYS;
+  gpt(x0, y0); gedge(ax, ay, G_PXS, G_PYS);
+  gpoly_fill(r, g, b, a);
+);
+
+function gcol(h) ( G_R = ((h >> 16) & 255) / 255; G_G = ((h >> 8) & 255) / 255; G_B = (h & 255) / 255; );
+function gset(h, a) ( gcol(h); gfx_set(G_R, G_G, G_B, a); );
+function glerp(h0, h1, t) local(r0, g0, b0) (
+  gcol(h0); r0 = G_R; g0 = G_G; b0 = G_B; gcol(h1);
+  G_R = r0 + (G_R - r0) * t; G_G = g0 + (G_G - g0) * t; G_B = b0 + (G_B - b0) * t;
+);
+
+function gh(r, g, b) ( floor(r * 255 + 0.5) * 65536 + floor(g * 255 + 0.5) * 256 + floor(b * 255 + 0.5); );
+function gtheme(t) (
+  t === 1 ? ( G_ACR = 0.87; G_ACG = 0.22; G_ACB = 0.39; G_BGR = 0.85; G_BGG = 0.85; G_BGB = 0.88; G_BG2R = 0.74; G_BG2G = 0.75; G_BG2B = 0.79; G_PFR = 0.89; G_PFG = 0.89; G_PFB = 0.92; G_BXR = 0.94; G_BXG = 0.94; G_BXB = 0.96; G_BDR = 0.55; G_BDG = 0.55; G_BDB = 0.59; G_T1R = 0.15; G_T1G = 0.15; G_T1B = 0.17; G_T2R = 0.22; G_T2G = 0.22; G_T2B = 0.25; G_T3R = 0.37; G_T3G = 0.37; G_T3B = 0.41; G_DKR = 1; G_DKG = 0.97; G_DKB = 0.98; G_PBR = 0.95; G_PBG = 0.95; G_PBB = 0.97; G_PB2R = 0.84; G_PB2G = 0.85; G_PB2B = 0.88; G_LBR = 0.76; G_LBG = 0.76; G_LBB = 0.79; G_TPR = 0.97; G_TPG = 0.97; G_TPB = 0.98; G_HVR = 0.78; G_HVG = 0.78; G_HVB = 0.82; G_KRR = 0.1; G_KRG = 0.1; G_KRB = 0.11; G_KFR = 0.24; G_KFG = 0.24; G_KFB = 0.25; G_KIR = 0.18; G_KIG = 0.18; G_KIB = 0.19; G_KTR = 0.75; G_KTG = 0.62; G_KTB = 0.66; G_KPR = 0.94; G_KPG = 0.95; G_KPB = 0.96; G_BFR = 0.93; G_BFG = 0.93; G_BFB = 0.95; G_W0R = 0.87; G_W0G = 0.22; G_W0B = 0.39; G_W1R = 0.32; G_W1G = 0.32; G_W1B = 0.36; G_W2R = 0.62; G_W2G = 0.3; G_W2B = 0.62; G_W3R = 0.95; G_W3G = 0.5; G_W3B = 0.4; G_GLR = 0.2; G_GLG = 0.2; G_GLB = 0.25; G_GLA = 0.1; G_P2R = 0.22; G_P2G = 0.22; G_P2B = 0.25; G_P3R = 0.37; G_P3G = 0.37; G_P3B = 0.41; G_PXR = 0.96; G_PXG = 0.96; G_PXB = 0.97; G_PDR = 0.55; G_PDG = 0.55; G_PDB = 0.59; G_DBR = 0.88; G_DBG = 0.88; G_DBB = 0.91; ) :
+  ( G_ACR = 0.99; G_ACG = 0.31; G_ACB = 0.25; G_BGR = 0.15; G_BGG = 0.085; G_BGB = 0.08; G_BG2R = 0.05; G_BG2G = 0.025; G_BG2B = 0.02; G_PFR = 0.13; G_PFG = 0.115; G_PFB = 0.115; G_BXR = 0.075; G_BXG = 0.055; G_BXB = 0.055; G_BDR = 0.56; G_BDG = 0.45; G_BDB = 0.44; G_T1R = 0.9; G_T1G = 0.85; G_T1B = 0.85; G_T2R = 0.86; G_T2G = 0.8; G_T2B = 0.8; G_T3R = 0.7; G_T3G = 0.62; G_T3B = 0.62; G_DKR = 0.1; G_DKG = 0.03; G_DKB = 0.03; G_PBR = 0.1; G_PBG = 0.05; G_PBB = 0.045; G_PB2R = 0.04; G_PB2G = 0.015; G_PB2B = 0.015; G_LBR = 0.075; G_LBG = 0.04; G_LBB = 0.035; G_TPR = 0.09; G_TPG = 0.06; G_TPB = 0.06; G_HVR = 0.32; G_HVG = 0.24; G_HVB = 0.23; G_KRR = 0.13; G_KRG = 0.1; G_KRB = 0.1; G_KFR = 0.26; G_KFG = 0.21; G_KFB = 0.2; G_KIR = 0.19; G_KIG = 0.15; G_KIB = 0.145; G_KTR = 0.45; G_KTG = 0.16; G_KTB = 0.14; G_KPR = 0.86; G_KPG = 0.78; G_KPB = 0.78; G_BFR = 0.11; G_BFG = 0.085; G_BFB = 0.085; G_W0R = 0.99; G_W0G = 0.31; G_W0B = 0.25; G_W1R = 1.0; G_W1G = 0.64; G_W1B = 0.42; G_W2R = 0.88; G_W2G = 0.8; G_W2B = 0.8; G_W3R = 0.93; G_W3G = 0.45; G_W3B = 0.6; );
+  C_V950 = gh(G_BGR, G_BGG, G_BGB); C_V900 = gh(G_BXR, G_BXG, G_BXB); C_SEAM = gh(G_BG2R, G_BG2G, G_BG2B);
+  C_LCD = gh(G_LBR, G_LBG, G_LBB); C_ACC = gh(G_ACR, G_ACG, G_ACB); C_PANEL = gh(G_PFR, G_PFG, G_PFB);
+  C_DIM = gh((G_BDR + G_BGR) * 0.5, (G_BDG + G_BGG) * 0.5, (G_BDB + G_BGB) * 0.5);
+  C_WARM = gh(G_T1R, G_T1G, G_T1B); C_DASH = gh(G_T3R, G_T3G, G_T3B);
+  t === 1 ? ( C_GLOW = gh(0.7, 0.16, 0.32); C_FAINT = gh(0.78, 0.78, 0.82); C_LIT = gh(0.8, 0.22, 0.22); C_HRED = gh(0.97, 0.86, 0.86); ) :
+  ( C_GLOW = gh(1, 0.6, 0.52); C_FAINT = gh(0.25, 0.16, 0.15); C_LIT = gh(0.88, 0.42, 0.42); C_HRED = gh(0.23, 0.11, 0.11); );
+  G_THL = t;
+);
+gtheme(0);
+
+function grr(x0, y0, x1, y1, rad, h, a) (
+  gcol(h); gfrr(gsx(x0), gsy(y0), gsx(x1), gsy(y1), rad * G_SC, G_R, G_G, G_B, a);
+);
+function grs(x0, y0, x1, y1, rad, t, h, a) (
+  gcol(h); gbord(gsx(x0), gsy(y0), gsx(x1), gsy(y1), rad * G_SC, max(1, t * G_SC), G_R, G_G, G_B, a);
+);
+function grrc(x0, y0, x1, y1, rad, a) ( gfrr(gsx(x0), gsy(y0), gsx(x1), gsy(y1), rad * G_SC, G_R, G_G, G_B, a); );
+function garc(cx, cy, rr, w, a0, a1, h, a) (
+  gcol(h); gann(gsx(cx), gsy(cy), (rr - w * 0.5) * G_SC, (rr + w * 0.5) * G_SC, a0, a1, G_R, G_G, G_B, a);
+);
+function gky(y) ( y * G_SC - G_OYS; );
+
+function gwave(wp, wn0) local(pk, i, stp, qx, qe, u, kk, ff, a0, a1, am, y0, y1, ln, la, sg, xa, xb, ya, yb, wl, wt, wr, wb, mid, hh, pul) (
+  pk = 0.000000001; i = 0; loop(wn0, pk = max(pk, wp[i]); i += 1;);
+  pul = 0.85 + 0.15 * sin(G_TM * 0.4);
+  wl = 44 - G_E; wt = 146; wr = 376 + G_E; wb = 248;
+  mid = (wt + wb) * 0.5; hh = (wb - wt) * 0.5; stp = (wr - wl) / max(1, wn0);
+  wn0 > 1 ? (
+    gset(C_ACC, 0.20 * pul);
+    qx = ceil(gsx(wl + 0.5 * stp)); qe = floor(gsx(wl + (wn0 - 0.5) * stp));
+    while (qx <= qe) (
+      u = ((qx + 0.5 - G_OX) / G_SC - wl) / stp - 0.5;
+      kk = max(0, min(wn0 - 2, floor(u))); ff = u - kk;
+      a0 = max(1, min(1, wp[kk] / pk) * hh); a1 = max(1, min(1, wp[kk + 1] / pk) * hh);
+      am = a0 + (a1 - a0) * ff;
+      y0 = gsy(mid - am); y1 = gsy(mid + am);
+      gfx_a = 0.20 * pul; gfx_rect(qx, ceil(y0), 1, floor(y1) - ceil(y0));
+      gfx_a = 0.20 * pul * (ceil(y0) - y0); gfx_rect(qx, ceil(y0) - 1, 1, 1);
+      gfx_a = 0.20 * pul * (y1 - floor(y1)); gfx_rect(qx, floor(y1), 1, 1);
+      qx += 1;
+    );
+    ln = 0;
+    loop(2,
+      la = ln === 0 ? 0.75 * 0.35 * 0.5 : 0.75;
+      sg = -1;
+      loop(2,
+        kk = 0;
+        loop(wn0 - 1,
+          xa = gsx(wl + (kk + 0.5) * stp); xb = gsx(wl + (kk + 1.5) * stp);
+          ya = gsy(mid + sg * max(1, min(1, wp[kk] / pk) * hh));
+          yb = gsy(mid + sg * max(1, min(1, wp[kk + 1] / pk) * hh));
+          gset(C_ACC, la * pul);
+          ln === 0 ? (
+            gfx_line(xa, ya - G_SC, xb, yb - G_SC, 1); gfx_line(xa, ya + G_SC, xb, yb + G_SC, 1);
+            gfx_line(xa, ya, xb, yb, 1);
+          ) : gfx_line(xa, ya, xb, yb, 1);
+          kk += 1;
+        );
+        sg = 1;
+      );
+      ln += 1;
+    );
+  );
+);
+
+GK_MIN = 10 ^ (-12 / 20); GK_MAX = 10 ^ (12 / 20);
+GK_F = log(0.5) / log((1 - GK_MIN) / (GK_MAX - GK_MIN));
+function gk_norm(d) ( ((min(GK_MAX, max(GK_MIN, 10 ^ (d / 20))) - GK_MIN) / (GK_MAX - GK_MIN)) ^ GK_F; );
+function gk_db(n) ( 20 * log10((max(0, min(1, n)) ^ (1 / GK_F)) * (GK_MAX - GK_MIN) + GK_MIN); );
+
+strcpy(#ge1, "I/O error: could not open the file");
+strcpy(#ge2, "decode error: not a readable audio file");
+strcpy(#ge3, "recording is too long for this sample rate");
+strcpy(#ge4, "file decoded to zero samples");
+strcpy(#ge5, "too many channels to load at this sample rate");
+
+function gwrap(f, s, size, maxw) local(n, i, c, ls, lb, w) (
+  n = strlen(s); i = 0; ls = 0; lb = -1; G_NWL = 0;
+  while (i <= n && G_NWL < 3) (
+    c = i < n ? str_getchar(s, i) : 32;
+    c === 32 ? (
+      strcpy_substr(#g_tw, s, ls, i - ls);
+      w = gtl(f, #g_tw, size);
+      w > maxw && lb > ls ? ( strcpy_substr(60 + G_NWL, s, ls, lb - ls); G_NWL += 1; ls = lb + 1; );
+      lb = i;
+    );
+    i += 1;
+  );
+  ls < n && G_NWL < 3 ? ( strcpy_substr(60 + G_NWL, s, ls, n - ls); G_NWL += 1; );
+  G_NWL;
+);
+
+G_DRAG = 0; G_ABOUT = 0; G_T0 = time_precise(); G_SCK = -1; G_KKEY = -1; G_LKEY = -1; G_DZKEY = -1;
+G_HOLD = 0;
+
+
+@serialize
+ser_rd = file_avail(0) >= 0;
+ser_ver = 1; file_var(0, ser_ver);
+file_string(0, #irpath);
+ser_rd ? ( irpath_ok = strlen(#irpath) > 0; cpv += 1; );
+
+@slider
+last_srate !== srate ? (
+  last_srate = srate;
+  ea.e_load_cancel(); eb.e_load_cancel();
+  ea.act = eb.act = 0; ea.ready = eb.ready = 0;
+  cur = old = kill = kill2 = ld_e = comp = 0; ea.st = eb.st = 0; akey = lkey = 0; fail_key = -1; src_key = -1;
+  FADE = floor(FADE_MS * 0.001 * srate);
+  NZS = 10 ^ (NOISE_DB / 20) / UNIFORM_RMS;
+  G_STEPS0 = floor(srate * 50 / 1000 + 0.5);
+  sm_tgt = sm_cur = 10 ^ (gain_db / 20); sm_n = 0; p_gdb = gain_db;
+);
+control(0);
+
+@block
+G_NEWIR ? ( strcpy(#irpath, #g_newir); irpath_ok = 1; cpv += 1; G_NEWIR = 0; room = 4; start_s = 0; slider_automate(room); slider_automate(start_s); );
+G_SETS >= 0 ? ( start_s = G_SETS; G_SETS = -1; slider_automate(start_s); fail_key = -1; );
+G_CLEAR ? ( G_CLEAR = 0; room = 0; slider_automate(room); );
+G_PICK ? ( room = G_PICK; start_s = 0; G_PICK = 0; slider_automate(room); slider_automate(start_s); fail_key = -1; );
+gain_db !== p_gdb ? (
+  p_gdb = gain_db; sm_tgt = 10 ^ (gain_db / 20);
+  sm_n = G_STEPS0;
+  sm_k = sm_n > 0 ? (sm_tgt / sm_cur) ^ (1 / sm_n) : 1;
+);
+control(0);
+G_CUR = cur; G_LD = ld_e; G_ERR = shown_err;
+
+@sample
+x = nll; nll = x ~ ((x << 13) & 65535); nlh = nlh ~ (((nlh << 13) | (x >> 3)) & 65535);
+nll = nll ~ (nlh >> 1);
+x = nll; nll = x ~ ((x << 5) & 65535); nlh = nlh ~ (((nlh << 5) | (x >> 11)) & 65535);
+x = nrl; nrl = x ~ ((x << 13) & 65535); nrh = nrh ~ (((nrh << 13) | (x >> 3)) & 65535);
+nrl = nrl ~ (nrh >> 1);
+x = nrl; nrl = x ~ ((x << 5) & 65535); nrh = nrh ~ (((nrh << 5) | (x >> 11)) & 65535);
+cl = ((nlh * 65536 + nll) / 4294967296 * 2 - 1) * NZS;
+cr = ((nrh * 65536 + nrl) / 4294967296 * 2 - 1) * NZS;
+CINL[wi] = cl; CINL[wi + RSI] = cl; CINR[wi] = cr; CINR[wi + RSI] = cr;
+wl = wr = 0;
+pc = 1;
+cur === 1 ? ( ea.ecnt += 1; pc = ea.e_pow(); ) : cur === 2 ? ( eb.ecnt += 1; pc = eb.e_pow(); );
+kp = 0;
+kill ? (
+  kpos += 1; ka = min(1, kpos / FADE); kgn = kg0 * cos(ka * $pi * 0.5);
+  kill === 1 ? ( ea.gsc = kgn; ea.ecnt += 1; kp = kgn * kgn * ea.e_pow(); ) : ( eb.gsc = kgn; eb.ecnt += 1; kp = kgn * kgn * eb.e_pow(); );
+  ka >= 1 ? ( e_free(kill); kill = 0; );
+);
+kill2 ? (
+  kpos2 += 1; ka = min(1, kpos2 / FADE);
+  kill2 === 1 ? ea.gsc = kg2 * cos(ka * $pi * 0.5) : eb.gsc = kg2 * cos(ka * $pi * 0.5);
+  ka >= 1 ? ( e_free(kill2); kill2 = 0; );
+);
+old ? (
+  old === 1 ? ( ea.ecnt += 1; po = ea.e_pow(); ) : ( eb.ecnt += 1; po = eb.e_pow(); );
+  go = min(GMAX, sqrt(max(0, 1 - pc) / max(po, 0.000001)));
+  old === 1 ? ea.gsc = go : eb.gsc = go;
+  pc >= 1 ? ( e_free(old); old = 0; );
+);
+cur ? (
+  gc = comp ? min(GMAX, sqrt(max(0, 1 - kp) / max(pc, 0.000001))) : 1;
+  pc >= 1 && !kill ? ( comp = 0; gc = 1; );
+  cur === 1 ? ea.gsc = gc : eb.gsc = gc;
+);
+ea.act ? ( ea.e_sample(); wl += ea.ywl * ea.gsc * ea.ecal; wr += ea.ywr * ea.gsc * ea.ecal; );
+eb.act ? ( eb.e_sample(); wl += eb.ywl * eb.gsc * eb.ecal; wr += eb.ywr * eb.gsc * eb.ecal; );
+sm_n > 0 ? ( sm_n === 1 ? sm_cur = sm_tgt : sm_cur *= sm_k; sm_n -= 1; );
+g = mute >= 0.5 ? 0 : sm_cur;
+spl0 = wl * g;
+spl1 = wr * g;
+wi += 1; wi >= RSI ? wi = 0;
+opos += 1; opos >= RSO ? opos = 0;
+
+@gfx 420 610
+G_NOW = time_precise(); G_TM = G_NOW - G_T0;
+G_SC = max(0.45, min(gfx_w / 420, gfx_h / 610));
+G_OX = floor((gfx_w - 420 * G_SC) * 0.5);
+G_E = min(300, G_OX / G_SC);
+
+G_THN = theme >= 0.5 ? 1 : 0;
+G_THN !== G_THL ? ( gtheme(G_THN); G_CW0 = -1; G_DZKEY = -1; );
+(G_SC !== G_SCK || gfx_w !== G_CW0 || gfx_h !== G_CH0) ? (
+  G_SCK = G_SC; G_CW0 = gfx_w; G_CH0 = gfx_h;
+  gfx_setfont(1, "Arial", 15 * G_SC, 'b');
+  gfx_setfont(2, "Arial", 14 * G_SC, 'b');
+  gfx_setfont(3, "Arial", 12 * G_SC, 'b');
+  SPA = SPD;
+  gtx_make(0, 0, "C O N T I N U U M", 28, 210, 53, 1);
+  gtx_make(1, 0, "C O N T I N U U M", 28, 210, 51, 1);
+  gtx_make(2, 1, "ENDLESS ROOMTONE", 12, 210, 85, 1);
+  G_I = 0;
+  loop(3,
+    G_FS = 16;
+    while (gtl(1, G_I === 0 ? "ROSEMARY HALL" : G_I === 1 ? "IVORY CHAPEL" : "DUTCH CHURCH", G_FS) > (352 + 2 * G_E - 20) / 3 - 10 && G_FS > 10) ( G_FS -= 0.5; );
+    G_BW = (352 + 2 * G_E - 20) / 3;
+    G_FH = G_FS;
+    gtx_make(3 + G_I, 1, G_I === 0 ? "ROSEMARY HALL" : G_I === 1 ? "IVORY CHAPEL" : "DUTCH CHURCH", G_FS,
+      34 - G_E + G_I * (G_BW + 10) + G_BW * 0.5, 291 + 13 - G_FH * 0.5, 1);
+    G_I += 1;
+  );
+  gtx_make(6, 1, "OUTPUT GAIN", 11, 210, 370, 1);
+  gtx_make(7, 1, "MUTE", 9, 322, 482 + 6 - 4.5, 1);
+  G_IW = gtl(1, "i", 22 * 0.62);
+  gtx_make(9, 1, "i", 22 * 0.62, 376 + G_E + 11 - G_IW * 0.5 - G_IW * 0.04, 22 + 11 - 13.64 * 0.5 - 1, 0);
+  gtx_make(10, 1, "CONTINUUM", 20, 210, 219.5, 1);
+  gtx_make(11, 2, "v1.0", 12, 210, 246.5, 1);
+  gwrap(1, "\xc2\xa9 2026 chmaha. Licensed under GPL-3.0.", 12.5, 236);
+  gtx_make(12, 1, 60, 12.5, 210, 271.5, 1);
+  G_NWL > 1 ? gtx_make(13, 1, 61, 12.5, 210, 271.5 + 12.5, 1) : SPC[13] = 0;
+  G_AY = 271.5 + 12.5 * G_NWL + 3 + 14;
+  gtx_make(14, 1, "DSP: Christopher Hampson", 13, 210, G_AY, 1);
+  gtx_make(15, 1, "GUI: Chloe Roux", 13, 210, G_AY + 13 + 3 + 6, 1);
+  G_DBW = gtl(1, "DB", 9);
+
+  G_DST = gfx_dest;
+  gfx_setimgdim(22, 0, 0); gfx_setimgdim(22, gfx_w, gfx_h);
+  gfx_dest = 22;
+  gfx_gradrect(0, 0, gfx_w, gfx_h, G_BGR, G_BGG, G_BGB, 1, 0, 0, 0, 0, (G_BG2R - G_BGR) / max(1, gfx_h), (G_BG2G - G_BGG) / max(1, gfx_h), (G_BG2B - G_BGB) / max(1, gfx_h), 0);
+  gcol(C_ACC); gtx_draw(0, G_R, G_G, G_B, 0.35);
+  gcol(C_GLOW); gtx_draw(1, G_R, G_G, G_B, 1);
+  gcol(C_DASH); gtx_draw(2, G_R, G_G, G_B, 1);
+  grr(34 - G_E, 120, 386 + G_E, 280, 12, C_V900, 1);
+  G_I = 0;
+  loop(3,
+    G_BX = 34 - G_E + G_I * (G_BW + 10);
+    grr(G_BX, 291, G_BX + G_BW, 317, 8, C_V900, 1);
+    gcol(C_WARM); gtx_draw(3 + G_I, G_R, G_G, G_B, 1);
+    G_I += 1;
+  );
+  gfx_dest = G_DST;
+  G_KKEY = G_LKEY = G_DZKEY = -1;
+);
+gfx_x = 0; gfx_y = 0; gfx_a = 1; gfx_mode = 0;
+gfx_blit(22, 1, 0);
+
+gfx_getdropfile(0, #g_drop) ? (
+  gfx_getdropfile(-1);
+  strcpy(#g_newir, #g_drop); G_NEWIR = 1;
+);
+
+G_MD = mouse_cap & 1;
+G_PRESS = G_MD && !G_LMD;
+G_REL = !G_MD && G_LMD;
+G_MX = (mouse_x - G_OX) / G_SC; G_MY = mouse_y / G_SC;
+G_DCLK = G_PRESS && G_NOW - G_LCLK < 0.3 && abs(G_MX - G_LCX) < 4 && abs(G_MY - G_LCY) < 4;
+G_PRESS ? ( G_LCLK = G_DCLK ? 0 : G_NOW; G_LCX = G_MX; G_LCY = G_MY; );
+G_IN = !G_ABOUT && G_DRAG === 0;
+
+G_EW = G_CUR === 1 ? ea.wn : G_CUR === 2 ? eb.wn : 0;
+G_EWV = G_CUR === 1 ? ea.WV : eb.WV;
+G_ETOT = G_CUR === 1 ? ea.etot : eb.etot; G_EFSR = max(1, G_CUR === 1 ? ea.efsr : eb.efsr);
+G_ES0 = G_CUR === 1 ? ea.es0 : eb.es0; G_OVN = G_CUR === 1 ? ea.ovn : eb.ovn;
+G_ZT = G_ETOT / G_EFSR; G_ZLS = min(G_ETOT, floor(G_EFSR * MAX_SEC)) / G_EFSR;
+G_PVON && (G_CUR === 0 || G_ES0 === G_PVF || G_ERR) ? G_PVON = 0;
+G_LOADED = G_CUR > 0 && !G_ERR && (!G_LD || G_PVON);
+!G_LOADED ? G_ZOOM = 0;
+G_HDZ = G_IN && G_MX >= 34 - G_E && G_MX <= 386 + G_E && G_MY >= 120 && G_MY <= 280;
+G_HCL = G_IN && G_LOADED && G_MX >= 358 + G_E && G_MX <= 378 + G_E && G_MY >= 252 && G_MY <= 272;
+
+G_I = 0;
+loop(36,
+  G_SP = 0.02 + (G_I * 0.618034 - floor(G_I * 0.618034)) * 0.05;
+  G_PH = G_I * 2.399963;
+  G_PX0 = G_I * 0.381966 + G_TM * G_SP; G_PX0 -= floor(G_PX0);
+  G_PY0 = 0.5 + 0.42 * sin(G_TM * (0.15 + G_I * 0.011) + G_PH);
+  G_TW0 = 0.35 + 0.65 * (0.5 + 0.5 * sin(G_TM * 0.6 + G_PH * 1.7));
+  G_RR = 0.6 + (G_I * 0.161803 - floor(G_I * 0.161803)) * 1.6;
+  gset(C_ACC, 0.22 * G_TW0);
+  gfx_circle(gsx(34 - G_E + G_PX0 * (352 + 2 * G_E)), gsy(120 + G_PY0 * 160), G_RR * G_SC, 1, 1);
+  G_I += 1;
+);
+
+G_LOADED ? (
+  G_ZOOM ? gwave(G_EWV + NWB, G_OVN) : G_PVON ? gwave(PVW, G_PVN) : gwave(G_EWV, G_EW);
+  G_ZOOM ? (
+    G_ZX0 = 44 - G_E + G_ZS / G_ZT * (332 + 2 * G_E); G_ZX1 = G_ZX0 + G_ZLS / G_ZT * (332 + 2 * G_E);
+    gset(C_V900, 0.68);
+    G_ZX0 > 44 - G_E ? gfx_rect(floor(gsx(42 - G_E)), floor(gsy(142)), floor(gsx(G_ZX0)) - floor(gsx(42 - G_E)), ceil(110 * G_SC));
+    G_ZX1 < 376 + G_E ? gfx_rect(ceil(gsx(G_ZX1)), floor(gsy(142)), ceil(gsx(378 + G_E)) - ceil(gsx(G_ZX1)), ceil(110 * G_SC));
+    grs(G_ZX0, 141, G_ZX1, 253, 4, 1.5, C_GLOW, 0.9);
+  );
+  G_CS = G_PVON ? G_PVS : G_ES0 / G_EFSR;
+  G_DK = G_CUR * 1000003 + (G_CUR === 1 ? ea.wver : eb.wver) + G_SC + G_E * 0.0013 + G_ZOOM * 7 + floor((G_ZOOM ? G_ZS : G_CS) * 1000) * 11;
+  G_DK !== G_DZKEY ? (
+    G_DZKEY = G_DK;
+    G_DUR = G_CUR === 1 ? ea.edur : eb.edur;
+    G_ZOOM ? sprintf(#g_cap, "%s  \xc2\xb7  %.1f-%.1fs of %.1fs", #cur_name, G_ZS, G_ZS + G_ZLS, G_ZT) :
+    G_ZT > G_ZLS + 0.0001 ? sprintf(#g_cap, "%s  \xc2\xb7  %.1f-%.1fs", #cur_name, G_CS, G_CS + G_ZLS) :
+    sprintf(#g_cap, "%s  \xc2\xb7  %.1fs", #cur_name, G_DUR);
+    gtx_make(23, 2, #g_cap, 11, 210, 130, 1);
+  );
+  gcol(C_GLOW); gtx_draw(23, G_R, G_G, G_B, 0.85);
+  !G_ZOOM ? (
+    grr(358 + G_E, 252, 378 + G_E, 272, 5.6, G_HCL ? C_HRED : C_V900, 1);
+    grs(358 + G_E, 252, 378 + G_E, 272, 5.6, 1.2, G_HCL ? C_LIT : C_DIM, 1);
+    gset(G_HCL ? C_LIT : C_DASH, 1);
+    gbar(gsx(364 + G_E), gsy(258), gsx(372 + G_E), gsy(266), 1.6 * G_SC);
+    gbar(gsx(372 + G_E), gsy(258), gsx(364 + G_E), gsy(266), 1.6 * G_SC);
+  );
+) : (
+  G_DK = 7000000 + G_LD * 100 + G_ERR * 10 + (G_CUR > 0) + G_SC + G_E * 0.0013;
+  G_DK !== G_DZKEY ? (
+    G_DZKEY = G_DK;
+    G_ERR ? ( G_TOPY = 120 + (160 - (16 + 10 + 11)) * 0.5; ) :
+    (G_CUR > 0 && G_LD) ? ( G_TOPY = 120 + (160 - (16 + 10 + 12)) * 0.5; ) :
+    ( G_TOPY = 120 + (160 - 16) * 0.5; );
+    gtx_make(20, 1, G_LD ? "LOADING..." : "DROP A ROOMTONE FILE HERE", 16, 210, G_TOPY, 1);
+    SPC[21] = SPC[22] = 0;
+    G_ERR ? (
+      strcpy(#g_err, "Couldn't load file \xe2\x80\x94 ");
+      strcat(#g_err, G_ERR === 1 ? #ge1 : G_ERR === 2 ? #ge2 : G_ERR === 3 ? #ge3 : G_ERR === 4 ? #ge4 : #ge5);
+      gwrap(1, #g_err, 11, 352 + 2 * G_E);
+      gtx_make(21, 1, 60, 11, 210, G_TOPY + 16 + 3 + 10, 1);
+      G_NWL > 1 ? gtx_make(22, 1, 61, 11, 210, G_TOPY + 16 + 3 + 10 + 11, 1);
+    ) : (G_CUR > 0 && G_LD) ? (
+      G_DUR = G_CUR === 1 ? ea.edur : eb.edur;
+      sprintf(#g_cap, "%s  \xc2\xb7  %.1fs", #cur_name, G_DUR);
+      gtx_make(21, 2, #g_cap, 12, 210, G_TOPY + 16 + 3 + 10, 1);
+    );
+  );
+  gcol(C_WARM); gtx_draw(20, G_R, G_G, G_B, 1);
+  G_ERR ? ( gcol(C_LIT); gtx_draw(21, G_R, G_G, G_B, 1); gtx_draw(22, G_R, G_G, G_B, 1); ) :
+  ( gcol(C_GLOW); gtx_draw(21, G_R, G_G, G_B, 1); );
+);
+grs(34 - G_E, 120, 386 + G_E, 280, 12, 1.5, G_HDZ ? C_ACC : C_DIM, 1);
+
+G_BW = (352 + 2 * G_E - 20) / 3;
+G_HPS = -1;
+G_I = 0;
+loop(3,
+  G_BX = 34 - G_E + G_I * (G_BW + 10);
+  G_IN && G_MX >= G_BX && G_MX <= G_BX + G_BW && G_MY >= 291 && G_MY <= 317 ? G_HPS = G_I;
+  grs(G_BX, 291, G_BX + G_BW, 317, 8, 1.5, G_HPS === G_I ? C_ACC : C_DIM, 1);
+  G_I += 1;
+);
+
+G_KN = gk_norm(gain_db);
+G_HK = G_IN && (G_MX - 210) ^ 2 + (G_MY - 452) ^ 2 <= 62 * 62;
+G_DRAG === 1 ? G_HK = 1;
+sprintf(#g_kv, "%+.1f dB", gain_db);
+gknob(210, 452, 54, G_KN, 0.5, G_HK, "OUTPUT GAIN", #g_kv, 0);
+G_MUTED = mute >= 0.5;
+G_HMU = G_IN && G_MX >= 160 && G_MX <= 260 && G_MY >= 548 && G_MY <= 578;
+gbtn(160, 548, 100, 30, G_MUTED ? "MUTED" : "MUTE", G_MUTED, G_HMU);
+G_HTHM = -1;
+G_I = 0;
+loop(2,
+  G_XX = 28 - G_E + G_I * 20;
+  !G_ABOUT && G_DRAG === 0 && (G_MX - G_XX) ^ 2 + (G_MY - 33) ^ 2 <= 64 ? G_HTHM = G_I;
+  G_I === 0 ? gfx_set(0.99, 0.31, 0.25, 1) : gfx_set(0.85, 0.85, 0.88, 1);
+  gfx_circle(gsx(G_XX), gsy(33), 5 * G_SC, 1, 1);
+  G_I === 1 ? ( gfx_set(0.55, 0.55, 0.59, 1); gfx_circle(gsx(G_XX), gsy(33), 5 * G_SC, 0, 1); );
+  G_THL === G_I ? ( gfx_set(G_T1R, G_T1G, G_T1B, 0.95); gfx_circle(gsx(G_XX), gsy(33), 7.5 * G_SC, 0, 1); ) :
+  G_HTHM === G_I ? ( gfx_set(G_BDR, G_BDG, G_BDB, 0.9); gfx_circle(gsx(G_XX), gsy(33), 7.5 * G_SC, 0, 1); );
+  G_I += 1;
+);
+
+G_HAB = !G_ABOUT && G_DRAG === 0 && (G_MX - 387 - G_E) * (G_MX - 387 - G_E) + (G_MY - 33) * (G_MY - 33) <= 121;
+garc(387 + G_E, 33, 11, 1.2, -$pi, $pi, G_HAB ? C_ACC : C_DIM, 1);
+gcol(G_HAB ? C_GLOW : C_DASH); gtx_draw(9, G_R, G_G, G_B, 1);
+
+G_ABOUT ? (
+  gfx_set(0, 0, 0, 190 / 255); gfx_rect(0, 0, gfx_w, gfx_h);
+  grr(70, 197.5, 350, 412.5, 14, C_V900, 1);
+  grs(70, 197.5, 350, 412.5, 14, 1.5, C_DIM, 1);
+  gcol(C_WARM); gtx_draw(10, G_R, G_G, G_B, 1);
+  gcol(C_DASH); gtx_draw(11, G_R, G_G, G_B, 1);
+  gcol(C_WARM); gtx_draw(12, G_R, G_G, G_B, 1); gtx_draw(13, G_R, G_G, G_B, 1);
+  gtx_draw(14, G_R, G_G, G_B, 1); gtx_draw(15, G_R, G_G, G_B, 1);
+  G_HAC = G_MX >= 322 && G_MX <= 340 && G_MY >= 207.5 && G_MY <= 225.5;
+  grr(322, 207.5, 340, 225.5, 5.04, G_HAC ? C_HRED : C_V900, 1);
+  grs(322, 207.5, 340, 225.5, 5.04, 1.2, G_HAC ? C_LIT : C_DIM, 1);
+  gset(G_HAC ? C_LIT : C_DASH, 1);
+  gbar(gsx(327.4), gsy(212.9), gsx(334.6), gsy(220.1), 1.6 * G_SC);
+  gbar(gsx(334.6), gsy(212.9), gsx(327.4), gsy(220.1), 1.6 * G_SC);
+);
+
+G_PRESS ? (
+  G_ABOUT ? (
+    G_HAC ? G_ABOUT = 0 : !(G_MX >= 70 && G_MX <= 350 && G_MY >= 197.5 && G_MY <= 412.5) ? G_ABOUT = 0;
+  ) : G_HAB ? G_ABOUT = 1 :
+  G_HCL ? G_CLEAR = 1 :
+  G_HDZ && G_LOADED ? (
+    G_ZOOM = 1; G_DRAG = 3;
+    G_TMS = gclamp((G_MX - 44 + G_E) / (332 + 2 * G_E), 0, 1) * G_ZT;
+    G_CS = G_PVON ? G_PVS : G_ES0 / G_EFSR;
+    G_ZOF = (G_TMS >= G_CS && G_TMS <= G_CS + G_ZLS) ? G_TMS - G_CS : G_ZLS * 0.5;
+    G_ZS = gclamp(G_TMS - G_ZOF, 0, max(0, G_ZT - G_ZLS));
+  ) :
+  G_HPS >= 0 ? G_PICK = G_HPS + 1 :
+  G_HTHM >= 0 ? ( theme = G_HTHM; gauto(5, 1); ) :
+  G_HMU ? ( mute = mute >= 0.5 ? 0 : 1; gauto(2, 1); ) :
+  G_HK ? (
+    (G_DCLK || (mouse_cap & 4)) ? ( gain_db = 0; gauto(1, 1); ) : ( G_DRAG = 1; G_DY = mouse_y; G_DN = G_KN; );
+  );
+);
+G_DRAG === 1 && G_MD ? (
+  G_DN = max(0, min(1, G_DN - (mouse_y - G_DY) / G_SC * ((mouse_cap & 8) ? 0.0006 : 0.006)));
+  G_DY = mouse_y;
+  G_V = gk_db(G_DN);
+  G_V !== gain_db ? ( gain_db = G_V; gauto(1, 0); );
+);
+G_DRAG === 3 && G_MD ? (
+  G_ZS = gclamp(gclamp((G_MX - 44 + G_E) / (332 + 2 * G_E), 0, 1) * G_ZT - G_ZOF, 0, max(0, G_ZT - G_ZLS));
+);
+G_REL ? (
+  G_DRAG === 1 ? gauto(1, 1);
+  G_DRAG === 3 ? (
+    G_ZOOM = 0;
+    G_CS = G_PVON ? G_PVS : G_ES0 / G_EFSR;
+    abs(G_ZS - G_CS) >= 0.0005 ? (
+      G_PVS = floor(G_ZS * 1000 + 0.5) / 1000;
+      G_SETS = G_PVS;
+      G_PVF = max(0, min(G_ETOT - floor(G_EFSR * G_ZLS + 0.5), floor(G_PVS * G_EFSR + 0.5)));
+      G_PVL = min(G_ETOT, floor(G_EFSR * MAX_SEC));
+      src_key === (G_CUR === 1 ? ea.lfkey : eb.lfkey) ? (
+        G_BK = max(1, ceil(G_PVL / NWB)); G_PVN = ceil(G_PVL / G_BK);
+        G_I = 0;
+        loop(G_PVN,
+          G_SPP = SRCB + (G_PVF + G_I * G_BK) * src_nc; G_PKV = 0;
+          loop(min(G_BK, G_PVL - G_I * G_BK), G_V = abs(G_SPP[]); G_V > G_PKV ? G_PKV = G_V; G_SPP += src_nc;);
+          PVW[G_I] = G_PKV;
+          G_I += 1;
+        );
+        G_PVON = 1;
+      );
+    );
+  );
+  G_DRAG = 0;
+);
+G_LMD = G_MD;
+
