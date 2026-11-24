@@ -1,0 +1,1691 @@
+Version: 1.0
+desc: Word for Word Convolution Reverb (x42 Convolver port) by chmaha
+tags: reverb convolution impulse response hall room plate ambience vintage digital
+author: chmaha
+changelog:
+  Initial release.
+about:
+  Convolution reverb with 53 hall, room, plate, space, ambience and effect programs captured from a classic
+  digital studio reverb, in stereo or fed from a mono sum. The convolution engine splits the impulse response into
+  partitions that grow with distance from the start, so long halls stay light on the CPU; Zero Latency switches to a direct-form head for no delay at all.
+  Ported from the x42 Convolver (zeroconvo.lv2) by Robin Gareus
+  https://github.com/x42/zconvo.lv2 (GPL-3.0-or-later, convolution engine by Fons Adriaensen)
+  Impulse responses: Grant Nelson's personal Lexicon 480L impulse responses (Housecall FM),
+  https://www.housecallfm.com/download-gns-personal-lexicon-480l
+  (see Dependencies/WordForWord/WordForWord-LICENSE.txt), with the level matching from the x42 presets
+  JSFX version released under GPL-3.0-or-later
+  Claude generated some of this code
+provides:
+  Dependencies/WordForWord/WordForWord-LICENSE.txt
+  Dependencies/WordForWord/halls-auto-park.flac
+  Dependencies/WordForWord/halls-jazz-hall.flac
+  Dependencies/WordForWord/halls-large-church.flac
+  Dependencies/WordForWord/halls-large-hall.flac
+  Dependencies/WordForWord/halls-large-hall-and-stage.flac
+  Dependencies/WordForWord/halls-medium-hall.flac
+  Dependencies/WordForWord/halls-medium-hall-and-stage.flac
+  Dependencies/WordForWord/halls-small-and-stage.flac
+  Dependencies/WordForWord/halls-small-church.flac
+  Dependencies/WordForWord/halls-small-hall.flac
+  Dependencies/WordForWord/rooms-large-room.flac
+  Dependencies/WordForWord/rooms-music-club.flac
+  Dependencies/WordForWord/rooms-small-and-bright.flac
+  Dependencies/WordForWord/plates-a-plate.flac
+  Dependencies/WordForWord/plates-drum-plate.flac
+  Dependencies/WordForWord/plates-echo-plate.flac
+  Dependencies/WordForWord/plates-fat-plate.flac
+  Dependencies/WordForWord/plates-guitar-plate.flac
+  Dependencies/WordForWord/plates-horn-plate.flac
+  Dependencies/WordForWord/plates-large-plate.flac
+  Dependencies/WordForWord/plates-large-rich-plate.flac
+  Dependencies/WordForWord/plates-short-plate.flac
+  Dependencies/WordForWord/plates-silver-plate.flac
+  Dependencies/WordForWord/plates-slap-plate.flac
+  Dependencies/WordForWord/plates-small-plate.flac
+  Dependencies/WordForWord/plates-snare-plate.flac
+  Dependencies/WordForWord/plates-thin-plate.flac
+  Dependencies/WordForWord/plates-vocal-plate.flac
+  Dependencies/WordForWord/plates-vocal-plate-2.flac
+  Dependencies/WordForWord/spaces-1ow-40.flac
+  Dependencies/WordForWord/spaces-2ow-50.flac
+  Dependencies/WordForWord/spaces-big-bottom.flac
+  Dependencies/WordForWord/spaces-brick-wall.flac
+  Dependencies/WordForWord/spaces-buck-ram.flac
+  Dependencies/WordForWord/spaces-inside-out.flac
+  Dependencies/WordForWord/spaces-metallica.flac
+  Dependencies/WordForWord/spaces-ricochet.flac
+  Dependencies/WordForWord/spaces-sillica-beads.flac
+  Dependencies/WordForWord/spaces-varoom.flac
+  Dependencies/WordForWord/ambiences-gated-ambience.flac
+  Dependencies/WordForWord/ambiences-large-ambience.flac
+  Dependencies/WordForWord/ambiences-medium-ambience.flac
+  Dependencies/WordForWord/ambiences-small-ambience.flac
+  Dependencies/WordForWord/ambiences-strong-ambience.flac
+  Dependencies/WordForWord/ambiences-very-large-ambience.flac
+  Dependencies/WordForWord/effects-backslap.flac
+  Dependencies/WordForWord/effects-doubler.flac
+  Dependencies/WordForWord/effects-get-it-wet.flac
+  Dependencies/WordForWord/effects-in-the-past.flac
+  Dependencies/WordForWord/effects-rebound.flac
+  Dependencies/WordForWord/effects-sudden-stop.flac
+  Dependencies/WordForWord/effects-surfin.flac
+  Dependencies/WordForWord/effects-vox-whispers.flac
+// Copyright (C) 2006-2018 Fons Adriaensen <fons@linuxaudio.org>
+// Copyright (C) 2018-2022 Robin Gareus <robin@gareus.org>
+// Copyright (C) 2026 chmaha (JSFX port)
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <https://www.gnu.org/licenses/>.
+//
+// Modified 2026: translated to JSFX from x42/zconvo.lv2 src/zeta-convolver.cc, src/convolver.cc and src/lv2.cc.
+// https://github.com/x42/zconvo.lv2
+
+slider1:program=0<0,52,1{Hall: Auto Park,Hall: Jazz Hall,Hall: Large Church,Hall: Large Hall,Hall: Large Hall and Stage,Hall: Medium Hall,Hall: Medium Hall and Stage,Hall: Small and Stage,Hall: Small Church,Hall: Small Hall,Room: Large Room,Room: Music Club,Room: Small and Bright,Plate: A Plate,Plate: Drum Plate,Plate: Echo Plate,Plate: Fat Plate,Plate: Guitar Plate,Plate: Horn Plate,Plate: Large Plate,Plate: Large Rich Plate,Plate: Short Plate,Plate: Silver Plate,Plate: Slap Plate,Plate: Small Plate,Plate: Snare Plate,Plate: Thin Plate,Plate: Vocal Plate,Plate: Vocal Plate 2,Space: 1ow-40,Space: 2ow-50,Space: Big Bottom,Space: Brick Wall,Space: Buck Ram,Space: Inside Out,Space: Metallica,Space: Ricochet,Space: Sillica Beads,Space: Varoom,Ambience: Gated Ambience,Ambience: Large Ambience,Ambience: Medium Ambience,Ambience: Small Ambience,Ambience: Strong Ambience,Ambience: Very Large Ambience,Effect: BackSlap,Effect: Doubler,Effect: Get It Wet,Effect: In The Past,Effect: Rebound,Effect: Sudden Stop,Effect: Surfin,Effect: Vox Whispers}>-Program
+slider2:in_mode=0<0,1,1{Stereo,Mono to Stereo}>-Input
+slider3:dry_db=-60<-60,6,0.1>-Dry (dB)
+slider4:wet_db=0<-60,6,0.1>-Wet (dB)
+slider5:predelay=0<0,200,0.1>-Predelay (ms)
+slider6:zero_lat=0<0,1,1{Off,On}>-Zero Latency
+slider7:enable=1<0,1,1{Off,On}>-Enable
+slider8:theme=0<0,3,1{Silver,Black,Cream,Blue}>-Theme
+
+in_pin:Left
+in_pin:Right
+out_pin:Left
+out_pin:Right
+
+options:no_meter
+options:maxmem=33554432
+
+@init
+ext_noinit = gfx_ext_retina = ext_nodenorm = 1;
+RSI = 65536; RSO = 131072; NWB = 400; MAXF = 786432; RSTMAX = 262144;
+FIXQ = 1;
+BB0 = 256; ZB0 = 64; FADE_MS = 40; GROW = 4;
+PGS = 1000; PGM = 1200; PCAT = 1400; CST = 1600; PMAP = 1620;
+CINL = 4096; CINR = CINL + 2 * RSI; CINM = CINR + 2 * RSI;
+DRL = CINM + 2 * RSI; DRR = DRL + 1024;
+PDL = DRR + 1024; PDR = PDL + 65536;
+TMP = ceil((PDR + 65536) / 32768) * 32768; RST = TMP + 32768;
+STAGE = RST + RSTMAX; PATHS = STAGE + 4 * MAXF;
+ESZ = 12 * (MAXF + 16384) + 2 * RSO + 1048576;
+EMA = PATHS + 4 * MAXF; EMB = EMA + ESZ;
+strcpy(100, "Auto Park"); strcpy(300, "halls-auto-park"); PGS[0] = 0.116680; PGM[0] = 0.116680; PCAT[0] = 0;
+strcpy(101, "Jazz Hall"); strcpy(301, "halls-jazz-hall"); PGS[1] = 0.057318; PGM[1] = 0.057318; PCAT[1] = 0;
+strcpy(102, "Large Church"); strcpy(302, "halls-large-church"); PGS[2] = 0.027509; PGM[2] = 0.027509; PCAT[2] = 0;
+strcpy(103, "Large Hall"); strcpy(303, "halls-large-hall"); PGS[3] = 0.030069; PGM[3] = 0.030069; PCAT[3] = 0;
+strcpy(104, "Large Hall and Stage"); strcpy(304, "halls-large-hall-and-stage"); PGS[4] = 0.069715; PGM[4] = 0.069715; PCAT[4] = 0;
+strcpy(105, "Medium Hall"); strcpy(305, "halls-medium-hall"); PGS[5] = 0.029056; PGM[5] = 0.029056; PCAT[5] = 0;
+strcpy(106, "Medium Hall and Stage"); strcpy(306, "halls-medium-hall-and-stage"); PGS[6] = 0.065704; PGM[6] = 0.065704; PCAT[6] = 0;
+strcpy(107, "Small and Stage"); strcpy(307, "halls-small-and-stage"); PGS[7] = 0.076406; PGM[7] = 0.076406; PCAT[7] = 0;
+strcpy(108, "Small Church"); strcpy(308, "halls-small-church"); PGS[8] = 0.030186; PGM[8] = 0.030186; PCAT[8] = 0;
+strcpy(109, "Small Hall"); strcpy(309, "halls-small-hall"); PGS[9] = 0.046814; PGM[9] = 0.046814; PCAT[9] = 0;
+strcpy(110, "Large Room"); strcpy(310, "rooms-large-room"); PGS[10] = 0.041578; PGM[10] = 0.041578; PCAT[10] = 1;
+strcpy(111, "Music Club"); strcpy(311, "rooms-music-club"); PGS[11] = 0.040799; PGM[11] = 0.040799; PCAT[11] = 1;
+strcpy(112, "Small and Bright"); strcpy(312, "rooms-small-and-bright"); PGS[12] = 0.052765; PGM[12] = 0.052765; PCAT[12] = 1;
+strcpy(113, "A Plate"); strcpy(313, "plates-a-plate"); PGS[13] = 0.059864; PGM[13] = 0.059864; PCAT[13] = 2;
+strcpy(114, "Drum Plate"); strcpy(314, "plates-drum-plate"); PGS[14] = 0.198126; PGM[14] = 0.198126; PCAT[14] = 2;
+strcpy(115, "Echo Plate"); strcpy(315, "plates-echo-plate"); PGS[15] = 0.154995; PGM[15] = 0.154995; PCAT[15] = 2;
+strcpy(116, "Fat Plate"); strcpy(316, "plates-fat-plate"); PGS[16] = 0.080492; PGM[16] = 0.080492; PCAT[16] = 2;
+strcpy(117, "Guitar Plate"); strcpy(317, "plates-guitar-plate"); PGS[17] = 0.112984; PGM[17] = 0.112984; PCAT[17] = 2;
+strcpy(118, "Horn Plate"); strcpy(318, "plates-horn-plate"); PGS[18] = 0.045767; PGM[18] = 0.045767; PCAT[18] = 2;
+strcpy(119, "Large Plate"); strcpy(319, "plates-large-plate"); PGS[19] = 0.066062; PGM[19] = 0.066062; PCAT[19] = 2;
+strcpy(120, "Large Rich Plate"); strcpy(320, "plates-large-rich-plate"); PGS[20] = 0.066353; PGM[20] = 0.066353; PCAT[20] = 2;
+strcpy(121, "Short Plate"); strcpy(321, "plates-short-plate"); PGS[21] = 0.060131; PGM[21] = 0.060131; PCAT[21] = 2;
+strcpy(122, "Silver Plate"); strcpy(322, "plates-silver-plate"); PGS[22] = 0.073791; PGM[22] = 0.073791; PCAT[22] = 2;
+strcpy(123, "Slap Plate"); strcpy(323, "plates-slap-plate"); PGS[23] = 0.106633; PGM[23] = 0.106633; PCAT[23] = 2;
+strcpy(124, "Small Plate"); strcpy(324, "plates-small-plate"); PGS[24] = 0.109149; PGM[24] = 0.109149; PCAT[24] = 2;
+strcpy(125, "Snare Plate"); strcpy(325, "plates-snare-plate"); PGS[25] = 0.047612; PGM[25] = 0.047612; PCAT[25] = 2;
+strcpy(126, "Thin Plate"); strcpy(326, "plates-thin-plate"); PGS[26] = 0.073598; PGM[26] = 0.073598; PCAT[26] = 2;
+strcpy(127, "Vocal Plate"); strcpy(327, "plates-vocal-plate"); PGS[27] = 0.108000; PGM[27] = 0.108000; PCAT[27] = 2;
+strcpy(128, "Vocal Plate 2"); strcpy(328, "plates-vocal-plate-2"); PGS[28] = 0.084145; PGM[28] = 0.084145; PCAT[28] = 2;
+strcpy(129, "1ow-40"); strcpy(329, "spaces-1ow-40"); PGS[29] = 0.155605; PGM[29] = 0.155605; PCAT[29] = 3;
+strcpy(130, "2ow-50"); strcpy(330, "spaces-2ow-50"); PGS[30] = 0.169698; PGM[30] = 0.169698; PCAT[30] = 3;
+strcpy(131, "Big Bottom"); strcpy(331, "spaces-big-bottom"); PGS[31] = 0.043986; PGM[31] = 0.043986; PCAT[31] = 3;
+strcpy(132, "Brick Wall"); strcpy(332, "spaces-brick-wall"); PGS[32] = 0.084546; PGM[32] = 0.084546; PCAT[32] = 3;
+strcpy(133, "Buck Ram"); strcpy(333, "spaces-buck-ram"); PGS[33] = 0.081982; PGM[33] = 0.081982; PCAT[33] = 3;
+strcpy(134, "Inside Out"); strcpy(334, "spaces-inside-out"); PGS[34] = 0.044874; PGM[34] = 0.044874; PCAT[34] = 3;
+strcpy(135, "Metallica"); strcpy(335, "spaces-metallica"); PGS[35] = 0.109949; PGM[35] = 0.109949; PCAT[35] = 3;
+strcpy(136, "Ricochet"); strcpy(336, "spaces-ricochet"); PGS[36] = 0.062299; PGM[36] = 0.062299; PCAT[36] = 3;
+strcpy(137, "Sillica Beads"); strcpy(337, "spaces-sillica-beads"); PGS[37] = 0.063292; PGM[37] = 0.063292; PCAT[37] = 3;
+strcpy(138, "Varoom"); strcpy(338, "spaces-varoom"); PGS[38] = 0.162339; PGM[38] = 0.162339; PCAT[38] = 3;
+strcpy(139, "Gated Ambience"); strcpy(339, "ambiences-gated-ambience"); PGS[39] = 0.090497; PGM[39] = 0.090497; PCAT[39] = 4;
+strcpy(140, "Large Ambience"); strcpy(340, "ambiences-large-ambience"); PGS[40] = 0.043751; PGM[40] = 0.043751; PCAT[40] = 4;
+strcpy(141, "Medium Ambience"); strcpy(341, "ambiences-medium-ambience"); PGS[41] = 0.032327; PGM[41] = 0.032327; PCAT[41] = 4;
+strcpy(142, "Small Ambience"); strcpy(342, "ambiences-small-ambience"); PGS[42] = 0.042150; PGM[42] = 0.042150; PCAT[42] = 4;
+strcpy(143, "Strong Ambience"); strcpy(343, "ambiences-strong-ambience"); PGS[43] = 0.056695; PGM[43] = 0.056695; PCAT[43] = 4;
+strcpy(144, "Very Large Ambience"); strcpy(344, "ambiences-very-large-ambience"); PGS[44] = 0.031484; PGM[44] = 0.031484; PCAT[44] = 4;
+strcpy(145, "BackSlap"); strcpy(345, "effects-backslap"); PGS[45] = 0.084734; PGM[45] = 0.084734; PCAT[45] = 5;
+strcpy(146, "Doubler"); strcpy(346, "effects-doubler"); PGS[46] = 0.075521; PGM[46] = 0.075521; PCAT[46] = 5;
+strcpy(147, "Get It Wet"); strcpy(347, "effects-get-it-wet"); PGS[47] = 0.097638; PGM[47] = 0.097638; PCAT[47] = 5;
+strcpy(148, "In The Past"); strcpy(348, "effects-in-the-past"); PGS[48] = 0.231252; PGM[48] = 0.231252; PCAT[48] = 5;
+strcpy(149, "Rebound"); strcpy(349, "effects-rebound"); PGS[49] = 0.205211; PGM[49] = 0.205211; PCAT[49] = 5;
+strcpy(150, "Sudden Stop"); strcpy(350, "effects-sudden-stop"); PGS[50] = 0.032277; PGM[50] = 0.032277; PCAT[50] = 5;
+strcpy(151, "Surfin"); strcpy(351, "effects-surfin"); PGS[51] = 0.165591; PGM[51] = 0.165591; PCAT[51] = 5;
+strcpy(152, "Vox Whispers"); strcpy(352, "effects-vox-whispers"); PGS[52] = 0.183732; PGM[52] = 0.183732; PCAT[52] = 5;
+CST[0] = 0; CST[1] = 10; CST[2] = 13; CST[3] = 29; CST[4] = 39; CST[5] = 45; CST[6] = 53;
+strcpy(20, "Halls"); strcpy(30, "The programs found in the Halls group are reverberation programs designed to emulate real concert halls and larger natural acoustical spaces. They are useful for a variety of tasks, and are especially well suited for orchestral music applications.");
+strcpy(21, "Rooms"); strcpy(31, "The programs found in the Rooms group are reverberation programs designed to emulate rooms and smaller natural acoustical spaces. They are useful for a variety of tasks, and are especially well suited for post production applications and adding space to dialog and solo instruments in music mixes.");
+strcpy(22, "Plates"); strcpy(32, "The programs found in the Plates group are reverberation programs designed to emulate the sound of an analog metal plate reverb. They are useful for a variety of tasks, and are especially well suited for popular multi-track recordings and live performance applications.");
+strcpy(23, "Spaces"); strcpy(33, "The programs found in the Spaces group are reverberation programs designed to emulate outdoor sounds, non-real sounds, and other very large or small acoustical spaces. They are useful for a variety of tasks, and are especially well suited for post production creating special effects.");
+strcpy(24, "Ambiences"); strcpy(34, "The programs found in the Ambience group are reverberation programs designed add space without necessarily adding reverb. They are useful for a variety of tasks, and are especially well suited for post production and dialog applications, as well as adding 'air' to voice and solo instruments.");
+strcpy(25, "Effects"); strcpy(35, "The programs found in the Effects group are not necessarily adding reverb, but recreate miscellaneous audible artifacts. They are mainly useful for creating special effects.");
+function e_init(ebp, ez) instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age) (
+  ebase = ebp; eend = ebp + ez;
+  LVT = ebp; OBL = ebp + 256; OBR = OBL + RSO; HD = OBR + RSO; WV = HD + 512; DYN = WV + 4 * NWB;
+  ready = 0; nlev = 0; lst = 0; act = 0;
+);
+
+function e_layout(nn, qb, lat, ni, np, md) instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age) local(k, bb, oo, pp, pn, ptr, tb, nb) (
+  QB0 = qb; L = lat; nin = ni; npath = np; mode = md; irlen = nn; cin0 = md === 2 ? CINM : CINL;
+  oo = lat ? 0 : qb;
+  bb = qb; k = 0; ptr = DYN;
+  while (oo < nn && k < 15) (
+    tb = LVT + k * 16;
+    nb = min(16384, bb * GROW);
+    bb >= 16384 ? pp = ceil((nn - oo) / bb) : (
+      pn = max(1, ceil((2 * nb - qb - lat - oo) / bb));
+      pp = nn - oo <= (pn + 2) * bb ? ceil((nn - oo) / bb) : pn;
+    );
+    tb[0] = bb; tb[1] = pp; tb[2] = oo; tb[3] = bb / qb;
+    tb[10] = 2 * bb; tb[11] = pp * 2 * bb;
+    ptr = ceil(ptr / (2 * bb)) * 2 * bb;
+    tb[4] = ptr; ptr += ni * pp * 2 * bb;
+    tb[5] = ptr; ptr += pp * bb * 2 * np;
+    tb[13] = bb * 2 * np;
+    ptr = ceil(ptr / (2 * bb)) * 2 * bb;
+    tb[6] = ptr; ptr += 2 * bb;
+    tb[7] = ptr; ptr += 2 * bb;
+    tb[8] = pp - 1; tb[9] = 0;
+    tb[12] = oo + lat + 1 - bb - (bb / qb - 1) * qb;
+    oo += pp * bb;
+    bb = nb;
+    k += 1;
+  );
+  nlev = k; ncov = oo;
+  span = oo + lat + 2 * 16384 + 2 * qb;
+  ptr <= eend ? ( memset(DYN, 0, ptr - DYN); memset(OBL, 0, 2 * RSO); memset(HD, 0, 512); ph = 0; 1; ) : 0;
+);
+
+
+function e_reset() instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age) local(k, tb) (
+  k = 0;
+  loop(nlev,
+    tb = LVT + k * 16;
+    memset(tb[4], 0, nin * tb[1] * tb[10]);
+    memset(tb[6], 0, tb[10]); memset(tb[7], 0, tb[10]);
+    tb[8] = tb[1] - 1; tb[9] = 0;
+    k += 1;
+  );
+  memset(OBL, 0, RSO); memset(OBR, 0, RSO);
+  ph = 0; age = 0;
+);
+
+function mac_ts(xx, xc, hq, hb, al, ar, pp, sq, n2, q0, q1) local(b, xp, hp, lr, li, rr, ri, xa, xb, xe, xf, xc1, na) (
+  xc1 = xc + 1; na = sq + 1; b = q0;
+  b === 0 ? (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * 0; hp = hq + 0 * 8;
+      loop(na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] + xe * hp[4]; li += xb * hp[1] + xf * hp[5];
+          rr += xa * hp[2] + xe * hp[6]; ri += xb * hp[3] + xf * hp[7];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * 0;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] + xe * hp[4]; li += xb * hp[1] + xf * hp[5];
+          rr += xa * hp[2] + xe * hp[6]; ri += xb * hp[3] + xf * hp[7];
+          xp -= n2; hp += hb;
+      );
+      al[2 * 0] = lr; al[2 * 0 + 1] = li; ar[2 * 0] = rr; ar[2 * 0 + 1] = ri;
+      b = 1;
+  );
+  while (b < q1) (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * b; hp = hq + b * 8;
+      loop(na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] - xb * hp[1] + xe * hp[4] - xf * hp[5];
+          li += xa * hp[1] + xb * hp[0] + xe * hp[5] + xf * hp[4];
+          rr += xa * hp[2] - xb * hp[3] + xe * hp[6] - xf * hp[7];
+          ri += xa * hp[3] + xb * hp[2] + xe * hp[7] + xf * hp[6];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * b;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] - xb * hp[1] + xe * hp[4] - xf * hp[5];
+          li += xa * hp[1] + xb * hp[0] + xe * hp[5] + xf * hp[4];
+          rr += xa * hp[2] - xb * hp[3] + xe * hp[6] - xf * hp[7];
+          ri += xa * hp[3] + xb * hp[2] + xe * hp[7] + xf * hp[6];
+          xp -= n2; hp += hb;
+      );
+      al[2 * b] = lr; al[2 * b + 1] = li; ar[2 * b] = rr; ar[2 * b + 1] = ri;
+      b += 1;
+  );
+);
+
+function mac_st(xx, xc, hq, hb, al, ar, pp, sq, n2, q0, q1) local(b, xp, hp, lr, li, rr, ri, xa, xb, xe, xf, xc1, na) (
+  xc1 = xc + 1; na = sq + 1; b = q0;
+  b === 0 ? (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * 0; hp = hq + 0 * 4;
+      loop(na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0]; li += xb * hp[1]; rr += xe * hp[2]; ri += xf * hp[3];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * 0;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0]; li += xb * hp[1]; rr += xe * hp[2]; ri += xf * hp[3];
+          xp -= n2; hp += hb;
+      );
+      al[2 * 0] = lr; al[2 * 0 + 1] = li; ar[2 * 0] = rr; ar[2 * 0 + 1] = ri;
+      b = 1;
+  );
+  while (b < q1) (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * b; hp = hq + b * 4;
+      loop(na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] - xb * hp[1]; li += xa * hp[1] + xb * hp[0];
+          rr += xe * hp[2] - xf * hp[3]; ri += xe * hp[3] + xf * hp[2];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * b;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1]; xe = xp[xc]; xf = xp[xc1];
+          lr += xa * hp[0] - xb * hp[1]; li += xa * hp[1] + xb * hp[0];
+          rr += xe * hp[2] - xf * hp[3]; ri += xe * hp[3] + xf * hp[2];
+          xp -= n2; hp += hb;
+      );
+      al[2 * b] = lr; al[2 * b + 1] = li; ar[2 * b] = rr; ar[2 * b + 1] = ri;
+      b += 1;
+  );
+);
+
+function mac_ms(xx, hq, hb, al, ar, pp, sq, n2, q0, q1) local(b, xp, hp, lr, li, rr, ri, xa, xb, xe, xf, xc1, na) (
+  xc1 = 0; na = sq + 1; b = q0;
+  b === 0 ? (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * 0; hp = hq + 0 * 4;
+      loop(na,
+        xa = xp[0]; xb = xp[1];
+          lr += xa * hp[0]; li += xb * hp[1]; rr += xa * hp[2]; ri += xb * hp[3];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * 0;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1];
+          lr += xa * hp[0]; li += xb * hp[1]; rr += xa * hp[2]; ri += xb * hp[3];
+          xp -= n2; hp += hb;
+      );
+      al[2 * 0] = lr; al[2 * 0 + 1] = li; ar[2 * 0] = rr; ar[2 * 0 + 1] = ri;
+      b = 1;
+  );
+  while (b < q1) (
+      lr = li = rr = ri = 0;
+      xp = xx + sq * n2 + 2 * b; hp = hq + b * 4;
+      loop(na,
+        xa = xp[0]; xb = xp[1];
+          lr += xa * hp[0] - xb * hp[1]; li += xa * hp[1] + xb * hp[0];
+          rr += xa * hp[2] - xb * hp[3]; ri += xa * hp[3] + xb * hp[2];
+          xp -= n2; hp += hb;
+      );
+      xp = xx + (pp - 1) * n2 + 2 * b;
+      loop(pp - na,
+        xa = xp[0]; xb = xp[1];
+          lr += xa * hp[0] - xb * hp[1]; li += xa * hp[1] + xb * hp[0];
+          rr += xa * hp[2] - xb * hp[3]; ri += xa * hp[3] + xb * hp[2];
+          xp -= n2; hp += hb;
+      );
+      al[2 * b] = lr; al[2 * b + 1] = li; ar[2 * b] = rr; ar[2 * b + 1] = ri;
+      b += 1;
+  );
+);
+
+
+function e_tick() instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age) local(k, tb, bb, pp, tt, tcn, n2, xx, xc, al, ar, sq, q0, q1, os, n1, src, dst) (
+  k = 0;
+  loop(nlev,
+    tb = LVT + k * 16;
+    bb = tb[0]; pp = tb[1]; tt = tb[3]; n2 = tb[10]; tcn = tb[9]; xx = tb[4]; xc = tb[11];
+    al = tb[6]; ar = tb[7];
+    tcn === 0 ? (
+      sq = tb[8] + 1; sq >= pp ? sq = 0; tb[8] = sq;
+      memcpy(xx + sq * n2, cin0 + wi + 1 - n2 + RSI, n2);
+      age < n2 ? memset(xx + sq * n2, 0, n2 - age);
+      fft_real(xx + sq * n2, n2);
+      nin > 1 ? (
+        memcpy(xx + xc + sq * n2, CINR + wi + 1 - n2 + RSI, n2);
+        age < n2 ? memset(xx + xc + sq * n2, 0, n2 - age);
+        fft_real(xx + xc + sq * n2, n2);
+      );
+    ) : sq = tb[8];
+    q0 = floor(tcn * bb / tt); q1 = floor((tcn + 1) * bb / tt);
+    q1 > q0 ? (
+      mode === 0 ? mac_ts(xx, xc, tb[5], tb[13], al, ar, pp, sq, n2, q0, q1) :
+      mode === 1 ? mac_st(xx, xc, tb[5], tb[13], al, ar, pp, sq, n2, q0, q1) :
+      mac_ms(xx, tb[5], tb[13], al, ar, pp, sq, n2, q0, q1);
+    );
+    tcn === tt - 1 ? (
+      ifft_real(al, n2); ifft_real(ar, n2);
+      os = opos + tb[12]; os >= RSO ? os -= RSO;
+      n1 = min(bb, RSO - os);
+      src = al + bb; dst = OBL + os; loop(n1, dst[] += src[]; dst += 1; src += 1;);
+      dst = OBL; loop(bb - n1, dst[] += src[]; dst += 1; src += 1;);
+      src = ar + bb; dst = OBR + os; loop(n1, dst[] += src[]; dst += 1; src += 1;);
+      dst = OBR; loop(bb - n1, dst[] += src[]; dst += 1; src += 1;);
+      tb[9] = 0;
+    ) : tb[9] = tcn + 1;
+    k += 1;
+  );
+);
+
+function e_sample() instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age) local(xl, xr, hp, a0, a1, v0, v1) (
+  quiet > span ? (
+    ywl = ywr = 0;
+    ph += 1; ph >= QB0 ? ph = 0;
+  ) : (
+    age < 65536 ? age += 1;
+    ph += 1; ph >= QB0 ? ( ph = 0; this.e_tick(); );
+    ywl = OBL[opos]; ywr = OBR[opos]; OBL[opos] = 0; OBR[opos] = 0;
+    L === 0 ? (
+      mode === 0 ? (
+      xl = CINL + wi + RSI; xr = CINR + wi + RSI; hp = HD; a0 = a1 = 0;
+      loop(min(QB0, age), v0 = xl[]; v1 = xr[]; a0 += v0 * hp[0] + v1 * hp[2]; a1 += v0 * hp[1] + v1 * hp[3]; xl -= 1; xr -= 1; hp += 4;);
+      ywl += a0; ywr += a1;
+      ) : mode === 1 ? (
+      xl = CINL + wi + RSI; xr = CINR + wi + RSI; hp = HD; a0 = a1 = 0;
+      loop(min(QB0, age), a0 += xl[] * hp[0]; a1 += xr[] * hp[1]; xl -= 1; xr -= 1; hp += 2;);
+      ywl += a0; ywr += a1;
+      ) : (
+      xl = cin0 + wi + RSI; hp = HD; a0 = a1 = 0;
+      loop(min(QB0, age), v0 = xl[]; a0 += v0 * hp[0]; a1 += v0 * hp[1]; xl -= 1; hp += 2;);
+      ywl += a0; ywr += a1;
+      );
+    );
+  );
+);
+
+function bessel_i0(x) local(s, t, k) (
+  s = 1; t = 1; k = 1;
+  loop(60, t *= (x * 0.5 / k) * (x * 0.5 / k); s += t; k += 1;);
+  s;
+);
+
+function rs_kernel(u) local(x, w) (
+  x = u / RS_WD;
+  abs(x) >= 1 ? 0 : (
+    w = bessel_i0(RS_BETA * sqrt(1 - x * x)) / RS_I0B;
+    x = RS_FC * u;
+    abs(x) < 0.000000000001 ? RS_FC * w : RS_FC * sin($pi * x) / ($pi * x) * w;
+  );
+);
+
+function rs_setup(fsr, dsr) local(a, b, t, g, rph, tp) (
+  a = floor(fsr + 0.5); b = floor(dsr + 0.5);
+  while (b > 0) ( t = a - b * floor(a / b); a = b; b = t; );
+  g = a;
+  RS_L = floor(dsr + 0.5) / g; RS_M = floor(fsr + 0.5) / g;
+  RS_FC = 0.975 * min(1, dsr / fsr);
+  RS_WD = 40 / RS_FC;
+  RS_NT = 2 * ceil(RS_WD);
+  RS_BETA = 8.6; RS_I0B = bessel_i0(RS_BETA);
+  RS_TAB = RS_L * RS_NT <= RSTMAX && floor(fsr + 0.5) === fsr && floor(dsr + 0.5) === dsr;
+  RS_TAB ? (
+    rph = 0;
+    loop(RS_L,
+      tp = 0;
+      loop(RS_NT,
+        RST[rph * RS_NT + tp] = rs_kernel(tp - (RS_NT / 2 - 1) - rph / RS_L);
+        tp += 1;
+      );
+      rph += 1;
+    );
+  );
+  RS_R = dsr / fsr;
+);
+
+function rs_run(dst, src, nch, ch, nfr, m0, m1) local(m, base, rph, n0, sp, cp, acc, t, pos, u) (
+  RS_TAB ? (
+    base = floor(m0 * RS_M / RS_L); rph = m0 * RS_M - base * RS_L;
+    m = m0;
+    while (m < m1) (
+      n0 = base - (RS_NT / 2 - 1);
+      cp = RST + rph * RS_NT;
+      acc = 0;
+      n0 >= 0 && n0 + RS_NT <= nfr ? (
+        sp = src + n0 * nch + ch;
+        loop(RS_NT, acc += cp[] * sp[]; cp += 1; sp += nch;);
+      ) : (
+        t = 0;
+        loop(RS_NT,
+          (n0 + t >= 0 && n0 + t < nfr) ? acc += cp[t] * src[(n0 + t) * nch + ch];
+          t += 1;
+        );
+      );
+      dst[m] = acc;
+      rph += RS_M; base += floor(rph / RS_L); rph -= floor(rph / RS_L) * RS_L;
+      m += 1;
+    );
+  ) : (
+    m = m0;
+    while (m < m1) (
+      pos = m / RS_R;
+      n0 = floor(pos) - (RS_NT / 2 - 1);
+      acc = 0; t = 0;
+      loop(RS_NT,
+        (n0 + t >= 0 && n0 + t < nfr) ? ( u = n0 + t - pos; acc += rs_kernel(u) * src[(n0 + t) * nch + ch]; );
+        t += 1;
+      );
+      dst[m] = acc;
+      m += 1;
+    );
+  );
+  (m1 - m0) * RS_NT * (RS_TAB ? 1 : 40);
+);
+
+function e_load_begin(lgain, imode, zl) instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age) local(n) (
+  ready = 0; lst = 0; lerr = 0;
+  lh >= 0 && lopen ? file_close(lh);
+  lopen = 0;
+  lh = file_open(#ldpath);
+  lh < 0 ? ( lerr = 1; lst = -1; ) : (
+    lopen = 1;
+    lnch = 0; lfsr = 0;
+    file_riff(lh, lnch, lfsr);
+    (lnch < 1 || lfsr < 1000) ? ( file_close(lh); lopen = 0; lerr = 2; lst = -1; ) : (
+      lfr = floor(file_avail(lh) / lnch);
+      lfr = min(lfr, MAXF);
+      lfr < 1 ? ( file_close(lh); lopen = 0; lerr = 2; lst = -1; ) : (
+        lg = lgain; lim = imode; lzl = zl; lsr = srate;
+        lpos = 0; lst = 1;
+      );
+    );
+  );
+  lst;
+);
+
+function e_load_cancel() instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age) (
+  lopen ? file_close(lh); lopen = 0; lst = 0; ready = 0;
+);
+
+function e_load_step(budget) instance(ebase, eend, LVT, OBL, OBR, HD, WV, DYN, ready, nlev, lst, act, QB0, L, nin, npath, mode, irlen, ncov, span, ph, ywl, ywr, lh, lopen, lerr, lnch, lfsr, lfr, lg, lim, lzl, lsr, lpos, lnc, lrs, lrn, lc, lk, lp, lnin, lnp, lmd, lpm0, lpm1, lpm2, lpm3, wpk, wver, cin0, gsc, age) local(work, n, got, c, m1, tb, bb, n2, oo, cnt, sp, dp, sc, hp, hs, b, src, j, pk, v) (
+  work = 0;
+  while (work < budget && lst > 0 && lst < 6) (
+    lst === 1 ? (
+      n = min(65536, lfr * lnch - lpos);
+      got = n > 0 ? file_mem(lh, STAGE + lpos, n) : 0;
+      lpos += n; work += n;
+      (lpos >= lfr * lnch || got < n) ? (
+        file_close(lh); lopen = 0;
+        lnc = min(lnch, 4);
+        lrs = abs(lfsr - lsr) >= 0.5;
+        lrs ? ( rs_setup(lfsr, lsr); lrn = min(MAXF, ceil(lfr * RS_R) - 1); ) : lrn = lfr;
+        lrn = max(1, lrn);
+        lc = 0; lpos = 0; lst = 2;
+      );
+    ) : lst === 2 ? (
+      lrs ? (
+        m1 = min(lrn, lpos + 4096);
+        work += rs_run(PATHS + lc * MAXF, STAGE, lnch, lc, lfr, lpos, m1);
+        lpos = m1;
+      ) : (
+        m1 = min(lrn, lpos + 65536);
+        dp = PATHS + lc * MAXF + lpos; sp = STAGE + lpos * lnch + lc;
+        loop(m1 - lpos, dp[] = sp[]; dp += 1; sp += lnch;);
+        work += 2 * (m1 - lpos);
+        lpos = m1;
+      );
+      lpos >= lrn ? (
+        lpos = 0; lc += 1;
+        lc >= lnc ? (
+          lim === 1 ? (
+            lnin = 1; lnp = 2; lmd = 2;
+            PMAP[0] = 0; PMAP[1] = lnc >= 2 ? 1 : 0;
+          ) : lnc >= 4 ? (
+            lnin = 2; lnp = 4; lmd = 0;
+            PMAP[0] = 0; PMAP[1] = 1; PMAP[2] = 2; PMAP[3] = 3;
+          ) : (
+            lnin = 2; lnp = 2; lmd = 1;
+            PMAP[0] = 0; PMAP[1] = lnc >= 2 ? 1 : 0;
+          );
+          lpm0 = PMAP[0]; lpm1 = PMAP[1]; lpm2 = PMAP[2]; lpm3 = PMAP[3];
+          FIXQ && lrs ? lg *= lfsr / lsr;
+          this.e_layout(lrn, lzl ? ZB0 : BB0, lzl ? 0 : BB0, lnin, lnp, lmd) ? (
+            lc = 0; lk = 0; lp = 0; lst = 3;
+          ) : ( lerr = 3; lst = -1; );
+        );
+      );
+    ) : lst === 3 ? (
+      tb = LVT + lk * 16;
+      bb = tb[0]; n2 = tb[10]; oo = tb[2] + lp * bb;
+      src = PATHS + (lc === 0 ? lpm0 : lc === 1 ? lpm1 : lc === 2 ? lpm2 : lpm3) * MAXF;
+      memset(TMP, 0, n2);
+      cnt = max(0, min(bb, lrn - oo));
+      sc = lg / (4 * n2);
+      sp = src + oo; dp = TMP;
+      loop(cnt, dp[] = sp[] * sc; dp += 1; sp += 1;);
+      fft_real(TMP, n2);
+      hs = 2 * npath;
+      hp = tb[5] + lp * tb[13] + 2 * lc; sp = TMP;
+      loop(bb, hp[0] = sp[0]; hp[1] = sp[1]; hp += hs; sp += 2;);
+      work += 6 * n2;
+      lp += 1;
+      lp >= tb[1] ? (
+        lp = 0; lk += 1;
+        lk >= nlev ? (
+          L === 0 ? (
+            j = 0;
+            loop(min(QB0, lrn), HD[j * npath + lc] = src[j] * lg; j += 1;);
+          );
+          lk = 0; lc += 1;
+          lc >= npath ? ( lc = 0; lpos = 0; lst = 4; memset(WV, 0, 4 * NWB); );
+        );
+      );
+    ) : lst === 4 ? (
+      src = PATHS + (lc === 0 ? lpm0 : lc === 1 ? lpm1 : lc === 2 ? lpm2 : lpm3) * MAXF;
+      b = 0;
+      loop(NWB,
+        sp = src + floor(b * lrn / NWB); n = max(1, floor((b + 1) * lrn / NWB) - floor(b * lrn / NWB));
+        pk = 0; loop(n, v = abs(sp[]); v > pk ? pk = v; sp += 1;);
+        WV[lc * NWB + b] = pk * lg;
+        b += 1;
+      );
+      work += lrn;
+      lc += 1;
+      lc >= npath ? (
+        wpk = 0; j = 0; loop(npath * NWB, wpk = max(wpk, WV[j]); j += 1;);
+        wver += 1; lst = 6; ready = 1;
+      );
+    );
+  );
+  work;
+);
+
+
+function db_coeff(d) ( d <= -60 ? 0 : d > 6.02 ? 2 : 10 ^ (0.05 * d); );
+
+function e_ready(e) ( e === 1 ? ea.ready : e === 2 ? eb.ready : 0; );
+function e_lat(e) ( e === 1 ? ea.L : e === 2 ? eb.L : 0; );
+
+function want_key() (
+  wprog = max(0, min(52, floor(program + 0.5)));
+  wim = in_mode >= 0.5; wzl = zero_lat >= 0.5;
+  wprog * 100 + wim * 10 + wzl;
+);
+
+function set_path(k) (
+  strcpy(#ldpath, k ? "Dependencies/WordForWord/" : "WordForWord/");
+  strcat(#ldpath, 300 + wprog); strcat(#ldpath, ".flac");
+);
+
+function start_load(tgt) local(g, r) (
+  g = wim ? PGM[wprog] : PGS[wprog];
+  set_path(0);
+  r = tgt === 1 ? ea.e_load_begin(g, wim, wzl) : eb.e_load_begin(g, wim, wzl);
+  r < 0 ? ( set_path(1); r = tgt === 1 ? ea.e_load_begin(g, wim, wzl) : eb.e_load_begin(g, wim, wzl); );
+  r < 0 ? ( fail_key = lkey; ld_e = 0; load_err = 1; ) : ( ld_e = tgt; load_err = 0; );
+);
+
+function activate(tgt) (
+  cur ? ( old = cur; fpos = 0; ) : old = 0;
+  cur = tgt; akey = lkey;
+  tgt === 1 ? ( ea.act = 1; ea.age = 0; ea.gsc = old ? 0 : 1; ) : ( eb.act = 1; eb.age = 0; eb.gsc = old ? 0 : 1; );
+  ld_e = 0;
+);
+
+function control(sync) local(k, tgt, w) (
+  k = want_key();
+  k !== akey && k !== fail_key && !old ? (
+    (ld_e === 0 || k !== lkey) ? (
+      ld_e === 1 ? ea.e_load_cancel() : ld_e === 2 ? eb.e_load_cancel();
+      lkey = k;
+      tgt = cur === 1 ? 2 : 1;
+      start_load(tgt);
+    );
+  );
+  ld_e ? (
+    (sync || !cur) ? (
+      w = 0; while (ld_e && (ld_e === 1 ? ea.lst : eb.lst) > 0 && (ld_e === 1 ? ea.lst : eb.lst) < 6 && w < 1000000000) (
+        w += ld_e === 1 ? ea.e_load_step(10000000) : eb.e_load_step(10000000);
+      );
+    ) : (
+      ld_e === 1 ? ea.e_load_step(LBUDGET * samplesblock) : eb.e_load_step(LBUDGET * samplesblock);
+    );
+    e_ready(ld_e) ? activate(ld_e) : (ld_e === 1 ? ea.lst : eb.lst) < 0 ? ( fail_key = lkey; load_err = ld_e === 1 ? ea.lerr : eb.lerr; ld_e = 0; );
+  );
+  pdc_delay = e_lat(cur); pdc_bot_ch = 0; pdc_top_ch = 2;
+);
+
+LBUDGET = 400;
+ea.e_init(EMA, ESZ); eb.e_init(EMB, ESZ);
+ea.lh = eb.lh = -1;
+cur = old = ld_e = 0; akey = lkey = fail_key = -1; 
+wi = opos = dw = pw = gcnt = quiet = 0; pd_cur = pd_old = 0; pd_x = 0;
+last_srate = 0;
+gd = 0; gw = 1;
+function gsx(x) ( G_OX + x * G_SC; );
+function gsy(y) ( y * G_SC; );
+function gclamp(x, a, b) ( min(b, max(a, x)); );
+
+function grspan(qx0, qy0, qx1, qy1, qrad, yc) local(dy, ins) (
+  dy = yc < qy0 + qrad ? qy0 + qrad - yc : yc > qy1 - qrad ? yc - (qy1 - qrad) : 0;
+  G_RC = max(0, min(1, qrad - dy + 0.5));
+  dy = min(qrad, dy);
+  ins = qrad - sqrt(max(0, qrad * qrad - dy * dy));
+  G_RL = qx0 + ins; G_RR = qx1 - ins;
+);
+
+function gspan(lx, rx, j, a) local(lc, rc) (
+  lc = ceil(lx); rc = floor(rx);
+  rc >= lc ? (
+    gfx_a = a; rc > lc ? gfx_rect(lc, j, rc - lc, 1);
+    lc - lx > 0 ? ( gfx_a = a * (lc - lx); gfx_rect(lc - 1, j, 1, 1); );
+    rx - rc > 0 ? ( gfx_a = a * (rx - rc); gfx_rect(rc, j, 1, 1); );
+  ) : rx > lx ? ( gfx_a = a * (rx - lx); gfx_rect(floor(lx), j, 1, 1); );
+);
+
+function gfrr(qx0, qy0, qx1, qy1, qrad, cr, cg, cb, a0) local(j) (
+  qx0 = floor(qx0 + 0.5); qy0 = floor(qy0 + 0.5); qx1 = floor(qx1 + 0.5); qy1 = floor(qy1 + 0.5);
+  qrad = max(0, min(qrad, min(qy1 - qy0, qx1 - qx0) * 0.5));
+  gfx_set(cr, cg, cb, a0);
+  j = qy0;
+  loop(qy1 - qy0,
+    grspan(qx0, qy0, qx1, qy1, qrad, j + 0.5);
+    G_RC > 0 ? gspan(G_RL, G_RR, j, a0 * G_RC);
+    j += 1;
+  );
+  gfx_a = 1;
+);
+
+function gbord(qx0, qy0, qx1, qy1, qrad, t, cr, cg, cb, a0) local(j, ol, orr, oc, il, ir, ic) (
+  qx0 = floor(qx0 + 0.5); qy0 = floor(qy0 + 0.5); qx1 = floor(qx1 + 0.5); qy1 = floor(qy1 + 0.5);
+  qrad = max(0, min(qrad, min(qy1 - qy0, qx1 - qx0) * 0.5));
+  gfx_set(cr, cg, cb, a0);
+  j = qy0;
+  loop(qy1 - qy0,
+    grspan(qx0, qy0, qx1, qy1, qrad, j + 0.5); ol = G_RL; orr = G_RR; oc = G_RC;
+    (j + 0.5 > qy0 + t && j + 0.5 < qy1 - t) ? (
+      grspan(qx0 + t, qy0 + t, qx1 - t, qy1 - t, max(0, qrad - t), j + 0.5); il = G_RL; ir = G_RR; ic = G_RC;
+    ) : ( ic = 0; );
+    oc > 0 ? (
+      ic <= 0 ? gspan(ol, orr, j, a0 * oc) : (
+        gspan(ol, il, j, a0 * oc);
+        gspan(ir, orr, j, a0 * oc);
+        oc - ic > 0.004 ? gspan(il, ir, j, a0 * (oc - ic));
+      );
+    );
+    j += 1;
+  );
+  gfx_a = 1;
+);
+
+function gcard(x, y, w, h, r, a0, ba) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = max(2, floor(r * G_SC));
+  gfrr(xx, yy, xx + ww, yy + hh, rr, 0.165, 0.17, 0.18, a0);
+  gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), 0.62, 0.66, 0.70, ba);
+);
+
+function gtext(x, y, s, fnt, r, g, b, a, ctr) local(tw, th) (
+  gfx_setfont(fnt);
+  gfx_set(r, g, b, a);
+  gfx_measurestr(s, tw, th);
+  gfx_x = ctr === 1 ? gsx(x) - tw * 0.5 : ctr === 2 ? gsx(x) - tw : gsx(x);
+  gfx_y = gsy(y) - th * 0.5;
+  gfx_drawstr(s);
+);
+
+function gann(cx, cy, ri, ro, aa, ab, cr, cg, cb, al) local(py, px, dy, dx, hwo, hwi, d, cv, th, ca, x0, x1, x2, x3) (
+  py = floor(cy - ro - 1);
+  loop(ceil(2 * ro + 3),
+    dy = py + 0.5 - cy;
+    hwo = sqrt(max(0, (ro + 0.5) * (ro + 0.5) - dy * dy));
+    hwo > 0 ? (
+      hwi = ri > 0.5 ? sqrt(max(0, (ri - 0.5) * (ri - 0.5) - dy * dy)) : 0;
+      x0 = floor(cx - hwo); x1 = ceil(cx - hwi); x2 = floor(cx + hwi); x3 = ceil(cx + hwo);
+      hwi <= 0 ? x1 = x3 + 1;
+      px = x0;
+      while (px <= x3) (
+        dx = px + 0.5 - cx;
+        d = sqrt(dx * dx + dy * dy);
+        cv = min(1, min(ro - d + 0.5, d - ri + 0.5));
+        cv > 0 ? (
+          th = atan2(dx, -dy);
+          ca = min(1, min((th - aa) * d + 0.5, (ab - th) * d + 0.5));
+          ca > 0 ? (
+            gfx_set(cr, cg, cb, al * cv * ca);
+            gfx_rect(px, py, 1, 1);
+          );
+        );
+        px += 1;
+        (px > x1 && px < x2) ? px = x2;
+      );
+    );
+    py += 1;
+  );
+  gfx_a = 1;
+);
+
+function gbar(x0, y0, x1, y1, w) local(dx, dy, ll, hw, bx0, by0, bx1, by1, px, py, qx, qy, t, ex, ey, d, cv, cr, cg, cb, ca) (
+  cr = gfx_r; cg = gfx_g; cb = gfx_b; ca = gfx_a;
+  dx = x1 - x0; dy = y1 - y0; ll = max(0.000001, dx * dx + dy * dy);
+  hw = w * 0.5;
+  bx0 = floor(min(x0, x1) - hw - 1); bx1 = ceil(max(x0, x1) + hw + 1);
+  by0 = floor(min(y0, y1) - hw - 1); by1 = ceil(max(y0, y1) + hw + 1);
+  py = by0;
+  while (py <= by1) (
+    px = bx0;
+    while (px <= bx1) (
+      qx = px + 0.5; qy = py + 0.5;
+      t = max(0, min(1, ((qx - x0) * dx + (qy - y0) * dy) / ll));
+      ex = qx - (x0 + t * dx); ey = qy - (y0 + t * dy);
+      d = sqrt(ex * ex + ey * ey);
+      cv = min(1, hw - d + 0.5);
+      cv > 0 ? ( gfx_set(cr, cg, cb, ca * cv); gfx_rect(px, py, 1, 1); );
+      px += 1;
+    );
+    py += 1;
+  );
+  gfx_set(cr, cg, cb, ca);
+);
+
+function gknob(kx, ky, kr, v, ctr, hov, nm, vs, dim) local(cx, cy, r, a0, a1, sa, ca, px0, py0, al) (
+  cx = gsx(kx); cy = gsy(ky); r = kr * G_SC;
+  al = dim ? 0.66 : 1;
+  a0 = -$pi * 0.75; a1 = $pi * 0.75;
+  gfx_set(0.02, 0.02, 0.03, 0.5 * al);
+  gfx_circle(cx, cy, r + 3 * G_SC, 1, 1);
+  gfx_set(G_KRR, G_KRG, G_KRB, 1);
+  gfx_circle(cx, cy, r - 5 * G_SC, 1, 1);
+  gfx_set(G_KFR, G_KFG, G_KFB, 1);
+  gfx_circle(cx, cy, r - 7 * G_SC, 1, 1);
+  gfx_set(G_KIR, G_KIG, G_KIB, 1);
+  gfx_circle(cx, cy + 1.2 * G_SC, r - 9 * G_SC, 1, 1);
+  gann(cx, cy, r - 1.2 * G_SC, r + 1.2 * G_SC, a0, a1, G_KTR, G_KTG, G_KTB, 0.6 * al);
+  sa = a0 + (a1 - a0) * v;
+  ca = a0 + (a1 - a0) * ctr;
+  abs(sa - ca) > 0.001 ? (
+    gann(cx, cy, r - 3.5 * G_SC, r + 3.5 * G_SC, min(ca, sa), max(ca, sa), G_ACR, G_ACG, G_ACB, 0.18 * al);
+    gann(cx, cy, r - 1.5 * G_SC, r + 1.5 * G_SC, min(ca, sa), max(ca, sa), G_ACR, G_ACG, G_ACB, al);
+  );
+  px0 = cx + sin(sa) * (r - 8 * G_SC);
+  py0 = cy - cos(sa) * (r - 8 * G_SC);
+  gfx_set(G_KPR, G_KPG, G_KPB, (hov ? 1 : 0.86) * al);
+  gbar(cx + sin(sa) * (r * 0.22), cy - cos(sa) * (r * 0.22), px0, py0, max(1.5, 2.4 * G_SC));
+  gtext(kx, ky - kr - 13, nm, 1, G_T1R, G_T1G, G_T1B, 0.95 * al, 1);
+  gtext(kx, ky + kr + 13, vs, 2, G_ACR, G_ACG, G_ACB, 0.95 * al, 1);
+);
+function gbtn(x, y, w, h, lb, on, hov) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = floor(h * 0.5 * G_SC);
+  on ? (
+    gfrr(xx, yy, xx + ww, yy + hh, rr, G_ACR, G_ACG, G_ACB, hov ? 1 : 0.9);
+    gtext(x + w * 0.5, y + h * 0.5, lb, 3, G_DKR, G_DKG, G_DKB, 1, 1);
+  ) : (
+    gfrr(xx, yy, xx + ww, yy + hh, rr, G_BFR, G_BFG, G_BFB, hov ? 0.95 : 0.8);
+    gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), G_BDR, G_BDG, G_BDB, hov ? 0.7 : 0.4);
+    gtext(x + w * 0.5, y + h * 0.5, lb, 3, G_T2R, G_T2G, G_T2B, hov ? 1 : 0.8, 1);
+  );
+);
+
+function gauto(s, e) (
+<?
+max_sliders > 8 ? printf("slider_automate(2^(s-1), e);") : (
+  printf("s == 1 ? slider_automate(program, e) :\n");
+  printf("s == 2 ? slider_automate(in_mode, e) :\n");
+  printf("s == 3 ? slider_automate(dry_db, e) :\n");
+  printf("s == 4 ? slider_automate(wet_db, e) :\n");
+  printf("s == 5 ? slider_automate(predelay, e) :\n");
+  printf("s == 6 ? slider_automate(zero_lat, e) :\n");
+  printf("s == 7 ? slider_automate(enable, e) :\n");
+  printf("s == 8 ? slider_automate(theme, e) : 0;");
+);
+?>
+);
+
+function gpanel(x, y, w, h, ttl) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = max(2, floor(10 * G_SC));
+  gfrr(xx, yy, xx + ww, yy + hh, rr, G_PFR, G_PFG, G_PFB, 0.92);
+  gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), G_BDR, G_BDG, G_BDB, 0.45);
+  gtext(x + w * 0.5, y + 16, ttl, 3, G_T2R, G_T2G, G_T2B, 1, 1);
+);
+
+function gbox(x, y, w, h, s, hov, act) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = max(2, floor(5 * G_SC));
+  gfrr(xx, yy, xx + ww, yy + hh, rr, G_BXR, G_BXG, G_BXB, 0.95);
+  gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), act ? G_ACR : G_BDR, act ? G_ACG : G_BDG, act ? G_ACB : G_BDB, act ? 0.95 : hov ? 0.75 : 0.4);
+  gtext(x + w * 0.5, y + h * 0.5, s, 2, G_T1R, G_T1G, G_T1B, 1, 1);
+);
+
+function gseg2(x, y, w, h, la, lb, cur, hov, dim) local(sw, i, xx, yy, ww, hh) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC);
+  gfrr(xx, yy, xx + ww, yy + hh, floor(h * 0.5 * G_SC), G_BXR, G_BXG, G_BXB, 0.9);
+  gbord(xx, yy, xx + ww, yy + hh, floor(h * 0.5 * G_SC), max(1, floor(G_SC + 0.5)), G_BDR, G_BDG, G_BDB, 0.4);
+  sw = w / 2;
+  i = 0;
+  loop(2,
+    i === cur ? (
+      xx = floor(gsx(x + i * sw + 3)); yy = floor(gsy(y + 3)); ww = ceil((sw - 6) * G_SC); hh = ceil((h - 6) * G_SC);
+      gfrr(xx, yy, xx + ww, yy + hh, floor((h - 6) * 0.5 * G_SC), G_ACR, G_ACG, G_ACB, (hov === i ? 1 : 0.9) * (dim ? 0.6 : 1));
+      gtext(x + i * sw + sw * 0.5, y + h * 0.5, i ? lb : la, 3, G_DKR, G_DKG, G_DKB, 1, 1);
+    ) : (
+      gtext(x + i * sw + sw * 0.5, y + h * 0.5, i ? lb : la, 3, G_T2R, G_T2G, G_T2B, hov === i ? 1 : 0.75, 1);
+    );
+    i += 1;
+  );
+);
+
+function gwrap(w, fnt) local(n, i, c, ls, lb, ln, tw, th) (
+  gfx_setfont(fnt);
+  n = strlen(#g_desc); i = 0; ls = 0; lb = -1; ln = 0;
+  while (i <= n && ln < 8) (
+    c = i < n ? str_getchar(#g_desc, i) : 32;
+    c === 32 ? (
+      strcpy_substr(#g_tx, #g_desc, ls, i - ls);
+      gfx_measurestr(#g_tx, tw, th);
+      tw > w * G_SC && lb > ls ? (
+        strcpy_substr(40 + ln, #g_desc, ls, lb - ls); ln += 1; ls = lb + 1;
+      );
+      lb = i;
+    );
+    i += 1;
+  );
+  ls < n && ln < 8 ? ( strcpy_substr(40 + ln, #g_desc, ls, n - ls); ln += 1; );
+  ln;
+);
+
+function gtip_text(id) (
+  id === 1 ? strcpy(#g_tip, "Programs in this group") :
+  id === 2 ? strcpy(#g_tip, "Click to load this program") :
+  id === 3 ? strcpy(#g_tip, "Drag up/down or use the wheel; Ctrl = fine; double-click resets") :
+  id === 4 ? strcpy(#g_tip, "Stereo: L feeds the left IR and R the right one. Mono to Stereo: L+R feeds both") :
+  id === 5 ? strcpy(#g_tip, "No latency (direct-form head, more CPU); off = 256 samples, compensated by REAPER") :
+  id === 6 ? strcpy(#g_tip, "Off passes the dry signal only") :
+  id === 9 ? strcpy(#g_tip, "Colour theme") : strcpy(#g_tip, "");
+  #g_tip;
+);
+
+function gdbstr(d) ( d <= -60 ? strcpy(#g_tx, "Off") : sprintf(#g_tx, "%.1f dB", d); #g_tx; );
+
+
+G_SCROLL = 0; G_CAT = -1; G_DRAG = 0; G_MBLK = 0; G_WCAT = -1; G_WSC = 0; G_NWL = 0;
+
+TTBS = EMB + ESZ + 65536;
+TTO = TTBS; TTN = TTBS + 4; TTW = TTBS + 8; TTY0 = TTBS + 12; TTY1 = TTBS + 16;
+TTE = TTBS + 32; TTX = TTE + 8192; TTD = TTX + 2048; TTC = TTD + 2048;
+TTK = 0;
+function ttedge(a, b, c, d) ( TTE[TTK] = a; TTE[TTK + 1] = b; TTE[TTK + 2] = c; TTE[TTK + 3] = d; TTK += 4; );
+function gtitle_data() (
+  TTO[0] = 0; TTN[0] = 454; TTW[0] = 9.4585; TTY0[0] = -0.0151; TTY1[0] = 0.8398;
+  ttedge(0.1938, 0.8252, 0.335, 0.2588); ttedge(0.3398, 0.2588, 0.4902, 0.8252); ttedge(0.6318, 0.8252, 0.7822, 0.2588); ttedge(0.7871, 0.2588, 0.9282, 0.8252); ttedge(1.1362, 0.8252, 0.9009, 0); ttedge(0.6929, 0, 0.561, 0.4629);
+  ttedge(0.561, 0.4629, 0.4292, 0); ttedge(0.2202, 0, -0.0151, 0.8252); ttedge(1.1113, 0.4131, 1.115, 0.4713); ttedge(1.115, 0.4713, 1.1261, 0.5273); ttedge(1.1261, 0.5273, 1.1445, 0.5813); ttedge(1.1445, 0.5813, 1.1835, 0.655);
+  ttedge(1.1835, 0.655, 1.2339, 0.7173); ttedge(1.2339, 0.7173, 1.2736, 0.7524); ttedge(1.2736, 0.7524, 1.3179, 0.7823); ttedge(1.3179, 0.7823, 1.3667, 0.8069); ttedge(1.3667, 0.8069, 1.4186, 0.8252); ttedge(1.4186, 0.8252, 1.4722, 0.8362);
+  ttedge(1.4722, 0.8362, 1.5273, 0.8398); ttedge(1.5273, 0.8398, 1.5828, 0.8362); ttedge(1.5828, 0.8362, 1.6365, 0.8252); ttedge(1.6365, 0.8252, 1.6885, 0.8069); ttedge(1.6885, 0.8069, 1.7373, 0.7823); ttedge(1.7373, 0.7823, 1.7814, 0.7524);
+  ttedge(1.7814, 0.7524, 1.8208, 0.7173); ttedge(1.8208, 0.7173, 1.8708, 0.655); ttedge(1.8708, 0.655, 1.9094, 0.5813); ttedge(1.9094, 0.5813, 1.9277, 0.5273); ttedge(1.9277, 0.5273, 1.9387, 0.4713); ttedge(1.9387, 0.4713, 1.9424, 0.4131);
+  ttedge(1.9424, 0.4131, 1.9389, 0.3547); ttedge(1.9389, 0.3547, 1.9283, 0.2985); ttedge(1.9283, 0.2985, 1.9106, 0.2446); ttedge(1.9106, 0.2446, 1.8731, 0.171); ttedge(1.8731, 0.171, 1.824, 0.1084); ttedge(1.824, 0.1084, 1.7849, 0.073);
+  ttedge(1.7849, 0.073, 1.7409, 0.0429); ttedge(1.7409, 0.0429, 1.6919, 0.0181); ttedge(1.6919, 0.0181, 1.6393, -0.0004); ttedge(1.6393, -0.0004, 1.5845, -0.0114); ttedge(1.5845, -0.0114, 1.5273, -0.0151); ttedge(1.5273, -0.0151, 1.4688, -0.0114);
+  ttedge(1.4688, -0.0114, 1.4129, -0.0004); ttedge(1.4129, -0.0004, 1.3596, 0.0181); ttedge(1.3596, 0.0181, 1.3103, 0.0429); ttedge(1.3103, 0.0429, 1.2663, 0.073); ttedge(1.2663, 0.073, 1.2275, 0.1084); ttedge(1.2275, 0.1084, 1.1791, 0.171);
+  ttedge(1.1791, 0.171, 1.1423, 0.2446); ttedge(1.1423, 0.2446, 1.1251, 0.2985); ttedge(1.1251, 0.2985, 1.1148, 0.3547); ttedge(1.1148, 0.3547, 1.1113, 0.4131); ttedge(1.3145, 0.4131, 1.3163, 0.3758); ttedge(1.3163, 0.3758, 1.3218, 0.3401);
+  ttedge(1.3218, 0.3401, 1.3314, 0.306); ttedge(1.3314, 0.306, 1.3455, 0.2734); ttedge(1.3455, 0.2734, 1.3638, 0.2438); ttedge(1.3638, 0.2438, 1.386, 0.2183); ttedge(1.386, 0.2183, 1.4131, 0.1972); ttedge(1.4131, 0.1972, 1.4463, 0.1809);
+  ttedge(1.4463, 0.1809, 1.4846, 0.1705); ttedge(1.4846, 0.1705, 1.5273, 0.167); ttedge(1.5273, 0.167, 1.5784, 0.1722); ttedge(1.5784, 0.1722, 1.6233, 0.1877); ttedge(1.6233, 0.1877, 1.6608, 0.2122); ttedge(1.6608, 0.2122, 1.6897, 0.2441);
+  ttedge(1.6897, 0.2441, 1.7113, 0.2816); ttedge(1.7113, 0.2816, 1.7268, 0.3225); ttedge(1.7268, 0.3225, 1.7361, 0.3665); ttedge(1.7361, 0.3665, 1.7393, 0.4131); ttedge(1.7393, 0.4131, 1.7373, 0.4501); ttedge(1.7373, 0.4501, 1.7314, 0.4858);
+  ttedge(1.7314, 0.4858, 1.7213, 0.5201); ttedge(1.7213, 0.5201, 1.7065, 0.5527); ttedge(1.7065, 0.5527, 1.6876, 0.5824); ttedge(1.6876, 0.5824, 1.665, 0.6079); ttedge(1.665, 0.6079, 1.6379, 0.629); ttedge(1.6379, 0.629, 1.6052, 0.6453);
+  ttedge(1.6052, 0.6453, 1.5681, 0.6557); ttedge(1.5681, 0.6557, 1.5273, 0.6592); ttedge(1.5273, 0.6592, 1.4777, 0.6539); ttedge(1.4777, 0.6539, 1.4333, 0.6382); ttedge(1.4333, 0.6382, 1.3957, 0.6136); ttedge(1.3957, 0.6136, 1.3662, 0.582);
+  ttedge(1.3662, 0.582, 1.3439, 0.5449); ttedge(1.3439, 0.5449, 1.3276, 0.5037); ttedge(1.3276, 0.5037, 1.3177, 0.4594); ttedge(1.3177, 0.4594, 1.3145, 0.4131); ttedge(2.0254, 0, 2.0254, 0.8252); ttedge(2.3203, 0.8252, 2.3757, 0.8213);
+  ttedge(2.3757, 0.8213, 2.4268, 0.8096); ttedge(2.4268, 0.8096, 2.4725, 0.7903); ttedge(2.4725, 0.7903, 2.512, 0.7637); ttedge(2.512, 0.7637, 2.5444, 0.7292); ttedge(2.5444, 0.7292, 2.5688, 0.6865); ttedge(2.5688, 0.6865, 2.5842, 0.6365);
+  ttedge(2.5842, 0.6365, 2.5894, 0.5801); ttedge(2.5894, 0.5801, 2.5843, 0.5228); ttedge(2.5843, 0.5228, 2.5692, 0.4719); ttedge(2.5692, 0.4719, 2.5439, 0.4275); ttedge(2.5439, 0.4275, 2.51, 0.3904); ttedge(2.51, 0.3904, 2.4689, 0.3615);
+  ttedge(2.4689, 0.3615, 2.4204, 0.3408); ttedge(2.4204, 0.3408, 2.7041, 0); ttedge(2.4653, 0, 2.2134, 0.3262); ttedge(2.2134, 0.3262, 2.2134, 0); ttedge(2.2354, 0.459, 2.2595, 0.4593); ttedge(2.2595, 0.4593, 2.2793, 0.4602);
+  ttedge(2.2793, 0.4602, 2.3201, 0.4675); ttedge(2.3201, 0.4675, 2.3409, 0.4748); ttedge(2.3409, 0.4748, 2.3572, 0.4844); ttedge(2.3572, 0.4844, 2.3701, 0.4977); ttedge(2.3701, 0.4977, 2.3811, 0.5161); ttedge(2.3811, 0.5161, 2.3886, 0.5393);
+  ttedge(2.3886, 0.5393, 2.3911, 0.5669); ttedge(2.3911, 0.5669, 2.3886, 0.5945); ttedge(2.3886, 0.5945, 2.3811, 0.6177); ttedge(2.3811, 0.6177, 2.3701, 0.6361); ttedge(2.3701, 0.6361, 2.3572, 0.6494); ttedge(2.3572, 0.6494, 2.3409, 0.659);
+  ttedge(2.3409, 0.659, 2.3201, 0.6663); ttedge(2.3201, 0.6663, 2.2793, 0.6736); ttedge(2.2793, 0.6736, 2.2595, 0.6745); ttedge(2.2595, 0.6745, 2.2354, 0.6748); ttedge(2.2134, 0.6748, 2.2134, 0.459); ttedge(2.7412, 0, 2.7412, 0.8252);
+  ttedge(2.98, 0.8252, 3.0351, 0.8218); ttedge(3.0351, 0.8218, 3.0885, 0.8114); ttedge(3.0885, 0.8114, 3.1401, 0.7942); ttedge(3.1401, 0.7942, 3.2114, 0.7575); ttedge(3.2114, 0.7575, 3.2727, 0.7095); ttedge(3.2727, 0.7095, 3.3078, 0.671);
+  ttedge(3.3078, 0.671, 3.3377, 0.6273); ttedge(3.3377, 0.6273, 3.3625, 0.5784); ttedge(3.3625, 0.5784, 3.3811, 0.5256); ttedge(3.3811, 0.5256, 3.3923, 0.4705); ttedge(3.3923, 0.4705, 3.396, 0.4131); ttedge(3.396, 0.4131, 3.3923, 0.3554);
+  ttedge(3.3923, 0.3554, 3.3812, 0.3); ttedge(3.3812, 0.3, 3.3628, 0.2471); ttedge(3.3628, 0.2471, 3.3381, 0.198); ttedge(3.3381, 0.198, 3.3082, 0.1542); ttedge(3.3082, 0.1542, 3.2732, 0.1157); ttedge(3.2732, 0.1157, 3.2119, 0.0677);
+  ttedge(3.2119, 0.0677, 3.1406, 0.031); ttedge(3.1406, 0.031, 3.0889, 0.0138); ttedge(3.0889, 0.0138, 3.0354, 0.0034); ttedge(3.0354, 0.0034, 2.98, 0); ttedge(2.958, 0.168, 3.0072, 0.1723); ttedge(3.0072, 0.1723, 3.0517, 0.1854);
+  ttedge(3.0517, 0.1854, 3.0915, 0.2071); ttedge(3.0915, 0.2071, 3.1267, 0.2375); ttedge(3.1267, 0.2375, 3.1555, 0.2746); ttedge(3.1555, 0.2746, 3.1762, 0.316); ttedge(3.1762, 0.316, 3.1888, 0.3618); ttedge(3.1888, 0.3618, 3.1934, 0.4121);
+  ttedge(3.1934, 0.4121, 3.1901, 0.4565); ttedge(3.1901, 0.4565, 3.1803, 0.498); ttedge(3.1803, 0.498, 3.1641, 0.5366); ttedge(3.1641, 0.5366, 3.1418, 0.5712); ttedge(3.1418, 0.5712, 3.114, 0.6005); ttedge(3.114, 0.6005, 3.0808, 0.6248);
+  ttedge(3.0808, 0.6248, 3.0432, 0.6428); ttedge(3.0432, 0.6428, 3.0023, 0.6536); ttedge(3.0023, 0.6536, 2.958, 0.6572); ttedge(2.9292, 0.6572, 2.9292, 0.168); ttedge(3.752, 0, 3.752, 0.8252); ttedge(4.229, 0.8252, 4.229, 0.6602);
+  ttedge(3.9399, 0.6602, 3.9399, 0.4961); ttedge(4.207, 0.4961, 4.207, 0.3311); ttedge(3.9399, 0.3311, 3.9399, 0); ttedge(4.2817, 0.4131, 4.2854, 0.4713); ttedge(4.2854, 0.4713, 4.2965, 0.5273); ttedge(4.2965, 0.5273, 4.3149, 0.5813);
+  ttedge(4.3149, 0.5813, 4.3539, 0.655); ttedge(4.3539, 0.655, 4.4043, 0.7173); ttedge(4.4043, 0.7173, 4.444, 0.7524); ttedge(4.444, 0.7524, 4.4883, 0.7823); ttedge(4.4883, 0.7823, 4.5371, 0.8069); ttedge(4.5371, 0.8069, 4.589, 0.8252);
+  ttedge(4.589, 0.8252, 4.6426, 0.8362); ttedge(4.6426, 0.8362, 4.6978, 0.8398); ttedge(4.6978, 0.8398, 4.7532, 0.8362); ttedge(4.7532, 0.8362, 4.8069, 0.8252); ttedge(4.8069, 0.8252, 4.8589, 0.8069); ttedge(4.8589, 0.8069, 4.9077, 0.7823);
+  ttedge(4.9077, 0.7823, 4.9518, 0.7524); ttedge(4.9518, 0.7524, 4.9912, 0.7173); ttedge(4.9912, 0.7173, 5.0412, 0.655); ttedge(5.0412, 0.655, 5.0798, 0.5813); ttedge(5.0798, 0.5813, 5.0981, 0.5273); ttedge(5.0981, 0.5273, 5.1091, 0.4713);
+  ttedge(5.1091, 0.4713, 5.1128, 0.4131); ttedge(5.1128, 0.4131, 5.1093, 0.3547); ttedge(5.1093, 0.3547, 5.0987, 0.2985); ttedge(5.0987, 0.2985, 5.0811, 0.2446); ttedge(5.0811, 0.2446, 5.0435, 0.171); ttedge(5.0435, 0.171, 4.9944, 0.1084);
+  ttedge(4.9944, 0.1084, 4.9553, 0.073); ttedge(4.9553, 0.073, 4.9113, 0.0429); ttedge(4.9113, 0.0429, 4.8623, 0.0181); ttedge(4.8623, 0.0181, 4.8097, -0.0004); ttedge(4.8097, -0.0004, 4.7549, -0.0114); ttedge(4.7549, -0.0114, 4.6978, -0.0151);
+  ttedge(4.6978, -0.0151, 4.6392, -0.0114); ttedge(4.6392, -0.0114, 4.5833, -0.0004); ttedge(4.5833, -0.0004, 4.53, 0.0181); ttedge(4.53, 0.0181, 4.4807, 0.0429); ttedge(4.4807, 0.0429, 4.4367, 0.073); ttedge(4.4367, 0.073, 4.3979, 0.1084);
+  ttedge(4.3979, 0.1084, 4.3495, 0.171); ttedge(4.3495, 0.171, 4.3127, 0.2446); ttedge(4.3127, 0.2446, 4.2955, 0.2985); ttedge(4.2955, 0.2985, 4.2852, 0.3547); ttedge(4.2852, 0.3547, 4.2817, 0.4131); ttedge(4.4849, 0.4131, 4.4867, 0.3758);
+  ttedge(4.4867, 0.3758, 4.4922, 0.3401); ttedge(4.4922, 0.3401, 4.5018, 0.306); ttedge(4.5018, 0.306, 4.5159, 0.2734); ttedge(4.5159, 0.2734, 4.5342, 0.2438); ttedge(4.5342, 0.2438, 4.5564, 0.2183); ttedge(4.5564, 0.2183, 4.5836, 0.1972);
+  ttedge(4.5836, 0.1972, 4.6167, 0.1809); ttedge(4.6167, 0.1809, 4.655, 0.1705); ttedge(4.655, 0.1705, 4.6978, 0.167); ttedge(4.6978, 0.167, 4.7488, 0.1722); ttedge(4.7488, 0.1722, 4.7937, 0.1877); ttedge(4.7937, 0.1877, 4.8312, 0.2122);
+  ttedge(4.8312, 0.2122, 4.8601, 0.2441); ttedge(4.8601, 0.2441, 4.8817, 0.2816); ttedge(4.8817, 0.2816, 4.8972, 0.3225); ttedge(4.8972, 0.3225, 4.9066, 0.3665); ttedge(4.9066, 0.3665, 4.9097, 0.4131); ttedge(4.9097, 0.4131, 4.9077, 0.4501);
+  ttedge(4.9077, 0.4501, 4.9019, 0.4858); ttedge(4.9019, 0.4858, 4.8917, 0.5201); ttedge(4.8917, 0.5201, 4.877, 0.5527); ttedge(4.877, 0.5527, 4.858, 0.5824); ttedge(4.858, 0.5824, 4.8354, 0.6079); ttedge(4.8354, 0.6079, 4.8083, 0.629);
+  ttedge(4.8083, 0.629, 4.7756, 0.6453); ttedge(4.7756, 0.6453, 4.7385, 0.6557); ttedge(4.7385, 0.6557, 4.6978, 0.6592); ttedge(4.6978, 0.6592, 4.6481, 0.6539); ttedge(4.6481, 0.6539, 4.6038, 0.6382); ttedge(4.6038, 0.6382, 4.5661, 0.6136);
+  ttedge(4.5661, 0.6136, 4.5366, 0.582); ttedge(4.5366, 0.582, 4.5143, 0.5449); ttedge(4.5143, 0.5449, 4.498, 0.5037); ttedge(4.498, 0.5037, 4.4882, 0.4594); ttedge(4.4882, 0.4594, 4.4849, 0.4131); ttedge(5.1958, 0, 5.1958, 0.8252);
+  ttedge(5.4907, 0.8252, 5.5461, 0.8213); ttedge(5.5461, 0.8213, 5.5972, 0.8096); ttedge(5.5972, 0.8096, 5.6429, 0.7903); ttedge(5.6429, 0.7903, 5.6824, 0.7637); ttedge(5.6824, 0.7637, 5.7148, 0.7292); ttedge(5.7148, 0.7292, 5.7393, 0.6865);
+  ttedge(5.7393, 0.6865, 5.7546, 0.6365); ttedge(5.7546, 0.6365, 5.7598, 0.5801); ttedge(5.7598, 0.5801, 5.7547, 0.5228); ttedge(5.7547, 0.5228, 5.7396, 0.4719); ttedge(5.7396, 0.4719, 5.7144, 0.4275); ttedge(5.7144, 0.4275, 5.6804, 0.3904);
+  ttedge(5.6804, 0.3904, 5.6393, 0.3615); ttedge(5.6393, 0.3615, 5.5908, 0.3408); ttedge(5.5908, 0.3408, 5.8745, 0); ttedge(5.6357, 0, 5.3838, 0.3262); ttedge(5.3838, 0.3262, 5.3838, 0); ttedge(5.4058, 0.459, 5.4299, 0.4593);
+  ttedge(5.4299, 0.4593, 5.4497, 0.4602); ttedge(5.4497, 0.4602, 5.4905, 0.4675); ttedge(5.4905, 0.4675, 5.5114, 0.4748); ttedge(5.5114, 0.4748, 5.5276, 0.4844); ttedge(5.5276, 0.4844, 5.5405, 0.4977); ttedge(5.5405, 0.4977, 5.5515, 0.5161);
+  ttedge(5.5515, 0.5161, 5.559, 0.5393); ttedge(5.559, 0.5393, 5.5615, 0.5669); ttedge(5.5615, 0.5669, 5.559, 0.5945); ttedge(5.559, 0.5945, 5.5515, 0.6177); ttedge(5.5515, 0.6177, 5.5405, 0.6361); ttedge(5.5405, 0.6361, 5.5276, 0.6494);
+  ttedge(5.5276, 0.6494, 5.5114, 0.659); ttedge(5.5114, 0.659, 5.4905, 0.6663); ttedge(5.4905, 0.6663, 5.4497, 0.6736); ttedge(5.4497, 0.6736, 5.4299, 0.6745); ttedge(5.4299, 0.6745, 5.4058, 0.6748); ttedge(5.3838, 0.6748, 5.3838, 0.459);
+  ttedge(6.2334, 0.8252, 6.3745, 0.2588); ttedge(6.3794, 0.2588, 6.5298, 0.8252); ttedge(6.6714, 0.8252, 6.8218, 0.2588); ttedge(6.8267, 0.2588, 6.9678, 0.8252); ttedge(7.1758, 0.8252, 6.9404, 0); ttedge(6.7324, 0, 6.6006, 0.4629);
+  ttedge(6.6006, 0.4629, 6.4688, 0); ttedge(6.2598, 0, 6.0244, 0.8252); ttedge(7.1509, 0.4131, 7.1546, 0.4713); ttedge(7.1546, 0.4713, 7.1656, 0.5273); ttedge(7.1656, 0.5273, 7.1841, 0.5813); ttedge(7.1841, 0.5813, 7.223, 0.655);
+  ttedge(7.223, 0.655, 7.2734, 0.7173); ttedge(7.2734, 0.7173, 7.3132, 0.7524); ttedge(7.3132, 0.7524, 7.3574, 0.7823); ttedge(7.3574, 0.7823, 7.4062, 0.8069); ttedge(7.4062, 0.8069, 7.4582, 0.8252); ttedge(7.4582, 0.8252, 7.5117, 0.8362);
+  ttedge(7.5117, 0.8362, 7.5669, 0.8398); ttedge(7.5669, 0.8398, 7.6223, 0.8362); ttedge(7.6223, 0.8362, 7.6761, 0.8252); ttedge(7.6761, 0.8252, 7.728, 0.8069); ttedge(7.728, 0.8069, 7.7768, 0.7823); ttedge(7.7768, 0.7823, 7.8209, 0.7524);
+  ttedge(7.8209, 0.7524, 7.8604, 0.7173); ttedge(7.8604, 0.7173, 7.9103, 0.655); ttedge(7.9103, 0.655, 7.949, 0.5813); ttedge(7.949, 0.5813, 7.9673, 0.5273); ttedge(7.9673, 0.5273, 7.9783, 0.4713); ttedge(7.9783, 0.4713, 7.9819, 0.4131);
+  ttedge(7.9819, 0.4131, 7.9784, 0.3547); ttedge(7.9784, 0.3547, 7.9678, 0.2985); ttedge(7.9678, 0.2985, 7.9502, 0.2446); ttedge(7.9502, 0.2446, 7.9127, 0.171); ttedge(7.9127, 0.171, 7.8635, 0.1084); ttedge(7.8635, 0.1084, 7.8244, 0.073);
+  ttedge(7.8244, 0.073, 7.7804, 0.0429); ttedge(7.7804, 0.0429, 7.7314, 0.0181); ttedge(7.7314, 0.0181, 7.6789, -0.0004); ttedge(7.6789, -0.0004, 7.624, -0.0114); ttedge(7.624, -0.0114, 7.5669, -0.0151); ttedge(7.5669, -0.0151, 7.5083, -0.0114);
+  ttedge(7.5083, -0.0114, 7.4524, -0.0004); ttedge(7.4524, -0.0004, 7.3992, 0.0181); ttedge(7.3992, 0.0181, 7.3499, 0.0429); ttedge(7.3499, 0.0429, 7.3059, 0.073); ttedge(7.3059, 0.073, 7.2671, 0.1084); ttedge(7.2671, 0.1084, 7.2187, 0.171);
+  ttedge(7.2187, 0.171, 7.1819, 0.2446); ttedge(7.1819, 0.2446, 7.1647, 0.2985); ttedge(7.1647, 0.2985, 7.1543, 0.3547); ttedge(7.1543, 0.3547, 7.1509, 0.4131); ttedge(7.354, 0.4131, 7.3558, 0.3758); ttedge(7.3558, 0.3758, 7.3613, 0.3401);
+  ttedge(7.3613, 0.3401, 7.3709, 0.306); ttedge(7.3709, 0.306, 7.385, 0.2734); ttedge(7.385, 0.2734, 7.4033, 0.2438); ttedge(7.4033, 0.2438, 7.4255, 0.2183); ttedge(7.4255, 0.2183, 7.4527, 0.1972); ttedge(7.4527, 0.1972, 7.4858, 0.1809);
+  ttedge(7.4858, 0.1809, 7.5242, 0.1705); ttedge(7.5242, 0.1705, 7.5669, 0.167); ttedge(7.5669, 0.167, 7.618, 0.1722); ttedge(7.618, 0.1722, 7.6628, 0.1877); ttedge(7.6628, 0.1877, 7.7003, 0.2122); ttedge(7.7003, 0.2122, 7.7292, 0.2441);
+  ttedge(7.7292, 0.2441, 7.7509, 0.2816); ttedge(7.7509, 0.2816, 7.7664, 0.3225); ttedge(7.7664, 0.3225, 7.7757, 0.3665); ttedge(7.7757, 0.3665, 7.7788, 0.4131); ttedge(7.7788, 0.4131, 7.7769, 0.4501); ttedge(7.7769, 0.4501, 7.771, 0.4858);
+  ttedge(7.771, 0.4858, 7.7609, 0.5201); ttedge(7.7609, 0.5201, 7.7461, 0.5527); ttedge(7.7461, 0.5527, 7.7272, 0.5824); ttedge(7.7272, 0.5824, 7.7046, 0.6079); ttedge(7.7046, 0.6079, 7.6774, 0.629); ttedge(7.6774, 0.629, 7.6448, 0.6453);
+  ttedge(7.6448, 0.6453, 7.6076, 0.6557); ttedge(7.6076, 0.6557, 7.5669, 0.6592); ttedge(7.5669, 0.6592, 7.5173, 0.6539); ttedge(7.5173, 0.6539, 7.4729, 0.6382); ttedge(7.4729, 0.6382, 7.4352, 0.6136); ttedge(7.4352, 0.6136, 7.4058, 0.582);
+  ttedge(7.4058, 0.582, 7.3834, 0.5449); ttedge(7.3834, 0.5449, 7.3672, 0.5037); ttedge(7.3672, 0.5037, 7.3573, 0.4594); ttedge(7.3573, 0.4594, 7.354, 0.4131); ttedge(8.0649, 0, 8.0649, 0.8252); ttedge(8.3599, 0.8252, 8.4153, 0.8213);
+  ttedge(8.4153, 0.8213, 8.4663, 0.8096); ttedge(8.4663, 0.8096, 8.512, 0.7903); ttedge(8.512, 0.7903, 8.5515, 0.7637); ttedge(8.5515, 0.7637, 8.5839, 0.7292); ttedge(8.5839, 0.7292, 8.6084, 0.6865); ttedge(8.6084, 0.6865, 8.6238, 0.6365);
+  ttedge(8.6238, 0.6365, 8.6289, 0.5801); ttedge(8.6289, 0.5801, 8.6239, 0.5228); ttedge(8.6239, 0.5228, 8.6087, 0.4719); ttedge(8.6087, 0.4719, 8.5835, 0.4275); ttedge(8.5835, 0.4275, 8.5496, 0.3904); ttedge(8.5496, 0.3904, 8.5084, 0.3615);
+  ttedge(8.5084, 0.3615, 8.46, 0.3408); ttedge(8.46, 0.3408, 8.7437, 0); ttedge(8.5049, 0, 8.2529, 0.3262); ttedge(8.2529, 0.3262, 8.2529, 0); ttedge(8.2749, 0.459, 8.2991, 0.4593); ttedge(8.2991, 0.4593, 8.3188, 0.4602);
+  ttedge(8.3188, 0.4602, 8.3596, 0.4675); ttedge(8.3596, 0.4675, 8.3805, 0.4748); ttedge(8.3805, 0.4748, 8.3967, 0.4844); ttedge(8.3967, 0.4844, 8.4097, 0.4977); ttedge(8.4097, 0.4977, 8.4207, 0.5161); ttedge(8.4207, 0.5161, 8.4282, 0.5393);
+  ttedge(8.4282, 0.5393, 8.4307, 0.5669); ttedge(8.4307, 0.5669, 8.4282, 0.5945); ttedge(8.4282, 0.5945, 8.4207, 0.6177); ttedge(8.4207, 0.6177, 8.4097, 0.6361); ttedge(8.4097, 0.6361, 8.3967, 0.6494); ttedge(8.3967, 0.6494, 8.3805, 0.659);
+  ttedge(8.3805, 0.659, 8.3596, 0.6663); ttedge(8.3596, 0.6663, 8.3188, 0.6736); ttedge(8.3188, 0.6736, 8.2991, 0.6745); ttedge(8.2991, 0.6745, 8.2749, 0.6748); ttedge(8.2529, 0.6748, 8.2529, 0.459); ttedge(8.7808, 0, 8.7808, 0.8252);
+  ttedge(9.0195, 0.8252, 9.0747, 0.8218); ttedge(9.0747, 0.8218, 9.128, 0.8114); ttedge(9.128, 0.8114, 9.1797, 0.7942); ttedge(9.1797, 0.7942, 9.2509, 0.7575); ttedge(9.2509, 0.7575, 9.3123, 0.7095); ttedge(9.3123, 0.7095, 9.3473, 0.671);
+  ttedge(9.3473, 0.671, 9.3773, 0.6273); ttedge(9.3773, 0.6273, 9.4021, 0.5784); ttedge(9.4021, 0.5784, 9.4207, 0.5256); ttedge(9.4207, 0.5256, 9.4318, 0.4705); ttedge(9.4318, 0.4705, 9.4355, 0.4131); ttedge(9.4355, 0.4131, 9.4319, 0.3554);
+  ttedge(9.4319, 0.3554, 9.4208, 0.3); ttedge(9.4208, 0.3, 9.4023, 0.2471); ttedge(9.4023, 0.2471, 9.3776, 0.198); ttedge(9.3776, 0.198, 9.3478, 0.1542); ttedge(9.3478, 0.1542, 9.3127, 0.1157); ttedge(9.3127, 0.1157, 9.2514, 0.0677);
+  ttedge(9.2514, 0.0677, 9.1802, 0.031); ttedge(9.1802, 0.031, 9.1285, 0.0138); ttedge(9.1285, 0.0138, 9.0749, 0.0034); ttedge(9.0749, 0.0034, 9.0195, 0); ttedge(8.9976, 0.168, 9.0467, 0.1723); ttedge(9.0467, 0.1723, 9.0912, 0.1854);
+  ttedge(9.0912, 0.1854, 9.1311, 0.2071); ttedge(9.1311, 0.2071, 9.1663, 0.2375); ttedge(9.1663, 0.2375, 9.1951, 0.2746); ttedge(9.1951, 0.2746, 9.2158, 0.316); ttedge(9.2158, 0.316, 9.2284, 0.3618); ttedge(9.2284, 0.3618, 9.2329, 0.4121);
+  ttedge(9.2329, 0.4121, 9.2297, 0.4565); ttedge(9.2297, 0.4565, 9.2199, 0.498); ttedge(9.2199, 0.498, 9.2036, 0.5366); ttedge(9.2036, 0.5366, 9.1813, 0.5712); ttedge(9.1813, 0.5712, 9.1536, 0.6005); ttedge(9.1536, 0.6005, 9.1204, 0.6248);
+  ttedge(9.1204, 0.6248, 9.0827, 0.6428); ttedge(9.0827, 0.6428, 9.0418, 0.6536); ttedge(9.0418, 0.6536, 8.9976, 0.6572); ttedge(8.9688, 0.6572, 8.9688, 0.168);
+  TTO[1] = 454; TTN[1] = 630; TTW[1] = 10.2915; TTY0[1] = -0.0151; TTY1[1] = 0.8599;
+  ttedge(0.4702, 0.8398, 0.5195, 0.8379); ttedge(0.5195, 0.8379, 0.5669, 0.832); ttedge(0.5669, 0.832, 0.6093, 0.8234); ttedge(0.6093, 0.8234, 0.6436, 0.813); ttedge(0.6436, 0.813, 0.6721, 0.8018); ttedge(0.6721, 0.8018, 0.697, 0.7908);
+  ttedge(0.697, 0.7908, 0.717, 0.7806); ttedge(0.717, 0.7806, 0.7305, 0.772); ttedge(0.7305, 0.772, 0.7412, 0.7642); ttedge(0.7412, 0.7642, 0.6611, 0.604); ttedge(0.6611, 0.604, 0.6533, 0.6094); ttedge(0.6533, 0.6094, 0.6455, 0.6141);
+  ttedge(0.6455, 0.6141, 0.6318, 0.6216); ttedge(0.6318, 0.6216, 0.5977, 0.6372); ttedge(0.5977, 0.6372, 0.5777, 0.6437); ttedge(0.5777, 0.6437, 0.553, 0.6494); ttedge(0.553, 0.6494, 0.499, 0.6548); ttedge(0.499, 0.6548, 0.4465, 0.6511);
+  ttedge(0.4465, 0.6511, 0.3984, 0.6401); ttedge(0.3984, 0.6401, 0.3563, 0.6231); ttedge(0.3563, 0.6231, 0.3215, 0.6013); ttedge(0.3215, 0.6013, 0.2928, 0.5753); ttedge(0.2928, 0.5753, 0.2688, 0.5457); ttedge(0.2688, 0.5457, 0.25, 0.5136);
+  ttedge(0.25, 0.5136, 0.2371, 0.4805); ttedge(0.2371, 0.4805, 0.2296, 0.4468); ttedge(0.2296, 0.4468, 0.2271, 0.4131); ttedge(0.2271, 0.4131, 0.2296, 0.379); ttedge(0.2296, 0.379, 0.2371, 0.3452); ttedge(0.2371, 0.3452, 0.25, 0.312);
+  ttedge(0.25, 0.312, 0.2688, 0.2798); ttedge(0.2688, 0.2798, 0.2928, 0.2499); ttedge(0.2928, 0.2499, 0.3215, 0.2236); ttedge(0.3215, 0.2236, 0.3563, 0.2017); ttedge(0.3563, 0.2017, 0.3984, 0.1846); ttedge(0.3984, 0.1846, 0.4465, 0.1736);
+  ttedge(0.4465, 0.1736, 0.499, 0.1699); ttedge(0.499, 0.1699, 0.5525, 0.1753); ttedge(0.5525, 0.1753, 0.5771, 0.1812); ttedge(0.5771, 0.1812, 0.5979, 0.188); ttedge(0.5979, 0.188, 0.6316, 0.2029); ttedge(0.6316, 0.2029, 0.6446, 0.2099);
+  ttedge(0.6446, 0.2099, 0.6538, 0.2158); ttedge(0.6538, 0.2158, 0.6611, 0.2212); ttedge(0.6611, 0.2212, 0.7412, 0.061); ttedge(0.7412, 0.061, 0.7302, 0.053); ttedge(0.7302, 0.053, 0.7185, 0.0458); ttedge(0.7185, 0.0458, 0.6975, 0.0347);
+  ttedge(0.6975, 0.0347, 0.6431, 0.0115); ttedge(0.6431, 0.0115, 0.6097, 0.0019); ttedge(0.6097, 0.0019, 0.5674, -0.0068); ttedge(0.5674, -0.0068, 0.5197, -0.0131); ttedge(0.5197, -0.0131, 0.4702, -0.0151); ttedge(0.4702, -0.0151, 0.4019, -0.0098);
+  ttedge(0.4019, -0.0098, 0.3345, 0.0063); ttedge(0.3345, 0.0063, 0.2704, 0.0323); ttedge(0.2704, 0.0323, 0.2119, 0.0674); ttedge(0.2119, 0.0674, 0.1595, 0.11); ttedge(0.1595, 0.11, 0.1135, 0.1589); ttedge(0.1135, 0.1589, 0.0755, 0.2143);
+  ttedge(0.0755, 0.2143, 0.0469, 0.2764); ttedge(0.0469, 0.2764, 0.0336, 0.3204); ttedge(0.0336, 0.3204, 0.0256, 0.3653); ttedge(0.0256, 0.3653, 0.0229, 0.4111); ttedge(0.0229, 0.4111, 0.0256, 0.457); ttedge(0.0256, 0.457, 0.0336, 0.5021);
+  ttedge(0.0336, 0.5021, 0.0469, 0.5464); ttedge(0.0469, 0.5464, 0.0754, 0.6089); ttedge(0.0754, 0.6089, 0.1133, 0.6648); ttedge(0.1133, 0.6648, 0.1591, 0.7141); ttedge(0.1591, 0.7141, 0.2114, 0.7571); ttedge(0.2114, 0.7571, 0.2699, 0.7923);
+  ttedge(0.2699, 0.7923, 0.334, 0.8184); ttedge(0.334, 0.8184, 0.4015, 0.8345); ttedge(0.4015, 0.8345, 0.4702, 0.8398); ttedge(0.7759, 0.2559, 0.7786, 0.2943); ttedge(0.7786, 0.2943, 0.7866, 0.3309); ttedge(0.7866, 0.3309, 0.8, 0.3657);
+  ttedge(0.8, 0.3657, 0.8285, 0.4127); ttedge(0.8285, 0.4127, 0.8655, 0.4519); ttedge(0.8655, 0.4519, 0.9107, 0.4835); ttedge(0.9107, 0.4835, 0.9639, 0.5076); ttedge(0.9639, 0.5076, 1.0227, 0.5228); ttedge(1.0227, 0.5228, 1.085, 0.5278);
+  ttedge(1.085, 0.5278, 1.1396, 0.524); ttedge(1.1396, 0.524, 1.1911, 0.5126); ttedge(1.1911, 0.5126, 1.2393, 0.4937); ttedge(1.2393, 0.4937, 1.2826, 0.4677); ttedge(1.2826, 0.4677, 1.3196, 0.4354); ttedge(1.3196, 0.4354, 1.3501, 0.3967);
+  ttedge(1.3501, 0.3967, 1.3729, 0.3532); ttedge(1.3729, 0.3532, 1.3866, 0.3062); ttedge(1.3866, 0.3062, 1.3911, 0.2559); ttedge(1.3911, 0.2559, 1.3857, 0.1994); ttedge(1.3857, 0.1994, 1.3694, 0.1481); ttedge(1.3694, 0.1481, 1.3424, 0.1021);
+  ttedge(1.3424, 0.1021, 1.3044, 0.0613); ttedge(1.3044, 0.0613, 1.2582, 0.0278); ttedge(1.2582, 0.0278, 1.2062, 0.004); ttedge(1.2062, 0.004, 1.1485, -0.0104); ttedge(1.1485, -0.0104, 1.085, -0.0151); ttedge(1.085, -0.0151, 1.0192, -0.0104);
+  ttedge(1.0192, -0.0104, 0.96, 0.0038); ttedge(0.96, 0.0038, 0.9073, 0.0276); ttedge(0.9073, 0.0276, 0.8613, 0.0608); ttedge(0.8613, 0.0608, 0.8239, 0.1015); ttedge(0.8239, 0.1015, 0.7972, 0.1475); ttedge(0.7972, 0.1475, 0.7812, 0.199);
+  ttedge(0.7812, 0.199, 0.7759, 0.2559); ttedge(1.084, 0.1362, 1.1165, 0.14); ttedge(1.1165, 0.14, 1.145, 0.1512); ttedge(1.145, 0.1512, 1.1694, 0.1699); ttedge(1.1694, 0.1699, 1.1882, 0.1944); ttedge(1.1882, 0.1944, 1.1994, 0.2231);
+  ttedge(1.1994, 0.2231, 1.2031, 0.2559); ttedge(1.2031, 0.2559, 1.1993, 0.2887); ttedge(1.1993, 0.2887, 1.1878, 0.3176); ttedge(1.1878, 0.3176, 1.1687, 0.3425); ttedge(1.1687, 0.3425, 1.144, 0.3617); ttedge(1.144, 0.3617, 1.1157, 0.3731);
+  ttedge(1.1157, 0.3731, 1.084, 0.377); ttedge(1.084, 0.377, 1.0519, 0.3732); ttedge(1.0519, 0.3732, 1.0234, 0.3618); ttedge(1.0234, 0.3618, 0.9985, 0.3428); ttedge(0.9985, 0.3428, 0.9793, 0.3179); ttedge(0.9793, 0.3179, 0.9677, 0.289);
+  ttedge(0.9677, 0.289, 0.9639, 0.2559); ttedge(0.9639, 0.2559, 0.9676, 0.2228); ttedge(0.9676, 0.2228, 0.9786, 0.1941); ttedge(0.9786, 0.1941, 0.9971, 0.1697); ttedge(0.9971, 0.1697, 1.0215, 0.1511); ttedge(1.0215, 0.1511, 1.0505, 0.1399);
+  ttedge(1.0505, 0.1399, 1.084, 0.1362); ttedge(1.4717, 0, 1.4717, 0.5132); ttedge(1.6484, 0.5132, 1.6484, 0.459); ttedge(1.6504, 0.459, 1.6854, 0.4891); ttedge(1.6854, 0.4891, 1.7217, 0.5106); ttedge(1.7217, 0.5106, 1.7592, 0.5235);
+  ttedge(1.7592, 0.5235, 1.7979, 0.5278); ttedge(1.7979, 0.5278, 1.8574, 0.522); ttedge(1.8574, 0.522, 1.8873, 0.514); ttedge(1.8873, 0.514, 1.9175, 0.502); ttedge(1.9175, 0.502, 1.9459, 0.4861); ttedge(1.9459, 0.4861, 1.9707, 0.4668);
+  ttedge(1.9707, 0.4668, 1.9915, 0.4427); ttedge(1.9915, 0.4427, 2.0081, 0.4124); ttedge(2.0081, 0.4124, 2.0189, 0.377); ttedge(2.0189, 0.377, 2.0225, 0.3379); ttedge(2.0225, 0.3379, 2.0225, 0); ttedge(1.8457, 0, 1.8457, 0.29);
+  ttedge(1.8457, 0.29, 1.8429, 0.3156); ttedge(1.8429, 0.3156, 1.8343, 0.339); ttedge(1.8343, 0.339, 1.8201, 0.3601); ttedge(1.8201, 0.3601, 1.8013, 0.3768); ttedge(1.8013, 0.3768, 1.7791, 0.3868); ttedge(1.7791, 0.3868, 1.7534, 0.3901);
+  ttedge(1.7534, 0.3901, 1.7276, 0.3867); ttedge(1.7276, 0.3867, 1.7034, 0.3764); ttedge(1.7034, 0.3764, 1.6809, 0.3591); ttedge(1.6809, 0.3591, 1.6629, 0.3377); ttedge(1.6629, 0.3377, 1.652, 0.3146); ttedge(1.652, 0.3146, 1.6484, 0.29);
+  ttedge(1.6484, 0.29, 1.6484, 0); ttedge(2.2622, 0.5132, 2.3872, 0.2339); ttedge(2.3872, 0.2339, 2.5122, 0.5132); ttedge(2.7222, 0.5132, 2.4473, 0); ttedge(2.3271, 0, 2.0522, 0.5132); ttedge(2.7222, 0.2559, 2.7249, 0.2943);
+  ttedge(2.7249, 0.2943, 2.7329, 0.3309); ttedge(2.7329, 0.3309, 2.7463, 0.3657); ttedge(2.7463, 0.3657, 2.7748, 0.4127); ttedge(2.7748, 0.4127, 2.8118, 0.4519); ttedge(2.8118, 0.4519, 2.857, 0.4835); ttedge(2.857, 0.4835, 2.9102, 0.5076);
+  ttedge(2.9102, 0.5076, 2.969, 0.5228); ttedge(2.969, 0.5228, 3.0312, 0.5278); ttedge(3.0312, 0.5278, 3.0859, 0.524); ttedge(3.0859, 0.524, 3.1374, 0.5126); ttedge(3.1374, 0.5126, 3.1855, 0.4937); ttedge(3.1855, 0.4937, 3.2289, 0.4677);
+  ttedge(3.2289, 0.4677, 3.2658, 0.4354); ttedge(3.2658, 0.4354, 3.2964, 0.3967); ttedge(3.2964, 0.3967, 3.3192, 0.3532); ttedge(3.3192, 0.3532, 3.3328, 0.3062); ttedge(3.3328, 0.3062, 3.3374, 0.2559); ttedge(3.3374, 0.2559, 3.332, 0.1994);
+  ttedge(3.332, 0.1994, 3.3157, 0.1481); ttedge(3.3157, 0.1481, 3.2887, 0.1021); ttedge(3.2887, 0.1021, 3.2507, 0.0613); ttedge(3.2507, 0.0613, 3.2045, 0.0278); ttedge(3.2045, 0.0278, 3.1525, 0.004); ttedge(3.1525, 0.004, 3.0948, -0.0104);
+  ttedge(3.0948, -0.0104, 3.0312, -0.0151); ttedge(3.0312, -0.0151, 2.9655, -0.0104); ttedge(2.9655, -0.0104, 2.9062, 0.0038); ttedge(2.9062, 0.0038, 2.8536, 0.0276); ttedge(2.8536, 0.0276, 2.8076, 0.0608); ttedge(2.8076, 0.0608, 2.7702, 0.1015);
+  ttedge(2.7702, 0.1015, 2.7435, 0.1475); ttedge(2.7435, 0.1475, 2.7275, 0.199); ttedge(2.7275, 0.199, 2.7222, 0.2559); ttedge(3.0303, 0.1362, 3.0628, 0.14); ttedge(3.0628, 0.14, 3.0913, 0.1512); ttedge(3.0913, 0.1512, 3.1157, 0.1699);
+  ttedge(3.1157, 0.1699, 3.1344, 0.1944); ttedge(3.1344, 0.1944, 3.1457, 0.2231); ttedge(3.1457, 0.2231, 3.1494, 0.2559); ttedge(3.1494, 0.2559, 3.1456, 0.2887); ttedge(3.1456, 0.2887, 3.1341, 0.3176); ttedge(3.1341, 0.3176, 3.115, 0.3425);
+  ttedge(3.115, 0.3425, 3.0903, 0.3617); ttedge(3.0903, 0.3617, 3.062, 0.3731); ttedge(3.062, 0.3731, 3.0303, 0.377); ttedge(3.0303, 0.377, 2.9982, 0.3732); ttedge(2.9982, 0.3732, 2.9697, 0.3618); ttedge(2.9697, 0.3618, 2.9448, 0.3428);
+  ttedge(2.9448, 0.3428, 2.9256, 0.3179); ttedge(2.9256, 0.3179, 2.914, 0.289); ttedge(2.914, 0.289, 2.9102, 0.2559); ttedge(2.9102, 0.2559, 2.9138, 0.2228); ttedge(2.9138, 0.2228, 2.9249, 0.1941); ttedge(2.9249, 0.1941, 2.9434, 0.1697);
+  ttedge(2.9434, 0.1697, 2.9678, 0.1511); ttedge(2.9678, 0.1511, 2.9967, 0.1399); ttedge(2.9967, 0.1399, 3.0303, 0.1362); ttedge(3.418, 0, 3.418, 0.8599); ttedge(3.5947, 0.8599, 3.5947, 0); ttedge(3.7046, 0.2261, 3.7046, 0.5132);
+  ttedge(3.8818, 0.5132, 3.8818, 0.269); ttedge(3.8818, 0.269, 3.8844, 0.2232); ttedge(3.8844, 0.2232, 3.892, 0.1871); ttedge(3.892, 0.1871, 3.9048, 0.1609); ttedge(3.9048, 0.1609, 3.9237, 0.1431); ttedge(3.9237, 0.1431, 3.9497, 0.1325);
+  ttedge(3.9497, 0.1325, 3.9829, 0.1289); ttedge(3.9829, 0.1289, 4.0161, 0.1325); ttedge(4.0161, 0.1325, 4.0422, 0.1431); ttedge(4.0422, 0.1431, 4.061, 0.1609); ttedge(4.061, 0.1609, 4.0738, 0.1871); ttedge(4.0738, 0.1871, 4.0814, 0.2232);
+  ttedge(4.0814, 0.2232, 4.084, 0.269); ttedge(4.084, 0.269, 4.084, 0.5132); ttedge(4.2607, 0.5132, 4.2607, 0.2261); ttedge(4.2607, 0.2261, 4.2566, 0.1666); ttedge(4.2566, 0.1666, 4.2441, 0.116); ttedge(4.2441, 0.116, 4.2234, 0.0743);
+  ttedge(4.2234, 0.0743, 4.1943, 0.0415); ttedge(4.1943, 0.0415, 4.1562, 0.0167); ttedge(4.1562, 0.0167, 4.1083, -0.001); ttedge(4.1083, -0.001, 4.0505, -0.0116); ttedge(4.0505, -0.0116, 3.9829, -0.0151); ttedge(3.9829, -0.0151, 3.9153, -0.0116);
+  ttedge(3.9153, -0.0116, 3.8575, -0.001); ttedge(3.8575, -0.001, 3.8095, 0.0167); ttedge(3.8095, 0.0167, 3.7712, 0.0415); ttedge(3.7712, 0.0415, 3.7421, 0.0743); ttedge(3.7421, 0.0743, 3.7213, 0.116); ttedge(3.7213, 0.116, 3.7088, 0.1666);
+  ttedge(3.7088, 0.1666, 3.7046, 0.2261); ttedge(4.3218, 0.3779, 4.3218, 0.5132); ttedge(4.3955, 0.5132, 4.3955, 0.7041); ttedge(4.5728, 0.7041, 4.5728, 0.5132); ttedge(4.6807, 0.5132, 4.6807, 0.3779); ttedge(4.5728, 0.3779, 4.5728, 0.2148);
+  ttedge(4.5728, 0.2148, 4.5753, 0.1839); ttedge(4.5753, 0.1839, 4.5828, 0.1617); ttedge(4.5828, 0.1617, 4.5953, 0.1485); ttedge(4.5953, 0.1485, 4.6128, 0.144); ttedge(4.6128, 0.144, 4.634, 0.1482); ttedge(4.634, 0.1482, 4.6509, 0.1562);
+  ttedge(4.6509, 0.1562, 4.6567, 0.1602); ttedge(4.6567, 0.1602, 4.7007, 0.0171); ttedge(4.7007, 0.0171, 4.6829, 0.0083); ttedge(4.6829, 0.0083, 4.6658, 0.002); ttedge(4.6658, 0.002, 4.6375, -0.0061); ttedge(4.6375, -0.0061, 4.6038, -0.0129);
+  ttedge(4.6038, -0.0129, 4.5708, -0.0151); ttedge(4.5708, -0.0151, 4.5325, -0.0121); ttedge(4.5325, -0.0121, 4.4985, -0.0032); ttedge(4.4985, -0.0032, 4.47, 0.0105); ttedge(4.47, 0.0105, 4.4478, 0.0276); ttedge(4.4478, 0.0276, 4.4305, 0.0483);
+  ttedge(4.4305, 0.0483, 4.4167, 0.073); ttedge(4.4167, 0.073, 4.4066, 0.0995); ttedge(4.4066, 0.0995, 4.4001, 0.1257); ttedge(4.4001, 0.1257, 4.3955, 0.1812); ttedge(4.3955, 0.1812, 4.3955, 0.3779); ttedge(4.7769, 0.6509, 4.7598, 0.6728);
+  ttedge(4.7598, 0.6728, 4.7495, 0.6975); ttedge(4.7495, 0.6975, 4.7461, 0.7251); ttedge(4.7461, 0.7251, 4.7495, 0.7527); ttedge(4.7495, 0.7527, 4.7598, 0.7774); ttedge(4.7598, 0.7774, 4.7769, 0.7993); ttedge(4.7769, 0.7993, 4.7988, 0.8164);
+  ttedge(4.7988, 0.8164, 4.8235, 0.8267); ttedge(4.8235, 0.8267, 4.8511, 0.8301); ttedge(4.8511, 0.8301, 4.8786, 0.8267); ttedge(4.8786, 0.8267, 4.9034, 0.8164); ttedge(4.9034, 0.8164, 4.9253, 0.7993); ttedge(4.9253, 0.7993, 4.9424, 0.7774);
+  ttedge(4.9424, 0.7774, 4.9526, 0.7527); ttedge(4.9526, 0.7527, 4.9561, 0.7251); ttedge(4.9561, 0.7251, 4.9526, 0.6975); ttedge(4.9526, 0.6975, 4.9424, 0.6728); ttedge(4.9424, 0.6728, 4.9253, 0.6509); ttedge(4.9253, 0.6509, 4.9034, 0.6338);
+  ttedge(4.9034, 0.6338, 4.8786, 0.6235); ttedge(4.8786, 0.6235, 4.8511, 0.6201); ttedge(4.8511, 0.6201, 4.8235, 0.6235); ttedge(4.8235, 0.6235, 4.7988, 0.6338); ttedge(4.7988, 0.6338, 4.7769, 0.6509); ttedge(4.937, 0, 4.937, 0.5132);
+  ttedge(4.7603, 0.5132, 4.7603, 0); ttedge(5.0249, 0.2559, 5.0276, 0.2943); ttedge(5.0276, 0.2943, 5.0356, 0.3309); ttedge(5.0356, 0.3309, 5.0491, 0.3657); ttedge(5.0491, 0.3657, 5.0775, 0.4127); ttedge(5.0775, 0.4127, 5.1145, 0.4519);
+  ttedge(5.1145, 0.4519, 5.1597, 0.4835); ttedge(5.1597, 0.4835, 5.2129, 0.5076); ttedge(5.2129, 0.5076, 5.2717, 0.5228); ttedge(5.2717, 0.5228, 5.334, 0.5278); ttedge(5.334, 0.5278, 5.3887, 0.524); ttedge(5.3887, 0.524, 5.4401, 0.5126);
+  ttedge(5.4401, 0.5126, 5.4883, 0.4937); ttedge(5.4883, 0.4937, 5.5316, 0.4677); ttedge(5.5316, 0.4677, 5.5686, 0.4354); ttedge(5.5686, 0.4354, 5.5991, 0.3967); ttedge(5.5991, 0.3967, 5.6219, 0.3532); ttedge(5.6219, 0.3532, 5.6356, 0.3062);
+  ttedge(5.6356, 0.3062, 5.6401, 0.2559); ttedge(5.6401, 0.2559, 5.6347, 0.1994); ttedge(5.6347, 0.1994, 5.6185, 0.1481); ttedge(5.6185, 0.1481, 5.5914, 0.1021); ttedge(5.5914, 0.1021, 5.5535, 0.0613); ttedge(5.5535, 0.0613, 5.5072, 0.0278);
+  ttedge(5.5072, 0.0278, 5.4553, 0.004); ttedge(5.4553, 0.004, 5.3975, -0.0104); ttedge(5.3975, -0.0104, 5.334, -0.0151); ttedge(5.334, -0.0151, 5.2682, -0.0104); ttedge(5.2682, -0.0104, 5.209, 0.0038); ttedge(5.209, 0.0038, 5.1564, 0.0276);
+  ttedge(5.1564, 0.0276, 5.1104, 0.0608); ttedge(5.1104, 0.0608, 5.073, 0.1015); ttedge(5.073, 0.1015, 5.0463, 0.1475); ttedge(5.0463, 0.1475, 5.0302, 0.199); ttedge(5.0302, 0.199, 5.0249, 0.2559); ttedge(5.333, 0.1362, 5.3655, 0.14);
+  ttedge(5.3655, 0.14, 5.394, 0.1512); ttedge(5.394, 0.1512, 5.4185, 0.1699); ttedge(5.4185, 0.1699, 5.4372, 0.1944); ttedge(5.4372, 0.1944, 5.4484, 0.2231); ttedge(5.4484, 0.2231, 5.4521, 0.2559); ttedge(5.4521, 0.2559, 5.4483, 0.2887);
+  ttedge(5.4483, 0.2887, 5.4368, 0.3176); ttedge(5.4368, 0.3176, 5.4177, 0.3425); ttedge(5.4177, 0.3425, 5.393, 0.3617); ttedge(5.393, 0.3617, 5.3648, 0.3731); ttedge(5.3648, 0.3731, 5.333, 0.377); ttedge(5.333, 0.377, 5.3009, 0.3732);
+  ttedge(5.3009, 0.3732, 5.2725, 0.3618); ttedge(5.2725, 0.3618, 5.2476, 0.3428); ttedge(5.2476, 0.3428, 5.2283, 0.3179); ttedge(5.2283, 0.3179, 5.2167, 0.289); ttedge(5.2167, 0.289, 5.2129, 0.2559); ttedge(5.2129, 0.2559, 5.2166, 0.2228);
+  ttedge(5.2166, 0.2228, 5.2276, 0.1941); ttedge(5.2276, 0.1941, 5.2461, 0.1697); ttedge(5.2461, 0.1697, 5.2705, 0.1511); ttedge(5.2705, 0.1511, 5.2995, 0.1399); ttedge(5.2995, 0.1399, 5.333, 0.1362); ttedge(5.7207, 0, 5.7207, 0.5132);
+  ttedge(5.8975, 0.5132, 5.8975, 0.459); ttedge(5.8994, 0.459, 5.9344, 0.4891); ttedge(5.9344, 0.4891, 5.9707, 0.5106); ttedge(5.9707, 0.5106, 6.0082, 0.5235); ttedge(6.0082, 0.5235, 6.0469, 0.5278); ttedge(6.0469, 0.5278, 6.1064, 0.522);
+  ttedge(6.1064, 0.522, 6.1364, 0.514); ttedge(6.1364, 0.514, 6.1665, 0.502); ttedge(6.1665, 0.502, 6.1949, 0.4861); ttedge(6.1949, 0.4861, 6.2197, 0.4668); ttedge(6.2197, 0.4668, 6.2405, 0.4427); ttedge(6.2405, 0.4427, 6.2571, 0.4124);
+  ttedge(6.2571, 0.4124, 6.2679, 0.377); ttedge(6.2679, 0.377, 6.2715, 0.3379); ttedge(6.2715, 0.3379, 6.2715, 0); ttedge(6.0947, 0, 6.0947, 0.29); ttedge(6.0947, 0.29, 6.0919, 0.3156); ttedge(6.0919, 0.3156, 6.0833, 0.339);
+  ttedge(6.0833, 0.339, 6.0691, 0.3601); ttedge(6.0691, 0.3601, 6.0503, 0.3768); ttedge(6.0503, 0.3768, 6.0281, 0.3868); ttedge(6.0281, 0.3868, 6.0024, 0.3901); ttedge(6.0024, 0.3901, 5.9766, 0.3867); ttedge(5.9766, 0.3867, 5.9524, 0.3764);
+  ttedge(5.9524, 0.3764, 5.9299, 0.3591); ttedge(5.9299, 0.3591, 5.9119, 0.3377); ttedge(5.9119, 0.3377, 5.9011, 0.3146); ttedge(5.9011, 0.3146, 5.8975, 0.29); ttedge(5.8975, 0.29, 5.8975, 0); ttedge(6.6543, 0, 6.6543, 0.8252);
+  ttedge(6.9492, 0.8252, 7.0046, 0.8213); ttedge(7.0046, 0.8213, 7.0557, 0.8096); ttedge(7.0557, 0.8096, 7.1014, 0.7903); ttedge(7.1014, 0.7903, 7.1409, 0.7637); ttedge(7.1409, 0.7637, 7.1733, 0.7292); ttedge(7.1733, 0.7292, 7.1978, 0.6865);
+  ttedge(7.1978, 0.6865, 7.2131, 0.6365); ttedge(7.2131, 0.6365, 7.2183, 0.5801); ttedge(7.2183, 0.5801, 7.2132, 0.5228); ttedge(7.2132, 0.5228, 7.1981, 0.4719); ttedge(7.1981, 0.4719, 7.1729, 0.4275); ttedge(7.1729, 0.4275, 7.1389, 0.3904);
+  ttedge(7.1389, 0.3904, 7.0978, 0.3615); ttedge(7.0978, 0.3615, 7.0493, 0.3408); ttedge(7.0493, 0.3408, 7.333, 0); ttedge(7.0942, 0, 6.8423, 0.3262); ttedge(6.8423, 0.3262, 6.8423, 0); ttedge(6.8643, 0.459, 6.8884, 0.4593);
+  ttedge(6.8884, 0.4593, 6.9082, 0.4602); ttedge(6.9082, 0.4602, 6.949, 0.4675); ttedge(6.949, 0.4675, 6.9698, 0.4748); ttedge(6.9698, 0.4748, 6.9861, 0.4844); ttedge(6.9861, 0.4844, 6.999, 0.4977); ttedge(6.999, 0.4977, 7.01, 0.5161);
+  ttedge(7.01, 0.5161, 7.0175, 0.5393); ttedge(7.0175, 0.5393, 7.02, 0.5669); ttedge(7.02, 0.5669, 7.0175, 0.5945); ttedge(7.0175, 0.5945, 7.01, 0.6177); ttedge(7.01, 0.6177, 6.999, 0.6361); ttedge(6.999, 0.6361, 6.9861, 0.6494);
+  ttedge(6.9861, 0.6494, 6.9698, 0.659); ttedge(6.9698, 0.659, 6.949, 0.6663); ttedge(6.949, 0.6663, 6.9082, 0.6736); ttedge(6.9082, 0.6736, 6.8884, 0.6745); ttedge(6.8884, 0.6745, 6.8643, 0.6748); ttedge(6.8423, 0.6748, 6.8423, 0.459);
+  ttedge(7.3091, 0.2559, 7.3133, 0.3038); ttedge(7.3133, 0.3038, 7.326, 0.3493); ttedge(7.326, 0.3493, 7.3472, 0.3923); ttedge(7.3472, 0.3923, 7.3755, 0.4312); ttedge(7.3755, 0.4312, 7.4099, 0.4643); ttedge(7.4099, 0.4643, 7.4502, 0.4915);
+  ttedge(7.4502, 0.4915, 7.4947, 0.5117); ttedge(7.4947, 0.5117, 7.5418, 0.5238); ttedge(7.5418, 0.5238, 7.5913, 0.5278); ttedge(7.5913, 0.5278, 7.6481, 0.5235); ttedge(7.6481, 0.5235, 7.7002, 0.5105); ttedge(7.7002, 0.5105, 7.7468, 0.4891);
+  ttedge(7.7468, 0.4891, 7.7871, 0.4597); ttedge(7.7871, 0.4597, 7.8202, 0.4216); ttedge(7.8202, 0.4216, 7.8452, 0.374); ttedge(7.8452, 0.374, 7.861, 0.3184); ttedge(7.861, 0.3184, 7.8662, 0.2559); ttedge(7.8662, 0.2559, 7.866, 0.2408);
+  ttedge(7.866, 0.2408, 7.8652, 0.2319); ttedge(7.4932, 0.2319, 7.4958, 0.2053); ttedge(7.4958, 0.2053, 7.5039, 0.1821); ttedge(7.5039, 0.1821, 7.5163, 0.1631); ttedge(7.5163, 0.1631, 7.532, 0.1489); ttedge(7.532, 0.1489, 7.5496, 0.1387);
+  ttedge(7.5496, 0.1387, 7.5676, 0.1316); ttedge(7.5676, 0.1316, 7.604, 0.126); ttedge(7.604, 0.126, 7.6425, 0.1288); ttedge(7.6425, 0.1288, 7.6719, 0.1375); ttedge(7.6719, 0.1375, 7.6986, 0.1546); ttedge(7.6986, 0.1546, 7.729, 0.1831);
+  ttedge(7.729, 0.1831, 7.8569, 0.1191); ttedge(7.8569, 0.1191, 7.8207, 0.0708); ttedge(7.8207, 0.0708, 7.776, 0.0332); ttedge(7.776, 0.0332, 7.7229, 0.0063); ttedge(7.7229, 0.0063, 7.6613, -0.0098); ttedge(7.6613, -0.0098, 7.5913, -0.0151);
+  ttedge(7.5913, -0.0151, 7.5418, -0.0111); ttedge(7.5418, -0.0111, 7.4947, 0.001); ttedge(7.4947, 0.001, 7.4502, 0.0212); ttedge(7.4502, 0.0212, 7.4099, 0.0484); ttedge(7.4099, 0.0484, 7.3755, 0.0814); ttedge(7.3755, 0.0814, 7.3472, 0.1201);
+  ttedge(7.3472, 0.1201, 7.326, 0.163); ttedge(7.326, 0.163, 7.3133, 0.2082); ttedge(7.3133, 0.2082, 7.3091, 0.2559); ttedge(7.6934, 0.3301, 7.6825, 0.3655); ttedge(7.6825, 0.3655, 7.6616, 0.3916); ttedge(7.6616, 0.3916, 7.6323, 0.4077);
+  ttedge(7.6323, 0.4077, 7.5962, 0.4131); ttedge(7.5962, 0.4131, 7.5565, 0.4073); ttedge(7.5565, 0.4073, 7.5261, 0.3899); ttedge(7.5261, 0.3899, 7.5063, 0.3633); ttedge(7.5063, 0.3633, 7.498, 0.3301); ttedge(8.0737, 0.5132, 8.1987, 0.2339);
+  ttedge(8.1987, 0.2339, 8.3237, 0.5132); ttedge(8.5337, 0.5132, 8.2588, 0); ttedge(8.1387, 0, 7.8638, 0.5132); ttedge(8.5337, 0.2559, 8.5379, 0.3038); ttedge(8.5379, 0.3038, 8.5506, 0.3493); ttedge(8.5506, 0.3493, 8.5718, 0.3923);
+  ttedge(8.5718, 0.3923, 8.6002, 0.4312); ttedge(8.6002, 0.4312, 8.6345, 0.4643); ttedge(8.6345, 0.4643, 8.6748, 0.4915); ttedge(8.6748, 0.4915, 8.7193, 0.5117); ttedge(8.7193, 0.5117, 8.7664, 0.5238); ttedge(8.7664, 0.5238, 8.8159, 0.5278);
+  ttedge(8.8159, 0.5278, 8.8727, 0.5235); ttedge(8.8727, 0.5235, 8.9248, 0.5105); ttedge(8.9248, 0.5105, 8.9714, 0.4891); ttedge(8.9714, 0.4891, 9.0117, 0.4597); ttedge(9.0117, 0.4597, 9.0448, 0.4216); ttedge(9.0448, 0.4216, 9.0698, 0.374);
+  ttedge(9.0698, 0.374, 9.0856, 0.3184); ttedge(9.0856, 0.3184, 9.0908, 0.2559); ttedge(9.0908, 0.2559, 9.0906, 0.2408); ttedge(9.0906, 0.2408, 9.0898, 0.2319); ttedge(8.7178, 0.2319, 8.7205, 0.2053); ttedge(8.7205, 0.2053, 8.7285, 0.1821);
+  ttedge(8.7285, 0.1821, 8.7409, 0.1631); ttedge(8.7409, 0.1631, 8.7566, 0.1489); ttedge(8.7566, 0.1489, 8.7742, 0.1387); ttedge(8.7742, 0.1387, 8.7922, 0.1316); ttedge(8.7922, 0.1316, 8.8286, 0.126); ttedge(8.8286, 0.126, 8.8671, 0.1288);
+  ttedge(8.8671, 0.1288, 8.8965, 0.1375); ttedge(8.8965, 0.1375, 8.9232, 0.1546); ttedge(8.9232, 0.1546, 8.9536, 0.1831); ttedge(8.9536, 0.1831, 9.0815, 0.1191); ttedge(9.0815, 0.1191, 9.0453, 0.0708); ttedge(9.0453, 0.0708, 9.0006, 0.0332);
+  ttedge(9.0006, 0.0332, 8.9475, 0.0063); ttedge(8.9475, 0.0063, 8.8859, -0.0098); ttedge(8.8859, -0.0098, 8.8159, -0.0151); ttedge(8.8159, -0.0151, 8.7664, -0.0111); ttedge(8.7664, -0.0111, 8.7193, 0.001); ttedge(8.7193, 0.001, 8.6748, 0.0212);
+  ttedge(8.6748, 0.0212, 8.6345, 0.0484); ttedge(8.6345, 0.0484, 8.6002, 0.0814); ttedge(8.6002, 0.0814, 8.5718, 0.1201); ttedge(8.5718, 0.1201, 8.5506, 0.163); ttedge(8.5506, 0.163, 8.5379, 0.2082); ttedge(8.5379, 0.2082, 8.5337, 0.2559);
+  ttedge(8.918, 0.3301, 8.9071, 0.3655); ttedge(8.9071, 0.3655, 8.8862, 0.3916); ttedge(8.8862, 0.3916, 8.8569, 0.4077); ttedge(8.8569, 0.4077, 8.8208, 0.4131); ttedge(8.8208, 0.4131, 8.7811, 0.4073); ttedge(8.7811, 0.4073, 8.7507, 0.3899);
+  ttedge(8.7507, 0.3899, 8.7309, 0.3633); ttedge(8.7309, 0.3633, 8.7227, 0.3301); ttedge(9.1714, 0, 9.1714, 0.5132); ttedge(9.3481, 0.5132, 9.3481, 0.439); ttedge(9.3501, 0.439, 9.3569, 0.4485); ttedge(9.3569, 0.4485, 9.364, 0.4569);
+  ttedge(9.364, 0.4569, 9.3765, 0.47); ttedge(9.3765, 0.47, 9.4084, 0.4971); ttedge(9.4084, 0.4971, 9.4278, 0.5082); ttedge(9.4278, 0.5082, 9.4521, 0.5183); ttedge(9.4521, 0.5183, 9.4794, 0.5255); ttedge(9.4794, 0.5255, 9.5073, 0.5278);
+  ttedge(9.5073, 0.5278, 9.5363, 0.5258); ttedge(9.5363, 0.5258, 9.5647, 0.5198); ttedge(9.5647, 0.5198, 9.5891, 0.5118); ttedge(9.5891, 0.5118, 9.606, 0.5039); ttedge(9.606, 0.5039, 9.6191, 0.4961); ttedge(9.6191, 0.4961, 9.5454, 0.3462);
+  ttedge(9.5454, 0.3462, 9.5344, 0.3538); ttedge(9.5344, 0.3538, 9.5231, 0.3592); ttedge(9.5231, 0.3592, 9.5034, 0.3662); ttedge(9.5034, 0.3662, 9.4789, 0.3721); ttedge(9.4789, 0.3721, 9.4531, 0.374); ttedge(9.4531, 0.374, 9.4287, 0.3716);
+  ttedge(9.4287, 0.3716, 9.4072, 0.3643); ttedge(9.4072, 0.3643, 9.3895, 0.3536); ttedge(9.3895, 0.3536, 9.3765, 0.3413); ttedge(9.3765, 0.3413, 9.3589, 0.3123); ttedge(9.3589, 0.3123, 9.3501, 0.2861); ttedge(9.3501, 0.2861, 9.3481, 0.27);
+  ttedge(9.3481, 0.27, 9.3481, 0); ttedge(9.6689, 0, 9.6689, 0.8599); ttedge(9.8457, 0.8599, 9.8457, 0.4639); ttedge(9.8457, 0.4639, 9.8807, 0.4919); ttedge(9.8807, 0.4919, 9.9204, 0.5118); ttedge(9.9204, 0.5118, 9.9647, 0.5238);
+  ttedge(9.9647, 0.5238, 10.0137, 0.5278); ttedge(10.0137, 0.5278, 10.0609, 0.5238); ttedge(10.0609, 0.5238, 10.1049, 0.5116); ttedge(10.1049, 0.5116, 10.1458, 0.4912); ttedge(10.1458, 0.4912, 10.182, 0.464); ttedge(10.182, 0.464, 10.2124, 0.4311);
+  ttedge(10.2124, 0.4311, 10.2368, 0.3926); ttedge(10.2368, 0.3926, 10.2547, 0.3498); ttedge(10.2547, 0.3498, 10.2655, 0.3043); ttedge(10.2655, 0.3043, 10.269, 0.2559); ttedge(10.269, 0.2559, 10.2655, 0.2075); ttedge(10.2655, 0.2075, 10.2547, 0.162);
+  ttedge(10.2547, 0.162, 10.2368, 0.1194); ttedge(10.2368, 0.1194, 10.2124, 0.081); ttedge(10.2124, 0.081, 10.182, 0.0483); ttedge(10.182, 0.0483, 10.1458, 0.0212); ttedge(10.1458, 0.0212, 10.1049, 0.001); ttedge(10.1049, 0.001, 10.0609, -0.0111);
+  ttedge(10.0609, -0.0111, 10.0137, -0.0151); ttedge(10.0137, -0.0151, 9.965, -0.0101); ttedge(9.965, -0.0101, 9.9194, 0.0049); ttedge(9.9194, 0.0049, 9.879, 0.0282); ttedge(9.879, 0.0282, 9.8457, 0.0581); ttedge(9.8438, 0.0581, 9.8438, 0);
+  ttedge(9.9609, 0.1362, 9.9945, 0.1399); ttedge(9.9945, 0.1399, 10.0234, 0.1511); ttedge(10.0234, 0.1511, 10.0479, 0.1697); ttedge(10.0479, 0.1697, 10.0663, 0.1941); ttedge(10.0663, 0.1941, 10.0774, 0.2228); ttedge(10.0774, 0.2228, 10.0811, 0.2559);
+  ttedge(10.0811, 0.2559, 10.0772, 0.289); ttedge(10.0772, 0.289, 10.0656, 0.3179); ttedge(10.0656, 0.3179, 10.0464, 0.3428); ttedge(10.0464, 0.3428, 10.0215, 0.3618); ttedge(10.0215, 0.3618, 9.993, 0.3732); ttedge(9.993, 0.3732, 9.9609, 0.377);
+  ttedge(9.9609, 0.377, 9.9292, 0.3731); ttedge(9.9292, 0.3731, 9.9009, 0.3617); ttedge(9.9009, 0.3617, 9.8762, 0.3425); ttedge(9.8762, 0.3425, 9.8571, 0.3176); ttedge(9.8571, 0.3176, 9.8456, 0.2887); ttedge(9.8456, 0.2887, 9.8418, 0.2559);
+  ttedge(9.8418, 0.2559, 9.8455, 0.2231); ttedge(9.8455, 0.2231, 9.8568, 0.1944); ttedge(9.8568, 0.1944, 9.8755, 0.1699); ttedge(9.8755, 0.1699, 9.9, 0.1512); ttedge(9.9, 0.1512, 9.9284, 0.14); ttedge(9.9284, 0.14, 9.9609, 0.1362);
+  TTO[2] = 1084; TTN[2] = 324; TTW[2] = 5.7505; TTY0[2] = -0.2598; TTY1[2] = 0.8599;
+  ttedge(0.0601, 0, 0.0601, 0.8599); ttedge(0.2368, 0.8599, 0.2368, 0.4639); ttedge(0.2368, 0.4639, 0.2719, 0.4919); ttedge(0.2719, 0.4919, 0.3115, 0.5118); ttedge(0.3115, 0.5118, 0.3558, 0.5238); ttedge(0.3558, 0.5238, 0.4048, 0.5278);
+  ttedge(0.4048, 0.5278, 0.452, 0.5238); ttedge(0.452, 0.5238, 0.496, 0.5116); ttedge(0.496, 0.5116, 0.5369, 0.4912); ttedge(0.5369, 0.4912, 0.5731, 0.464); ttedge(0.5731, 0.464, 0.6035, 0.4311); ttedge(0.6035, 0.4311, 0.6279, 0.3926);
+  ttedge(0.6279, 0.3926, 0.6458, 0.3498); ttedge(0.6458, 0.3498, 0.6566, 0.3043); ttedge(0.6566, 0.3043, 0.6602, 0.2559); ttedge(0.6602, 0.2559, 0.6566, 0.2075); ttedge(0.6566, 0.2075, 0.6458, 0.162); ttedge(0.6458, 0.162, 0.6279, 0.1194);
+  ttedge(0.6279, 0.1194, 0.6035, 0.081); ttedge(0.6035, 0.081, 0.5731, 0.0483); ttedge(0.5731, 0.0483, 0.5369, 0.0212); ttedge(0.5369, 0.0212, 0.496, 0.001); ttedge(0.496, 0.001, 0.452, -0.0111); ttedge(0.452, -0.0111, 0.4048, -0.0151);
+  ttedge(0.4048, -0.0151, 0.3561, -0.0101); ttedge(0.3561, -0.0101, 0.3105, 0.0049); ttedge(0.3105, 0.0049, 0.2701, 0.0282); ttedge(0.2701, 0.0282, 0.2368, 0.0581); ttedge(0.2349, 0.0581, 0.2349, 0); ttedge(0.3521, 0.1362, 0.3856, 0.1399);
+  ttedge(0.3856, 0.1399, 0.4146, 0.1511); ttedge(0.4146, 0.1511, 0.439, 0.1697); ttedge(0.439, 0.1697, 0.4574, 0.1941); ttedge(0.4574, 0.1941, 0.4685, 0.2228); ttedge(0.4685, 0.2228, 0.4722, 0.2559); ttedge(0.4722, 0.2559, 0.4683, 0.289);
+  ttedge(0.4683, 0.289, 0.4568, 0.3179); ttedge(0.4568, 0.3179, 0.4375, 0.3428); ttedge(0.4375, 0.3428, 0.4126, 0.3618); ttedge(0.4126, 0.3618, 0.3841, 0.3732); ttedge(0.3841, 0.3732, 0.3521, 0.377); ttedge(0.3521, 0.377, 0.3203, 0.3731);
+  ttedge(0.3203, 0.3731, 0.292, 0.3617); ttedge(0.292, 0.3617, 0.2673, 0.3425); ttedge(0.2673, 0.3425, 0.2482, 0.3176); ttedge(0.2482, 0.3176, 0.2367, 0.2887); ttedge(0.2367, 0.2887, 0.2329, 0.2559); ttedge(0.2329, 0.2559, 0.2367, 0.2231);
+  ttedge(0.2367, 0.2231, 0.2479, 0.1944); ttedge(0.2479, 0.1944, 0.2666, 0.1699); ttedge(0.2666, 0.1699, 0.2911, 0.1512); ttedge(0.2911, 0.1512, 0.3196, 0.14); ttedge(0.3196, 0.14, 0.3521, 0.1362); ttedge(0.8667, 0.5132, 1.0098, 0.25);
+  ttedge(1.0098, 0.25, 1.1318, 0.5132); ttedge(1.3354, 0.5132, 0.9326, -0.2598); ttedge(0.7285, -0.2598, 0.9058, 0.0801); ttedge(0.9058, 0.0801, 0.6626, 0.5132); ttedge(1.6113, 0.2549, 1.6157, 0.3029); ttedge(1.6157, 0.3029, 1.629, 0.3485);
+  ttedge(1.629, 0.3485, 1.6511, 0.3918); ttedge(1.6511, 0.3918, 1.6805, 0.431); ttedge(1.6805, 0.431, 1.7156, 0.4642); ttedge(1.7156, 0.4642, 1.7563, 0.4915); ttedge(1.7563, 0.4915, 1.8009, 0.5117); ttedge(1.8009, 0.5117, 1.8473, 0.5238);
+  ttedge(1.8473, 0.5238, 1.8955, 0.5278); ttedge(1.8955, 0.5278, 1.9568, 0.5229); ttedge(1.9568, 0.5229, 1.9838, 0.5175); ttedge(1.9838, 0.5175, 2.0056, 0.511); ttedge(2.0056, 0.511, 2.0396, 0.4968); ttedge(2.0396, 0.4968, 2.0522, 0.4903);
+  ttedge(2.0522, 0.4903, 2.061, 0.4849); ttedge(2.061, 0.4849, 2.0674, 0.48); ttedge(2.0674, 0.48, 2.0073, 0.3589); ttedge(2.0073, 0.3589, 1.9966, 0.3655); ttedge(1.9966, 0.3655, 1.9858, 0.3702); ttedge(1.9858, 0.3702, 1.9673, 0.3762);
+  ttedge(1.9673, 0.3762, 1.9446, 0.3812); ttedge(1.9446, 0.3812, 1.9214, 0.3828); ttedge(1.9214, 0.3828, 1.8895, 0.3787); ttedge(1.8895, 0.3787, 1.8607, 0.3664); ttedge(1.8607, 0.3664, 1.8352, 0.3459); ttedge(1.8352, 0.3459, 1.8153, 0.3197);
+  ttedge(1.8153, 0.3197, 1.8033, 0.29); ttedge(1.8033, 0.29, 1.7993, 0.2568); ttedge(1.7993, 0.2568, 1.8033, 0.2234); ttedge(1.8033, 0.2234, 1.8153, 0.1935); ttedge(1.8153, 0.1935, 1.8352, 0.167); ttedge(1.8352, 0.167, 1.8607, 0.1464);
+  ttedge(1.8607, 0.1464, 1.8895, 0.134); ttedge(1.8895, 0.134, 1.9214, 0.1299); ttedge(1.9214, 0.1299, 1.9663, 0.1357); ttedge(1.9663, 0.1357, 1.9849, 0.1416); ttedge(1.9849, 0.1416, 1.9976, 0.1475); ttedge(1.9976, 0.1475, 2.0073, 0.1538);
+  ttedge(2.0073, 0.1538, 2.0674, 0.0308); ttedge(2.0674, 0.0308, 2.0603, 0.0259); ttedge(2.0603, 0.0259, 2.0528, 0.0217); ttedge(2.0528, 0.0217, 2.0396, 0.0149); ttedge(2.0396, 0.0149, 2.0051, 0.0007); ttedge(2.0051, 0.0007, 1.9839, -0.0051);
+  ttedge(1.9839, -0.0051, 1.957, -0.0103); ttedge(1.957, -0.0103, 1.8955, -0.0151); ttedge(1.8955, -0.0151, 1.8475, -0.0111); ttedge(1.8475, -0.0111, 1.8013, 0.0008); ttedge(1.8013, 0.0008, 1.7568, 0.0208); ttedge(1.7568, 0.0208, 1.716, 0.0476);
+  ttedge(1.716, 0.0476, 1.6809, 0.0804); ttedge(1.6809, 0.0804, 1.6514, 0.1191); ttedge(1.6514, 0.1191, 1.6291, 0.162); ttedge(1.6291, 0.162, 1.6158, 0.2072); ttedge(1.6158, 0.2072, 1.6113, 0.2549); ttedge(2.1392, 0, 2.1392, 0.8599);
+  ttedge(2.3159, 0.8599, 2.3159, 0.459); ttedge(2.3179, 0.459, 2.3529, 0.4891); ttedge(2.3529, 0.4891, 2.3892, 0.5106); ttedge(2.3892, 0.5106, 2.4266, 0.5235); ttedge(2.4266, 0.5235, 2.4653, 0.5278); ttedge(2.4653, 0.5278, 2.5249, 0.522);
+  ttedge(2.5249, 0.522, 2.5548, 0.514); ttedge(2.5548, 0.514, 2.585, 0.502); ttedge(2.585, 0.502, 2.6134, 0.4861); ttedge(2.6134, 0.4861, 2.6382, 0.4668); ttedge(2.6382, 0.4668, 2.659, 0.4427); ttedge(2.659, 0.4427, 2.6755, 0.4124);
+  ttedge(2.6755, 0.4124, 2.6863, 0.377); ttedge(2.6863, 0.377, 2.6899, 0.3379); ttedge(2.6899, 0.3379, 2.6899, 0); ttedge(2.5132, 0, 2.5132, 0.29); ttedge(2.5132, 0.29, 2.5103, 0.3156); ttedge(2.5103, 0.3156, 2.5018, 0.339);
+  ttedge(2.5018, 0.339, 2.4875, 0.3601); ttedge(2.4875, 0.3601, 2.4688, 0.3768); ttedge(2.4688, 0.3768, 2.4465, 0.3868); ttedge(2.4465, 0.3868, 2.4209, 0.3901); ttedge(2.4209, 0.3901, 2.395, 0.3867); ttedge(2.395, 0.3867, 2.3709, 0.3764);
+  ttedge(2.3709, 0.3764, 2.3484, 0.3591); ttedge(2.3484, 0.3591, 2.3303, 0.3377); ttedge(2.3303, 0.3377, 2.3195, 0.3146); ttedge(2.3195, 0.3146, 2.3159, 0.29); ttedge(2.3159, 0.29, 2.3159, 0); ttedge(2.7998, 0, 2.7998, 0.5132);
+  ttedge(2.9766, 0.5132, 2.9766, 0.459); ttedge(2.9785, 0.459, 3.0135, 0.4891); ttedge(3.0135, 0.4891, 3.0498, 0.5106); ttedge(3.0498, 0.5106, 3.0873, 0.5235); ttedge(3.0873, 0.5235, 3.126, 0.5278); ttedge(3.126, 0.5278, 3.1802, 0.5222);
+  ttedge(3.1802, 0.5222, 3.2307, 0.5051); ttedge(3.2307, 0.5051, 3.2605, 0.4871); ttedge(3.2605, 0.4871, 3.2852, 0.4635); ttedge(3.2852, 0.4635, 3.3047, 0.4341); ttedge(3.3047, 0.4341, 3.3446, 0.4751); ttedge(3.3446, 0.4751, 3.3862, 0.5044);
+  ttedge(3.3862, 0.5044, 3.4296, 0.522); ttedge(3.4296, 0.522, 3.4746, 0.5278); ttedge(3.4746, 0.5278, 3.5317, 0.522); ttedge(3.5317, 0.522, 3.5589, 0.514); ttedge(3.5589, 0.514, 3.5857, 0.502); ttedge(3.5857, 0.502, 3.6105, 0.486);
+  ttedge(3.6105, 0.486, 3.6316, 0.4666); ttedge(3.6316, 0.4666, 3.649, 0.4424); ttedge(3.649, 0.4424, 3.6628, 0.4124); ttedge(3.6628, 0.4124, 3.6718, 0.3773); ttedge(3.6718, 0.3773, 3.6748, 0.3379); ttedge(3.6748, 0.3379, 3.6748, 0);
+  ttedge(3.4976, 0, 3.4976, 0.29); ttedge(3.4976, 0.29, 3.4919, 0.328); ttedge(3.4919, 0.328, 3.4749, 0.3589); ttedge(3.4749, 0.3589, 3.4573, 0.3741); ttedge(3.4573, 0.3741, 3.4349, 0.3832); ttedge(3.4349, 0.3832, 3.4077, 0.3862);
+  ttedge(3.4077, 0.3862, 3.3837, 0.3836); ttedge(3.3837, 0.3836, 3.3638, 0.3757); ttedge(3.3638, 0.3757, 3.3479, 0.3625); ttedge(3.3479, 0.3625, 3.332, 0.3366); ttedge(3.332, 0.3366, 3.3257, 0.3062); ttedge(3.3257, 0.3062, 3.3257, 0);
+  ttedge(3.1489, 0, 3.1489, 0.29); ttedge(3.1489, 0.29, 3.1432, 0.3277); ttedge(3.1432, 0.3277, 3.126, 0.3586); ttedge(3.126, 0.3586, 3.1083, 0.374); ttedge(3.1083, 0.374, 3.0858, 0.3832); ttedge(3.0858, 0.3832, 3.0586, 0.3862);
+  ttedge(3.0586, 0.3862, 3.0335, 0.3834); ttedge(3.0335, 0.3834, 3.013, 0.3747); ttedge(3.013, 0.3747, 2.9971, 0.3604); ttedge(2.9971, 0.3604, 2.9817, 0.3323); ttedge(2.9817, 0.3323, 2.9766, 0.2998); ttedge(2.9766, 0.2998, 2.9766, 0);
+  ttedge(4.0024, 0.5278, 4.0514, 0.5238); ttedge(4.0514, 0.5238, 4.0957, 0.5118); ttedge(4.0957, 0.5118, 4.1354, 0.4919); ttedge(4.1354, 0.4919, 4.1704, 0.4639); ttedge(4.1704, 0.4639, 4.1704, 0.5132); ttedge(4.3477, 0.5132, 4.3477, 0);
+  ttedge(4.1729, 0, 4.1729, 0.0581); ttedge(4.1704, 0.0581, 4.1371, 0.0282); ttedge(4.1371, 0.0282, 4.0967, 0.0049); ttedge(4.0967, 0.0049, 4.0511, -0.0101); ttedge(4.0511, -0.0101, 4.0024, -0.0151); ttedge(4.0024, -0.0151, 3.9491, -0.0098);
+  ttedge(3.9491, -0.0098, 3.8994, 0.0061); ttedge(3.8994, 0.0061, 3.8553, 0.0312); ttedge(3.8553, 0.0312, 3.8186, 0.064); ttedge(3.8186, 0.064, 3.7891, 0.1039); ttedge(3.7891, 0.1039, 3.7666, 0.1504); ttedge(3.7666, 0.1504, 3.7523, 0.2017);
+  ttedge(3.7523, 0.2017, 3.7476, 0.2559); ttedge(3.7476, 0.2559, 3.7523, 0.3101); ttedge(3.7523, 0.3101, 3.7666, 0.3616); ttedge(3.7666, 0.3616, 3.7891, 0.4083); ttedge(3.7891, 0.4083, 3.8186, 0.4482); ttedge(3.8186, 0.4482, 3.8553, 0.4811);
+  ttedge(3.8553, 0.4811, 3.8994, 0.5063); ttedge(3.8994, 0.5063, 3.9491, 0.5225); ttedge(3.9491, 0.5225, 4.0024, 0.5278); ttedge(4.0557, 0.1362, 4.0882, 0.14); ttedge(4.0882, 0.14, 4.1166, 0.1512); ttedge(4.1166, 0.1512, 4.1411, 0.1699);
+  ttedge(4.1411, 0.1699, 4.1598, 0.1944); ttedge(4.1598, 0.1944, 4.1711, 0.2231); ttedge(4.1711, 0.2231, 4.1748, 0.2559); ttedge(4.1748, 0.2559, 4.171, 0.2887); ttedge(4.171, 0.2887, 4.1595, 0.3176); ttedge(4.1595, 0.3176, 4.1404, 0.3425);
+  ttedge(4.1404, 0.3425, 4.1157, 0.3617); ttedge(4.1157, 0.3617, 4.0874, 0.3731); ttedge(4.0874, 0.3731, 4.0557, 0.377); ttedge(4.0557, 0.377, 4.0236, 0.3732); ttedge(4.0236, 0.3732, 3.9951, 0.3618); ttedge(3.9951, 0.3618, 3.9702, 0.3428);
+  ttedge(3.9702, 0.3428, 3.951, 0.3179); ttedge(3.951, 0.3179, 3.9394, 0.289); ttedge(3.9394, 0.289, 3.9355, 0.2559); ttedge(3.9355, 0.2559, 3.9392, 0.2228); ttedge(3.9392, 0.2228, 3.9503, 0.1941); ttedge(3.9503, 0.1941, 3.9688, 0.1697);
+  ttedge(3.9688, 0.1697, 3.9932, 0.1511); ttedge(3.9932, 0.1511, 4.0221, 0.1399); ttedge(4.0221, 0.1399, 4.0557, 0.1362); ttedge(4.4673, 0, 4.4673, 0.8599); ttedge(4.644, 0.8599, 4.644, 0.459); ttedge(4.646, 0.459, 4.681, 0.4891);
+  ttedge(4.681, 0.4891, 4.7173, 0.5106); ttedge(4.7173, 0.5106, 4.7548, 0.5235); ttedge(4.7548, 0.5235, 4.7935, 0.5278); ttedge(4.7935, 0.5278, 4.853, 0.522); ttedge(4.853, 0.522, 4.8829, 0.514); ttedge(4.8829, 0.514, 4.9131, 0.502);
+  ttedge(4.9131, 0.502, 4.9415, 0.4861); ttedge(4.9415, 0.4861, 4.9663, 0.4668); ttedge(4.9663, 0.4668, 4.9871, 0.4427); ttedge(4.9871, 0.4427, 5.0037, 0.4124); ttedge(5.0037, 0.4124, 5.0145, 0.377); ttedge(5.0145, 0.377, 5.0181, 0.3379);
+  ttedge(5.0181, 0.3379, 5.0181, 0); ttedge(4.8413, 0, 4.8413, 0.29); ttedge(4.8413, 0.29, 4.8385, 0.3156); ttedge(4.8385, 0.3156, 4.8299, 0.339); ttedge(4.8299, 0.339, 4.8157, 0.3601); ttedge(4.8157, 0.3601, 4.7969, 0.3768);
+  ttedge(4.7969, 0.3768, 4.7747, 0.3868); ttedge(4.7747, 0.3868, 4.749, 0.3901); ttedge(4.749, 0.3901, 4.7232, 0.3867); ttedge(4.7232, 0.3867, 4.699, 0.3764); ttedge(4.699, 0.3764, 4.6765, 0.3591); ttedge(4.6765, 0.3591, 4.6585, 0.3377);
+  ttedge(4.6585, 0.3377, 4.6477, 0.3146); ttedge(4.6477, 0.3146, 4.644, 0.29); ttedge(4.644, 0.29, 4.644, 0); ttedge(5.3457, 0.5278, 5.3947, 0.5238); ttedge(5.3947, 0.5238, 5.439, 0.5118); ttedge(5.439, 0.5118, 5.4786, 0.4919);
+  ttedge(5.4786, 0.4919, 5.5137, 0.4639); ttedge(5.5137, 0.4639, 5.5137, 0.5132); ttedge(5.6909, 0.5132, 5.6909, 0); ttedge(5.5161, 0, 5.5161, 0.0581); ttedge(5.5137, 0.0581, 5.4803, 0.0282); ttedge(5.4803, 0.0282, 5.4399, 0.0049);
+  ttedge(5.4399, 0.0049, 5.3944, -0.0101); ttedge(5.3944, -0.0101, 5.3457, -0.0151); ttedge(5.3457, -0.0151, 5.2924, -0.0098); ttedge(5.2924, -0.0098, 5.2427, 0.0061); ttedge(5.2427, 0.0061, 5.1985, 0.0312); ttedge(5.1985, 0.0312, 5.1619, 0.064);
+  ttedge(5.1619, 0.064, 5.1324, 0.1039); ttedge(5.1324, 0.1039, 5.1099, 0.1504); ttedge(5.1099, 0.1504, 5.0956, 0.2017); ttedge(5.0956, 0.2017, 5.0908, 0.2559); ttedge(5.0908, 0.2559, 5.0956, 0.3101); ttedge(5.0956, 0.3101, 5.1099, 0.3616);
+  ttedge(5.1099, 0.3616, 5.1324, 0.4083); ttedge(5.1324, 0.4083, 5.1619, 0.4482); ttedge(5.1619, 0.4482, 5.1985, 0.4811); ttedge(5.1985, 0.4811, 5.2427, 0.5063); ttedge(5.2427, 0.5063, 5.2924, 0.5225); ttedge(5.2924, 0.5225, 5.3457, 0.5278);
+  ttedge(5.3989, 0.1362, 5.4314, 0.14); ttedge(5.4314, 0.14, 5.4599, 0.1512); ttedge(5.4599, 0.1512, 5.4844, 0.1699); ttedge(5.4844, 0.1699, 5.5031, 0.1944); ttedge(5.5031, 0.1944, 5.5143, 0.2231); ttedge(5.5143, 0.2231, 5.5181, 0.2559);
+  ttedge(5.5181, 0.2559, 5.5142, 0.2887); ttedge(5.5142, 0.2887, 5.5028, 0.3176); ttedge(5.5028, 0.3176, 5.4836, 0.3425); ttedge(5.4836, 0.3425, 5.4589, 0.3617); ttedge(5.4589, 0.3617, 5.4307, 0.3731); ttedge(5.4307, 0.3731, 5.3989, 0.377);
+  ttedge(5.3989, 0.377, 5.3669, 0.3732); ttedge(5.3669, 0.3732, 5.3384, 0.3618); ttedge(5.3384, 0.3618, 5.3135, 0.3428); ttedge(5.3135, 0.3428, 5.2942, 0.3179); ttedge(5.2942, 0.3179, 5.2827, 0.289); ttedge(5.2827, 0.289, 5.2788, 0.2559);
+  ttedge(5.2788, 0.2559, 5.2825, 0.2228); ttedge(5.2825, 0.2228, 5.2936, 0.1941); ttedge(5.2936, 0.1941, 5.312, 0.1697); ttedge(5.312, 0.1697, 5.3364, 0.1511); ttedge(5.3364, 0.1511, 5.3654, 0.1399); ttedge(5.3654, 0.1399, 5.3989, 0.1362);
+  TTCAP = 0.8252;
+);
+gtitle_data();
+
+function gtitle(sid, x, y, cap, r, g, b) local(s, x0, yb, bx, w, py, py1, k, ye, e, n, i, j, t, td, wd, wp, xa, a, bb, ia, ib, c, y0, y1)
+(
+  s = cap * G_SC / TTCAP;
+  x0 = gsx(x); yb = gsy(y);
+  bx = floor(x0); w = ceil(TTW[sid] * s) + 3;
+  py = floor(yb - TTY1[sid] * s) - 1; py1 = ceil(yb - TTY0[sid] * s) + 1;
+  memset(TTC, 0, w + 2);
+  while (py <= py1) (
+    k = 0;
+    loop(8,
+      ye = (yb - (py + (k + 0.5) / 8)) / s;
+      n = 0; e = TTE + 4 * TTO[sid];
+      loop(TTN[sid],
+        y0 = e[1]; y1 = e[3];
+        (y0 <= ye) !== (y1 <= ye) ? (
+          t = x0 + (e[0] + (ye - y0) * (e[2] - e[0]) / (y1 - y0)) * s - bx;
+          td = y1 > y0 ? 1 : -1;
+          i = n;
+          while (i > 0 && TTX[i - 1] > t) ( TTX[i] = TTX[i - 1]; TTD[i] = TTD[i - 1]; i -= 1; );
+          TTX[i] = t; TTD[i] = td; n += 1;
+        );
+        e += 4;
+      );
+      wd = 0; j = 0;
+      loop(n,
+        wp = wd; wd += TTD[j];
+        wp === 0 && wd !== 0 ? xa = TTX[j];
+        wp !== 0 && wd === 0 ? (
+          a = max(0, xa); bb = min(w, TTX[j]);
+          bb > a ? (
+            ia = floor(a); ib = floor(bb);
+            ia === ib ? TTC[ia] += (bb - a) * 0.125 : (
+              TTC[ia] += (ia + 1 - a) * 0.125;
+              i = ia + 1; loop(ib - ia - 1, TTC[i] += 0.125; i += 1;);
+              TTC[ib] += (bb - ib) * 0.125;
+            );
+          );
+        );
+        j += 1;
+      );
+      k += 1;
+    );
+    i = 0;
+    loop(w + 1,
+      c = TTC[i];
+      c > 0.004 ? ( gfx_set(r, g, b, min(1, c)); gfx_rect(bx + i, py, 1, 1); );
+      TTC[i] = 0;
+      i += 1;
+    );
+    py += 1;
+  );
+);
+
+function gtheme(t) (
+  t === 0 ? ( G_ACR = 0.87; G_ACG = 0.22; G_ACB = 0.39; G_BGR = 0.85; G_BGG = 0.85; G_BGB = 0.88; G_BG2R = 0.74; G_BG2G = 0.75; G_BG2B = 0.79; G_PFR = 0.89; G_PFG = 0.89; G_PFB = 0.92; G_BXR = 0.94; G_BXG = 0.94; G_BXB = 0.96; G_BDR = 0.55; G_BDG = 0.55; G_BDB = 0.59; G_T1R = 0.15; G_T1G = 0.15; G_T1B = 0.17; G_T2R = 0.22; G_T2G = 0.22; G_T2B = 0.25; G_T3R = 0.37; G_T3G = 0.37; G_T3B = 0.41; G_DKR = 1; G_DKG = 0.97; G_DKB = 0.98; G_PBR = 0.95; G_PBG = 0.95; G_PBB = 0.97; G_PB2R = 0.84; G_PB2G = 0.85; G_PB2B = 0.88; G_LBR = 0.76; G_LBG = 0.76; G_LBB = 0.79; G_TPR = 0.97; G_TPG = 0.97; G_TPB = 0.98; G_HVR = 0.78; G_HVG = 0.78; G_HVB = 0.82; G_KRR = 0.1; G_KRG = 0.1; G_KRB = 0.11; G_KFR = 0.24; G_KFG = 0.24; G_KFB = 0.25; G_KIR = 0.18; G_KIG = 0.18; G_KIB = 0.19; G_KTR = 0.75; G_KTG = 0.62; G_KTB = 0.66; G_KPR = 0.94; G_KPG = 0.95; G_KPB = 0.96; G_BFR = 0.93; G_BFG = 0.93; G_BFB = 0.95; G_W0R = 0.87; G_W0G = 0.22; G_W0B = 0.39; G_W1R = 0.32; G_W1G = 0.32; G_W1B = 0.36; G_W2R = 0.62; G_W2G = 0.3; G_W2B = 0.62; G_W3R = 0.95; G_W3G = 0.5; G_W3B = 0.4; G_GLR = 0.2; G_GLG = 0.2; G_GLB = 0.25; G_GLA = 0.1; G_P2R = 0.22; G_P2G = 0.22; G_P2B = 0.25; G_P3R = 0.37; G_P3G = 0.37; G_P3B = 0.41; G_PXR = 0.96; G_PXG = 0.96; G_PXB = 0.97; G_PDR = 0.55; G_PDG = 0.55; G_PDB = 0.59; G_DBR = 0.88; G_DBG = 0.88; G_DBB = 0.91; ) :
+  t === 1 ? ( G_ACR = 0.88; G_ACG = 0.23; G_ACB = 0.4; G_BGR = 0.19; G_BGG = 0.19; G_BGB = 0.205; G_BG2R = 0.1; G_BG2G = 0.1; G_BG2B = 0.11; G_PFR = 0.15; G_PFG = 0.155; G_PFB = 0.17; G_BXR = 0.09; G_BXG = 0.09; G_BXB = 0.1; G_BDR = 0.42; G_BDG = 0.4; G_BDB = 0.44; G_T1R = 0.92; G_T1G = 0.92; G_T1B = 0.94; G_T2R = 0.84; G_T2G = 0.84; G_T2B = 0.87; G_T3R = 0.62; G_T3G = 0.62; G_T3B = 0.66; G_DKR = 0.12; G_DKG = 0.03; G_DKB = 0.06; G_PBR = 0.13; G_PBG = 0.13; G_PBB = 0.14; G_PB2R = 0.05; G_PB2G = 0.05; G_PB2B = 0.06; G_LBR = 0.06; G_LBG = 0.05; G_LBB = 0.06; G_TPR = 0.1; G_TPG = 0.1; G_TPB = 0.11; G_HVR = 0.32; G_HVG = 0.2; G_HVB = 0.25; G_KRR = 0.08; G_KRG = 0.08; G_KRB = 0.09; G_KFR = 0.22; G_KFG = 0.22; G_KFB = 0.235; G_KIR = 0.17; G_KIG = 0.17; G_KIB = 0.18; G_KTR = 0.44; G_KTG = 0.155; G_KTB = 0.23; G_KPR = 0.94; G_KPG = 0.94; G_KPB = 0.96; G_BFR = 0.09; G_BFG = 0.09; G_BFB = 0.1; G_W0R = 0.92; G_W0G = 0.26; G_W0B = 0.43; G_W1R = 0.98; G_W1G = 0.62; G_W1B = 0.72; G_W2R = 0.88; G_W2G = 0.88; G_W2B = 0.92; G_W3R = 0.75; G_W3G = 0.45; G_W3B = 0.95; G_GLR = 1; G_GLG = 1; G_GLB = 1; G_GLA = 0.08; G_P2R = 0.84; G_P2G = 0.84; G_P2B = 0.87; G_P3R = 0.62; G_P3G = 0.62; G_P3B = 0.66; G_PXR = 0.09; G_PXG = 0.09; G_PXB = 0.1; G_PDR = 0.42; G_PDG = 0.4; G_PDB = 0.44; G_DBR = 0.12; G_DBG = 0.12; G_DBB = 0.13; ) :
+  t === 2 ? ( G_ACR = 0.82; G_ACG = 0.17; G_ACB = 0.16; G_BGR = 0.84; G_BGG = 0.82; G_BGB = 0.79; G_BG2R = 0.75; G_BG2G = 0.72; G_BG2B = 0.69; G_PFR = 0.88; G_PFG = 0.86; G_PFB = 0.83; G_BXR = 0.93; G_BXG = 0.91; G_BXB = 0.88; G_BDR = 0.55; G_BDG = 0.51; G_BDB = 0.47; G_T1R = 0.16; G_T1G = 0.15; G_T1B = 0.14; G_T2R = 0.24; G_T2G = 0.23; G_T2B = 0.21; G_T3R = 0.38; G_T3G = 0.36; G_T3B = 0.33; G_DKR = 0.99; G_DKG = 0.97; G_DKB = 0.95; G_PBR = 0.17; G_PBG = 0.03; G_PBB = 0.045; G_PB2R = 0.07; G_PB2G = 0.01; G_PB2B = 0.02; G_LBR = 0.08; G_LBG = 0.01; G_LBB = 0.015; G_TPR = 0.96; G_TPG = 0.94; G_TPB = 0.91; G_HVR = 0.78; G_HVG = 0.74; G_HVB = 0.69; G_KRR = 0.3; G_KRG = 0.28; G_KRB = 0.26; G_KFR = 0.95; G_KFG = 0.93; G_KFB = 0.89; G_KIR = 0.88; G_KIG = 0.86; G_KIB = 0.82; G_KTR = 0.62; G_KTG = 0.58; G_KTB = 0.53; G_KPR = 0.2; G_KPG = 0.18; G_KPB = 0.17; G_BFR = 0.93; G_BFG = 0.91; G_BFB = 0.88; G_W0R = 0.93; G_W0G = 0.22; G_W0B = 0.2; G_W1R = 0.97; G_W1G = 0.8; G_W1B = 0.76; G_W2R = 0.98; G_W2G = 0.55; G_W2B = 0.45; G_W3R = 0.8; G_W3G = 0.4; G_W3B = 0.58; G_GLR = 0.55; G_GLG = 0.07; G_GLB = 0.07; G_GLA = 0.5; G_P2R = 0.92; G_P2G = 0.72; G_P2B = 0.7; G_P3R = 0.89; G_P3G = 0.59; G_P3B = 0.58; G_PXR = 0.12; G_PXG = 0.02; G_PXB = 0.03; G_PDR = 0.6; G_PDG = 0.15; G_PDB = 0.15; G_DBR = 0.86; G_DBG = 0.84; G_DBB = 0.8; ) :
+  ( G_ACR = 0.37; G_ACG = 0.66; G_ACB = 0.89; G_BGR = 0.15; G_BGG = 0.17; G_BGB = 0.2; G_BG2R = 0.07; G_BG2G = 0.08; G_BG2B = 0.1; G_PFR = 0.11; G_PFG = 0.125; G_PFB = 0.15; G_BXR = 0.07; G_BXG = 0.08; G_BXB = 0.1; G_BDR = 0.36; G_BDG = 0.42; G_BDB = 0.5; G_T1R = 0.9; G_T1G = 0.92; G_T1B = 0.94; G_T2R = 0.82; G_T2G = 0.85; G_T2B = 0.88; G_T3R = 0.6; G_T3G = 0.64; G_T3B = 0.68; G_DKR = 0.03; G_DKG = 0.07; G_DKB = 0.12; G_PBR = 0.06; G_PBG = 0.19; G_PBB = 0.29; G_PB2R = 0.02; G_PB2G = 0.08; G_PB2B = 0.14; G_LBR = 0.03; G_LBG = 0.08; G_LBB = 0.13; G_TPR = 0.08; G_TPG = 0.1; G_TPB = 0.13; G_HVR = 0.2; G_HVG = 0.3; G_HVB = 0.4; G_KRR = 0.1; G_KRG = 0.1; G_KRB = 0.11; G_KFR = 0.26; G_KFG = 0.26; G_KFB = 0.27; G_KIR = 0.2; G_KIG = 0.2; G_KIB = 0.21; G_KTR = 0.16; G_KTG = 0.28; G_KTB = 0.4; G_KPR = 0.92; G_KPG = 0.94; G_KPB = 0.96; G_BFR = 0.09; G_BFG = 0.1; G_BFB = 0.12; G_W0R = 0.4; G_W0G = 0.72; G_W0B = 0.95; G_W1R = 0.55; G_W1G = 0.92; G_W1B = 0.98; G_W2R = 0.88; G_W2G = 0.92; G_W2B = 0.98; G_W3R = 0.55; G_W3G = 0.6; G_W3B = 1; G_GLR = 0.55; G_GLG = 0.75; G_GLB = 0.95; G_GLA = 0.12; G_P2R = 0.8; G_P2G = 0.88; G_P2B = 0.95; G_P3R = 0.62; G_P3G = 0.75; G_P3B = 0.86; G_PXR = 0.03; G_PXG = 0.11; G_PXB = 0.18; G_PDR = 0.3; G_PDG = 0.5; G_PDB = 0.68; G_DBR = 0.1; G_DBG = 0.13; G_DBB = 0.17; );
+  G_THL = t;
+);
+gtheme(0);
+
+function gtitle_w(sid, cap) ( TTW[sid] * cap / TTCAP; );
+
+
+@slider
+last_srate !== srate ? (
+  last_srate = srate;
+  ea.e_load_cancel(); eb.e_load_cancel();
+  ea.act = eb.act = 0; ea.ready = eb.ready = 0;
+  cur = old = ld_e = 0; akey = lkey = fail_key = -1;
+  ga = 2950 / srate;
+  dtg = enable >= 0.5 ? db_coeff(dry_db) : 1; wtg = enable >= 0.5 ? db_coeff(wet_db) : 0;
+  gd = dtg; gw = wtg;
+  FADE = floor(FADE_MS * 0.001 * srate);
+);
+control(0);
+
+@block
+dtg = enable >= 0.5 ? db_coeff(dry_db) : 1; wtg = enable >= 0.5 ? db_coeff(wet_db) : 0;
+pdt = floor(predelay * 0.001 * srate + 0.5);
+control(0);
+G_CUR = cur; G_LD = ld_e; G_ERR = load_err;
+
+@sample
+xl = spl0; xr = spl1;
+DRL[dw] = xl; DRR[dw] = xr;
+PDL[pw] = xl; PDR[pw] = xr;
+pd_x > 0 || pdt !== pd_cur || pd_cur > 0 ? (
+  pd_x <= 0 && pdt !== pd_cur ? ( pd_old = pd_cur; pd_cur = pdt; pd_x = 1024; );
+  pj = (pw - pd_cur) & 65535; cl = PDL[pj]; cr = PDR[pj];
+  pd_x > 0 ? (
+    pj = (pw - pd_old) & 65535; pf = pd_x / 1024;
+    cl = cl * (1 - pf) + PDL[pj] * pf; cr = cr * (1 - pf) + PDR[pj] * pf;
+    pd_x -= 1;
+  );
+) : ( cl = xl; cr = xr; );
+pw = (pw + 1) & 65535;
+(cl !== 0 || cr !== 0) ? quiet = 0 : quiet += 1;
+cm = 0.5 * (cl + cr);
+CINL[wi] = cl; CINL[wi + RSI] = cl; CINR[wi] = cr; CINR[wi + RSI] = cr; CINM[wi] = cm; CINM[wi + RSI] = cm;
+gcnt === 0 ? (
+  gd !== dtg ? ( gd += ga * (dtg - gd) + 0.0000000001; abs(gd - dtg) < 0.00001 ? gd = dtg; );
+  gw !== wtg ? ( gw += ga * (wtg - gw) + 0.0000000001; abs(gw - wtg) < 0.00001 ? gw = wtg; );
+);
+gcnt = (gcnt + 1) & 63;
+wl = wr = 0;
+old ? (
+  fpos += 1; fa = min(1, fpos / FADE);
+  fo = cos(fa * $pi * 0.5); fn = sin(fa * $pi * 0.5);
+  old === 1 ? ( ea.gsc = fo; eb.gsc = fn; ) : ( eb.gsc = fo; ea.gsc = fn; );
+  fa >= 1 ? ( old === 1 ? ( ea.act = 0; ea.ready = 0; ) : ( eb.act = 0; eb.ready = 0; ); old === 1 ? eb.gsc = 1 : ea.gsc = 1; old = 0; );
+);
+ea.act ? ( ea.e_sample(); wl += ea.ywl * ea.gsc; wr += ea.ywr * ea.gsc; );
+eb.act ? ( eb.e_sample(); wl += eb.ywl * eb.gsc; wr += eb.ywr * eb.gsc; );
+dj = (dw - e_lat(cur)) & 1023;
+spl0 = gd * DRL[dj] + gw * wl;
+spl1 = gd * DRR[dj] + gw * wr;
+dw = (dw + 1) & 1023;
+wi += 1; wi >= RSI ? wi = 0;
+opos += 1; opos >= RSO ? opos = 0;
+
+@gfx 1060 520
+G_NOW = time_precise();
+G_WHEEL = mouse_wheel; mouse_wheel = 0;
+G_SC = max(0.45, min(gfx_w / 1060, gfx_h / 520));
+G_OX = floor((gfx_w - 1060 * G_SC) * 0.5);
+G_SC !== G_FSC ? (
+  G_FSC = G_SC;
+  gfx_setfont(1, "Arial", 14 * G_SC, 'b');
+  gfx_setfont(2, "Arial", 13 * G_SC);
+  gfx_setfont(3, "Arial", 12 * G_SC, 'b');
+  gfx_setfont(4, "Arial", 12 * G_SC);
+  gfx_setfont(5, "Arial", 15 * G_SC, 'b');
+  gfx_setfont(6, "Arial", 24 * G_SC, 'b');
+  gfx_setfont(7, "Arial", 11 * G_SC, 'b');
+  gfx_setfont(8, "Arial", 18 * G_SC, 'b');
+);
+G_THN = max(0, min(3, floor(theme + 0.5)));
+G_THN !== G_THL ? gtheme(G_THN);
+G_GH = max(1, gfx_h);
+(gfx_w !== G_CW0 || gfx_h !== G_CH0 || G_SC !== G_CS0 || G_THL !== G_TH0) ? (
+  G_CW0 = gfx_w; G_CH0 = gfx_h; G_CS0 = G_SC; G_TH0 = G_THL;
+  G_DST = gfx_dest;
+  gfx_setimgdim(22, gfx_w, gfx_h);
+  gfx_dest = 22;
+  gfx_gradrect(0, 0, gfx_w, gfx_h, G_BGR, G_BGG, G_BGB, 1, 0, 0, 0, 0, (G_BG2R - G_BGR) / G_GH, (G_BG2G - G_BGG) / G_GH, (G_BG2B - G_BGB) / G_GH, 0);
+  gfx_mode = 0;
+  gtitle(0, 24, 36, 17, G_T1R, G_T1G, G_T1B);
+  gtitle(1, 24 + gtitle_w(0, 17) + 10, 36, 11, G_ACR, G_ACG, G_ACB);
+  gtitle(2, 24 + gtitle_w(0, 17) + 10 + gtitle_w(1, 11) + 9, 36, 8.5, G_T3R, G_T3G, G_T3B);
+  gfx_dest = G_DST;
+);
+gfx_x = 0; gfx_y = 0; gfx_a = 1; gfx_mode = 0;
+gfx_blit(22, 1, 0);
+
+
+G_MD = mouse_cap & 1;
+G_MBLK ? ( G_MD ? G_MD = 0 : G_MBLK = 0; G_LMD = 0; );
+G_PRESS = G_MD && !G_LMD;
+G_REL = !G_MD && G_LMD;
+G_MX = (mouse_x - G_OX) / G_SC; G_MY = mouse_y / G_SC;
+G_DCLK = G_PRESS && G_NOW - G_LCLK < 0.3 && abs(G_MX - G_LCX) < 4 && abs(G_MY - G_LCY) < 4;
+G_PRESS ? ( G_LCLK = G_DCLK ? 0 : G_NOW; G_LCX = G_MX; G_LCY = G_MY; );
+
+G_PRG = max(0, min(52, floor(program + 0.5)));
+G_CAT < 0 ? ( G_CAT = PCAT[G_PRG]; G_SCROLL = max(0, G_PRG - CST[G_CAT] - 6); );
+
+gtext(1046, 28, "based on x42 Convolver by Robin Gareus", 4, G_T3R, G_T3G, G_T3B, 1, 2);
+gfx_setfont(4); gfx_measurestr("based on x42 Convolver by Robin Gareus", G_CRW, G_CRH);
+G_DX0 = 1046 - G_CRW / G_SC - 18 - 3 * 18;
+G_HTHM = -1;
+G_I = 0;
+loop(4,
+  G_XX = G_DX0 + G_I * 18;
+  (G_MX - G_XX) ^ 2 + (G_MY - 28) ^ 2 <= 64 ? G_HTHM = G_I;
+  G_I === 0 ? gfx_set(0.96, 0.6, 0.71, 1) : G_I === 1 ? gfx_set(0.88, 0.23, 0.4, 1) : G_I === 2 ? gfx_set(0.82, 0.17, 0.16, 1) : gfx_set(0.37, 0.66, 0.89, 1);
+  gfx_circle(gsx(G_XX), gsy(28), 5 * G_SC, 1, 1);
+  G_THL === G_I ? ( gfx_set(G_T1R, G_T1G, G_T1B, 0.95); gfx_circle(gsx(G_XX), gsy(28), 7.5 * G_SC, 0, 1); ) :
+  G_HTHM === G_I ? ( gfx_set(G_BDR, G_BDG, G_BDB, 0.9); gfx_circle(gsx(G_XX), gsy(28), 7.5 * G_SC, 0, 1); );
+  G_I += 1;
+);
+
+gpanel(14, 54, 300, 452, "PROGRAMS");
+G_HTAB = -1;
+G_I = 0;
+loop(6,
+  G_TX = 28 + (G_I % 3) * 92; G_TY = 80 + floor(G_I / 3) * 32;
+  G_MX >= G_TX && G_MX <= G_TX + 88 && G_MY >= G_TY && G_MY <= G_TY + 26 ? G_HTAB = G_I;
+  gbox(G_TX, G_TY, 88, 26, 20 + G_I, G_HTAB === G_I, G_CAT === G_I);
+  G_I += 1;
+);
+G_C0 = CST[G_CAT]; G_CN = CST[G_CAT + 1] - G_C0;
+G_ROWS = 14;
+G_SCROLL = gclamp(G_SCROLL, 0, max(0, G_CN - G_ROWS));
+G_HSB = G_CN > G_ROWS && G_MX >= 292 && G_MX <= 308 && G_MY >= 146 && G_MY < 154 + G_ROWS * 24;
+G_HROW = -1;
+G_DRAG !== 31 && !G_HSB && G_MX >= 28 && G_MX <= 292 && G_MY >= 150 && G_MY < 150 + G_ROWS * 24 ? (
+  G_HROW = floor((G_MY - 150) / 24) + G_SCROLL;
+  G_HROW >= G_CN ? G_HROW = -1;
+);
+G_I = 0;
+loop(min(G_ROWS, G_CN - G_SCROLL),
+  G_R = G_I + G_SCROLL; G_Y = 150 + G_I * 24;
+  G_SEL = G_C0 + G_R === G_PRG;
+  (G_SEL || G_HROW === G_R) ? (
+    gfrr(floor(gsx(28)), floor(gsy(G_Y + 1)), floor(gsx(290)), floor(gsy(G_Y + 23)), floor(5 * G_SC),
+      G_SEL ? G_ACR : G_HVR, G_SEL ? G_ACG : G_HVG, G_SEL ? G_ACB : G_HVB, G_SEL ? 0.92 : 0.55);
+  );
+  gtext(40, G_Y + 12, 100 + G_C0 + G_R, 2, G_SEL ? G_DKR : G_T2R, G_SEL ? G_DKG : G_T2G, G_SEL ? G_DKB : G_T2B, 1, 0);
+  G_I += 1;
+);
+G_CN > G_ROWS ? (
+  G_SBH = G_ROWS * 24 * G_ROWS / G_CN; G_SBY = 150 + (G_ROWS * 24 - G_SBH) * G_SCROLL / max(1, G_CN - G_ROWS);
+  gfrr(floor(gsx(296)), floor(gsy(150)), floor(gsx(300)), floor(gsy(150 + G_ROWS * 24)), 2, G_BXR, G_BXG, G_BXB, 0.9);
+  G_SBA = G_DRAG === 31 || (G_HSB && G_DRAG === 0);
+  G_SBA ? gfrr(floor(gsx(295)), floor(gsy(G_SBY)), floor(gsx(301)), floor(gsy(G_SBY + G_SBH)), floor(3 * G_SC), G_ACR, G_ACG, G_ACB, 0.9) :
+    gfrr(floor(gsx(296)), floor(gsy(G_SBY)), floor(gsx(300)), floor(gsy(G_SBY + G_SBH)), 2, G_BDR, G_BDG, G_BDB, 0.8);
+);
+
+gpanel(326, 54, 480, 452, "IMPULSE RESPONSE");
+G_PX = 340; G_PY = 84; G_PW = 452; G_PH = 210;
+G_QX = floor(gsx(G_PX)); G_QY = floor(gsy(G_PY)); G_QW = floor(G_PW * G_SC); G_QH = floor(G_PH * G_SC);
+gfx_gradrect(G_QX, G_QY, G_QW, G_QH, G_PBR, G_PBG, G_PBB, 1, 0, 0, 0, 0, (G_PB2R - G_PBR) / G_QH, (G_PB2G - G_PBG) / G_QH, (G_PB2B - G_PBB) / G_QH, 0);
+G_E = G_CUR === 1 ? 1 : G_CUR === 2 ? 2 : 0;
+G_WVP = G_E === 1 ? ea.WV : G_E === 2 ? eb.WV : 0;
+G_NP = G_E === 1 ? ea.npath : G_E === 2 ? eb.npath : 0;
+G_LEN = G_E === 1 ? ea.irlen : G_E === 2 ? eb.irlen : 0;
+G_FSR = G_E === 1 ? ea.lfsr : G_E === 2 ? eb.lfsr : 0;
+G_FCH = G_E === 1 ? ea.lnch : G_E === 2 ? eb.lnch : 0;
+G_PK = G_E === 1 ? ea.wpk : G_E === 2 ? eb.wpk : 0;
+G_WVR = G_E === 1 ? ea.wver : G_E === 2 ? eb.wver : 0;
+G_DUR = srate > 0 ? G_LEN / srate : 0;
+G_WT > G_NP || G_NP < 2 ? G_WT = 0;
+G_ALL = G_NP >= 2 && G_WT === 0;
+G_SCH = G_NP >= 2 ? max(0, G_WT - 1) : 0;
+G_TOP = G_NP >= 2 ? 26 : 0;
+G_TQ = floor(G_TOP * G_SC);
+G_ND = max(0, G_NP - 1);
+G_DS = (G_NP >= 4 ? 22 : 34) * G_SC;
+G_VKEY = G_WVR * 4096 + G_E * 2 + G_PK * 1000 + G_NP * 7;
+G_VKEY !== G_VKL ? (
+  G_VKL = G_VKEY;
+  G_NV = 1;
+  G_WVP > 0 && G_PK > 0 ? (
+    G_TH = G_PK * 10 ^ (-89 / 20);
+    G_K = 0;
+    loop(G_NP,
+      G_B = NWB - 1;
+      while (G_B >= G_NV && G_WVP[G_K * NWB + G_B] <= G_TH) ( G_B -= 1; );
+      G_NV = max(G_NV, G_B + 1);
+      G_K += 1;
+    );
+  );
+  G_NV = min(NWB, ceil(G_NV * 1.02) + 1);
+);
+G_DE = G_ALL ? G_DUR * G_NV / NWB : G_DUR;
+G_TS = G_DE > 4 ? 1 : G_DE > 1.5 ? 0.5 : G_DE > 0.6 ? 0.2 : G_DE > 0.3 ? 0.1 : 0.05;
+!G_ALL ? (
+  G_I = 1;
+  loop(5,
+    G_YY = G_QY + G_TQ + G_I * (G_QH - G_TQ) / 6;
+    gfx_set(G_GLR, G_GLG, G_GLB, G_GLA);
+    gfx_line(G_QX, G_YY, G_QX + G_QW - 1, G_YY);
+    sprintf(#g_tx, "-%d dB", G_I * 15); gtext(G_PX + G_PW - 6, (G_YY - G_QY) / G_SC + G_PY - 8, #g_tx, 4, G_P3R, G_P3G, G_P3B, 0.8, 2);
+    G_I += 1;
+  );
+  G_DUR > 0 ? (
+    G_T = G_TS;
+    while (G_T < G_DUR) (
+      G_XX = G_QX + G_QW * G_T / G_DUR;
+      gfx_set(G_GLR, G_GLG, G_GLB, G_GLA); gfx_line(G_XX, G_QY + G_TQ, G_XX, G_QY + G_QH - 1);
+      G_T += G_TS;
+    );
+  );
+);
+G_DE > 0 ? (
+  G_T = G_TS;
+  while (G_T < G_DE - 0.0001) (
+    sprintf(#g_tx, G_TS < 0.1 ? "%.2f s" : "%.1f s", G_T); gtext(G_PX + G_PW * G_T / G_DE, G_PY + G_PH + 10, #g_tx, 4, G_T3R, G_T3G, G_T3B, 0.9, 1);
+    G_T += G_TS;
+  );
+);
+G_WKEY = G_WVR * 4096 + G_E * 2 + G_PK * 1000 + G_NP * 7 + G_WT * 101 + G_NV * 0.37 + G_THL * 0.0173 + G_QW * 0.001 + G_QH * 0.000001;
+G_WKEY !== G_WKL ? (
+  G_WKL = G_WKEY;
+  G_DST = gfx_dest;
+  gfx_setimgdim(23, 0, 0); gfx_setimgdim(23, G_QW, G_QH);
+  gfx_dest = 23; gfx_mode = 0;
+G_WVP > 0 && G_NP > 0 && G_PK > 0 ? (
+  G_ALL ? (
+    G_K = 0;
+    loop(G_NP,
+      G_BY = G_QH - 2 - G_K * G_DS;
+      G_XO = floor(G_K * 0.045 * G_QW); G_XW = floor(G_QW * (1 - 0.07 * G_K));
+      gfx_set(G_GLR, G_GLG, G_GLB, G_GLA * 0.875); gfx_line(G_XO, G_BY, G_XO + G_XW - 1, G_BY);
+      G_K += 1;
+    );
+    G_DE > 0 && G_ND > 0 ? (
+      G_T = G_TS;
+      while (G_T < G_DE - 0.0001) (
+        G_F = G_T / G_DE;
+        G_XB = floor(G_ND * 0.045 * G_QW) + G_F * floor(G_QW * (1 - 0.07 * G_ND));
+        gfx_set(G_GLR, G_GLG, G_GLB, G_GLA * 0.875); gfx_line(G_F * G_QW, G_QH - 2, G_XB, G_QH - 2 - G_ND * G_DS, 1);
+        G_T += G_TS;
+      );
+    );
+    G_LH = 1000000;
+    G_K = 0;
+    loop(G_NP,
+      G_M = 0; G_B = 0;
+      loop(NWB, G_M = max(G_M, G_WVP[G_K * NWB + G_B]); G_B += 1;);
+      G_V = G_M / G_PK;
+      G_HF = G_V > 0 ? max(0, min(1, (20 * log10(G_V) + 90) / 90)) : 0;
+      G_HF > 0 ? G_LH = min(G_LH, (G_QH - 2 - G_K * G_DS - G_TQ - 3 * G_SC) / (G_HF * (1 - 0.06 * G_K)));
+      G_K += 1;
+    );
+    G_LH > 999999 ? G_LH = G_QH - 2 - G_TQ - G_ND * G_DS - 4 * G_SC;
+    G_C = G_ND;
+    loop(G_NP,
+      G_C === 0 ? ( G_CR = G_W0R; G_CG = G_W0G; G_CB = G_W0B; ) : G_C === 1 ? ( G_CR = G_W1R; G_CG = G_W1G; G_CB = G_W1B; ) :
+      G_C === 2 ? ( G_CR = G_W2R; G_CG = G_W2G; G_CB = G_W2B; ) : ( G_CR = G_W3R; G_CG = G_W3G; G_CB = G_W3B; );
+      G_BY = G_QH - 2 - G_C * G_DS;
+      G_XO = floor(G_C * 0.045 * G_QW); G_XW = floor(G_QW * (1 - 0.07 * G_C));
+      G_HS = G_LH * (1 - 0.06 * G_C);
+      G_FD = 0.55 + 0.45 * (1 - G_C / max(1, G_ND));
+      G_I = 0; G_LY = -1;
+      loop(G_XW,
+        G_B = floor(G_I * G_NV / G_XW);
+        G_V = G_WVP[G_C * NWB + G_B] / G_PK;
+        G_DB = G_V > 0 ? 20 * log10(G_V) : -100;
+        G_HH = max(0, min(1, (G_DB + 90) / 90)) * G_HS;
+        G_YY = G_BY - G_HH;
+        G_HH >= 1 ? (
+          gfx_set(G_LBR + 0.20 * G_CR, G_LBG + 0.20 * G_CG, G_LBB + 0.20 * G_CB, 1); gfx_line(G_XO + G_I, G_BY, G_XO + G_I, G_YY);
+          gfx_set(G_CR, G_CG, G_CB, 0.95 * G_FD);
+          G_LY >= 0 ? gfx_line(G_XO + G_I - 1, G_LY, G_XO + G_I, G_YY, 1);
+        );
+        G_LY = G_HH >= 1 ? G_YY : -1;
+        G_I += 1;
+      );
+      gfx_set(G_CR, G_CG, G_CB, 0.45 * G_FD); gfx_line(G_XO, G_BY, G_XO + G_XW - 1, G_BY);
+      G_C -= 1;
+    );
+  ) : (
+    G_C = G_SCH;
+    G_C === 0 ? ( G_CR = G_W0R; G_CG = G_W0G; G_CB = G_W0B; ) : G_C === 1 ? ( G_CR = G_W1R; G_CG = G_W1G; G_CB = G_W1B; ) :
+    G_C === 2 ? ( G_CR = G_W2R; G_CG = G_W2G; G_CB = G_W2B; ) : ( G_CR = G_W3R; G_CG = G_W3G; G_CB = G_W3B; );
+    G_I = 0; G_LY = -1;
+    loop(G_QW,
+      G_B = floor(G_I * NWB / G_QW);
+      G_V = G_WVP[G_C * NWB + G_B] / G_PK;
+      G_DB = G_V > 0 ? 20 * log10(G_V) : -100;
+      G_HH = max(0, min(1, (G_DB + 90) / 90)) * (G_QH - 2 - G_TQ);
+      G_YY = G_QH - 1 - G_HH;
+      G_HH >= 1 ? (
+        gfx_set(G_CR, G_CG, G_CB, 0.10 + 0.12 * G_HH / (G_QH - G_TQ)); gfx_line(G_I, G_QH - 1, G_I, G_YY);
+        gfx_set(G_CR, G_CG, G_CB, 0.95);
+        G_LY >= 0 ? gfx_line(G_I - 1, G_LY, G_I, G_YY, 1);
+      );
+      G_LY = G_HH >= 1 ? G_YY : -1;
+      G_I += 1;
+    );
+  );
+);
+  gfx_dest = G_DST;
+);
+gfx_x = G_QX; gfx_y = G_QY; gfx_a = 1; gfx_mode = 0;
+gfx_blit(23, 1, 0);
+gfx_set(G_BDR, G_BDG, G_BDB, 1);
+gfx_rect(G_QX, G_QY, G_QW, 1); gfx_rect(G_QX, G_QY + G_QH - 1, G_QW, 1);
+gfx_rect(G_QX, G_QY, 1, G_QH); gfx_rect(G_QX + G_QW - 1, G_QY, 1, G_QH);
+G_LD ? gtext(G_PX + G_PW - 8, G_PY + 14, "Loading...", 3, G_ACR, G_ACG, G_ACB, 1, 2);
+G_E && G_NP >= 2 ? (
+  G_LX = G_PX + 6;
+  G_I = 0;
+  loop(G_NP + 1,
+    G_TW2 = G_I ? 54 : 40;
+    G_HT = G_MX >= G_LX && G_MX < G_LX + G_TW2 && G_MY >= G_PY + 4 && G_MY < G_PY + 22;
+    G_HT && G_PRESS ? G_WT = G_I;
+    G_XQ = floor(gsx(G_LX)); G_YQ = floor(gsy(G_PY + 4)); G_WQ = ceil(G_TW2 * G_SC); G_HQ = ceil(18 * G_SC);
+    G_WT === G_I ? (
+      gfrr(G_XQ, G_YQ, G_XQ + G_WQ, G_YQ + G_HQ, floor(9 * G_SC), G_ACR, G_ACG, G_ACB, G_HT ? 1 : 0.9);
+    ) : (
+      gfrr(G_XQ, G_YQ, G_XQ + G_WQ, G_YQ + G_HQ, floor(9 * G_SC), G_PXR, G_PXG, G_PXB, 0.92);
+      gbord(G_XQ, G_YQ, G_XQ + G_WQ, G_YQ + G_HQ, floor(9 * G_SC), max(1, floor(G_SC + 0.5)), G_PDR, G_PDG, G_PDB, G_HT ? 0.8 : 0.45);
+    );
+    G_I === 0 ? (
+      strcpy(#g_tx, "ALL");
+      gtext(G_LX + G_TW2 * 0.5, G_PY + 13, #g_tx, 7, G_WT === 0 ? G_DKR : G_P2R, G_WT === 0 ? G_DKG : G_P2G, G_WT === 0 ? G_DKB : G_P2B, 1, 1);
+    ) : (
+      G_C = G_I - 1;
+      G_NP === 4 ? ( G_C === 0 ? strcpy(#g_tx, "L>L") : G_C === 1 ? strcpy(#g_tx, "L>R") : G_C === 2 ? strcpy(#g_tx, "R>L") : strcpy(#g_tx, "R>R"); ) :
+      G_C === 0 ? strcpy(#g_tx, "L") : strcpy(#g_tx, "R");
+      G_WT === G_I ? gfx_set(G_DKR, G_DKG, G_DKB, 1) :
+        G_C === 0 ? gfx_set(G_W0R, G_W0G, G_W0B, 1) : G_C === 1 ? gfx_set(G_W1R, G_W1G, G_W1B, 1) : G_C === 2 ? gfx_set(G_W2R, G_W2G, G_W2B, 1) : gfx_set(G_W3R, G_W3G, G_W3B, 1);
+      gfx_rect(floor(gsx(G_LX + 9)), floor(gsy(G_PY + 12)), ceil(8 * G_SC), ceil(3 * G_SC));
+      gtext(G_LX + 21, G_PY + 13, #g_tx, 7, G_WT === G_I ? G_DKR : G_P2R, G_WT === G_I ? G_DKG : G_P2G, G_WT === G_I ? G_DKB : G_P2B, 1, 0);
+    );
+    G_LX += G_TW2 + 6;
+    G_I += 1;
+  );
+);
+
+(
+  gtext(340, 330, 100 + G_PRG, 8, G_T1R, G_T1G, G_T1B, 1, 0);
+  gtext(340, 354, 20 + PCAT[G_PRG], 3, G_ACR, G_ACG, G_ACB, 1, 0);
+  (G_WCAT !== PCAT[G_PRG] || G_WSC !== G_SC) ? (
+    G_WCAT = PCAT[G_PRG]; G_WSC = G_SC;
+    strcpy(#g_desc, 30 + G_WCAT);
+    G_NWL = gwrap(452, 4);
+  );
+  G_I = 0;
+  loop(G_NWL, gtext(340, 378 + G_I * 17, 40 + G_I, 4, G_T2R, G_T2G, G_T2B, 1, 0); G_I += 1;);
+);
+G_ERR && !G_LD ? (
+  gtext(566, 189, G_ERR === 1 ? "IR file not found" : G_ERR === 2 ? "Not a readable audio file" : "IR too long", 5, 1, 0.45, 0.4, 1, 1);
+);
+G_E ? (
+  G_FCH >= 4 && G_NP === 4 ? strcpy(#g_t2, "true stereo") : G_NP === 2 && in_mode >= 0.5 ? strcpy(#g_t2, "mono to stereo") : strcpy(#g_t2, "stereo");
+  sprintf(#g_tx, "%.2f s  \xc2\xb7  %d ch, %s  \xc2\xb7  IR %d Hz, DAW %d Hz  \xc2\xb7  latency %d", G_DUR, G_FCH, #g_t2, G_FSR, srate, pdc_delay);
+  gtext(340, 492, #g_tx, 4, G_T3R, G_T3G, G_T3B, 1, 0);
+);
+
+gpanel(818, 54, 228, 452, "OUTPUT");
+G_HK = -1;
+G_I = 0;
+loop(3,
+  G_KX = G_I === 2 ? 932 : 874 + G_I * 116; G_KY = G_I === 2 ? 254 : 136;
+  (G_MX - G_KX) * (G_MX - G_KX) + (G_MY - G_KY) * (G_MY - G_KY) <= 34 * 34 ? G_HK = G_I;
+  G_I += 1;
+);
+G_DRAG === 30 ? G_HK = G_DK;
+gknob(874, 136, 28, (dry_db + 60) / 66, 0, G_HK === 0, "DRY", gdbstr(dry_db), enable < 0.5);
+gknob(990, 136, 28, (wet_db + 60) / 66, 0, G_HK === 1, "WET", gdbstr(wet_db), enable < 0.5);
+sprintf(#g_tx, "%.1f ms", predelay);
+gknob(932, 254, 28, predelay / 200, 0, G_HK === 2, "PREDELAY", #g_tx, enable < 0.5);
+gtext(932, 324, "INPUT", 3, G_T2R, G_T2G, G_T2B, 1, 1);
+G_HIM = (G_MX >= 834 && G_MX <= 1030 && G_MY >= 336 && G_MY <= 364) ? floor((G_MX - 834) / 98) : -1;
+gseg2(834, 336, 196, 28, "STEREO", "MONO > ST", in_mode >= 0.5, G_HIM, 0);
+G_HZL = G_MX >= 834 && G_MX <= 1030 && G_MY >= 380 && G_MY <= 408;
+gbtn(834, 380, 196, 28, "ZERO LATENCY", zero_lat >= 0.5, G_HZL);
+G_HEN = G_MX >= 834 && G_MX <= 1030 && G_MY >= 424 && G_MY <= 452;
+gbtn(834, 424, 196, 28, enable >= 0.5 ? "ENABLED" : "BYPASSED", enable >= 0.5, G_HEN);
+gtext(932, 478, "IRs: Grant Nelson 480L set", 4, G_T3R, G_T3G, G_T3B, 1, 1);
+
+G_SETP = -1;
+G_PRESS ? (
+  G_HTHM >= 0 ? ( theme = G_HTHM; gauto(8, 1); ) :
+  G_HTAB >= 0 ? ( G_CAT = G_HTAB; G_SCROLL = 0; ) :
+  G_HSB ? (
+    (G_MY < G_SBY || G_MY > G_SBY + G_SBH) ? G_SCROLL = gclamp(floor((G_MY - 150 - G_SBH * 0.5) * (G_CN - G_ROWS) / max(1, G_ROWS * 24 - G_SBH) + 0.5), 0, G_CN - G_ROWS);
+    G_DRAG = 31; G_SDY = G_MY; G_SDS = G_SCROLL;
+  ) :
+  G_HROW >= 0 ? G_SETP = G_C0 + G_HROW :
+  G_HIM >= 0 ? ( in_mode = G_HIM; gauto(2, 1); ) :
+  G_HZL ? ( zero_lat = zero_lat >= 0.5 ? 0 : 1; gauto(6, 1); ) :
+  G_HEN ? ( enable = enable >= 0.5 ? 0 : 1; gauto(7, 1); ) :
+  G_HK >= 0 ? (
+    G_DCLK ? (
+      G_HK === 0 ? ( dry_db = -60; gauto(3, 1); ) : G_HK === 1 ? ( wet_db = 0; gauto(4, 1); ) : ( predelay = 0; gauto(5, 1); );
+    ) : ( G_DRAG = 30; G_DK = G_HK; G_DY = mouse_y; G_DV = G_HK === 0 ? dry_db : G_HK === 1 ? wet_db : predelay; );
+  );
+);
+G_SETP >= 0 ? (
+  program = G_SETP; gauto(1, 1);
+  G_CAT = PCAT[G_SETP];
+  G_SETP < G_C0 || G_SETP >= G_C0 + G_CN ? G_SCROLL = 0;
+  G_R = G_SETP - CST[G_CAT];
+  G_R < G_SCROLL ? G_SCROLL = G_R : G_R >= G_SCROLL + G_ROWS ? G_SCROLL = G_R - G_ROWS + 1;
+);
+G_DRAG === 31 && G_MD ? (
+  G_SCROLL = gclamp(floor(G_SDS + (G_MY - G_SDY) * (G_CN - G_ROWS) / max(1, G_ROWS * 24 - G_SBH) + 0.5), 0, max(0, G_CN - G_ROWS));
+);
+G_DRAG === 30 && G_MD ? (
+  G_V = G_DV + (G_DY - mouse_y) * ((mouse_cap & 4) ? 0.02 : 0.2) / G_SC * (G_DK === 2 ? 3 : 1);
+  G_DK === 0 ? ( G_V = floor(gclamp(G_V, -60, 6) * 10 + 0.5) / 10; G_V !== dry_db ? ( dry_db = G_V; gauto(3, 0); ); ) :
+  G_DK === 1 ? ( G_V = floor(gclamp(G_V, -60, 6) * 10 + 0.5) / 10; G_V !== wet_db ? ( wet_db = G_V; gauto(4, 0); ); ) :
+  ( G_V = floor(gclamp(G_V, 0, 200) * 10 + 0.5) / 10; G_V !== predelay ? ( predelay = G_V; gauto(5, 0); ); );
+  mouse_cap |= 65536;
+);
+G_REL ? (
+  G_DRAG === 30 ? gauto(3 + G_DK, 1);
+  G_DRAG = 0;
+);
+G_WHEEL !== 0 && G_DRAG === 0 ? (
+  G_HK >= 0 ? (
+    G_ST = (G_WHEEL > 0 ? 1 : -1) * ((mouse_cap & 4) ? 0.1 : 1);
+    G_HK === 0 ? ( dry_db = gclamp(floor((dry_db + G_ST) * 10 + 0.5) / 10, -60, 6); gauto(3, 1); ) :
+    G_HK === 1 ? ( wet_db = gclamp(floor((wet_db + G_ST) * 10 + 0.5) / 10, -60, 6); gauto(4, 1); ) :
+    ( predelay = gclamp(floor((predelay + G_ST * 2) * 10 + 0.5) / 10, 0, 200); gauto(5, 1); );
+  ) : G_MX >= 14 && G_MX <= 314 && G_MY >= 146 && G_MY <= 490 ? (
+    G_SCROLL = gclamp(G_SCROLL - (G_WHEEL > 0 ? 1 : -1), 0, max(0, G_CN - G_ROWS));
+  );
+);
+
+G_TID = 0;
+G_HTAB >= 0 ? G_TID = 1 : G_HROW >= 0 ? G_TID = 2 : G_HK >= 0 ? G_TID = 3 : G_HIM >= 0 ? G_TID = 4 :
+G_HZL ? G_TID = 5 : G_HEN ? G_TID = 6 : G_HTHM >= 0 ? G_TID = 9;
+(G_TID !== G_TLAST || G_MD || G_DRAG > 0 || G_WHEEL !== 0) ? ( G_TLAST = G_TID; G_TT0 = G_NOW; );
+(G_TID > 0 && !G_MD && G_DRAG === 0 && G_NOW - G_TT0 >= 0.5) ? (
+  gtip_text(G_TID);
+  gfx_setfont(4);
+  gfx_measurestr(#g_tip, G_TW, G_TH);
+  G_TPW = G_TW + floor(16 * G_SC); G_TPH = G_TH + floor(10 * G_SC);
+  G_TPX = mouse_x + floor(14 * G_SC); G_TPY = mouse_y + floor(20 * G_SC);
+  G_TPX + G_TPW > gfx_w - 2 ? G_TPX = max(2, gfx_w - 2 - G_TPW);
+  G_TPY + G_TPH > gfx_h - 2 ? G_TPY = max(2, mouse_y - floor(8 * G_SC) - G_TPH);
+  gfrr(G_TPX + 2, G_TPY + 3, G_TPX + G_TPW + 2, G_TPY + G_TPH + 3, floor(5 * G_SC), 0, 0, 0, 0.35);
+  gfrr(G_TPX, G_TPY, G_TPX + G_TPW, G_TPY + G_TPH, floor(5 * G_SC), G_TPR, G_TPG, G_TPB, 0.97);
+  gbord(G_TPX, G_TPY, G_TPX + G_TPW, G_TPY + G_TPH, floor(5 * G_SC), max(1, floor(G_SC + 0.5)), G_ACR, G_ACG, G_ACB, 0.55);
+  gfx_set(G_T1R, G_T1G, G_T1B, 1);
+  gfx_x = G_TPX + floor(8 * G_SC); gfx_y = G_TPY + floor(5 * G_SC);
+  gfx_drawstr(#g_tip);
+);
+G_LMD = G_MD;
+
