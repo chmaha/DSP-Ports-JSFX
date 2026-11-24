@@ -1,0 +1,492 @@
+Version: 1.0
+desc: Cross Talk Headphone Crossfeed (bs2b port) by chmaha
+tags: headphones crossfeed bs2b binaural stereo
+author: chmaha
+changelog:
+  Initial release.
+about:
+  Bauer stereophonic-to-binaural crossfeed for listening to speaker mixes on headphones. Each ear gets a
+  low-passed, attenuated copy of the opposite channel, as it would from a pair of loudspeakers, while the direct
+  path gets a matching high-frequency shelf so the overall tone stays even. Cutoff and feed level follow bs2b,
+  with its Default, Chu Moy and Jan Meier presets. The optional interaural delay on the crossfed signal is the
+  idea of Roof|control by Ilya Kuznetsov (MIT); at 0 ms the output is bs2b exactly.
+  Ported from libbs2b by Boris Mikhaylov (MIT) http://bs2b.sourceforge.net
+  Interaural delay after Roof|control by Ilya Kuznetsov (MIT) https://github.com/Ilya-audio/roof_control
+  JSFX version released under GPL-3.0 license
+  Claude generated some of this code
+
+slider1:fcut=700<300,2000,1>-Cutoff (Hz)
+slider2:feed=4.5<1,15,0.1>-Feed (dB)
+slider3:itd_ms=0<0,0.7,0.01>-Interaural Delay (ms)
+slider4:bypass=0<0,1,1{Off,On}>-Bypass
+
+in_pin:Left
+in_pin:Right
+out_pin:Left
+out_pin:Right
+
+options:no_meter
+
+@init
+ext_noinit = gfx_ext_retina = 1;
+BUFN = 1024;
+BUFL = 0; BUFR = BUFN;
+last_srate = 0; p_level = -1; p_itd = -1;
+wpos = 0;
+
+function xf_init(fs, fc, fd) local(gl, gh, glo, ghi, flo, fhi, x, lev)
+(
+  fs = (fs > 384000 || fs < 2000) ? 44100 : fs;
+  flo = fc; lev = fd;
+  (flo > 2000 || flo < 300 || lev > 150 || lev < 10) ? ( flo = 700; lev = 45; );
+  lev /= 10;
+  gl = lev * -5 / 6 - 3;
+  gh = lev / 6 - 3;
+  glo = 10 ^ (gl / 20);
+  ghi = 1 - 10 ^ (gh / 20);
+  fhi = flo * 2 ^ ((gl - 20 * log10(ghi)) / 12);
+  x = exp(-2 * $pi * flo / fs);
+  b1_lo = x; a0_lo = glo * (1 - x);
+  x = exp(-2 * $pi * fhi / fs);
+  b1_hi = x; a0_hi = 1 - ghi * (1 - x); a1_hi = -x;
+  xgain = 1 / (1 - ghi + glo);
+);
+
+function xf_clear()
+(
+  lo_l = lo_r = hi_l = hi_r = as_l = as_r = 0;
+  memset(BUFL, 0, 2 * BUFN);
+);
+
+function xf_sync() local(lv)
+(
+  lv = floor(fcut + 0.5) + floor(feed * 10 + 0.5) * 65536;
+  lv !== p_level ? ( p_level = lv; xf_init(srate, floor(fcut + 0.5), floor(feed * 10 + 0.5)); );
+  itd_ms !== p_itd ? (
+    p_itd = itd_ms;
+    dspl = itd_ms * srate * 0.001; dint = floor(dspl); dfrac = dspl - dint;
+  );
+);
+function gsx(x) ( G_OX + x * G_SC; );
+function gsy(y) ( y * G_SC; );
+function gclamp(x, a, b) ( min(b, max(a, x)); );
+
+function grspan(qx0, qy0, qx1, qy1, qrad, yc) local(dy, ins) (
+  dy = yc < qy0 + qrad ? qy0 + qrad - yc : yc > qy1 - qrad ? yc - (qy1 - qrad) : 0;
+  G_RC = max(0, min(1, qrad - dy + 0.5));
+  dy = min(qrad, dy);
+  ins = qrad - sqrt(max(0, qrad * qrad - dy * dy));
+  G_RL = qx0 + ins; G_RR = qx1 - ins;
+);
+
+function gspan(lx, rx, j, a) local(lc, rc) (
+  lc = ceil(lx); rc = floor(rx);
+  rc >= lc ? (
+    gfx_a = a; rc > lc ? gfx_rect(lc, j, rc - lc, 1);
+    lc - lx > 0 ? ( gfx_a = a * (lc - lx); gfx_rect(lc - 1, j, 1, 1); );
+    rx - rc > 0 ? ( gfx_a = a * (rx - rc); gfx_rect(rc, j, 1, 1); );
+  ) : rx > lx ? ( gfx_a = a * (rx - lx); gfx_rect(floor(lx), j, 1, 1); );
+);
+
+function gfrr(qx0, qy0, qx1, qy1, qrad, cr, cg, cb, a0) local(j) (
+  qx0 = floor(qx0 + 0.5); qy0 = floor(qy0 + 0.5); qx1 = floor(qx1 + 0.5); qy1 = floor(qy1 + 0.5);
+  qrad = max(0, min(qrad, min(qy1 - qy0, qx1 - qx0) * 0.5));
+  gfx_set(cr, cg, cb, a0);
+  j = qy0;
+  loop(qy1 - qy0,
+    grspan(qx0, qy0, qx1, qy1, qrad, j + 0.5);
+    G_RC > 0 ? gspan(G_RL, G_RR, j, a0 * G_RC);
+    j += 1;
+  );
+  gfx_a = 1;
+);
+
+function gbord(qx0, qy0, qx1, qy1, qrad, t, cr, cg, cb, a0) local(j, ol, orr, oc, il, ir, ic) (
+  qx0 = floor(qx0 + 0.5); qy0 = floor(qy0 + 0.5); qx1 = floor(qx1 + 0.5); qy1 = floor(qy1 + 0.5);
+  qrad = max(0, min(qrad, min(qy1 - qy0, qx1 - qx0) * 0.5));
+  gfx_set(cr, cg, cb, a0);
+  j = qy0;
+  loop(qy1 - qy0,
+    grspan(qx0, qy0, qx1, qy1, qrad, j + 0.5); ol = G_RL; orr = G_RR; oc = G_RC;
+    (j + 0.5 > qy0 + t && j + 0.5 < qy1 - t) ? (
+      grspan(qx0 + t, qy0 + t, qx1 - t, qy1 - t, max(0, qrad - t), j + 0.5); il = G_RL; ir = G_RR; ic = G_RC;
+    ) : ( ic = 0; );
+    oc > 0 ? (
+      ic <= 0 ? gspan(ol, orr, j, a0 * oc) : (
+        gspan(ol, il, j, a0 * oc);
+        gspan(ir, orr, j, a0 * oc);
+        oc - ic > 0.004 ? gspan(il, ir, j, a0 * (oc - ic));
+      );
+    );
+    j += 1;
+  );
+  gfx_a = 1;
+);
+
+function gcard(x, y, w, h, r, a0, ba) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = max(2, floor(r * G_SC));
+  gfrr(xx, yy, xx + ww, yy + hh, rr, 0.165, 0.17, 0.18, a0);
+  gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), 0.62, 0.66, 0.70, ba);
+);
+
+function gtext(x, y, s, fnt, r, g, b, a, ctr) local(tw, th) (
+  gfx_setfont(fnt);
+  gfx_set(r, g, b, a);
+  gfx_measurestr(s, tw, th);
+  gfx_x = ctr === 1 ? gsx(x) - tw * 0.5 : ctr === 2 ? gsx(x) - tw : gsx(x);
+  gfx_y = gsy(y) - th * 0.5;
+  gfx_drawstr(s);
+);
+
+function gann(cx, cy, ri, ro, aa, ab, cr, cg, cb, al) local(py, px, dy, dx, hwo, hwi, d, cv, th, ca, x0, x1, x2, x3) (
+  py = floor(cy - ro - 1);
+  loop(ceil(2 * ro + 3),
+    dy = py + 0.5 - cy;
+    hwo = sqrt(max(0, (ro + 0.5) * (ro + 0.5) - dy * dy));
+    hwo > 0 ? (
+      hwi = ri > 0.5 ? sqrt(max(0, (ri - 0.5) * (ri - 0.5) - dy * dy)) : 0;
+      x0 = floor(cx - hwo); x1 = ceil(cx - hwi); x2 = floor(cx + hwi); x3 = ceil(cx + hwo);
+      hwi <= 0 ? x1 = x3 + 1;
+      px = x0;
+      while (px <= x3) (
+        dx = px + 0.5 - cx;
+        d = sqrt(dx * dx + dy * dy);
+        cv = min(1, min(ro - d + 0.5, d - ri + 0.5));
+        cv > 0 ? (
+          th = atan2(dx, -dy);
+          ca = min(1, min((th - aa) * d + 0.5, (ab - th) * d + 0.5));
+          ca > 0 ? (
+            gfx_set(cr, cg, cb, al * cv * ca);
+            gfx_rect(px, py, 1, 1);
+          );
+        );
+        px += 1;
+        (px > x1 && px < x2) ? px = x2;
+      );
+    );
+    py += 1;
+  );
+  gfx_a = 1;
+);
+
+function gbar(x0, y0, x1, y1, w) local(dx, dy, ll, hw, bx0, by0, bx1, by1, px, py, qx, qy, t, ex, ey, d, cv, cr, cg, cb, ca) (
+  cr = gfx_r; cg = gfx_g; cb = gfx_b; ca = gfx_a;
+  dx = x1 - x0; dy = y1 - y0; ll = max(0.000001, dx * dx + dy * dy);
+  hw = w * 0.5;
+  bx0 = floor(min(x0, x1) - hw - 1); bx1 = ceil(max(x0, x1) + hw + 1);
+  by0 = floor(min(y0, y1) - hw - 1); by1 = ceil(max(y0, y1) + hw + 1);
+  py = by0;
+  while (py <= by1) (
+    px = bx0;
+    while (px <= bx1) (
+      qx = px + 0.5; qy = py + 0.5;
+      t = max(0, min(1, ((qx - x0) * dx + (qy - y0) * dy) / ll));
+      ex = qx - (x0 + t * dx); ey = qy - (y0 + t * dy);
+      d = sqrt(ex * ex + ey * ey);
+      cv = min(1, hw - d + 0.5);
+      cv > 0 ? ( gfx_set(cr, cg, cb, ca * cv); gfx_rect(px, py, 1, 1); );
+      px += 1;
+    );
+    py += 1;
+  );
+  gfx_set(cr, cg, cb, ca);
+);
+
+function gknob(kx, ky, kr, v, ctr, hov, nm, vs, dim) local(cx, cy, r, a0, a1, sa, ca, px0, py0, al) (
+  cx = gsx(kx); cy = gsy(ky); r = kr * G_SC;
+  al = dim ? 0.66 : 1;
+  a0 = -$pi * 0.75; a1 = $pi * 0.75;
+  gfx_set(0.02, 0.02, 0.03, 0.5 * al);
+  gfx_circle(cx, cy, r + 3 * G_SC, 1, 1);
+  gfx_set(0.11, 0.12, 0.13, 1);
+  gfx_circle(cx, cy, r - 5 * G_SC, 1, 1);
+  gfx_set(0.20, 0.21, 0.23, 1);
+  gfx_circle(cx, cy, r - 7 * G_SC, 1, 1);
+  gfx_set(0.13, 0.14, 0.15, 1);
+  gfx_circle(cx, cy + 1.2 * G_SC, r - 9 * G_SC, 1, 1);
+  gann(cx, cy, r - 1.2 * G_SC, r + 1.2 * G_SC, a0, a1, 0.62, 0.66, 0.70, 0.35 * al);
+  sa = a0 + (a1 - a0) * v;
+  ca = a0 + (a1 - a0) * ctr;
+  abs(sa - ca) > 0.001 ? (
+    gann(cx, cy, r - 3.5 * G_SC, r + 3.5 * G_SC, min(ca, sa), max(ca, sa), G_ACR, G_ACG, G_ACB, 0.18 * al);
+    gann(cx, cy, r - 1.5 * G_SC, r + 1.5 * G_SC, min(ca, sa), max(ca, sa), G_ACR, G_ACG, G_ACB, al);
+  );
+  px0 = cx + sin(sa) * (r - 8 * G_SC);
+  py0 = cy - cos(sa) * (r - 8 * G_SC);
+  gfx_set(0.95, 0.97, 0.98, (hov ? 1 : 0.86) * al);
+  gbar(cx + sin(sa) * (r * 0.22), cy - cos(sa) * (r * 0.22), px0, py0, max(1.5, 2.4 * G_SC));
+  gtext(kx, ky - kr - 13, nm, 1, 0.93, 0.95, 0.96, 0.95 * al, 1);
+  gtext(kx, ky + kr + 13, vs, 2, 0.80, 0.84, 0.88, 0.95 * al, 1);
+);
+function gbtn(x, y, w, h, lb, on, hov) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = floor(h * 0.5 * G_SC);
+  on ? (
+    gfrr(xx, yy, xx + ww, yy + hh, rr, G_ACR, G_ACG, G_ACB, hov ? 1 : 0.9);
+    gtext(x + w * 0.5, y + h * 0.5, lb, 3, 0.06, 0.12, 0.10, 1, 1);
+  ) : (
+    gfrr(xx, yy, xx + ww, yy + hh, rr, 0.10, 0.11, 0.12, hov ? 0.95 : 0.8);
+    gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), 0.62, 0.66, 0.70, hov ? 0.7 : 0.4);
+    gtext(x + w * 0.5, y + h * 0.5, lb, 3, 0.85, 0.88, 0.90, hov ? 1 : 0.8, 1);
+  );
+);
+
+function gauto(s, e) (
+<?
+max_sliders > 4 ? printf("slider_automate(2^(s-1), e);") : (
+  printf("s == 1 ? slider_automate(fcut, e) :\n");
+  printf("s == 2 ? slider_automate(feed, e) :\n");
+  printf("s == 3 ? slider_automate(itd_ms, e) :\n");
+  printf("s == 4 ? slider_automate(bypass, e) : 0;");
+);
+?>
+);
+
+function gpanel(x, y, w, h, ttl) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = max(2, floor(10 * G_SC));
+  gfrr(xx, yy, xx + ww, yy + hh, rr, 0.105, 0.135, 0.165, 0.92);
+  gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), 0.56, 0.64, 0.72, 0.45);
+  gtext(x + w * 0.5, y + 16, ttl, 3, 0.86, 0.90, 0.94, 1, 1);
+);
+
+function gbox(x, y, w, h, s, hov, act) local(xx, yy, ww, hh, rr) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC); rr = max(2, floor(5 * G_SC));
+  gfrr(xx, yy, xx + ww, yy + hh, rr, 0.06, 0.08, 0.10, 0.95);
+  gbord(xx, yy, xx + ww, yy + hh, rr, max(1, floor(G_SC + 0.5)), act ? G_ACR : 0.56, act ? G_ACG : 0.64, act ? G_ACB : 0.72, act ? 0.95 : hov ? 0.75 : 0.4);
+  gtext(x + w * 0.5, y + h * 0.5, s, 2, 0.92, 0.94, 0.96, 1, 1);
+);
+
+function gseg2(x, y, w, h, la, lb, cur, hov, dim) local(sw, i, xx, yy, ww, hh) (
+  xx = floor(gsx(x)); yy = floor(gsy(y)); ww = ceil(w * G_SC); hh = ceil(h * G_SC);
+  gfrr(xx, yy, xx + ww, yy + hh, floor(h * 0.5 * G_SC), 0.06, 0.08, 0.10, 0.9);
+  gbord(xx, yy, xx + ww, yy + hh, floor(h * 0.5 * G_SC), max(1, floor(G_SC + 0.5)), 0.56, 0.64, 0.72, 0.4);
+  sw = w / 2;
+  i = 0;
+  loop(2,
+    i === cur ? (
+      xx = floor(gsx(x + i * sw + 3)); yy = floor(gsy(y + 3)); ww = ceil((sw - 6) * G_SC); hh = ceil((h - 6) * G_SC);
+      gfrr(xx, yy, xx + ww, yy + hh, floor((h - 6) * 0.5 * G_SC), G_ACR, G_ACG, G_ACB, (hov === i ? 1 : 0.9) * (dim ? 0.6 : 1));
+      gtext(x + i * sw + sw * 0.5, y + h * 0.5, i ? lb : la, 3, 0.10, 0.04, 0.10, 1, 1);
+    ) : (
+      gtext(x + i * sw + sw * 0.5, y + h * 0.5, i ? lb : la, 3, 0.85, 0.88, 0.90, hov === i ? 1 : 0.75, 1);
+    );
+    i += 1;
+  );
+);
+
+function gtip_text(id) (
+  id === 1 ? strcpy(#g_tip, "bs2b default: 700 Hz, 4.5 dB") :
+  id === 2 ? strcpy(#g_tip, "Chu Moy: 700 Hz, 6.0 dB (closer to a speaker image)") :
+  id === 3 ? strcpy(#g_tip, "Jan Meier: 650 Hz, 9.5 dB (subtle)") :
+  id === 4 ? strcpy(#g_tip, "Bypass the crossfeed") :
+  id === 5 ? strcpy(#g_tip, "Crossfeed cutoff: drag, wheel, Ctrl = fine, double-click to reset") :
+  id === 6 ? strcpy(#g_tip, "How far below the direct sound the crossfed signal sits (low frequencies)") :
+  id === 7 ? strcpy(#g_tip, "Delay of the crossfed signal, like the extra path round the head (0 = plain bs2b)") : strcpy(#g_tip, "");
+  #g_tip;
+);
+
+function gknorm(k) ( k === 0 ? log(fcut / 300) / log(2000 / 300) : k === 1 ? (feed - 1) / 14 : itd_ms / 0.7; );
+
+function gkset(k, u) local(v) (
+  u = gclamp(u, 0, 1);
+  k === 0 ? ( v = floor(300 * exp(u * log(2000 / 300)) + 0.5); v !== fcut ? ( fcut = v; gauto(1, 0); ); ) :
+  k === 1 ? ( v = floor((1 + u * 14) * 10 + 0.5) / 10; v !== feed ? ( feed = v; gauto(2, 0); ); ) :
+  ( v = floor(u * 70 + 0.5) / 100; v !== itd_ms ? ( itd_ms = v; gauto(3, 0); ); );
+);
+
+function gresp(f, lo) local(w, zr, zi, nr, ni, dr, di, x, flo, fhi, gl, gh, glo, ghi, lev, a0l, b1l, a0h, a1h, b1h, g)
+(
+  lev = floor(feed * 10 + 0.5) / 10; flo = floor(fcut + 0.5);
+  gl = lev * -5 / 6 - 3; gh = lev / 6 - 3;
+  glo = 10 ^ (gl / 20); ghi = 1 - 10 ^ (gh / 20);
+  fhi = flo * 2 ^ ((gl - 20 * log10(ghi)) / 12);
+  x = exp(-2 * $pi * flo / srate); b1l = x; a0l = glo * (1 - x);
+  x = exp(-2 * $pi * fhi / srate); b1h = x; a0h = 1 - ghi * (1 - x); a1h = -x;
+  g = 1 / (1 - ghi + glo);
+  w = 2 * $pi * f / srate; zr = cos(w); zi = -sin(w);
+  lo ? ( nr = a0l; ni = 0; dr = 1 - b1l * zr; di = -b1l * zi; ) :
+       ( nr = a0h + a1h * zr; ni = a1h * zi; dr = 1 - b1h * zr; di = -b1h * zi; );
+  20 * log10(g * sqrt((nr * nr + ni * ni) / (dr * dr + di * di)) + 0.0000001);
+);
+
+G_ACR = 0.98; G_ACG = 0.55; G_ACB = 0.40;
+G_DEFS = 700; G_DEFF = 4.5;
+
+
+@slider
+last_srate != srate ? ( last_srate = srate; p_level = -1; p_itd = -1; xf_sync(); xf_clear(); );
+xf_sync();
+
+@block
+xf_sync();
+
+@sample
+il = spl0; ir = spl1;
+lo_l = a0_lo * il + b1_lo * lo_l;
+lo_r = a0_lo * ir + b1_lo * lo_r;
+hi_l = a0_hi * il + a1_hi * as_l + b1_hi * hi_l;
+hi_r = a0_hi * ir + a1_hi * as_r + b1_hi * hi_r;
+as_l = il; as_r = ir;
+BUFL[wpos] = lo_l; BUFR[wpos] = lo_r;
+p_itd > 0 ? (
+  rd = (wpos - dint) & (BUFN - 1); rd2 = (rd - 1) & (BUFN - 1);
+  dl = BUFL[rd] + (BUFL[rd2] - BUFL[rd]) * dfrac;
+  dr = BUFR[rd] + (BUFR[rd2] - BUFR[rd]) * dfrac;
+) : ( dl = lo_l; dr = lo_r; );
+wpos = (wpos + 1) & (BUFN - 1);
+bypass < 0.5 ? (
+  spl0 = (hi_l + dr) * xgain;
+  spl1 = (hi_r + dl) * xgain;
+);
+
+@gfx 820 470
+G_NOW = time_precise();
+G_WHEEL = mouse_wheel; mouse_wheel = 0;
+G_SC = max(0.45, min(gfx_w / 820, gfx_h / 470));
+G_OX = floor((gfx_w - 820 * G_SC) * 0.5);
+G_SC !== G_FSC ? (
+  G_FSC = G_SC;
+  gfx_setfont(1, "Arial", 14 * G_SC, 'b');
+  gfx_setfont(2, "Arial", 13 * G_SC);
+  gfx_setfont(3, "Arial", 12 * G_SC, 'b');
+  gfx_setfont(4, "Arial", 12 * G_SC);
+  gfx_setfont(5, "Arial", 15 * G_SC, 'b');
+  gfx_setfont(6, "Arial", 24 * G_SC, 'b');
+);
+G_GH = max(1, gfx_h);
+(gfx_w !== G_CW0 || gfx_h !== G_CH0 || G_SC !== G_CS0) ? (
+  G_CW0 = gfx_w; G_CH0 = gfx_h; G_CS0 = G_SC;
+  G_DST = gfx_dest;
+  gfx_setimgdim(22, gfx_w, gfx_h);
+  gfx_dest = 22;
+  gfx_gradrect(0, 0, gfx_w, gfx_h, 0.13, 0.17, 0.21, 1, 0, 0, 0, 0, -0.07 / G_GH, -0.09 / G_GH, -0.11 / G_GH, 0);
+  gfx_dest = G_DST;
+);
+gfx_x = 0; gfx_y = 0; gfx_a = 1; gfx_mode = 0;
+gfx_blit(22, 1, 0);
+
+G_MD = mouse_cap & 1;
+G_PRESS = G_MD && !G_LMD;
+G_REL = !G_MD && G_LMD;
+G_MX = (mouse_x - G_OX) / G_SC; G_MY = mouse_y / G_SC;
+G_DCLK = G_PRESS && G_NOW - G_LCLK < 0.3 && abs(G_MX - G_LCX) < 4 && abs(G_MY - G_LCY) < 4;
+G_PRESS ? ( G_LCLK = G_DCLK ? 0 : G_NOW; G_LCX = G_MX; G_LCY = G_MY; );
+
+gtext(24, 28, "CROSS TALK", 6, 0.95, 0.96, 0.97, 1, 0);
+gfx_setfont(6); gfx_measurestr("CROSS TALK ", G_TW, G_TH);
+gtext(24 + G_TW / G_SC, 29, "Headphone Crossfeed", 5, G_ACR, G_ACG, G_ACB, 1, 0);
+gtext(806, 22, "based on bs2b by Boris Mikhaylov", 4, 0.62, 0.68, 0.74, 1, 2);
+gtext(806, 38, "interaural delay after Roof|control", 4, 0.62, 0.68, 0.74, 1, 2);
+
+gpanel(14, 54, 200, 402, "PRESETS");
+G_HP = (G_MX >= 28 && G_MX <= 200 && G_MY >= 84 && G_MY < 84 + 3 * 38) ? floor((G_MY - 84) / 38) : -1;
+G_HP >= 0 && G_MY - 84 - G_HP * 38 > 30 ? G_HP = -1;
+G_I = 0;
+loop(3,
+  G_PF = G_I === 0 ? 700 : G_I === 1 ? 700 : 650; G_PL = G_I === 0 ? 4.5 : G_I === 1 ? 6 : 9.5;
+  gbtn(28, 84 + G_I * 38, 172, 30, G_I === 0 ? "DEFAULT" : G_I === 1 ? "CHU MOY" : "JAN MEIER", floor(fcut + 0.5) === G_PF && abs(feed - G_PL) < 0.05, G_HP === G_I);
+  G_I += 1;
+);
+G_HB = G_MX >= 28 && G_MX <= 200 && G_MY >= 220 && G_MY <= 250;
+gbtn(28, 220, 172, 30, "BYPASS", bypass >= 0.5, G_HB);
+gtext(28, 290, "Speakers reach both ears;", 4, 0.66, 0.72, 0.78, 1, 0);
+gtext(28, 308, "headphones do not. Crossfeed", 4, 0.66, 0.72, 0.78, 1, 0);
+gtext(28, 326, "sends a soft, low-passed copy", 4, 0.66, 0.72, 0.78, 1, 0);
+gtext(28, 344, "of each side to the other ear.", 4, 0.66, 0.72, 0.78, 1, 0);
+gtext(28, 380, "Put it last, on the master or", 4, 0.66, 0.72, 0.78, 1, 0);
+gtext(28, 398, "the monitoring FX chain.", 4, 0.66, 0.72, 0.78, 1, 0);
+
+gpanel(226, 54, 580, 402, "CROSSFEED");
+G_HK = -1;
+G_I = 0;
+loop(3,
+  G_KX = 336 + G_I * 180; G_KY = 136;
+  (G_MX - G_KX) * (G_MX - G_KX) + (G_MY - G_KY) * (G_MY - G_KY) <= 40 * 40 ? G_HK = G_I;
+  G_I += 1;
+);
+G_DRAG === 30 ? G_HK = G_DK;
+G_I = 0;
+loop(3,
+  G_I === 0 ? sprintf(#g_tx, "%d Hz", floor(fcut + 0.5)) : G_I === 1 ? sprintf(#g_tx, "%.1f dB", feed) : sprintf(#g_tx, "%.2f ms", itd_ms);
+  gknob(336 + G_I * 180, 136, 32, gknorm(G_I), 0, G_HK === G_I, G_I === 0 ? "CUTOFF" : G_I === 1 ? "FEED" : "DELAY", #g_tx, bypass >= 0.5);
+  G_I += 1;
+);
+G_PL0 = 254; G_PT = 216; G_PW0 = 528; G_PH0 = 214;
+G_QX = floor(gsx(G_PL0)); G_QY = floor(gsy(G_PT)); G_QW = floor(G_PW0 * G_SC); G_QH = floor(G_PH0 * G_SC);
+gfx_set(0.06, 0.08, 0.10, 0.95); gfx_rect(G_QX, G_QY, G_QW, G_QH);
+G_I = 0;
+loop(4,
+  G_F = G_I === 0 ? 100 : G_I === 1 ? 1000 : G_I === 2 ? 10000 : 20;
+  G_XX = G_QX + G_QW * log(G_F / 20) / log(1000);
+  gfx_set(1, 1, 1, G_I === 3 ? 0 : 0.12); gfx_line(G_XX, G_QY, G_XX, G_QY + G_QH - 1);
+  G_I < 3 ? gtext((G_XX - G_OX) / G_SC, G_PT + G_PH0 - 9, G_I === 0 ? "100" : G_I === 1 ? "1k" : "10k", 4, 0.70, 0.75, 0.80, 0.9, 1);
+  G_I += 1;
+);
+G_I = 0;
+loop(6,
+  G_DB = 6 - G_I * 6;
+  G_YY = G_QY + G_QH * (6 - G_DB) / 30;
+  gfx_set(1, 1, 1, G_DB === 0 ? 0.3 : 0.1); gfx_line(G_QX, G_YY, G_QX + G_QW - 1, G_YY);
+  sprintf(#g_tx, "%d", G_DB); gtext(G_PL0 + 4, (G_YY - 0) / G_SC + 8, #g_tx, 4, 0.70, 0.75, 0.80, 0.8, 0);
+  G_I += 1;
+);
+G_K = 0;
+loop(2,
+  G_K === 0 ? gfx_set(0.55, 0.80, 1, 1) : gfx_set(G_ACR, G_ACG, G_ACB, 1);
+  G_PX0 = G_PY0 = -1;
+  G_I = 0;
+  loop(129,
+    G_F = 20 * 1000 ^ (G_I / 128);
+    G_DB = gresp(G_F, G_K);
+    G_XX = G_QX + G_QW * G_I / 128;
+    G_YY = G_QY + G_QH * (6 - gclamp(G_DB, -24, 6)) / 30;
+    G_I > 0 ? gbar(G_PX0, G_PY0, G_XX, G_YY, max(1.5, 2 * G_SC));
+    G_PX0 = G_XX; G_PY0 = G_YY;
+    G_I += 1;
+  );
+  G_K += 1;
+);
+gtext(G_PL0 + 40, G_PT + 14, "same ear", 3, 0.55, 0.80, 1, 1, 0);
+gtext(G_PL0 + 120, G_PT + 14, "opposite ear", 3, G_ACR, G_ACG, G_ACB, 1, 0);
+itd_ms > 0 ? ( sprintf(#g_tx, "opposite ear delayed by %.2f ms", itd_ms); gtext(G_PL0 + G_PW0 - 8, G_PT + 14, #g_tx, 4, 0.76, 0.82, 0.88, 1, 2); );
+
+G_PRESS ? (
+  G_HP >= 0 ? (
+    fcut = G_HP === 2 ? 650 : 700; feed = G_HP === 0 ? 4.5 : G_HP === 1 ? 6 : 9.5; gauto(1, 1); gauto(2, 1);
+  ) :
+  G_HB ? ( bypass = bypass >= 0.5 ? 0 : 1; gauto(4, 1); ) :
+  G_HK >= 0 ? (
+    G_DCLK ? (
+      G_HK === 0 ? fcut = 700 : G_HK === 1 ? feed = 4.5 : itd_ms = 0; gauto(1 + G_HK, 1);
+    ) : ( G_DRAG = 30; G_DK = G_HK; G_DY = mouse_y; G_DV = gknorm(G_HK); );
+  );
+);
+G_DRAG === 30 && G_MD ? (
+  gkset(G_DK, G_DV + (G_DY - mouse_y) * ((mouse_cap & 4) ? 0.0006 : 0.004) / G_SC);
+  mouse_cap |= 65536;
+);
+G_REL ? ( G_DRAG === 30 ? gauto(1 + G_DK, 1); G_DRAG = 0; );
+G_WHEEL !== 0 && G_DRAG === 0 && G_HK >= 0 ? (
+  gkset(G_HK, gknorm(G_HK) + (G_WHEEL > 0 ? 1 : -1) * ((mouse_cap & 4) ? 0.002 : 0.01));
+  gauto(1 + G_HK, 1);
+);
+
+G_TID = 0;
+G_HP >= 0 ? G_TID = 1 + G_HP : G_HB ? G_TID = 4 : G_HK >= 0 ? G_TID = 5 + G_HK;
+(G_TID !== G_TLAST || G_MD || G_DRAG > 0 || G_WHEEL !== 0) ? ( G_TLAST = G_TID; G_TT0 = G_NOW; );
+(G_TID > 0 && !G_MD && G_DRAG === 0 && G_NOW - G_TT0 >= 0.5) ? (
+  gtip_text(G_TID);
+  gfx_setfont(4);
+  gfx_measurestr(#g_tip, G_TW, G_TH);
+  G_TPW = G_TW + floor(16 * G_SC); G_TPH = G_TH + floor(10 * G_SC);
+  G_TPX = mouse_x + floor(14 * G_SC); G_TPY = mouse_y + floor(20 * G_SC);
+  G_TPX + G_TPW > gfx_w - 2 ? G_TPX = max(2, gfx_w - 2 - G_TPW);
+  G_TPY + G_TPH > gfx_h - 2 ? G_TPY = max(2, mouse_y - floor(8 * G_SC) - G_TPH);
+  gfrr(G_TPX + 2, G_TPY + 3, G_TPX + G_TPW + 2, G_TPY + G_TPH + 3, floor(5 * G_SC), 0, 0, 0, 0.35);
+  gfrr(G_TPX, G_TPY, G_TPX + G_TPW, G_TPY + G_TPH, floor(5 * G_SC), 0.07, 0.09, 0.11, 0.97);
+  gbord(G_TPX, G_TPY, G_TPX + G_TPW, G_TPY + G_TPH, floor(5 * G_SC), max(1, floor(G_SC + 0.5)), G_ACR, G_ACG, G_ACB, 0.55);
+  gfx_set(0.93, 0.95, 0.96, 1);
+  gfx_x = G_TPX + floor(8 * G_SC); gfx_y = G_TPY + floor(5 * G_SC);
+  gfx_drawstr(#g_tip);
+);
+G_LMD = G_MD;
+
