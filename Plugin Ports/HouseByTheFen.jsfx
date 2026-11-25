@@ -1,8 +1,8 @@
-version: 1.0
+version: 1.1
 desc: House by the Fen (Classic Reverb RE-01 port) by chmaha
 author: chmaha
 changelog:
-  Initial release.
+  Fix rounding of delay lengths within 1e-5 of a half sample (now exact, as in the original).
 about:
   Algorithmic reverb with a vintage flavour: size from a tiny booth to a large hall, damping, pre-delay (negative
   values delay the dry signal instead), high damping, low cut, early reflections, mix and level, plus 25 factory
@@ -54,7 +54,7 @@ CR_GATE = 1;
 function f32(x) local(c) ( c = x * 536870913; c - (c - x); );
 function f32k(x) local(c) ( c = x * 536870913; c - (c - x); );
 function alloc(n) local(r) instance(mp) global() ( r = mp; mp += n; memset(r, 0, n); r; );
-function rint(x) local(r) ( r = floor(x + 0.5); r - x == 0.5 && r - 2 * floor(r / 2) != 0 ? r -= 1; r; );
+function rint(x) local(r) ( r = floor(x + 0.5); r - x === 0.5 && r - 2 * floor(r / 2) !== 0 ? r -= 1; r; );
 cr_last_srate = -1; cr_rng = 0; cr_idle = 0; cr_quiet = 0;
 CR_EPS = f32k(0.000002);
 function gsx(x) ( G_OX + x * G_SC; );
