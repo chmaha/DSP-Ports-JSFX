@@ -1,9 +1,9 @@
 desc: Calculated Risk (Casio VL-1 / KoniSynth port) by chmaha
 tags: instrument synthesizer casio vl-1 vl-tone
 author: chmaha
-version: 1.1
+version: 1.2
 changelog:
-  Add full copyright and licence header (upstream authors' notices).
+  Fix rhythms turning into continuous static in REAPER: the Tempo slider clashed with REAPER's built-in tempo variable.
 about:
   Casio VL-1 (VL-Tone, 1979): monophonic pocket keyboard with a digital ADSR sound code, a rhythm box and a calculator.
   Sound engine ported from the Casio VL-1 engine of KoniSynth by k0n1m4k1, https://github.com/k0n1m4k1/KoniSynth (AGPL-3.0),
@@ -57,7 +57,7 @@ slider2:balance=0.5<0,1,0.01>-Balance (rhythm - melody)
 slider3:octave=1<0,2,1{Low,Middle,High}>-Octave
 slider4:prog=0<0,5,1{Piano,Fantasy,Violin,Flute,Guitar,ADSR}>-Sound
 slider5:mode=0<0,3,1{Play,Rec,Cal,Off}>-Mode
-slider6:tempo=0<-9,9,1>-Tempo
+slider6:vl_tempo=0<-9,9,1>-Tempo
 slider7:rhythm=0<0,10,1{Off,March,Waltz,4 Beat,Swing,Rock 1,Rock 2,Bossanova,Samba,Rhumba,Beguine}>-Rhythm
 slider8:c_snd=0<0,9,1{Piano,Fantasy,Violin,Flute,Guitar 1,Guitar 2,English Horn,Electro 1,Electro 2,Electro 3}>-ADSR Sound
 slider9:c_a=0<0,9,1>-ADSR Attack
@@ -244,7 +244,7 @@ function vl_drum() local(tau, steps, bit, f, dt, per, lvl, t, s, t2, r) (
   );
 );
 
-function vl_block(sound, oct, a, d, sl, st, r, vib, trem, rhy, tempo, bal) local(nr) (
+function vl_block(sound, oct, a, d, sl, st, r, vib, trem, rhy, vl_tempo, bal) local(nr) (
   v_sound = sound;
   v_w = sound < 7 ? sound : sound - 7;
   v_electro = sound >= 7;
@@ -254,7 +254,7 @@ function vl_block(sound, oct, a, d, sl, st, r, vib, trem, rhy, tempo, bal) local
   v_vibhz = vib > 0 ? 15 / vib : 0;
   v_vibd = vib > 0 ? 0.7056 / ((2 * $pi) * v_vibhz) : 0;
   v_tremhz = trem > 0 ? 35 / trem : 0;
-  v_tper = (0.0055 + (9 - tempo) * 0.00098) * v_sr;
+  v_tper = (0.0055 + (9 - vl_tempo) * 0.00098) * v_sr;
   bal = (bal);
   v_bal = (0.5 * (bal - 0.5));
   v_mg = ((2 * (0.5 + v_bal)) * (0.1954));
@@ -350,7 +350,7 @@ function rh_stop() (
 
 function set_tempo(t) (
   t = max(-9, min(9, t));
-  tempo !== t ? ( tempo = t; sliderchange(32); );
+  vl_tempo !== t ? ( vl_tempo = t; sliderchange(32); );
 );
 
 function lcd_clear() (
@@ -367,8 +367,8 @@ function lcd_settempo() (
   pmode <= 1 ? (
     lcd_clear();
     L2[3] = '[';
-    tempo < 0 ? L2[4] = '-';
-    L2[5] = '0' + abs(tempo);
+    vl_tempo < 0 ? L2[4] = '-';
+    L2[5] = '0' + abs(vl_tempo);
     L2[6] = ']';
     l_reinit = 1;
   );
@@ -1061,7 +1061,7 @@ function p_cmd(c, a) (
   ) : c === 4 ? (
     p_del();
   ) : c === 5 || c === 6 ? (
-    pmode <= 1 ? set_tempo(tempo + (c === 5 ? 1 : -1)) :
+    pmode <= 1 ? set_tempo(vl_tempo + (c === 5 ? 1 : -1)) :
     pmode === 2 ? calc_key(c === 5 ? K_SQRT : K_PERC);
   ) : c === 7 ? (
     rh_wait = 1;
@@ -1184,7 +1184,7 @@ v_pbend = 0;
 v_bs = 0;
 v_lastg = vol;
 cur_mode = pmode = mode;
-last_tempo = tempo;
+last_tempo = vl_tempo;
 cq_w = cq_r = 0;
 rh_wait = 0;
 rh_start = -1;
@@ -1211,8 +1211,8 @@ while (cq_r < cq_w) (
   p_cmd(CQ[(cq_r % 256) * 2], CQ[(cq_r % 256) * 2 + 1]);
   cq_r += 1;
 );
-last_tempo !== tempo ? (
-  last_tempo = tempo;
+last_tempo !== vl_tempo ? (
+  last_tempo = vl_tempo;
   lcd_settempo();
 );
 e_src = p_demo && demo_prog >= 0 && demo_prog < 5 ? demo_prog : prog;
@@ -1232,7 +1232,7 @@ while (midirecv(mofs, m1, m2, m3)) (
     q_n += 1;
   );
 );
-vl_block(e_snd, octave - 1, e_a, e_d, e_sl, e_st, e_r, e_v, e_t, rhythm, tempo, balance);
+vl_block(e_snd, octave - 1, e_a, e_d, e_sl, e_st, e_r, e_v, e_t, rhythm, vl_tempo, balance);
 rh_start >= 0 ? (
   v_rhythm >= 0 && v_rhythm < 10 ? v_beat = rh_start >= VL_PAT[v_rhythm * 40] ? 0 : rh_start;
   rh_start = -1;
