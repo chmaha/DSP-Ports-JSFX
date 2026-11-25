@@ -1,9 +1,10 @@
-version: 1.0
+version: 1.1
 desc: Fenced In (Classic Master Limiter RE-01 port) by chmaha
 author: chmaha
 tags: limiter mastering brickwall look-ahead
 changelog:
-  Initial release.
+  Add a title header with the name, subtitle and credit, like the other Classic ports, and an Output section
+  showing the ceiling, look-ahead and latency.
 about:
   Look-ahead brickwall mastering limiter with a vintage flavour: one Threshold knob from -20 to 0 dB drives the
   signal into a three-stage gain envelope (3 ms look-ahead, 0.5 ms attack, programme-dependent release), a cubic
@@ -77,7 +78,7 @@ function fl_coef() local(t, lt, ra, w) (
   fl_post < 0 ? ( fl_post = 0; fl_total = fl_look; );
 );
 function gsx(x) ( G_OX + x * G_SC; );
-function gsy(y) ( y * G_SC; );
+function gsy(y) ( (y + G_OY) * G_SC; );
 function gclamp(x, a, b) ( min(b, max(a, x)); );
 
 function grspan(qx0, qy0, qx1, qy1, qrad, yc) local(dy, ins) (
@@ -570,6 +571,11 @@ function gk_v(t) local(v) (
   gclamp(v, -20, 0);
 );
 
+function ginfo(x, y, lab, val) (
+  gtext(x, y, lab, 4, 0.85, 0.88, 0.80, 1, 1);
+  gtext(x, y + 17, val, 1, 1, 0.92, 0.70, 1, 1);
+);
+
 function gsection(x0, x1, y, ttl) local(tw, th, cx) (
   gfx_setfont(3); gfx_measurestr(ttl, tw, th);
   cx = (x0 + x1) * 0.5;
@@ -708,11 +714,12 @@ q_er = ((1 - fl_s2r) * q_er);
 q_yr = (abs(q_er) + FL_EPS); q_kr = ((q_yr - fl_thr) / q_yr); q_kr < FL_EPS ? q_kr = FL_EPS;
 fl_e3r = (fl_e3r * fl_d0); q_kr > fl_e3r ? fl_e3r = q_kr;
 spl1 = (((1 - fl_e3r) * q_er) * fl_og);
-@gfx 860 160
+@gfx 860 226
 G_NOW = time_precise();
 G_WHEEL = mouse_wheel; mouse_wheel = 0;
-G_SC = max(0.45, min(gfx_w / 860, gfx_h / 160));
+G_SC = max(0.45, min(gfx_w / 860, gfx_h / 226));
 G_OX = floor((gfx_w - 860 * G_SC) * 0.5);
+G_OY = 57;
 G_SC !== G_FSC ? (
   G_FSC = G_SC;
   gfx_setfont(1, "Arial", 13 * G_SC, 'b');
@@ -729,12 +736,20 @@ G_GH = max(1, gfx_h);
   gfx_dest = 22;
   gfx_gradrect(0, 0, gfx_w, gfx_h, 0.10, 0.13, 0.12, 1, 0, 0, 0, 0, (0.04 - 0.10) / G_GH, (0.06 - 0.13) / G_GH, (0.05 - 0.12) / G_GH, 0);
   gfx_mode = 0;
+  G_OY = 0;
+  gtitle(0, 24, 44, 24, 0.96, 0.93, 0.82);
+  gtitle(1, 24 + gtitle_w(0, 24) + 14, 44, 13, 0.80, 0.74, 0.50);
+  gtext(860 - 20, 30, "based on Classic Master Limiter RE-01 by AnClark Liu", 4, 0.70, 0.72, 0.64, 1, 2);
+  G_OY = 57;
   G_XX = floor(gsx(5)); G_YY = floor(gsy(5)); G_WW = ceil(850 * G_SC); G_HH = ceil(150 * G_SC);
   gfrr(G_XX + 3, G_YY + 4, G_XX + G_WW + 3, G_YY + G_HH + 4, floor(13 * G_SC), 0, 0, 0, 0.35);
   gfrr(G_XX, G_YY, G_XX + G_WW, G_YY + G_HH, floor(13 * G_SC), 0.27, 0.33, 0.27, 1);
   gbord(G_XX, G_YY, G_XX + G_WW, G_YY + G_HH, floor(13 * G_SC), max(1, floor(1.5 * G_SC + 0.5)), 0.93, 0.88, 0.66, 0.3);
   gsection(14, 300, 19, "THRESHOLD");
   gsection(318, 657, 19, "COMPRESSION");
+  gsection(675, 846, 19, "OUTPUT");
+  ginfo(760, 44, "CEILING", "-0.2 dBFS");
+  ginfo(760, 84, "LOOK-AHEAD", "3 ms");
   gscale(159, 84, 26);
   gtext(159, 139, "LEVEL (dB)", 4, 0.98, 0.95, 0.86, 1, 1);
   gtext(354, 52, "LEFT", 4, 0.98, 0.95, 0.86, 1, 0);
@@ -750,19 +765,20 @@ G_GH = max(1, gfx_h);
   );
   gtext(597, 74, "dB", 5, 0.98, 0.95, 0.86, 0.95, 0);
   gtext(481, 134, "PEAK LEVEL METER", 4, 0.98, 0.95, 0.86, 1, 1);
-  gtitle(0, 845 - gtitle_w(0, 24), 140, 24, 0.96, 0.93, 0.82);
   gfx_dest = G_DST;
 );
 gfx_x = 0; gfx_y = 0; gfx_a = 1; gfx_mode = 0;
 gfx_blit(22, 1, 0);
 
+sprintf(#g_lat, "%d samples", pdc_delay);
+ginfo(760, 124, "LATENCY", #g_lat);
 gmeter_row(52, fl_grl);
 gmeter_row(96, fl_grr);
 
 G_MD = mouse_cap & 1;
 G_PRESS = G_MD && !G_LMD;
 G_REL = !G_MD && G_LMD;
-G_MX = (mouse_x - G_OX) / G_SC; G_MY = mouse_y / G_SC;
+G_MX = (mouse_x - G_OX) / G_SC; G_MY = mouse_y / G_SC - G_OY;
 G_DCLK = G_PRESS && G_NOW - G_LCLK < 0.3 && abs(G_MX - G_LCX) < 4 && abs(G_MY - G_LCY) < 4;
 G_PRESS ? ( G_LCLK = G_DCLK ? 0 : G_NOW; G_LCX = G_MX; G_LCY = G_MY; );
 
