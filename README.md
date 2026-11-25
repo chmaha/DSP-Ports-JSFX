@@ -21,9 +21,15 @@ ReaPack also installs each plugin's `Dependencies` files and keeps everything up
 
 ### ReaperPkg bundles (no ReaPack needed)
 
-Each [release](https://github.com/chmaha/DSP-Ports-JSFX/releases) has a single `.ReaperPkg` file that installs a whole set of plugins with their `Dependencies` files:
+The plugins come in eight bundles, each with its own [release](https://github.com/chmaha/DSP-Ports-JSFX/releases) holding one `.ReaperPkg` file. Each bundle installs a whole set of plugins with their `Dependencies` files:
 
-- **DSP to JSFX**: every plugin except Break Room ([latest release](https://github.com/chmaha/DSP-Ports-JSFX/releases/latest)).
+- **chmaha Instruments**: the synths, pianos, organs and other sampled and modelled instruments.
+- **chmaha Effects, MIDI and Utility**: effects, MIDI tools and utilities.
+- **chmaha Convolution Reverbs**: Brick by Brick, Word for Word and Wall to Wall, with their impulse responses.
+- **chmaha Metering and Visualization**: meters, analysers and visualizers.
+- **chmaha Spatial Audio**: binaural, ambisonic and headphone plugins.
+- **Evangelina Symphonica**: the orchestral series.
+- **Rosalina Curiosa**: the VCSL series.
 - **Break Room**: the mini-games plugin and its music.
 
 Download the `.ReaperPkg` file and open it in REAPER to install. The plugins then appear in the FX browser under **JS: DSP to JSFX/Plugin Ports**. Bundles don't update themselves: download the newer bundle when a new release comes out.
