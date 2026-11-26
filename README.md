@@ -2,6 +2,9 @@
 
 Open-source DSP ported to JSFX for REAPER. Every plugin's header names the original it was ported from and its license.
 
+- **Website**: [chmaha.github.io/DSP-Ports-JSFX](https://chmaha.github.io/DSP-Ports-JSFX/), every plugin with screenshots and install instructions.
+- **Manual**: the [DSP to JSFX manual (PDF)](https://chmaha.github.io/DSP-Ports-JSFX/DSP-to-JSFX-Manual.pdf), a quick start to each plugin's controls.
+
 ## Install
 
 There are two ways to install the plugins. Use one or the other, not both.
