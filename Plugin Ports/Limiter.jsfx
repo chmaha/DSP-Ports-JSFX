@@ -1,8 +1,8 @@
-Version: 1.1
+Version: 1.2
 desc: Limiter (x42-dpl port) by chmaha
 author: chmaha
 changelog:
-  Add full copyright and GPL licence header (upstream authors' notices).
+  Meters update when the transport is stopped.
 // Copyright (C) 2010-2018 Fons Adriaensen <fons@linuxaudio.org>
 // Copyright (C) 2021 Robin Gareus <robin@gareus.org>
 // Copyright (C) 2026 chmaha (JSFX port)
@@ -247,31 +247,29 @@ zz = min(z1, z2);
   z3 += w3 * (zz - z3);
 );
 
-(play_state & 1) ? (
-  (z3 < gmin_cur) ? gmin_cur = z3;
-  (z3 > gmax_cur) ? gmax_cur = z3;
-  (z3 < curmin) ? curmin = z3;
-  (z3 > curmax) ? curmax = z3;
-  meter_ctr += 1;
-  (meter_ctr >= meter_len) ? (
-    gmin_disp = gmin_cur;
-    gmax_disp = gmax_cur;
-    gmin_cur = 1;
-    gmax_cur = 0;
+(z3 < gmin_cur) ? gmin_cur = z3;
+(z3 > gmax_cur) ? gmax_cur = z3;
+(z3 < curmin) ? curmin = z3;
+(z3 > curmax) ? curmax = z3;
+meter_ctr += 1;
+(meter_ctr >= meter_len) ? (
+  gmin_disp = gmin_cur;
+  gmax_disp = gmax_cur;
+  gmin_cur = 1;
+  gmax_cur = 0;
 
-    histmin_arr[hist_pos] = curmin;
-    histmax_arr[hist_pos] = curmax;
-    hist_pos = (hist_pos + 1) % 60;
-    curmin = 1;
-    curmax = 0;
+  histmin_arr[hist_pos] = curmin;
+  histmax_arr[hist_pos] = curmax;
+  hist_pos = (hist_pos + 1) % 60;
+  curmin = 1;
+  curmax = 0;
 
-    pk_db = (pk_cur < 0.1) ? -20 : 20 * log(pk_cur) / log(10);
-    (peak_disp > -20) ? peak_disp -= 0.3;
-    (pk_db > peak_disp) ? peak_disp = min(20, pk_db);
-    pk_cur = 0;
+  pk_db = (pk_cur < 0.1) ? -20 : 20 * log(pk_cur) / log(10);
+  (peak_disp > -20) ? peak_disp -= 0.3;
+  (pk_db > peak_disp) ? peak_disp = min(20, pk_db);
+  pk_cur = 0;
 
-    meter_ctr = 0;
-  );
+  meter_ctr = 0;
 );
 
 read_idx = (wpos - delay) & dmask;
